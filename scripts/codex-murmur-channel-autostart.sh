@@ -17,7 +17,7 @@ THREAD_ID="${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}"
 
 log() {
   mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-  printf '[%s] %s\n' "$(date -Is)" "$*" >>"$LOG_FILE" 2>/dev/null || true
+  printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG_FILE" 2>/dev/null || true
 }
 
 warn() {
