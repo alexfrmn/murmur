@@ -4,12 +4,6 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
-import { SQLiteDedupeOutboxStore } from "../packages/core/dist/src/index.js";
-import {
-  decryptPayload,
-  verifyEnvelopeSignature,
-} from "../packages/security/dist/src/index.js";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -69,6 +63,13 @@ const configPath = path.join(dataDir, "agent-config.json");
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const dbPath = process.env.MURMUR_STORE_PATH ?? path.join(dataDir, "murmur.db");
 const murmurRoot = process.env.MURMUR_ROOT || repoRoot;
+// Static relative imports break when this file is synced to ~/.codex/mcp-channel-server,
+// so package modules resolve through MURMUR_ROOT like lease.mjs below.
+const packageModuleUrl = (name) =>
+  pathToFileURL(path.join(murmurRoot, "packages", name, "dist", "src", "index.js")).href;
+const { NatsBroker } = await import(packageModuleUrl("broker-nats"));
+const { SQLiteDedupeOutboxStore } = await import(packageModuleUrl("core"));
+const { decryptPayload, verifyEnvelopeSignature } = await import(packageModuleUrl("security"));
 const leaseDbPath = process.env.MURMUR_LEASE_DB || path.join(dataDir, "lease.db");
 const leaseModuleUrl =
   process.env.MURMUR_LEASE_MODULE_URL || pathToFileURL(path.join(murmurRoot, "scripts", "lease.mjs")).href;
