@@ -15,6 +15,7 @@ import {
   CodexAppServerClient,
   createChannelThreadStartBindingResolver,
   createCodexAppServerInjector,
+  readFinalAnswerFromSessionLog,
 } from "../scripts/codex-app-server-wake.mjs";
 
 const payload = {
@@ -42,6 +43,38 @@ test("normalizeWakeConfig accepts Codex app-server peer settings", () => {
     mode: "codex_app_server",
     socketPath: "/tmp/codex.sock",
     threadId: "thread-1",
+  });
+});
+
+test("normalizeWakeConfig preserves Codex reply relay peer settings", () => {
+  const config = normalizeWakeConfig({
+    wake: {
+      peers: {
+        "agent-jarvis": {
+          mode: "codex_app_server",
+          socketPath: "/tmp/codex.sock",
+          threadId: "thread-1",
+          cwd: "/vault",
+          murmurRoot: "/srv/mur-mur-v2",
+          dataDir: "/srv/mur-mur-v2/.data-codex",
+          storePath: "/srv/mur-mur-v2/.data-codex/murmur.db",
+          relayFinalToMurmur: true,
+          replyTimeoutMs: "180000",
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(config.peers["agent-jarvis"], {
+    mode: "codex_app_server",
+    socketPath: "/tmp/codex.sock",
+    threadId: "thread-1",
+    cwd: "/vault",
+    murmurRoot: "/srv/mur-mur-v2",
+    dataDir: "/srv/mur-mur-v2/.data-codex",
+    storePath: "/srv/mur-mur-v2/.data-codex/murmur.db",
+    relayFinalToMurmur: true,
+    replyTimeoutMs: 180000,
   });
 });
 
@@ -173,6 +206,33 @@ test("Codex app-server client reports close before response", async () => {
 
   wsServer.close();
   httpServer.close();
+});
+
+test("readFinalAnswerFromSessionLog reads task_complete by turn id", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-codex-session-log-"));
+  const sessionPath = path.join(dir, "rollout.jsonl");
+  fs.writeFileSync(sessionPath, [
+    JSON.stringify({
+      timestamp: "2026-07-07T18:00:00.000Z",
+      type: "event_msg",
+      payload: {
+        type: "task_complete",
+        turn_id: "turn-target",
+        last_agent_message: "WAKE_OK",
+      },
+    }),
+    JSON.stringify({
+      timestamp: "2026-07-07T18:00:01.000Z",
+      type: "event_msg",
+      payload: {
+        type: "task_complete",
+        turn_id: "turn-other",
+        last_agent_message: "WRONG",
+      },
+    }),
+  ].join("\n"));
+
+  assert.equal(readFinalAnswerFromSessionLog(sessionPath, "turn-target"), "WAKE_OK");
 });
 
 test("WakeMonitor gates Codex app-server wake before injector", async () => {

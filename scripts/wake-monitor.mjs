@@ -10,11 +10,19 @@ export const normalizeWakeConfig = (config = {}) => {
   const peers = Object.fromEntries(
     Object.entries(ensureObject(wake.peers)).map(([agentId, peer]) => {
       const value = ensureObject(peer);
-      return [agentId, {
+      const normalized = {
         mode: validMode(value.mode) ? value.mode : undefined,
         socketPath: typeof value.socketPath === "string" && value.socketPath.trim() ? value.socketPath.trim() : undefined,
         threadId: typeof value.threadId === "string" && value.threadId.trim() ? value.threadId.trim() : undefined,
-      }];
+      };
+      if (typeof value.cwd === "string" && value.cwd.trim()) normalized.cwd = value.cwd.trim();
+      if (typeof value.model === "string" && value.model.trim()) normalized.model = value.model.trim();
+      if (typeof value.murmurRoot === "string" && value.murmurRoot.trim()) normalized.murmurRoot = value.murmurRoot.trim();
+      if (typeof value.dataDir === "string" && value.dataDir.trim()) normalized.dataDir = value.dataDir.trim();
+      if (typeof value.storePath === "string" && value.storePath.trim()) normalized.storePath = value.storePath.trim();
+      if (value.relayFinalToMurmur === true) normalized.relayFinalToMurmur = true;
+      if (Number.isFinite(Number(value.replyTimeoutMs))) normalized.replyTimeoutMs = Number(value.replyTimeoutMs);
+      return [agentId, normalized];
     }),
   );
   return {

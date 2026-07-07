@@ -101,6 +101,16 @@ instead of silently falling back to polling.
 The previous `persistent` tmux backend has been removed from the wake path.
 Native wake modes are `stateless` shell hooks and `codex_app_server`.
 
+### Codex Desktop on Alex's Mac
+
+Alex's Mac uses a LaunchAgent-managed `codex app-server` as a headless wake
+target for the Desktop thread. Because that hidden turn cannot safely write the
+Murmur SQLite store from its sandbox, the daemon relays the hidden turn's final
+answer back through Murmur when `relayFinalToMurmur=true`.
+
+Operational details, paths, verification commands, and the last known good
+message IDs are in [`docs/codex-mac-wake-relay.md`](codex-mac-wake-relay.md).
+
 ### Codex Autostart Sequence
 
 > **Diagnostic / opt-in only.** This sequence only covers
