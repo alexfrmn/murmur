@@ -5,8 +5,6 @@ BASE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
 CODEX_CONFIG_FILE="${CODEX_CONFIG:-${CODEX_HOME_DIR}/config.toml}"
 SERVER_SOURCE="${BASE_DIR}/scripts/murmur-mcp-channel-server.mjs"
-SERVER_DEST_DIR="${CODEX_HOME_DIR}/mcp-channel-server"
-SERVER_DEST="${SERVER_DEST_DIR}/index.mjs"
 LOG_FILE="${CODEX_HOME_DIR}/log/murmur-channel-autostart.log"
 DATA_DIR="${MURMUR_CODEX_DATA_DIR:-${BASE_DIR}/.data}"
 STORE_PATH="${MURMUR_CODEX_STORE_PATH:-${DATA_DIR}/murmur.db}"
@@ -15,9 +13,23 @@ LEASE_DB="${MURMUR_LEASE_DB:-${DATA_DIR}/lease.db}"
 SESSION_ID="${CODEX_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 THREAD_ID="${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}"
 
+resolve_node() {
+  if [[ -n "${MURMUR_NODE_BIN:-}" && -x "${MURMUR_NODE_BIN}" ]]; then
+    printf '%s\n' "${MURMUR_NODE_BIN}"
+    return 0
+  fi
+  if [[ "$(uname -s)" == "Darwin" && -x /opt/homebrew/bin/node ]]; then
+    printf '%s\n' /opt/homebrew/bin/node
+    return 0
+  fi
+  command -v node 2>/dev/null || true
+}
+
+NODE_BIN="$(resolve_node)"
+
 log() {
   mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-  printf '[%s] %s\n' "$(date -Is)" "$*" >>"$LOG_FILE" 2>/dev/null || true
+  printf '[%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/dev/null || true
 }
 
 warn() {
@@ -37,8 +49,8 @@ info() {
 render_stanza() {
   cat <<EOF
 [mcp_servers.murmur-channel]
-command = "node"
-args = ["${SERVER_DEST}"]
+command = "${NODE_BIN}"
+args = ["${SERVER_SOURCE}"]
 surface_notifications = true
 required = true
 
@@ -55,17 +67,15 @@ EOF
 
 sync_server() {
   if [[ ! -r "$SERVER_SOURCE" ]]; then
-    warn "missing server source: $SERVER_SOURCE"
-    return 0
+    warn "missing server source: $SERVER_SOURCE; refusing required MCP config"
+    return 1
   fi
-
-  mkdir -p "$SERVER_DEST_DIR"
-  if [[ ! -f "$SERVER_DEST" ]] || ! cmp -s "$SERVER_SOURCE" "$SERVER_DEST"; then
-    install -m 755 "$SERVER_SOURCE" "$SERVER_DEST"
-    info "synced MCP channel server to $SERVER_DEST"
-  else
-    info "MCP channel server up to date"
+  if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
+    warn "node executable unavailable; refusing required MCP config"
+    return 1
   fi
+  info "using repo-native MCP channel server: $SERVER_SOURCE"
+  info "using node executable: $NODE_BIN"
 }
 
 ensure_config() {
