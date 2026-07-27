@@ -24,6 +24,13 @@ export const normalizeWakeConfig = (config = {}) => {
       // Without this the injector's `peer.resume === false` opt-out is unreachable
       // from a real config: normalization used to drop the field entirely.
       if (typeof value.resume === "boolean") normalized.resume = value.resume;
+      // Same story for baseInstructions: the channel binding resolver falls back to
+      // `peer.baseInstructions`, so dropping it here makes per-peer role instructions
+      // impossible to configure — the only remaining lever is `personaId`, which Codex
+      // rejects for anything outside its own `none|friendly|pragmatic` enum.
+      if (typeof value.baseInstructions === "string" && value.baseInstructions.trim()) {
+        normalized.baseInstructions = value.baseInstructions;
+      }
       if (Number.isFinite(Number(value.replyTimeoutMs))) normalized.replyTimeoutMs = Number(value.replyTimeoutMs);
       return [agentId, normalized];
     }),

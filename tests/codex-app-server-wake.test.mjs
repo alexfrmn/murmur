@@ -95,6 +95,22 @@ test("normalizeWakeConfig preserves the explicit resume opt-out", () => {
   assert.equal(config.peers["agent-jarvis"].resume, false);
 });
 
+test("normalizeWakeConfig preserves per-peer baseInstructions", () => {
+  const config = normalizeWakeConfig({
+    wake: {
+      peers: {
+        "agent-jarvis": {
+          mode: "codex_app_server",
+          socketPath: "/tmp/codex.sock",
+          baseInstructions: "You are the critic on this channel.",
+        },
+      },
+    },
+  });
+
+  assert.equal(config.peers["agent-jarvis"].baseInstructions, "You are the critic on this channel.");
+});
+
 test("buildThreadStartParams carries peer cwd and model into thread/start", () => {
   const params = buildThreadStartParams(null, { cwd: "/work/project", model: "gpt-5.6-sol" });
 
