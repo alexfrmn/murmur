@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/images/murmur-logo.webp" alt="Murmur V2" width="140" />
+  <img src="docs/images/murmur-logo.webp" alt="Murmur" width="140" />
 </p>
 
-<h1 align="center">Murmur V2</h1>
+<h1 align="center">Murmur</h1>
 
 <p align="center">
-  <em>Named after <a href="https://en.wikipedia.org/wiki/Murmuration">murmuration</a> — the mesmerizing phenomenon where thousands of birds communicate and move as one.<br/>Murmur V2 brings the same coordinated communication to AI agents.</em>
+  <em>Named after <a href="https://en.wikipedia.org/wiki/Murmuration">murmuration</a> — the mesmerizing phenomenon where thousands of birds communicate and move as one.<br/>Murmur brings the same coordinated communication to AI agents.</em>
 </p>
 
 <p align="center">
@@ -48,7 +48,7 @@
 
 A **murmuration** is one of nature's most extraordinary phenomena — thousands of starlings flying as a single, fluid organism without any central coordinator. Each bird follows simple local rules: match your neighbors' speed, stay close, don't collide. From these simple interactions emerges breathtaking coordinated behavior.
 
-**Murmur V2** applies the same principle to AI agents. No central orchestrator. No human relay. Each agent communicates directly with its peers through encrypted channels — and from these simple peer-to-peer interactions, complex collaborative workflows emerge. Code reviews, research tasks, architectural decisions — all happening autonomously between Claude, GPT, Gemini, or any other model, while you sleep.
+**Murmur** applies the same principle to AI agents. No central orchestrator. No human relay. Each agent communicates directly with its peers through encrypted channels — and from these simple peer-to-peer interactions, complex collaborative workflows emerge. Code reviews, research tasks, architectural decisions — all happening autonomously between Claude, GPT, Gemini, or any other model, while you sleep.
 
 ---
 
@@ -96,7 +96,7 @@ Prefer to run the full mesh from source? See [Quick Start](#quick-start).
 
 AI agents today are isolated. Claude can't talk to GPT. Your coding assistant can't ask your research agent for context. When you try to make them collaborate, you end up as the human relay — copy-pasting messages between terminals.
 
-**Murmur V2 fixes this.** It gives AI agents encrypted, direct communication over NATS — no human in the loop.
+**Murmur fixes this.** It gives AI agents encrypted, direct communication over NATS — no human in the loop.
 
 ```
 ┌──────────────┐                        ┌──────────────┐
@@ -286,7 +286,7 @@ This enables **fully autonomous overnight work** — launch 2-3 agents, they col
 
 ## MCP Tools
 
-Murmur V2 exposes an MCP server (JSON-RPC over stdio) with 7 tools:
+Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
 
 ### Agent-to-Agent (require peer config)
 
@@ -332,7 +332,7 @@ claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/i
 ## Architecture
 
 <p align="center">
-  <img src="docs/images/architecture.svg" alt="Murmur V2 Architecture" width="800" />
+  <img src="docs/images/architecture.svg" alt="Murmur Architecture" width="800" />
 </p>
 
 ```
@@ -374,7 +374,7 @@ See [ADR-001](docs/ADR-001-core-bus-nats.md) and [ADR-002](docs/ADR-002-envelope
 
 ## Native Wake
 
-Murmur V2 wakes agents through native runtime mechanisms instead of tmux or
+Murmur wakes agents through native runtime mechanisms instead of tmux or
 OpenClaw:
 
 - Claude Code: `asyncRewake` hook via `scripts/wake-drain-claude.sh`.
@@ -512,7 +512,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 
 ## Acknowledgments
 
-Murmur V2 is built upon the ideas and protocol design of the original [Murmur](https://github.com/slopus/murmur) by [@slopus](https://github.com/slopus). The original Murmur established the core concept of encrypted agent-to-agent messaging with Double Ratchet cryptography. Murmur V2 extends this foundation with core NATS transport, MCP integration, persistent SQLite outbox delivery, and production hardening for autonomous multi-agent workflows.
+This project is built upon the ideas and protocol design of the original [Murmur](https://github.com/slopus/murmur) by [@slopus](https://github.com/slopus). The original Murmur established the core concept of encrypted agent-to-agent messaging with Double Ratchet cryptography. Murmur extends this foundation with core NATS transport, MCP integration, persistent SQLite outbox delivery, and production hardening for autonomous multi-agent workflows.
 
 ---
 

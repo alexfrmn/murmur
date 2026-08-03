@@ -1,5 +1,5 @@
 {
-  "name": "mur-mur-v2",
+  "name": "murmur",
   "private": true,
   "version": "2.4.0",
   "description": "Murmur — encrypted agent-to-agent messaging bus for AI coding agents (MCP-native, NATS transport, E2E encrypted, cross-host federation).",
