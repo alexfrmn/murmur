@@ -11,7 +11,7 @@
 # Re-arm after each fire (launch again in background).
 set -uo pipefail
 
-DB="${MURMUR_DB:-/opt/lifecoach/mur-mur-v2/.data/murmur.db}"
+DB="${MURMUR_DB:-/opt/lifecoach/murmur/.data/murmur.db}"
 CURSOR="${MURMUR_WAKE_CURSOR:-$HOME/.murmur-wake-cursor}"
 INTERVAL="${MURMUR_WATCH_INTERVAL:-20}"
 LOCK="${MURMUR_WATCH_LOCK:-$HOME/.murmur-coldidle-watch.lock}"
@@ -65,7 +65,13 @@ while true; do
     if printf '%s\n' "$max" > "$tmp" 2>/dev/null; then
       mv "$tmp" "$CURSOR" 2>/dev/null || rm -f "$tmp"
     fi
-    echo "MURMUR COLD-IDLE WAKE: $((max - last)) new inbound message(s) (rowid $((last + 1))..$max)"
+    # Счёт БЕРЁТСЯ ИЗ ВЫБОРКИ, а не из разницы rowid: $max ищется только по
+    # direction='inbound', но диапазон last+1..max содержит и наши исходящие —
+    # печатать разницу значило завышать. 03.08: отрапортовал «3 new», реально 1.
+    # grep -c сам печатает 0 при отсутствии совпадений; `|| echo 0` тут ЗАПРЕЩЁН
+    # (даст "0\n0" — та же грабля, что с pgrep -c).
+    cnt="$(printf '%s' "$rows" | grep -c '^  rowid=' || true)"
+    echo "MURMUR COLD-IDLE WAKE: ${cnt} new inbound message(s) (последний inbound rowid=$max)"
     printf '%s\n' "$rows"
     echo "Re-arm the watcher after handling."
     exit 0
