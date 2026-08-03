@@ -2,7 +2,7 @@
   "name": "mur-mur-v2",
   "private": true,
   "version": "2.4.0",
-  "description": "Reliable secure multi-agent messaging core",
+  "description": "Murmur — encrypted agent-to-agent messaging bus for AI coding agents (MCP-native, NATS transport, E2E encrypted, cross-host federation).",
   "workspaces": [
     "packages/*"
   ],
@@ -42,5 +42,30 @@
     "nats": "^2.28.2",
     "pg": "^8.16.3",
     "ws": "^8.21.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexfrmn/murmur.git"
+  },
+  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "bugs": {
+    "url": "https://github.com/alexfrmn/murmur/issues"
+  },
+  "keywords": [
+    "murmur",
+    "agent-communication",
+    "agent-to-agent",
+    "a2a",
+    "agent-bus",
+    "message-bus",
+    "ai-agents",
+    "multi-agent",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "nats",
+    "e2e-encryption",
+    "federation"
+  ]
 }

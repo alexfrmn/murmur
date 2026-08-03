@@ -20,11 +20,33 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexfrmn/mur-mur-v2.git",
+    "url": "git+https://github.com/alexfrmn/murmur.git",
     "directory": "packages/core"
   },
   "publishConfig": {
     "access": "public"
   },
-  "description": "Murmur V2 core \u2014 EnvelopeV1/AckV1 wire types, SQLite outbox + dedupe stores, machine-readable protocol schema."
+  "description": "Murmur V2 core — EnvelopeV1/AckV1 wire types, SQLite outbox + dedupe stores, machine-readable protocol schema.",
+  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "bugs": {
+    "url": "https://github.com/alexfrmn/murmur/issues"
+  },
+  "keywords": [
+    "murmur",
+    "agent-communication",
+    "agent-to-agent",
+    "a2a",
+    "agent-bus",
+    "message-bus",
+    "ai-agents",
+    "multi-agent",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "nats",
+    "e2e-encryption",
+    "xchacha20-poly1305",
+    "outbox"
+  ]
 }

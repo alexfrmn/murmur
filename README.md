@@ -13,6 +13,11 @@
 </p>
 
 <p align="center">
+  A secure multi-agent communication bus for <strong>Claude Code</strong>, <strong>Codex</strong>, and any
+  MCP-capable agent — across machines, across organizations, end-to-end encrypted over NATS.
+</p>
+
+<p align="center">
   <a href="#install">Install</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
@@ -23,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="https://github.com/alexfrmn/mur-mur-v2/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
   <img src="https://img.shields.io/badge/version-2.4.0-blue" alt="version 2.4.0" />
@@ -124,7 +129,7 @@ Connect two agents in 3 commands. No JSON editing.
 ### Step 1 — Host generates invite
 
 ```bash
-git clone https://github.com/alexfrmn/mur-mur-v2.git && cd mur-mur-v2
+git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
 npm install && npm run build
 
 AGENT_ID=alice NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
@@ -137,7 +142,7 @@ node scripts/murmur-invite.mjs
 ### Step 2 — Peer joins with the blob
 
 ```bash
-git clone https://github.com/alexfrmn/mur-mur-v2.git && cd mur-mur-v2
+git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
 npm install && npm run build
 
 AGENT_ID=bob NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \

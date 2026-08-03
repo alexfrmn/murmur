@@ -15,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexfrmn/mur-mur-v2.git",
+    "url": "git+https://github.com/alexfrmn/murmur.git",
     "directory": "packages/bridge-telegram"
   },
   "publishConfig": {
@@ -25,5 +25,25 @@
     "dist/src",
     "LICENSE"
   ],
-  "description": "Murmur V2 Telegram notification adapter."
+  "description": "Murmur V2 Telegram notification adapter.",
+  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "bugs": {
+    "url": "https://github.com/alexfrmn/murmur/issues"
+  },
+  "keywords": [
+    "murmur",
+    "agent-communication",
+    "agent-to-agent",
+    "a2a",
+    "agent-bus",
+    "message-bus",
+    "ai-agents",
+    "multi-agent",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "telegram",
+    "bridge"
+  ]
 }

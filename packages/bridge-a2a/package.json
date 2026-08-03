@@ -23,7 +23,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexfrmn/mur-mur-v2.git",
+    "url": "git+https://github.com/alexfrmn/murmur.git",
     "directory": "packages/bridge-a2a"
   },
   "publishConfig": {
@@ -33,5 +33,25 @@
     "dist/src",
     "LICENSE"
   ],
-  "description": "Murmur V2 to A2A protocol bridge (alpha) \u2014 terminates @a2a-js/sdk and re-wraps tasks as E2E Murmur envelopes."
+  "description": "Murmur V2 to A2A protocol bridge (alpha) — terminates @a2a-js/sdk and re-wraps tasks as E2E Murmur envelopes.",
+  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "bugs": {
+    "url": "https://github.com/alexfrmn/murmur/issues"
+  },
+  "keywords": [
+    "murmur",
+    "agent-communication",
+    "agent-to-agent",
+    "a2a",
+    "agent-bus",
+    "message-bus",
+    "ai-agents",
+    "multi-agent",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "interop",
+    "bridge"
+  ]
 }

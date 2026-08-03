@@ -10,7 +10,7 @@
 
 **Do not open a public issue for security vulnerabilities.**
 
-Please report vulnerabilities via [GitHub Security Advisories](https://github.com/alexfrmn/mur-mur-v2/security/advisories/new).
+Please report vulnerabilities via [GitHub Security Advisories](https://github.com/alexfrmn/murmur/security/advisories/new).
 
 - You will receive an acknowledgment within **48 hours**
 - We aim to provide an initial assessment within **7 days**

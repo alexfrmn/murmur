@@ -11,7 +11,7 @@ Thanks for your interest in contributing! This guide will help you get started.
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/<you>/mur-mur-v2.git`
+2. Clone your fork: `git clone https://github.com/<you>/murmur.git`
 3. Create a feature branch: `git checkout -b feat/my-feature`
 4. Install dependencies and verify everything works:
 

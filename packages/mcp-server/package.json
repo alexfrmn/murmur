@@ -16,7 +16,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexfrmn/mur-mur-v2.git",
+    "url": "git+https://github.com/alexfrmn/murmur.git",
     "directory": "packages/mcp-server"
   },
   "publishConfig": {
@@ -26,5 +26,25 @@
     "dist/src",
     "LICENSE"
   ],
-  "description": "Murmur V2 MCP server \u2014 agent-to-agent messaging and scoped-channel roster tools over the Model Context Protocol."
+  "description": "Murmur V2 MCP server — agent-to-agent messaging and scoped-channel roster tools over the Model Context Protocol.",
+  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "bugs": {
+    "url": "https://github.com/alexfrmn/murmur/issues"
+  },
+  "keywords": [
+    "murmur",
+    "agent-communication",
+    "agent-to-agent",
+    "a2a",
+    "agent-bus",
+    "message-bus",
+    "ai-agents",
+    "multi-agent",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "mcp-server",
+    "tools"
+  ]
 }

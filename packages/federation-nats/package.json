@@ -23,7 +23,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexfrmn/mur-mur-v2.git",
+    "url": "git+https://github.com/alexfrmn/murmur.git",
     "directory": "packages/federation-nats"
   },
   "publishConfig": {
@@ -33,5 +33,26 @@
     "dist/src",
     "LICENSE"
   ],
-  "description": "Murmur V2 federation NATS contract \u2014 fed.* subjects + account-config renderer for cross-org leaf-node meshes."
+  "description": "Murmur V2 federation NATS contract — fed.* subjects + account-config renderer for cross-org leaf-node meshes.",
+  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "bugs": {
+    "url": "https://github.com/alexfrmn/murmur/issues"
+  },
+  "keywords": [
+    "murmur",
+    "agent-communication",
+    "agent-to-agent",
+    "a2a",
+    "agent-bus",
+    "message-bus",
+    "ai-agents",
+    "multi-agent",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "federation",
+    "nats",
+    "leafnode"
+  ]
 }
