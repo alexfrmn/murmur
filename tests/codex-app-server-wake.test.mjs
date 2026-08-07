@@ -78,6 +78,66 @@ test("normalizeWakeConfig preserves Codex reply relay peer settings", () => {
   });
 });
 
+test("normalizeWakeConfig preserves the explicit resume opt-out", () => {
+  const config = normalizeWakeConfig({
+    wake: {
+      peers: {
+        "agent-jarvis": {
+          mode: "codex_app_server",
+          socketPath: "/tmp/codex.sock",
+          threadId: "thread-1",
+          resume: false,
+        },
+      },
+    },
+  });
+
+  assert.equal(config.peers["agent-jarvis"].resume, false);
+});
+
+test("buildThreadStartParams carries peer cwd and model into thread/start", () => {
+  const params = buildThreadStartParams(null, { cwd: "/work/project", model: "gpt-5.6-sol" });
+
+  assert.equal(params.cwd, "/work/project");
+  assert.equal(params.model, "gpt-5.6-sol");
+});
+
+test("Codex app-server injector keeps the seeded thread path and skips resume", async () => {
+  const calls = [];
+  class FakeClient {
+    async request(method, params) {
+      calls.push({ method, params });
+      if (method === "thread/start") {
+        return { thread: { id: "fresh-thread", path: "/tmp/rollout-fresh.jsonl" } };
+      }
+      return {};
+    }
+
+    async startTurnAndWaitForFinal(params, options) {
+      calls.push({ method: "turn/start:wait", params, options });
+      return { finalText: "", turnId: "turn-1" };
+    }
+  }
+
+  const peer = {
+    mode: "codex_app_server",
+    socketPath: "/tmp/codex.sock",
+    cwd: "/work/project",
+    relayFinalToMurmur: true,
+    murmurRoot: "/work/murmur",
+    dataDir: "/work/.data",
+    storePath: "/work/.data/murmur.db",
+  };
+  const injector = createCodexAppServerInjector({ Client: FakeClient });
+
+  await injector(payload, peer);
+
+  // A thread created right here has no rollout file yet: resuming it can only fail.
+  assert.deepEqual(calls.map((call) => call.method), ["thread/start", "turn/start:wait"]);
+  assert.equal(calls[0].params.cwd, "/work/project");
+  assert.equal(calls[1].options.sessionPath, "/tmp/rollout-fresh.jsonl");
+});
+
 test("buildTurnStartRequest builds Codex turn/start params", () => {
   const request = buildTurnStartRequest({
     id: 7,

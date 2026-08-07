@@ -21,6 +21,9 @@ export const normalizeWakeConfig = (config = {}) => {
       if (typeof value.dataDir === "string" && value.dataDir.trim()) normalized.dataDir = value.dataDir.trim();
       if (typeof value.storePath === "string" && value.storePath.trim()) normalized.storePath = value.storePath.trim();
       if (value.relayFinalToMurmur === true) normalized.relayFinalToMurmur = true;
+      // Without this the injector's `peer.resume === false` opt-out is unreachable
+      // from a real config: normalization used to drop the field entirely.
+      if (typeof value.resume === "boolean") normalized.resume = value.resume;
       if (Number.isFinite(Number(value.replyTimeoutMs))) normalized.replyTimeoutMs = Number(value.replyTimeoutMs);
       return [agentId, normalized];
     }),

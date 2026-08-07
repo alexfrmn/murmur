@@ -125,10 +125,12 @@ export const readFinalAnswerFromSessionLog = (sessionPath, turnId) => {
   return "";
 };
 
-export const buildThreadStartParams = (binding = null) => ({
-  model: binding?.model ?? null,
+export const buildThreadStartParams = (binding = null, peer = null) => ({
+  model: binding?.model ?? peer?.model ?? null,
   modelProvider: null,
-  cwd: null,
+  // A seeded thread must inherit the peer's working directory, otherwise Codex starts
+  // in `/` with no project instructions, wrong workspace roots and wrong permissions.
+  cwd: peer?.cwd ?? null,
   runtimeWorkspaceRoots: null,
   approvalPolicy: null,
   approvalsReviewer: null,
@@ -531,28 +533,34 @@ export const createCodexAppServerInjector = ({ Client = CodexAppServerClient, lo
       return client.request("turn/start", turnParams(threadId));
     };
 
+    // A thread seeded in this call has no rollout file until its first turn, so
+    // `thread/resume` can only fail on it — and that failure is what used to leave
+    // `threadPath` null and silently disable the session-log completion fallback.
+    const seedThread = async (reason) => {
+      const started = await client.request("thread/start", buildThreadStartParams(threadStartBinding, peer));
+      const seededId = started?.thread?.id;
+      if (!seededId) throw new Error(`codex-app-server-thread-start-missing:${payload.from}`);
+      threadPath = started?.thread?.path || threadPath;
+      peer.threadId = seededId;
+      log("info", `Codex app-server wake thread ${reason}`, { msgId: payload.msgId, threadId: seededId, socketPath, threadPath });
+      return seededId;
+    };
+
     let threadId = peer?.threadId;
+    let seededHere = false;
     if (!threadId) {
-      const started = await client.request("thread/start", buildThreadStartParams(threadStartBinding));
-      threadId = started?.thread?.id;
-      if (!threadId) throw new Error(`codex-app-server-thread-start-missing:${payload.from}`);
-      peer.threadId = threadId;
-      log("info", "Codex app-server wake thread seeded", { msgId: payload.msgId, threadId, socketPath });
+      threadId = await seedThread("seeded");
+      seededHere = true;
     }
 
     let result;
     try {
-      if (shouldResumeThread) await resumeThread(threadId);
+      if (shouldResumeThread && !seededHere) await resumeThread(threadId);
       result = await startTurn(threadId);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       if (!e.message.startsWith("codex-app-server-error:thread not found:")) throw e;
-      const started = await client.request("thread/start", buildThreadStartParams(threadStartBinding));
-      threadId = started?.thread?.id;
-      if (!threadId) throw new Error(`codex-app-server-thread-start-missing:${payload.from}`);
-      peer.threadId = threadId;
-      log("info", "Codex app-server wake thread re-seeded", { msgId: payload.msgId, threadId, socketPath });
-      if (shouldResumeThread) await resumeThread(threadId);
+      threadId = await seedThread("re-seeded");
       result = await startTurn(threadId);
     }
     log("info", "Codex app-server wake completed", { msgId: payload.msgId, threadId, socketPath });
