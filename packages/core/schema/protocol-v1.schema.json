@@ -50,6 +50,35 @@
         "at": { "type": "string", "format": "date-time" }
       }
     },
+    "SignedAckV1": {
+      "description": "Ed25519-signed delivery acknowledgement bound to the original envelope and expected peer.",
+      "type": "object",
+      "required": [
+        "ackVersion",
+        "msgId",
+        "messageDigest",
+        "conversationId",
+        "senderAgentId",
+        "recipientAgentId",
+        "status",
+        "at",
+        "nonce",
+        "signature"
+      ],
+      "properties": {
+        "ackVersion": { "const": "1.0" },
+        "msgId": { "type": "string", "minLength": 1 },
+        "messageDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "conversationId": { "type": "string", "minLength": 1 },
+        "senderAgentId": { "type": "string", "minLength": 1 },
+        "recipientAgentId": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ack", "nack"] },
+        "reason": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" },
+        "nonce": { "type": "string", "minLength": 1 },
+        "signature": { "type": "string", "minLength": 1 }
+      }
+    },
     "PresenceFrameV1": {
       "description": "Discovery presence announcement. PUBLIC metadata only; carries no secret. A signed wrapper (SignedPresenceFrameV1) proves integrity, NOT that agentId is who it claims — trust is established out-of-band at operator promotion.",
       "type": "object",

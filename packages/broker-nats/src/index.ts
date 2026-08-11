@@ -13,15 +13,20 @@ import {
   applyJitter,
   computeBackoffMs,
   createAck,
+  createBoundAck,
+  envelopeDigest,
   estimateBase64DecodedBytes,
   type EnvelopeV1,
+  isSignedAckV1,
   isEnvelopeV1,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
   type DedupeStore,
   type OutboxStore,
   type AckV1,
+  type SignedAckV1,
   type SecurityPolicy,
+  type UnsignedAckV1,
   streamBackpressureAllowsSend,
   validateEnvelopePolicy,
 } from "@murmurv2/core";
@@ -70,6 +75,15 @@ export interface AckWindowConfig {
   maxInFlightBytes: number;
 }
 
+export type AckSigner = (ack: UnsignedAckV1) => Promise<SignedAckV1>;
+export type AckVerifier = (ack: SignedAckV1) => Promise<boolean>;
+
+export interface InvalidAckEvent {
+  reason: string;
+  msgId?: string;
+  senderAgentId?: string;
+}
+
 interface JetStreamConsumerAdvisory {
   type?: string;
   stream?: string;
@@ -95,6 +109,8 @@ export class NatsBroker {
   private jsm?: JetStreamManager;
   private readonly sc = StringCodec();
   private readonly failedDeliveries = new Map<string, number>();
+  private readonly seenAckNonces = new Set<string>();
+  private readonly invalidAckCounts = new Map<string, number>();
   private reconnects = 0;
   private statusLoop?: Promise<void>;
 
@@ -136,6 +152,10 @@ export class NatsBroker {
 
   getReconnectCount(): number {
     return this.reconnects;
+  }
+
+  getAckSecurityMetrics(): Readonly<Record<string, number>> {
+    return Object.fromEntries(this.invalidAckCounts.entries());
   }
 
   private jetStreamEnabled(): boolean {
@@ -239,16 +259,29 @@ export class NatsBroker {
     this.nc!.publish(subject, payload);
   }
 
-  async publishAck(subject: string, envelope: ReturnType<typeof createAck>): Promise<void> {
+  async publishAck(subject: string, envelope: AckV1 | SignedAckV1): Promise<void> {
     await this.connect();
     const payload = this.sc.encode(JSON.stringify(envelope));
+    const ackSender = "senderAgentId" in envelope ? envelope.senderAgentId : envelope.consumerId;
+    const nonce = "nonce" in envelope ? `:${envelope.nonce}` : "";
     if (this.js) {
       await this.js.publish(subject, payload, {
-        msgID: `ack:${envelope.msgId}:${envelope.consumerId}:${envelope.status}`,
+        msgID: `ack:${envelope.msgId}:${ackSender}:${envelope.status}${nonce}`,
       });
       return;
     }
     this.nc!.publish(subject, payload);
+  }
+
+  private async createDeliveryAck(
+    envelope: EnvelopeV1,
+    consumerId: string,
+    status: AckV1["status"],
+    reason: string | undefined,
+    signAck: AckSigner | undefined,
+  ): Promise<AckV1 | SignedAckV1> {
+    if (!signAck) return createAck(envelope.msgId, consumerId, status, reason);
+    return signAck(createBoundAck(envelope, consumerId, status, reason));
   }
 
   private async processEnvelopeFrame(
@@ -259,10 +292,12 @@ export class NatsBroker {
       onMessage: MessageHandler;
       maxPoisonAttempts?: number;
       authorize?: InboundAuthorizer;
+      signAck?: AckSigner;
     },
   ): Promise<"ack" | "retry"> {
     let msgId = "unknown";
     let ackSubject = `ack.${params.consumerId}`;
+    let decodedEnvelope: EnvelopeV1 | undefined;
     try {
       const decoded = JSON.parse(this.sc.decode(data));
       if (!isEnvelopeV1(decoded)) {
@@ -270,11 +305,15 @@ export class NatsBroker {
         return "ack";
       }
 
+      decodedEnvelope = decoded;
       msgId = decoded.msgId;
       ackSubject = `ack.${decoded.senderAgentId}`;
       const isDup = await params.dedupe.seen(decoded.msgId, params.consumerId);
       if (isDup) {
-        await this.publishAck(ackSubject, createAck(decoded.msgId, params.consumerId, "ack", "duplicate-ignored"));
+        await this.publishAck(
+          ackSubject,
+          await this.createDeliveryAck(decoded, params.consumerId, "ack", "duplicate-ignored", params.signAck),
+        );
         return "ack";
       }
 
@@ -286,7 +325,13 @@ export class NatsBroker {
         if (!authz.accepted) {
           await this.publishAck(
             ackSubject,
-            createAck(decoded.msgId, params.consumerId, "nack", `auth-rejected:${authz.reason ?? "denied"}`),
+            await this.createDeliveryAck(
+              decoded,
+              params.consumerId,
+              "nack",
+              `auth-rejected:${authz.reason ?? "denied"}`,
+              params.signAck,
+            ),
           );
           return "ack";
         }
@@ -295,7 +340,10 @@ export class NatsBroker {
       await params.onMessage(decoded);
       await params.dedupe.markSeen(decoded.msgId, params.consumerId);
       this.failedDeliveries.delete(`${params.consumerId}:${decoded.msgId}`);
-      await this.publishAck(ackSubject, createAck(decoded.msgId, params.consumerId, "ack"));
+      await this.publishAck(
+        ackSubject,
+        await this.createDeliveryAck(decoded, params.consumerId, "ack", undefined, params.signAck),
+      );
       return "ack";
     } catch (err) {
       const reason = err instanceof Error ? err.message : "handler-failed";
@@ -306,10 +354,22 @@ export class NatsBroker {
       if (msgId !== "unknown" && failures >= maxPoisonAttempts) {
         await params.dedupe.markSeen(msgId, params.consumerId);
         this.failedDeliveries.delete(key);
-        await this.publishAck(ackSubject, createAck(msgId, params.consumerId, "nack", `poison-message:${reason}`));
+        const ack = decodedEnvelope
+          ? await this.createDeliveryAck(
+              decodedEnvelope,
+              params.consumerId,
+              "nack",
+              `poison-message:${reason}`,
+              params.signAck,
+            )
+          : createAck(msgId, params.consumerId, "nack", `poison-message:${reason}`);
+        await this.publishAck(ackSubject, ack);
         return "ack";
       }
-      await this.publishAck(ackSubject, createAck(msgId, params.consumerId, "nack", reason));
+      const ack = decodedEnvelope
+        ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
+        : createAck(msgId, params.consumerId, "nack", reason);
+      await this.publishAck(ackSubject, ack);
       return "retry";
     }
   }
@@ -390,6 +450,8 @@ export class NatsBroker {
     /** Optional ingress authorizer; when set, envelopes are authorized before delivery
      *  (wire @murmurv2/federation authorizeInbound here behind MURMUR_ENFORCE_AUTH). */
     authorize?: InboundAuthorizer;
+    /** Signs ACKs with the receiving agent's long-term signing key. */
+    signAck?: AckSigner;
   }): Promise<BrokerSubscription> {
     await this.connect();
 
@@ -496,13 +558,18 @@ export class NatsBroker {
     outbox: OutboxStore;
     ackSubject: string;
     consumerId?: string;
+    verifyAck?: AckVerifier;
+    requireSignedAcks?: boolean;
+    maxAckAgeMs?: number;
+    maxFutureSkewMs?: number;
+    onInvalidAck?: (event: InvalidAckEvent) => void;
   }): Promise<BrokerSubscription> {
     await this.connect();
 
     if (this.js) {
       const consumerId = params.consumerId ?? `${params.ackSubject.replaceAll(".", "-")}-consumer`;
       return this.consumeJetStream(params.ackSubject, consumerId, async (data) => {
-        await this.processAckFrame(data, params.outbox);
+        await this.processAckFrame(data, params);
       });
     }
 
@@ -510,7 +577,7 @@ export class NatsBroker {
 
     (async () => {
       for await (const m of sub) {
-        await this.processAckFrame(m.data, params.outbox);
+        await this.processAckFrame(m.data, params);
       }
     })().catch((err) => {
       const e = err instanceof Error ? err : new Error(String(err));
@@ -520,30 +587,126 @@ export class NatsBroker {
     return sub;
   }
 
-  private async processAckFrame(data: Uint8Array, outbox: OutboxStore): Promise<void> {
-    try {
-      const decoded = JSON.parse(this.sc.decode(data)) as AckV1;
-      if (typeof decoded.msgId !== "string" || decoded.msgId.length === 0) return;
+  private invalidAck(
+    params: {
+      onInvalidAck?: (event: InvalidAckEvent) => void;
+    },
+    reason: string,
+    candidate?: Partial<SignedAckV1>,
+  ): void {
+    this.invalidAckCounts.set(reason, (this.invalidAckCounts.get(reason) ?? 0) + 1);
+    const event = {
+      reason,
+      ...(typeof candidate?.msgId === "string" ? { msgId: candidate.msgId } : {}),
+      ...(typeof candidate?.senderAgentId === "string" ? { senderAgentId: candidate.senderAgentId } : {}),
+    };
+    console.warn("[NatsBroker.security] invalid ACK rejected", event);
+    params.onInvalidAck?.(event);
+  }
 
-      if (decoded.status === "ack") {
-        await outbox.markAcked(decoded.msgId);
+  private rememberAckNonce(nonce: string): boolean {
+    if (this.seenAckNonces.has(nonce)) return false;
+    this.seenAckNonces.add(nonce);
+    if (this.seenAckNonces.size > 10_000) {
+      const oldest = this.seenAckNonces.values().next();
+      if (!oldest.done) this.seenAckNonces.delete(oldest.value);
+    }
+    return true;
+  }
+
+  private async processAckFrame(
+    data: Uint8Array,
+    params: {
+      outbox: OutboxStore;
+      verifyAck?: AckVerifier;
+      requireSignedAcks?: boolean;
+      maxAckAgeMs?: number;
+      maxFutureSkewMs?: number;
+      onInvalidAck?: (event: InvalidAckEvent) => void;
+    },
+  ): Promise<void> {
+    try {
+      const decoded = JSON.parse(this.sc.decode(data)) as unknown;
+
+      if (!isSignedAckV1(decoded)) {
+        const legacy = decoded as Partial<AckV1>;
+        if (params.requireSignedAcks === true) {
+          this.invalidAck(params, "unsigned-or-malformed", {
+            msgId: typeof legacy?.msgId === "string" ? legacy.msgId : undefined,
+          });
+          return;
+        }
+        if (typeof legacy?.msgId !== "string" || legacy.msgId.length === 0) return;
+        if (legacy.status === "ack") {
+          await params.outbox.markAcked(legacy.msgId);
+        } else if (legacy.status === "nack") {
+          await params.outbox.markFailed(
+            legacy.msgId,
+            legacy.reason ?? "nack",
+            new Date().toISOString(),
+          );
+        }
         return;
       }
 
-      if (decoded.status === "nack") {
-        await outbox.markFailed(
-          decoded.msgId,
-          decoded.reason ?? "nack",
-          new Date().toISOString(),
-        );
+      const record = await params.outbox.getOutboxRecord(decoded.msgId);
+      if (!record) {
+        this.invalidAck(params, "unknown-message", decoded);
+        return;
       }
-    } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      console.error("[NatsBroker.startAckCorrelation] malformed ack frame", {
-        message: e.message,
-        stack: e.stack,
-        raw: this.sc.decode(data),
-      });
+      if (record.status !== "sent") {
+        this.invalidAck(params, "message-not-in-flight", decoded);
+        return;
+      }
+      if (decoded.messageDigest !== envelopeDigest(record.envelope)) {
+        this.invalidAck(params, "message-digest-mismatch", decoded);
+        return;
+      }
+      if (decoded.conversationId !== record.envelope.conversationId) {
+        this.invalidAck(params, "conversation-mismatch", decoded);
+        return;
+      }
+      if (decoded.recipientAgentId !== record.envelope.senderAgentId) {
+        this.invalidAck(params, "recipient-mismatch", decoded);
+        return;
+      }
+      if (!record.envelope.recipients.includes(decoded.senderAgentId)) {
+        this.invalidAck(params, "unexpected-peer", decoded);
+        return;
+      }
+
+      const atMs = Date.parse(decoded.at);
+      const now = Date.now();
+      const maxAckAgeMs = params.maxAckAgeMs ?? 5 * 60_000;
+      const maxFutureSkewMs = params.maxFutureSkewMs ?? 30_000;
+      if (atMs < now - maxAckAgeMs || atMs > now + maxFutureSkewMs) {
+        this.invalidAck(params, "timestamp-out-of-window", decoded);
+        return;
+      }
+      if (!params.verifyAck || !(await params.verifyAck(decoded))) {
+        this.invalidAck(params, "signature-invalid", decoded);
+        return;
+      }
+      if (!this.rememberAckNonce(`${decoded.senderAgentId}:${decoded.nonce}`)) {
+        this.invalidAck(params, "nonce-replay", decoded);
+        return;
+      }
+
+      if (decoded.status === "ack") {
+        const result = await params.outbox.applyAckTransition(decoded.msgId, "ack");
+        if (result !== "applied") this.invalidAck(params, `transition-${result}`, decoded);
+        return;
+      }
+
+      const result = await params.outbox.applyAckTransition(
+        decoded.msgId,
+        "nack",
+        decoded.reason ?? "nack",
+        new Date().toISOString(),
+      );
+      if (result !== "applied") this.invalidAck(params, `transition-${result}`, decoded);
+    } catch {
+      this.invalidAck(params, "processing-error");
     }
   }
 

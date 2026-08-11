@@ -41,3 +41,36 @@ test("SQLiteDedupeOutboxStore markSeen/seen roundtrip", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("SQLiteDedupeOutboxStore applies an ACK transition exactly once while sent", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "murmur-ack-transition-"));
+  const dbPath = join(dir, "murmur.db");
+  const envelope = {
+    schemaVersion: "1.0",
+    msgId: "m-ack-once",
+    conversationId: "conversation",
+    senderAgentId: "sender",
+    recipients: ["receiver"],
+    createdAt: new Date().toISOString(),
+    payloadCiphertext: "ciphertext",
+    payloadNonce: "nonce",
+    signature: "signature",
+  };
+
+  try {
+    const store = new SQLiteDedupeOutboxStore(dbPath);
+    await store.enqueue("msg.receiver", envelope);
+    await store.markSent(envelope.msgId);
+
+    assert.equal(await store.applyAckTransition(envelope.msgId, "ack"), "applied");
+    const afterFirst = await store.getOutboxRecord(envelope.msgId);
+    assert.equal(afterFirst.status, "acked");
+
+    assert.equal(await store.applyAckTransition(envelope.msgId, "ack"), "not-in-flight");
+    const afterReplay = await store.getOutboxRecord(envelope.msgId);
+    assert.equal(afterReplay.status, "acked");
+    assert.equal(afterReplay.version, afterFirst.version);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

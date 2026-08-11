@@ -54,6 +54,11 @@ const run = async () => {
     dataDir,
     cryptoProvider: getCryptoProvider().name,
     keys: { encryption, signing },
+    ackSecurity: {
+      emitSigned: true,
+      requireSigned: false,
+      maxAgeMs: 300000,
+    },
     peers: {},
   };
 

@@ -4,7 +4,7 @@
 // signature interop. If this test fails, EVERY signer must change together (wire-breaking).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stableEnvelopePayload } from "../dist/src/index.js";
+import { stableAckPayload, stableEnvelopePayload } from "../dist/src/index.js";
 
 const ENV = Object.freeze({
   schemaVersion: "1.0",
@@ -64,4 +64,26 @@ test("stableEnvelopePayload copies recipients (no shared mutable reference)", ()
   // the serialized string already captured the 2-recipient state
   assert.ok(out.includes('"recipients":["agent-b","agent-c"]'));
   assert.ok(!out.includes("agent-d"));
+});
+
+test("stableAckPayload emits an exact canonical string and excludes the signature", () => {
+  const ack = {
+    ackVersion: "1.0",
+    msgId: "m1",
+    messageDigest: `sha256:${"a".repeat(64)}`,
+    conversationId: "c1",
+    senderAgentId: "agent-b",
+    recipientAgentId: "agent-a",
+    status: "nack",
+    reason: "retry",
+    at: "2026-06-22T00:00:01.000Z",
+    nonce: "nonce-1",
+    signature: "SIG-SHOULD-BE-EXCLUDED",
+  };
+
+  assert.equal(
+    stableAckPayload(ack),
+    `{"ackVersion":"1.0","msgId":"m1","messageDigest":"sha256:${"a".repeat(64)}","conversationId":"c1","senderAgentId":"agent-b","recipientAgentId":"agent-a","status":"nack","reason":"retry","at":"2026-06-22T00:00:01.000Z","nonce":"nonce-1"}`,
+  );
+  assert.ok(!stableAckPayload(ack).includes("signature"));
 });
