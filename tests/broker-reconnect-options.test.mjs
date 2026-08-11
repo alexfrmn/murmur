@@ -4,11 +4,12 @@ import { buildNatsConnectionOptions } from "../packages/broker-nats/dist/src/ind
 
 test("buildNatsConnectionOptions enables resilient reconnect defaults", () => {
   const options = buildNatsConnectionOptions({
-    url: "nats://example.invalid:4222",
+    url: "tls://example.invalid:4222",
     token: "secret",
   });
 
-  assert.equal(options.servers, "nats://example.invalid:4222");
+  assert.equal(options.servers, "tls://example.invalid:4222");
+  assert.deepEqual(options.tls, {});
   assert.equal(options.token, "secret");
   assert.equal(options.maxReconnectAttempts, -1);
   assert.equal(options.reconnectTimeWait, 2000);
@@ -20,7 +21,7 @@ test("buildNatsConnectionOptions enables resilient reconnect defaults", () => {
 
 test("buildNatsConnectionOptions allows bounded operator overrides", () => {
   const options = buildNatsConnectionOptions({
-    url: "nats://example.invalid:4222",
+    url: "tls://example.invalid:4222",
     maxReconnectAttempts: 10,
     reconnectTimeWait: 5000,
     reconnectJitter: 1000,

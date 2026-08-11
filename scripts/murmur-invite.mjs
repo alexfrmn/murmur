@@ -21,16 +21,38 @@ try {
   process.exit(1);
 }
 
+const inviteNatsUser = process.env.MURMUR_INVITE_NATS_USER || undefined;
+const inviteNatsPassword = process.env.MURMUR_INVITE_NATS_PASSWORD || undefined;
 const invite = {
   v: 1,
   type: "invite",
   agentId: config.agentId,
   natsUrl: config.natsUrl,
-  natsToken: config.natsToken || undefined,
+  natsToken: inviteNatsUser
+    ? undefined
+    : process.env.MURMUR_INVITE_NATS_TOKEN || config.natsToken || undefined,
+  natsUser: inviteNatsUser,
+  natsPassword: inviteNatsPassword,
+  natsCaPem: config.natsTls?.caFile
+    ? await readFile(config.natsTls.caFile, "utf8")
+    : undefined,
+  natsServerName: config.natsTls?.serverName || undefined,
   subject: config.subject,
   encryption: { publicKey: config.keys.encryption.publicKey },
   signing: { publicKey: config.keys.signing.publicKey },
 };
+
+if (config.natsUser && (!invite.natsUser || !invite.natsPassword)) {
+  console.error(
+    "[invite] Per-peer broker auth requires dedicated MURMUR_INVITE_NATS_USER and "
+      + "MURMUR_INVITE_NATS_PASSWORD values. Refusing to share this agent's credential.",
+  );
+  process.exit(1);
+}
+if (!!invite.natsUser !== !!invite.natsPassword) {
+  console.error("[invite] Both MURMUR_INVITE_NATS_USER and MURMUR_INVITE_NATS_PASSWORD are required.");
+  process.exit(1);
+}
 
 const blob = "MURMUR:" + Buffer.from(JSON.stringify(invite)).toString("base64");
 

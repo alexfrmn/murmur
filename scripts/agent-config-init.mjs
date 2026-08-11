@@ -5,10 +5,11 @@
  * writes .data/agent-config.json.
  *
  * Usage: node scripts/agent-config-init.mjs
- * Env overrides: AGENT_ID, NATS_URL, NATS_TOKEN, DATA_DIR
+ * Env overrides: AGENT_ID, NATS_URL, NATS_TOKEN, NATS_USER, NATS_PASSWORD,
+ * NATS_CA_FILE, NATS_CERT_FILE, NATS_KEY_FILE, NATS_SERVER_NAME, DATA_DIR
  */
 import { createInterface } from "node:readline/promises";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createKeyPair, createSigningKeyPair, getCryptoProvider } from "@murmurv2/security";
 
@@ -40,7 +41,17 @@ const run = async () => {
 
   const agentId = process.env.AGENT_ID || await ask("Agent ID", "my-agent");
   const natsUrl = process.env.NATS_URL || await ask("NATS URL", "nats://127.0.0.1:4222");
-  const natsToken = process.env.NATS_TOKEN || await ask("NATS token", "");
+  const natsToken = process.env.NATS_TOKEN || "";
+  const natsUser = process.env.NATS_USER || "";
+  const natsPassword = process.env.NATS_PASSWORD || "";
+  const natsTls = natsUrl.startsWith("tls://")
+    ? {
+        ...(process.env.NATS_CA_FILE ? { caFile: process.env.NATS_CA_FILE } : {}),
+        ...(process.env.NATS_CERT_FILE ? { certFile: process.env.NATS_CERT_FILE } : {}),
+        ...(process.env.NATS_KEY_FILE ? { keyFile: process.env.NATS_KEY_FILE } : {}),
+        ...(process.env.NATS_SERVER_NAME ? { serverName: process.env.NATS_SERVER_NAME } : {}),
+      }
+    : undefined;
 
   console.log("[init] Generating keypairs...");
   const encryption = await createKeyPair();
@@ -50,6 +61,9 @@ const run = async () => {
     agentId,
     natsUrl,
     natsToken: natsToken || undefined,
+    natsUser: natsUser || undefined,
+    natsPassword: natsPassword || undefined,
+    natsTls,
     subject: `msg.${agentId}`,
     dataDir,
     cryptoProvider: getCryptoProvider().name,
@@ -58,7 +72,8 @@ const run = async () => {
   };
 
   await mkdir(dataDir, { recursive: true });
-  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+  await chmod(configPath, 0o600);
 
   console.log(`[init] Config written to ${configPath}`);
   console.log("");

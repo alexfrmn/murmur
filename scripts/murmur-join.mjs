@@ -8,7 +8,7 @@
  * Env: AGENT_ID (default: prompted), DATA_DIR (default: .data)
  */
 import { createInterface } from "node:readline/promises";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createKeyPair, createSigningKeyPair, getCryptoProvider } from "@murmurv2/security";
 
@@ -34,6 +34,23 @@ console.log(`[join] NATS: ${invite.natsUrl}`);
 
 const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
+await mkdir(dataDir, { recursive: true });
+let natsTls;
+if (invite.natsCaPem) {
+  if (typeof invite.natsCaPem !== "string" || invite.natsCaPem.length > 131_072) {
+    console.error("[join] Invalid NATS CA certificate in invite.");
+    process.exit(1);
+  }
+  const caPath = path.resolve(dataDir, "nats-ca.pem");
+  await writeFile(caPath, invite.natsCaPem, { encoding: "utf8", mode: 0o600 });
+  await chmod(caPath, 0o600);
+  natsTls = {
+    caFile: caPath,
+    ...(invite.natsServerName ? { serverName: invite.natsServerName } : {}),
+  };
+} else if (invite.natsServerName) {
+  natsTls = { serverName: invite.natsServerName };
+}
 
 // Check if config exists
 let config;
@@ -57,6 +74,9 @@ try {
     agentId,
     natsUrl: invite.natsUrl,
     natsToken: invite.natsToken || undefined,
+    natsUser: invite.natsUser || undefined,
+    natsPassword: invite.natsPassword || undefined,
+    natsTls,
     subject: `msg.${agentId}`,
     dataDir,
     cryptoProvider: getCryptoProvider().name,
@@ -64,8 +84,8 @@ try {
     peers: {},
   };
 
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+  await chmod(configPath, 0o600);
   console.log(`[join] Config created: ${configPath}`);
 }
 
@@ -83,7 +103,8 @@ if (config.natsUrl !== invite.natsUrl) {
   console.log(`[join] Keeping yours. Edit .data/agent-config.json if needed.`);
 }
 
-await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+await chmod(configPath, 0o600);
 console.log(`[join] Added peer: ${invite.agentId}`);
 
 // Generate reply blob

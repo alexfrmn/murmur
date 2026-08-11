@@ -12,8 +12,8 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@murmurv2/broker-nats": "^0.1.0",
-    "@murmurv2/core": "^0.1.0",
+    "@murmurv2/broker-nats": "^0.2.1",
+    "@murmurv2/core": "^0.3.2",
     "@murmurv2/security": "^0.1.1"
   }
 }

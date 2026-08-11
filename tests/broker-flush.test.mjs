@@ -49,7 +49,7 @@ test("flushOutbox marks policy failures as DLQ", async () => {
   const outbox = makeOutbox([
     { msgId: envelope.msgId, subject: "s", envelope, attempts: 0, status: "pending", nextAttemptAt: new Date().toISOString() },
   ]);
-  const broker = new NatsBroker({ url: "nats://invalid:4222" });
+  const broker = new NatsBroker({ url: "tls://invalid:4222" });
   broker.publish = async () => {
     throw new Error("policy-rejected:recipient-not-allowed:agent.b");
   };
@@ -62,7 +62,7 @@ test("flushOutbox retries transient failures with failed status", async () => {
   const outbox = makeOutbox([
     { msgId: envelope.msgId, subject: "s", envelope, attempts: 0, status: "pending", nextAttemptAt: new Date().toISOString() },
   ]);
-  const broker = new NatsBroker({ url: "nats://invalid:4222" });
+  const broker = new NatsBroker({ url: "tls://invalid:4222" });
   broker.publish = async () => {
     throw new Error("network-timeout");
   };
@@ -90,7 +90,7 @@ test("flushOutbox respects durable ACK window before publishing more chunks", as
     { msgId: pendingEnvelope.msgId, subject: "s", envelope: pendingEnvelope, attempts: 0, status: "pending", nextAttemptAt: new Date().toISOString() },
   ]);
   const published = [];
-  const broker = new NatsBroker({ url: "nats://invalid:4222" });
+  const broker = new NatsBroker({ url: "tls://invalid:4222" });
   broker.publish = async (_subject, env) => {
     published.push(env.msgId);
   };

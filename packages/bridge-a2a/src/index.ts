@@ -26,7 +26,14 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import express from "express";
 import { StringCodec, connect, type NatsConnection, type Subscription } from "nats";
-import { isEnvelopeV1, stableEnvelopePayload, type AckV1, type EnvelopeV1 } from "@murmurv2/core";
+import {
+  buildSecureNatsConnectionOptions,
+  isEnvelopeV1,
+  stableEnvelopePayload,
+  type AckV1,
+  type EnvelopeV1,
+  type NatsTlsOptions,
+} from "@murmurv2/core";
 import { decryptPayload, encryptPayload, signEnvelope } from "@murmurv2/security";
 import {
   DefaultRequestHandler,
@@ -48,6 +55,9 @@ export interface BridgeA2AConfig {
   /** NATS bus the internal mesh runs on. */
   natsUrl: string;
   natsToken?: string;
+  natsUser?: string;
+  natsPassword?: string;
+  natsTls?: NatsTlsOptions;
   /** This bridge's own agent id on the mesh (e.g. "a2a-bridge"). */
   agentId: string;
   /** Default internal recipient for inbound A2A tasks (e.g. "agent-jarvis"). */
@@ -185,7 +195,13 @@ export class A2AMurmurBridge {
 
   async start(): Promise<void> {
     if (this.running) return;
-    this.nc = await connect({ servers: this.config.natsUrl, token: this.config.natsToken });
+    this.nc = await connect(buildSecureNatsConnectionOptions({
+      url: this.config.natsUrl,
+      token: this.config.natsToken,
+      user: this.config.natsUser,
+      password: this.config.natsPassword,
+      tls: this.config.natsTls,
+    }));
 
     // Internal replies/ACKs to this bridge land on ack.<agentId>; correlate by msgId.
     this.ackSub = this.nc.subscribe(this.ackSubject());
