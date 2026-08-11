@@ -8,9 +8,9 @@
  * Env overrides: AGENT_ID, NATS_URL, NATS_TOKEN, DATA_DIR
  */
 import { createInterface } from "node:readline/promises";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createKeyPair, createSigningKeyPair, getCryptoProvider } from "@murmurv2/security";
+import { readPrivateJson, writePrivateJson } from "./secure-state.mjs";
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 
@@ -25,8 +25,7 @@ const run = async () => {
 
   // Check if config already exists
   try {
-    const existing = await readFile(configPath, "utf8");
-    const parsed = JSON.parse(existing);
+    const parsed = await readPrivateJson(configPath);
     console.log(`[init] Config already exists at ${configPath} (agentId: ${parsed.agentId})`);
     const overwrite = await ask("Overwrite? (yes/no)", "no");
     if (overwrite !== "yes") {
@@ -34,8 +33,8 @@ const run = async () => {
       rl.close();
       return;
     }
-  } catch {
-    // No existing config — proceed
+  } catch (err) {
+    if (err?.code !== "ENOENT") throw err;
   }
 
   const agentId = process.env.AGENT_ID || await ask("Agent ID", "my-agent");
@@ -57,8 +56,7 @@ const run = async () => {
     peers: {},
   };
 
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+  await writePrivateJson(configPath, config);
 
   console.log(`[init] Config written to ${configPath}`);
   console.log("");

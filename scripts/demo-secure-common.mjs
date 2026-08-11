@@ -1,7 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { stableEnvelopePayload } from "@murmurv2/core";
 import { createKeyPair, createSigningKeyPair, getCryptoProvider } from "@murmurv2/security";
+import { readPrivateJson, writePrivateJson } from "./secure-state.mjs";
 
 // Re-export the canonical signing form from @murmurv2/core for the demo scripts.
 export { stableEnvelopePayload };
@@ -47,9 +46,9 @@ export const policyFromConfig = (cfg) => ({
 
 export const ensureDemoKeys = async (keysPath = DEFAULT_KEYS_PATH) => {
   try {
-    const raw = await readFile(keysPath, "utf8");
-    return JSON.parse(raw);
-  } catch {
+    return await readPrivateJson(keysPath);
+  } catch (err) {
+    if (err?.code !== "ENOENT") throw err;
     const senderEncryption = await createKeyPair();
     const recipientEncryption = await createKeyPair();
     const senderSigning = await createSigningKeyPair();
@@ -66,8 +65,7 @@ export const ensureDemoKeys = async (keysPath = DEFAULT_KEYS_PATH) => {
       },
     };
 
-    await mkdir(path.dirname(keysPath), { recursive: true });
-    await writeFile(keysPath, `${JSON.stringify(keys, null, 2)}\n`, "utf8");
+    await writePrivateJson(keysPath, keys);
     return keys;
   }
 };

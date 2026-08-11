@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
@@ -10,6 +10,9 @@ import {
   decryptPayload,
   verifyEnvelopeSignature,
 } from "../packages/security/dist/src/index.js";
+import { readPrivateJson, setPrivateUmask } from "./secure-state.mjs";
+
+setPrivateUmask();
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -66,7 +69,7 @@ const stableEnvelopePayload = (envelope) =>
 
 const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
-const config = JSON.parse(readFileSync(configPath, "utf8"));
+const config = await readPrivateJson(configPath);
 const dbPath = process.env.MURMUR_STORE_PATH ?? path.join(dataDir, "murmur.db");
 const murmurRoot = process.env.MURMUR_ROOT || repoRoot;
 const leaseDbPath = process.env.MURMUR_LEASE_DB || path.join(dataDir, "lease.db");

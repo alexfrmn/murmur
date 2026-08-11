@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+} from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import {
@@ -47,9 +55,38 @@ const configPath = path.join(dataDir, "agent-config.json");
 const dbPath = process.env.MURMUR_STORE_PATH ?? path.join(dataDir, "murmur.db");
 const channelRosterPath = process.env.MURMUR_CHANNEL_ROSTER_PATH ?? path.join(dataDir, "channel-roster.db");
 
+const readPrivateAgentConfig = (filePath: string): AgentConfig => {
+  process.umask(0o077);
+  const dirStats = lstatSync(path.dirname(filePath));
+  if (dirStats.isSymbolicLink() || !dirStats.isDirectory()) throw new Error("agent-config-directory-invalid");
+  if (typeof process.getuid === "function" && dirStats.uid !== process.getuid()) {
+    throw new Error("agent-config-directory-owner-mismatch");
+  }
+  chmodSync(path.dirname(filePath), 0o700);
+
+  const pathStats = lstatSync(filePath);
+  if (pathStats.isSymbolicLink() || !pathStats.isFile()) throw new Error("agent-config-file-invalid");
+  if (typeof process.getuid === "function" && pathStats.uid !== process.getuid()) {
+    throw new Error("agent-config-file-owner-mismatch");
+  }
+  chmodSync(filePath, 0o600);
+
+  const fd = openSync(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const openedStats = fstatSync(fd);
+    if (!openedStats.isFile()) throw new Error("agent-config-file-invalid");
+    if (typeof process.getuid === "function" && openedStats.uid !== process.getuid()) {
+      throw new Error("agent-config-file-owner-mismatch");
+    }
+    return JSON.parse(readFileSync(fd, "utf8")) as AgentConfig;
+  } finally {
+    closeSync(fd);
+  }
+};
+
 let agentConfig: AgentConfig | null = null;
 try {
-  agentConfig = JSON.parse(readFileSync(configPath, "utf8")) as AgentConfig;
+  agentConfig = readPrivateAgentConfig(configPath);
 } catch {
   // Agent config not found — send/inbox/peers tools will be unavailable
 }

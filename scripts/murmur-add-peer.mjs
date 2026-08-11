@@ -6,8 +6,8 @@
  * Usage: node scripts/murmur-add-peer.mjs MURMUR-REPLY:eyJ...
  * Env: DATA_DIR (default: .data)
  */
-import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readPrivateJson, writePrivateJson } from "./secure-state.mjs";
 
 const blob = process.argv[2];
 if (!blob || !blob.startsWith("MURMUR-REPLY:")) {
@@ -32,8 +32,9 @@ const configPath = path.join(dataDir, "agent-config.json");
 
 let config;
 try {
-  config = JSON.parse(await readFile(configPath, "utf8"));
-} catch {
+  config = await readPrivateJson(configPath);
+} catch (err) {
+  if (err?.code !== "ENOENT") throw err;
   console.error("[add-peer] No agent config found. Run first: node scripts/agent-config-init.mjs");
   process.exit(1);
 }
@@ -46,7 +47,7 @@ config.peers[reply.agentId] = {
   subject: reply.subject,
 };
 
-await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+await writePrivateJson(configPath, config);
 
 console.log(`[add-peer] Added: ${reply.agentId} (${reply.subject})`);
 console.log("");

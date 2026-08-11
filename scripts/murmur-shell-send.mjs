@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { SQLiteDedupeOutboxStore, SQLiteMessageStore, stableEnvelopePayload } from "@murmurv2/core";
 import { encryptPayload, signEnvelope } from "@murmurv2/security";
+import { readPrivateJson } from "./secure-state.mjs";
 
 const args = process.argv.slice(2);
 const opt = {};
@@ -44,7 +45,7 @@ const dbPath = process.env.MURMUR_STORE_PATH ?? path.join(dataDir, "murmur.db");
 
 let cfg;
 try {
-  cfg = JSON.parse(readFileSync(configPath, "utf8"));
+  cfg = await readPrivateJson(configPath);
 } catch (err) {
   process.stderr.write(`error: cannot read ${configPath}: ${err.message}\n`);
   process.exit(2);
