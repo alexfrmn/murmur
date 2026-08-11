@@ -386,6 +386,32 @@ See `docs/wake-native.md`.
 
 ---
 
+## Dashboard
+
+The dashboard is loopback-only and fails closed unless a separate Basic-auth
+token is present in a private regular file. Create the token once:
+
+```bash
+install -d -m 0700 ~/.config/murmur
+umask 077
+openssl rand -hex 32 > ~/.config/murmur/dashboard-token
+chmod 0600 ~/.config/murmur/dashboard-token
+node dashboard/server.mjs
+```
+
+Open `http://127.0.0.1:4280/` and use username `murmur` with the generated token
+as the password. Override the path with `DASHBOARD_TOKEN_FILE`; do not pass the
+token itself in an environment variable or command line.
+
+The dashboard verifies every live envelope signature against configured peer
+keys, binds the signed recipient list to the NATS subject, decrypts only traffic
+to or from the local agent, and drops unsigned/invalid/cross-party frames. Its
+historical feed comes from the daemon's verified local store. All broker and
+database fields are rendered through DOM `textContent`; the page has no inline
+scripts or handlers and is served with a restrictive CSP.
+
+---
+
 ## Deployment
 
 ### Systemd (recommended)
