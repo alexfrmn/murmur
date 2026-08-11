@@ -29,17 +29,17 @@ import {
   type SecurityPolicy,
   type UnsignedAckV1,
   streamBackpressureAllowsSend,
+  buildSecureNatsConnectionOptions,
+  type SecureNatsClientConfig,
   validateEnvelopePolicy,
 } from "@murmurv2/core";
 
-export interface BrokerConfig {
-  url: string;
+export interface BrokerConfig extends SecureNatsClientConfig {
   jetstream?: boolean;
   stream?: string;
   streamSubjects?: string[];
   jetstreamMaxDeliver?: number;
   jetstreamAckWaitMs?: number;
-  token?: string;
   connectMaxAttempts?: number;
   connectBaseBackoffMs?: number;
   connectJitterRatio?: number;
@@ -94,8 +94,7 @@ interface JetStreamConsumerAdvisory {
 }
 
 export const buildNatsConnectionOptions = (config: BrokerConfig): ConnectionOptions => ({
-  servers: config.url,
-  token: config.token,
+  ...buildSecureNatsConnectionOptions(config),
   maxReconnectAttempts: config.maxReconnectAttempts ?? -1,
   reconnectTimeWait: config.reconnectTimeWait ?? 2000,
   reconnectJitter: config.reconnectJitter ?? 500,

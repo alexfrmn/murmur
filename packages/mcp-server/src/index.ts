@@ -33,6 +33,15 @@ interface AgentConfig {
   agentId: string;
   natsUrl: string;
   natsToken?: string;
+  natsUser?: string;
+  natsPassword?: string;
+  natsTls?: {
+    handshakeFirst?: boolean;
+    caFile?: string;
+    certFile?: string;
+    keyFile?: string;
+    serverName?: string;
+  };
   subject: string;
   dataDir: string;
   keys: {
@@ -115,6 +124,9 @@ const getWakeBroker = async (now: () => number = Date.now): Promise<NatsBroker |
     const broker = new NatsBroker({
       url: agentConfig.natsUrl,
       token: agentConfig.natsToken,
+      user: agentConfig.natsUser,
+      password: agentConfig.natsPassword,
+      tls: agentConfig.natsTls,
       jetstream: false,
     });
     await broker.connect();

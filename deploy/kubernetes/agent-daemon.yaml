@@ -42,8 +42,6 @@ spec:
               value: /data
             - name: FLUSH_INTERVAL_MS
               value: "2000"
-            - name: MURMUR_JETSTREAM
-              value: "1"
             - name: MURMUR_JETSTREAM_MAX_DELIVER
               value: "5"
             - name: MURMUR_JETSTREAM_ACK_WAIT_MS
@@ -70,6 +68,10 @@ spec:
             - name: agent-config
               mountPath: /data/agent-config.json
               subPath: agent-config.json
+              readOnly: true
+            - name: nats-ca
+              mountPath: /etc/murmur/nats/ca.crt
+              subPath: ca.crt
               readOnly: true
         - name: metrics
           image: ghcr.io/acme/murmur-v2-daemon:2.2.0
@@ -101,6 +103,9 @@ spec:
         - name: agent-config
           secret:
             secretName: murmur-agent-config
+        - name: nats-ca
+          secret:
+            secretName: murmur-nats-tls
   volumeClaimTemplates:
     - metadata:
         name: agent-data

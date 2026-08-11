@@ -7,7 +7,7 @@ LaunchAgents or the Codex app-server wake path.
 ## Current Topology
 
 - Agent id: `agent-codex-mac-kovalyaevo`
-- Broker: `nats://nats.server-pilot.ru:4222`
+- Broker: `tls://nats.server-pilot.ru:4222`
 - Peer that wakes Codex on the Mac: `agent-jarvis`
 - Murmur repo on the Mac: `/Users/alex/.local/share/mur-mur-v2`
 - Mac data dir:
@@ -68,8 +68,8 @@ The Mac peer config needs these wake fields:
 }
 ```
 
-Only `natsUrl` should point at the current broker. The mesh token and keys are
-not part of this runbook.
+`natsUrl` must use `tls://`. The per-agent broker username/password, CA path,
+and mesh keys are not part of this runbook.
 
 ## Implementation Notes
 

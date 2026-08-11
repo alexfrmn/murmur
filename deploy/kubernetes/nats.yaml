@@ -4,7 +4,45 @@ metadata:
   name: murmur-nats-auth
 type: Opaque
 stringData:
-  NATS_TOKEN: CHANGE_ME_NATS_TOKEN
+  NATS_USER: agent-k8s-demo
+  NATS_PASSWORD_BCRYPT: CHANGE_ME_BCRYPT_HASH
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: murmur-nats-tls
+type: Opaque
+stringData:
+  tls.crt: CHANGE_ME_SERVER_CERTIFICATE_PEM
+  tls.key: CHANGE_ME_SERVER_PRIVATE_KEY_PEM
+  ca.crt: CHANGE_ME_CA_CERTIFICATE_PEM
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: murmur-nats-config
+data:
+  nats.conf: |
+    port: 4222
+    http: 8222
+    jetstream { store_dir: "/data/jetstream" }
+    tls {
+      cert_file: "/etc/nats/tls/tls.crt"
+      key_file: "/etc/nats/tls/tls.key"
+      timeout: 2
+    }
+    authorization {
+      users: [
+        {
+          user: $NATS_USER
+          password: $NATS_PASSWORD_BCRYPT
+          permissions: {
+            publish: ["msg.agent-peer", "ack.agent-peer"]
+            subscribe: ["msg.agent-k8s-demo", "ack.agent-k8s-demo"]
+          }
+        }
+      ]
+    }
 ---
 apiVersion: v1
 kind: Service
@@ -49,13 +87,18 @@ spec:
             - /bin/sh
             - -ec
           args:
-            - exec nats-server -js -sd /data/jetstream -m 8222 --auth "$NATS_TOKEN"
+            - exec nats-server -c /etc/nats/nats.conf
           env:
-            - name: NATS_TOKEN
+            - name: NATS_USER
               valueFrom:
                 secretKeyRef:
                   name: murmur-nats-auth
-                  key: NATS_TOKEN
+                  key: NATS_USER
+            - name: NATS_PASSWORD_BCRYPT
+              valueFrom:
+                secretKeyRef:
+                  name: murmur-nats-auth
+                  key: NATS_PASSWORD_BCRYPT
           ports:
             - name: nats
               containerPort: 4222
@@ -69,6 +112,20 @@ spec:
           volumeMounts:
             - name: nats-data
               mountPath: /data
+            - name: nats-config
+              mountPath: /etc/nats/nats.conf
+              subPath: nats.conf
+              readOnly: true
+            - name: nats-tls
+              mountPath: /etc/nats/tls
+              readOnly: true
+      volumes:
+        - name: nats-config
+          configMap:
+            name: murmur-nats-config
+        - name: nats-tls
+          secret:
+            secretName: murmur-nats-tls
   volumeClaimTemplates:
     - metadata:
         name: nats-data

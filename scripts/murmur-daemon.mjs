@@ -42,7 +42,7 @@ try {
   process.exit(1);
 }
 
-const { agentId, natsUrl, natsToken, subject, peers, keys } = config;
+const { agentId, natsUrl, natsToken, natsUser, natsPassword, natsTls, subject, peers, keys } = config;
 const dbPath = path.join(dataDir, "murmur.db");
 const flushIntervalMs = Number(process.env.FLUSH_INTERVAL_MS) || 2000;
 const jetstreamConfig = config.jetstream || {};
@@ -154,6 +154,9 @@ if (channelRosterEnabled) log("info", "Channel roster thread-start binding enabl
 const broker = new NatsBroker({
   url: natsUrl,
   token: natsToken,
+  user: natsUser,
+  password: natsPassword,
+  tls: natsTls,
   jetstream: jetstreamEnabled,
   stream: jetstreamEnabled ? jetstreamStream : undefined,
   streamSubjects: jetstreamSubjects,

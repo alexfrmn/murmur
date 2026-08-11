@@ -86,7 +86,13 @@ const emitToSession = envFlag("MURMUR_MCP_TO_SESSION", true);
 const textPrefix = process.env.MURMUR_MCP_TEXT_PREFIX || "";
 const { SessionLeaseStore } = await import(leaseModuleUrl);
 
-const broker = new NatsBroker({ url: config.natsUrl, token: config.natsToken });
+const broker = new NatsBroker({
+  url: config.natsUrl,
+  token: config.natsToken,
+  user: config.natsUser,
+  password: config.natsPassword,
+  tls: config.natsTls,
+});
 const dedupe = new SQLiteDedupeOutboxStore(dbPath);
 const lease = new SessionLeaseStore(leaseDbPath);
 

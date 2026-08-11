@@ -27,12 +27,14 @@ import type { Server } from "node:http";
 import express from "express";
 import { StringCodec, connect, type NatsConnection, type Subscription } from "nats";
 import {
+  buildSecureNatsConnectionOptions,
   isEnvelopeV1,
   isSignedAckV1,
   stableAckPayload,
   stableEnvelopePayload,
   type AckV1,
   type EnvelopeV1,
+  type NatsTlsOptions,
   type SignedAckV1,
 } from "@murmurv2/core";
 import {
@@ -61,6 +63,9 @@ export interface BridgeA2AConfig {
   /** NATS bus the internal mesh runs on. */
   natsUrl: string;
   natsToken?: string;
+  natsUser?: string;
+  natsPassword?: string;
+  natsTls?: NatsTlsOptions;
   /** This bridge's own agent id on the mesh (e.g. "a2a-bridge"). */
   agentId: string;
   /** Default internal recipient for inbound A2A tasks (e.g. "agent-jarvis"). */
@@ -203,7 +208,13 @@ export class A2AMurmurBridge {
 
   async start(): Promise<void> {
     if (this.running) return;
-    this.nc = await connect({ servers: this.config.natsUrl, token: this.config.natsToken });
+    this.nc = await connect(buildSecureNatsConnectionOptions({
+      url: this.config.natsUrl,
+      token: this.config.natsToken,
+      user: this.config.natsUser,
+      password: this.config.natsPassword,
+      tls: this.config.natsTls,
+    }));
 
     // Internal replies/ACKs to this bridge land on ack.<agentId>; correlate by msgId.
     this.ackSub = this.nc.subscribe(this.ackSubject());

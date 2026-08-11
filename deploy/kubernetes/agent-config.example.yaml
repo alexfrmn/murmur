@@ -7,16 +7,11 @@ stringData:
   agent-config.json: |
     {
       "agentId": "agent-k8s-demo",
-      "natsUrl": "nats://murmur-nats.murmur.svc.cluster.local:4222",
-      "natsToken": "CHANGE_ME_NATS_TOKEN",
+      "natsUrl": "tls://murmur-nats.murmur.svc.cluster.local:4222",
+      "natsUser": "agent-k8s-demo",
+      "natsPassword": "CHANGE_ME_DISTINCT_CLIENT_PASSWORD",
+      "natsTls": { "caFile": "/etc/murmur/nats/ca.crt" },
       "subject": "msg.agent-k8s-demo",
-      "jetstream": {
-        "enabled": true,
-        "stream": "MURMUR",
-        "subjects": ["msg.>", "ack.>"],
-        "maxDeliver": 5,
-        "ackWaitMs": 30000
-      },
       "streaming": {
         "ackTimeoutMs": 15000,
         "ackWindow": {

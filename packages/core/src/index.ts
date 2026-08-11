@@ -12,6 +12,9 @@ export * from "./lease.js";
 // Phase N — typed channel roster (channelId distinct from legacy conversationId)
 export * from "./channel.js";
 
+// NATS endpoint/auth policy shared by every production NATS client.
+export * from "./nats-security.js";
+
 export type DeliveryMode = "at-least-once";
 
 export interface EnvelopeV1 {

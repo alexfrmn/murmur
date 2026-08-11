@@ -5,6 +5,6 @@ services:
     # JetStream is enabled for durable broker delivery; Murmur daemons still keep SQLite outbox durability locally.
     command: ["-js", "-m", "8222", "--auth", "${NATS_TOKEN}"]
     ports:
-      - "4222:4222"
+      - "127.0.0.1:4222:4222"
       - "127.0.0.1:8222:8222"
     restart: unless-stopped
