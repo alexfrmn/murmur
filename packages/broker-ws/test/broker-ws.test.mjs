@@ -19,6 +19,12 @@ function envelope(overrides = {}) {
   };
 }
 
+const ackSecurity = (localAgentId) => ({
+  localAgentId,
+  sign: async () => `test-signature:${localAgentId}`,
+  verify: async () => true,
+});
+
 async function eventually(fn, timeoutMs = 1500) {
   const start = Date.now();
   let lastErr;
@@ -47,12 +53,33 @@ class MemoryOutbox {
   acked = [];
   failed = [];
 
-  async markAcked(msgId) {
-    this.acked.push(msgId);
+  constructor(env) {
+    this.record = {
+      msgId: env.msgId,
+      subject: "msg.bob",
+      envelope: env,
+      status: "sent",
+      attempts: 1,
+      nextAttemptAt: env.createdAt,
+      createdAt: env.createdAt,
+      updatedAt: env.createdAt,
+    };
   }
 
-  async markFailed(msgId, error) {
-    this.failed.push({ msgId, error });
+  async get(msgId) {
+    return msgId === this.record.msgId ? this.record : undefined;
+  }
+
+  async applyVerifiedAck(ack) {
+    if (this.record.status === "acked" || this.record.status === "dlq") return "terminal";
+    if (ack.status === "ack") {
+      this.record.status = "acked";
+      this.acked.push(ack.msgId);
+    } else {
+      this.record.status = "failed";
+      this.failed.push({ msgId: ack.msgId, error: ack.reason ?? "nack" });
+    }
+    return "applied";
   }
 }
 
@@ -66,10 +93,10 @@ test("wsSubjectMatches supports exact, star, and tail wildcards", () => {
 
 test("WebSocketBroker publishes envelopes through a relay and correlates ACKs", async () => {
   await withRelay(async (url) => {
-    const alice = new WebSocketBroker({ url });
-    const bob = new WebSocketBroker({ url });
+    const alice = new WebSocketBroker({ url, ackSecurity: ackSecurity("alice") });
+    const bob = new WebSocketBroker({ url, ackSecurity: ackSecurity("bob") });
     const seen = [];
-    const outbox = new MemoryOutbox();
+    const outbox = new MemoryOutbox(envelope());
 
     await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox });
     await bob.subscribeWithAck({
@@ -93,10 +120,10 @@ test("WebSocketBroker publishes envelopes through a relay and correlates ACKs", 
 
 test("WebSocketBroker dedupes duplicate envelope delivery and still ACKs the duplicate", async () => {
   await withRelay(async (url) => {
-    const alice = new WebSocketBroker({ url });
-    const bob = new WebSocketBroker({ url });
+    const alice = new WebSocketBroker({ url, ackSecurity: ackSecurity("alice") });
+    const bob = new WebSocketBroker({ url, ackSecurity: ackSecurity("bob") });
     const seen = [];
-    const outbox = new MemoryOutbox();
+    const outbox = new MemoryOutbox(envelope());
 
     await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox });
     await bob.subscribeWithAck({
@@ -112,18 +139,18 @@ test("WebSocketBroker dedupes duplicate envelope delivery and still ACKs the dup
     await alice.publish("msg.bob", envelope());
 
     await eventually(() => assert.deepEqual(seen, ["msg-1"]));
-    await eventually(() => assert.deepEqual(outbox.acked, ["msg-1", "msg-1"]));
+    await eventually(() => assert.deepEqual(outbox.acked, ["msg-1"]));
 
     await alice.close();
     await bob.close();
   });
 });
 
-test("WebSocketBroker NACKs invalid envelope frames", async () => {
+test("WebSocketBroker drops invalid envelope frames without emitting an unbound ACK", async () => {
   await withRelay(async (url) => {
-    const alice = new WebSocketBroker({ url });
-    const bob = new WebSocketBroker({ url });
-    const outbox = new MemoryOutbox();
+    const alice = new WebSocketBroker({ url, ackSecurity: ackSecurity("alice") });
+    const bob = new WebSocketBroker({ url, ackSecurity: ackSecurity("bob") });
+    const outbox = new MemoryOutbox(envelope());
 
     await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox });
     await bob.subscribeWithAck({
@@ -139,9 +166,22 @@ test("WebSocketBroker NACKs invalid envelope frames", async () => {
     await new Promise((resolve) => raw.once("open", resolve));
     raw.send(JSON.stringify({ type: "message", subject: "msg.bob", envelope: { msgId: "bad", senderAgentId: "alice" } }));
 
-    await eventually(() => assert.deepEqual(outbox.failed, [{ msgId: "unknown", error: "invalid-envelope" }]));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(outbox.failed, []);
     raw.close();
     await alice.close();
     await bob.close();
   });
+});
+
+test("WebSocketBroker enforces the local per-agent ACK subject before connecting", async () => {
+  const broker = new WebSocketBroker({
+    url: "ws://example.invalid",
+    ackSecurity: ackSecurity("alice"),
+  });
+  const outbox = new MemoryOutbox(envelope());
+  await assert.rejects(
+    () => broker.startAckCorrelation({ ackSubject: "ack.someone-else", outbox }),
+    /ack-subject-mismatch/,
+  );
 });

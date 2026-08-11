@@ -26,7 +26,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import express from "express";
 import { StringCodec, connect, type NatsConnection, type Subscription } from "nats";
-import { isEnvelopeV1, stableEnvelopePayload, type AckV1, type EnvelopeV1 } from "@murmurv2/core";
+import { isEnvelopeV1, stableEnvelopePayload, type EnvelopeV1 } from "@murmurv2/core";
 import { decryptPayload, encryptPayload, signEnvelope } from "@murmurv2/security";
 import {
   DefaultRequestHandler,
@@ -284,7 +284,7 @@ export class A2AMurmurBridge {
     return reply;
   }
 
-  /** Internal reply (fresh EnvelopeV1 with parentMsgId) or AckV1 -> resolve A2A task. */
+  /** Internal reply envelope -> resolve A2A task. ACK frames never resolve tasks. */
   private async handleInternalReply(raw: string): Promise<void> {
     const parsed: unknown = JSON.parse(raw);
 
@@ -303,15 +303,9 @@ export class A2AMurmurBridge {
       return;
     }
 
-    const ack = parsed as AckV1;
-    if (ack?.msgId && ack.status === "nack") {
-      const resolve = this.pending.get(ack.msgId);
-      if (resolve) {
-        this.pending.delete(ack.msgId);
-        resolve(`[murmur nack] ${ack.reason ?? "rejected"}`);
-      }
-    }
-    // A positive AckV1 only confirms delivery; the real answer arrives as an envelope.
+    // Delivery ACKs are handled only by the broker's signed, outbox-bound
+    // correlation path. This bridge waits for the real reply envelope or timeout;
+    // unverified ACK-shaped JSON cannot suppress or resolve the task.
   }
 
   async stop(): Promise<void> {

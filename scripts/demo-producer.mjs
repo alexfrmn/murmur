@@ -3,13 +3,24 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { DatabaseSync } from "node:sqlite";
 import { NatsBroker } from "@murmurv2/broker-nats";
 import { SQLiteDedupeOutboxStore } from "@murmurv2/core";
-import { encryptPayload, getCryptoProvider, signEnvelope } from "@murmurv2/security";
+import { encryptPayload, getCryptoProvider, signEnvelope, verifyEnvelopeSignature } from "@murmurv2/security";
 import { ensureDemoKeys, loadDemoConfig, policyFromConfig, stableEnvelopePayload } from "./demo-secure-common.mjs";
 
 const cfg = loadDemoConfig();
 const keys = await ensureDemoKeys(cfg.keysPath);
 
-const broker = new NatsBroker({ url: cfg.natsUrl, token: cfg.natsToken });
+const broker = new NatsBroker({
+  url: cfg.natsUrl,
+  token: cfg.natsToken,
+  ackSecurity: {
+    localAgentId: cfg.senderAgentId,
+    sign: (payload) => signEnvelope(payload, keys.sender.signing.privateKey),
+    verify: (senderAgentId, payload, signature) =>
+      senderAgentId === cfg.recipientAgentId
+        ? verifyEnvelopeSignature(payload, signature, keys.recipient.signing.publicKey)
+        : Promise.resolve(false),
+  },
+});
 const outbox = new SQLiteDedupeOutboxStore(cfg.outboxDbPath);
 
 const waitForAck = async (dbPath, msgId, timeoutMs) => {
@@ -55,7 +66,7 @@ const run = async () => {
 
   await broker.startAckCorrelation({
     outbox,
-    ackSubject: `ack.${cfg.consumerId}`,
+    ackSubject: `ack.${cfg.senderAgentId}`,
   });
 
   await outbox.enqueue(cfg.subject, envelope);

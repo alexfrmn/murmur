@@ -13,9 +13,11 @@ import {
   applyJitter,
   computeBackoffMs,
   createAck,
+  envelopeDigest,
   estimateBase64DecodedBytes,
   type EnvelopeV1,
   isEnvelopeV1,
+  isAckV1,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
   type DedupeStore,
@@ -23,6 +25,7 @@ import {
   type AckV1,
   type SecurityPolicy,
   streamBackpressureAllowsSend,
+  stableAckPayload,
   validateEnvelopePolicy,
 } from "@murmurv2/core";
 
@@ -44,6 +47,22 @@ export interface BrokerConfig {
   maxPingOut?: number;
   waitOnFirstConnect?: boolean;
   onStatus?: (status: BrokerStatusEvent) => void;
+  ackSecurity?: AckSecurityConfig;
+}
+
+export interface AckRejectedEvent {
+  reason: string;
+  msgId?: string;
+  senderAgentId?: string;
+}
+
+export interface AckSecurityConfig {
+  localAgentId: string;
+  sign(payload: string): Promise<string>;
+  verify(senderAgentId: string, payload: string, signature: string): Promise<boolean>;
+  maxAgeMs?: number;
+  maxFutureSkewMs?: number;
+  onRejected?: (event: AckRejectedEvent) => void;
 }
 
 export type MessageHandler = (envelope: EnvelopeV1) => Promise<void>;
@@ -95,6 +114,7 @@ export class NatsBroker {
   private jsm?: JetStreamManager;
   private readonly sc = StringCodec();
   private readonly failedDeliveries = new Map<string, number>();
+  private readonly ackRejections = new Map<string, number>();
   private reconnects = 0;
   private statusLoop?: Promise<void>;
 
@@ -136,6 +156,45 @@ export class NatsBroker {
 
   getReconnectCount(): number {
     return this.reconnects;
+  }
+
+  getAckRejectionCounts(): Record<string, number> {
+    return Object.fromEntries(this.ackRejections.entries());
+  }
+
+  private requireAckSecurity(): AckSecurityConfig {
+    const security = this.config.ackSecurity;
+    if (!security || !security.localAgentId || typeof security.sign !== "function" || typeof security.verify !== "function") {
+      throw new Error("ack-security-required");
+    }
+    return security;
+  }
+
+  private rejectAck(reason: string, ack?: Partial<AckV1>): void {
+    this.ackRejections.set(reason, (this.ackRejections.get(reason) ?? 0) + 1);
+    const event: AckRejectedEvent = {
+      reason,
+      ...(typeof ack?.msgId === "string" ? { msgId: ack.msgId } : {}),
+      ...(typeof ack?.senderAgentId === "string" ? { senderAgentId: ack.senderAgentId } : {}),
+    };
+    this.config.ackSecurity?.onRejected?.(event);
+    console.warn("[NatsBroker.ack] rejected", event);
+  }
+
+  private async signedAck(
+    envelope: EnvelopeV1,
+    consumerId: string,
+    status: AckV1["status"],
+    reason?: string,
+  ): Promise<AckV1> {
+    const security = this.requireAckSecurity();
+    if (!envelope.recipients.includes(security.localAgentId)) {
+      throw new Error("ack-local-agent-not-recipient");
+    }
+    const ack = createAck(envelope, consumerId, security.localAgentId, status, reason);
+    ack.signature = await security.sign(stableAckPayload(ack));
+    if (!isAckV1(ack)) throw new Error("ack-signing-failed");
+    return ack;
   }
 
   private jetStreamEnabled(): boolean {
@@ -240,11 +299,15 @@ export class NatsBroker {
   }
 
   async publishAck(subject: string, envelope: ReturnType<typeof createAck>): Promise<void> {
+    if (!isAckV1(envelope)) throw new Error("signed-ack-required");
+    const security = this.requireAckSecurity();
+    if (envelope.senderAgentId !== security.localAgentId) throw new Error("ack-sender-mismatch");
+    if (subject !== `ack.${envelope.recipientAgentId}`) throw new Error("ack-subject-mismatch");
     await this.connect();
     const payload = this.sc.encode(JSON.stringify(envelope));
     if (this.js) {
       await this.js.publish(subject, payload, {
-        msgID: `ack:${envelope.msgId}:${envelope.consumerId}:${envelope.status}`,
+        msgID: `ack:${envelope.ackId}`,
       });
       return;
     }
@@ -266,7 +329,6 @@ export class NatsBroker {
     try {
       const decoded = JSON.parse(this.sc.decode(data));
       if (!isEnvelopeV1(decoded)) {
-        await this.publishAck(ackSubject, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
         return "ack";
       }
 
@@ -274,7 +336,7 @@ export class NatsBroker {
       ackSubject = `ack.${decoded.senderAgentId}`;
       const isDup = await params.dedupe.seen(decoded.msgId, params.consumerId);
       if (isDup) {
-        await this.publishAck(ackSubject, createAck(decoded.msgId, params.consumerId, "ack", "duplicate-ignored"));
+        await this.publishAck(ackSubject, await this.signedAck(decoded, params.consumerId, "ack", "duplicate-ignored"));
         return "ack";
       }
 
@@ -286,7 +348,7 @@ export class NatsBroker {
         if (!authz.accepted) {
           await this.publishAck(
             ackSubject,
-            createAck(decoded.msgId, params.consumerId, "nack", `auth-rejected:${authz.reason ?? "denied"}`),
+            await this.signedAck(decoded, params.consumerId, "nack", `auth-rejected:${authz.reason ?? "denied"}`),
           );
           return "ack";
         }
@@ -295,7 +357,7 @@ export class NatsBroker {
       await params.onMessage(decoded);
       await params.dedupe.markSeen(decoded.msgId, params.consumerId);
       this.failedDeliveries.delete(`${params.consumerId}:${decoded.msgId}`);
-      await this.publishAck(ackSubject, createAck(decoded.msgId, params.consumerId, "ack"));
+      await this.publishAck(ackSubject, await this.signedAck(decoded, params.consumerId, "ack"));
       return "ack";
     } catch (err) {
       const reason = err instanceof Error ? err.message : "handler-failed";
@@ -306,10 +368,16 @@ export class NatsBroker {
       if (msgId !== "unknown" && failures >= maxPoisonAttempts) {
         await params.dedupe.markSeen(msgId, params.consumerId);
         this.failedDeliveries.delete(key);
-        await this.publishAck(ackSubject, createAck(msgId, params.consumerId, "nack", `poison-message:${reason}`));
+        const decoded = JSON.parse(this.sc.decode(data));
+        if (isEnvelopeV1(decoded)) {
+          await this.publishAck(ackSubject, await this.signedAck(decoded, params.consumerId, "nack", `poison-message:${reason}`));
+        }
         return "ack";
       }
-      await this.publishAck(ackSubject, createAck(msgId, params.consumerId, "nack", reason));
+      const decoded = JSON.parse(this.sc.decode(data));
+      if (isEnvelopeV1(decoded)) {
+        await this.publishAck(ackSubject, await this.signedAck(decoded, params.consumerId, "nack", reason));
+      }
       return "retry";
     }
   }
@@ -391,6 +459,7 @@ export class NatsBroker {
      *  (wire @murmurv2/federation authorizeInbound here behind MURMUR_ENFORCE_AUTH). */
     authorize?: InboundAuthorizer;
   }): Promise<BrokerSubscription> {
+    this.requireAckSecurity();
     await this.connect();
 
     if (this.js) {
@@ -497,6 +566,8 @@ export class NatsBroker {
     ackSubject: string;
     consumerId?: string;
   }): Promise<BrokerSubscription> {
+    const security = this.requireAckSecurity();
+    if (params.ackSubject !== `ack.${security.localAgentId}`) throw new Error("ack-subject-mismatch");
     await this.connect();
 
     if (this.js) {
@@ -521,30 +592,64 @@ export class NatsBroker {
   }
 
   private async processAckFrame(data: Uint8Array, outbox: OutboxStore): Promise<void> {
+    let decoded: unknown;
     try {
-      const decoded = JSON.parse(this.sc.decode(data)) as AckV1;
-      if (typeof decoded.msgId !== "string" || decoded.msgId.length === 0) return;
-
-      if (decoded.status === "ack") {
-        await outbox.markAcked(decoded.msgId);
-        return;
-      }
-
-      if (decoded.status === "nack") {
-        await outbox.markFailed(
-          decoded.msgId,
-          decoded.reason ?? "nack",
-          new Date().toISOString(),
-        );
-      }
-    } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      console.error("[NatsBroker.startAckCorrelation] malformed ack frame", {
-        message: e.message,
-        stack: e.stack,
-        raw: this.sc.decode(data),
-      });
+      decoded = JSON.parse(this.sc.decode(data));
+    } catch {
+      this.rejectAck("malformed");
+      return;
     }
+    if (!isAckV1(decoded)) {
+      this.rejectAck("unsigned-or-invalid", decoded && typeof decoded === "object" ? decoded as Partial<AckV1> : undefined);
+      return;
+    }
+
+    const security = this.config.ackSecurity;
+    if (!security) {
+      this.rejectAck("security-unavailable", decoded);
+      return;
+    }
+    const at = Date.parse(decoded.at);
+    const now = Date.now();
+    const maxAgeMs = security.maxAgeMs ?? 10 * 60_000;
+    const maxFutureSkewMs = security.maxFutureSkewMs ?? 60_000;
+    if (now - at > maxAgeMs || at - now > maxFutureSkewMs) {
+      this.rejectAck("stale-or-future", decoded);
+      return;
+    }
+
+    let signatureValid = false;
+    try {
+      signatureValid = await security.verify(decoded.senderAgentId, stableAckPayload(decoded), decoded.signature);
+    } catch {
+      signatureValid = false;
+    }
+    if (!signatureValid) {
+      this.rejectAck("signature-invalid", decoded);
+      return;
+    }
+
+    const pending = await outbox.get(decoded.msgId);
+    if (!pending) {
+      this.rejectAck("message-unknown", decoded);
+      return;
+    }
+    if (
+      decoded.recipientAgentId !== security.localAgentId ||
+      decoded.recipientAgentId !== pending.envelope.senderAgentId ||
+      !pending.envelope.recipients.includes(decoded.senderAgentId) ||
+      decoded.conversationId !== pending.envelope.conversationId ||
+      decoded.messageDigest !== envelopeDigest(pending.envelope)
+    ) {
+      this.rejectAck("binding-mismatch", decoded);
+      return;
+    }
+
+    const result = await outbox.applyVerifiedAck(decoded);
+    if (result === "applied") {
+      return;
+    }
+    this.rejectAck(result === "replay" ? "replay" : result, decoded);
   }
 
   async startJetStreamAdvisoryDlq(params: {

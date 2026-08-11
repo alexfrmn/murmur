@@ -38,11 +38,18 @@ export interface EnvelopeV1 {
 }
 
 export interface AckV1 {
+  ackVersion: "1.0";
+  ackId: string;
   msgId: string;
+  messageDigest: string;
+  conversationId: string;
   consumerId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
   status: "ack" | "nack";
   reason?: string;
   at: string;
+  signature: string;
 }
 
 /**
@@ -67,6 +74,31 @@ export const stableEnvelopePayload = (envelope: EnvelopeV1): string =>
     // without it sign byte-identically to before this field existed (back-compat),
     // and when present it is covered by the signature so it can't be stripped/swapped.
     ...(envelope.authToken !== undefined ? { authToken: envelope.authToken } : {}),
+  });
+
+/** Digest bound into every ACK so a valid signature cannot be moved to a
+ * different envelope that happens to reuse a message id. */
+export const envelopeDigest = (envelope: EnvelopeV1): string =>
+  createHash("sha256")
+    .update(stableEnvelopePayload(envelope), "utf8")
+    .update("\n", "utf8")
+    .update(envelope.signature, "utf8")
+    .digest("hex");
+
+/** Canonical signed representation for AckV1. */
+export const stableAckPayload = (ack: AckV1): string =>
+  JSON.stringify({
+    ackVersion: ack.ackVersion,
+    ackId: ack.ackId,
+    msgId: ack.msgId,
+    messageDigest: ack.messageDigest,
+    conversationId: ack.conversationId,
+    consumerId: ack.consumerId,
+    senderAgentId: ack.senderAgentId,
+    recipientAgentId: ack.recipientAgentId,
+    status: ack.status,
+    reason: ack.reason ?? null,
+    at: ack.at,
   });
 
 export interface DedupeStore {
@@ -168,12 +200,17 @@ export interface OutboxRecord {
   createdAt: string;
   updatedAt: string;
   version?: number;
+  processedAckIds?: string[];
 }
+
+export type AckApplyResult = "applied" | "replay" | "not-found" | "terminal";
 
 export interface OutboxStore {
   enqueue(subject: string, envelope: EnvelopeV1): Promise<void>;
   claimDue(limit?: number): Promise<OutboxRecord[]>;
+  get(msgId: string): Promise<OutboxRecord | undefined>;
   listInFlight?(): Promise<OutboxRecord[]>;
+  applyVerifiedAck(ack: AckV1): Promise<AckApplyResult>;
   markSent(msgId: string): Promise<void>;
   markAcked(msgId: string): Promise<void>;
   markFailed(msgId: string, error: string, nextAttemptAt: string): Promise<void>;
@@ -232,6 +269,11 @@ export class JsonFileOutboxStore implements OutboxStore {
       .slice(0, limit);
   }
 
+  async get(msgId: string): Promise<OutboxRecord | undefined> {
+    const state = await this.load();
+    return state.records.find((row) => row.msgId === msgId);
+  }
+
   async listInFlight(): Promise<OutboxRecord[]> {
     const state = await this.load();
     return state.records.filter((r) => r.status === "sent");
@@ -240,7 +282,7 @@ export class JsonFileOutboxStore implements OutboxStore {
   async markSent(msgId: string): Promise<void> {
     const state = await this.load();
     const row = state.records.find((r) => r.msgId === msgId);
-    if (!row) return;
+    if (!row || !["pending", "failed"].includes(row.status)) return;
     row.status = "sent";
     row.attempts += 1;
     row.updatedAt = new Date().toISOString();
@@ -279,6 +321,25 @@ export class JsonFileOutboxStore implements OutboxStore {
     row.updatedAt = new Date().toISOString();
     row.version = (row.version ?? 0) + 1;
     await this.save(state);
+  }
+
+  async applyVerifiedAck(ack: AckV1): Promise<AckApplyResult> {
+    const state = await this.load();
+    const row = state.records.find((record) => record.msgId === ack.msgId);
+    if (!row) return "not-found";
+    if (row.processedAckIds?.includes(ack.ackId)) return "replay";
+    if (row.status === "acked" || row.status === "dlq" || (row.status === "failed" && ack.status === "nack")) {
+      return "terminal";
+    }
+
+    row.processedAckIds = [...(row.processedAckIds ?? []), ack.ackId];
+    row.status = ack.status === "ack" ? "acked" : "failed";
+    row.lastError = ack.status === "nack" ? (ack.reason ?? "nack") : undefined;
+    if (ack.status === "nack") row.nextAttemptAt = new Date().toISOString();
+    row.updatedAt = new Date().toISOString();
+    row.version = (row.version ?? 0) + 1;
+    await this.save(state);
+    return "applied";
   }
 
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {
@@ -334,6 +395,11 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
         updated_at TEXT NOT NULL,
         version INTEGER NOT NULL DEFAULT 1
       );
+      CREATE TABLE IF NOT EXISTS ack_receipts (
+        ack_id TEXT PRIMARY KEY,
+        msg_id TEXT NOT NULL,
+        processed_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox(status, next_attempt_at);
     `);
   }
@@ -377,6 +443,10 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
     return rows.map((row) => this.toOutboxRecord(row));
   }
 
+  async get(msgId: string): Promise<OutboxRecord | undefined> {
+    return this.getOutboxRow(msgId);
+  }
+
   async listInFlight(): Promise<OutboxRecord[]> {
     const rows = this.db
       .prepare("SELECT * FROM outbox WHERE status = 'sent' ORDER BY updated_at ASC")
@@ -385,11 +455,16 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
   }
 
   async markSent(msgId: string): Promise<void> {
-    await this.updateOutboxOptimistic(msgId, (row) => ({
-      status: "sent",
-      attempts: row.attempts + 1,
-      updatedAt: new Date().toISOString(),
-    }));
+    // A fast consumer can ACK between publish() and this call. Never overwrite
+    // that terminal transition with "sent"; the conditional update makes either
+    // ordering safe across processes sharing the SQLite outbox.
+    this.db
+      .prepare(
+        `UPDATE outbox
+         SET status = 'sent', attempts = attempts + 1, updated_at = ?, version = version + 1
+         WHERE msg_id = ? AND status IN ('pending', 'failed')`,
+      )
+      .run(new Date().toISOString(), msgId);
   }
 
   async markAcked(msgId: string): Promise<void> {
@@ -414,6 +489,60 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
       lastError: error,
       updatedAt: new Date().toISOString(),
     }));
+  }
+
+  async applyVerifiedAck(ack: AckV1): Promise<AckApplyResult> {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const replay = this.db
+        .prepare("SELECT 1 FROM ack_receipts WHERE ack_id = ? LIMIT 1")
+        .get(ack.ackId);
+      if (replay) {
+        this.db.exec("ROLLBACK");
+        return "replay";
+      }
+
+      const current = this.getOutboxRow(ack.msgId);
+      if (!current) {
+        this.db.exec("ROLLBACK");
+        return "not-found";
+      }
+      if (
+        current.status === "acked" ||
+        current.status === "dlq" ||
+        (current.status === "failed" && ack.status === "nack")
+      ) {
+        this.db.exec("ROLLBACK");
+        return "terminal";
+      }
+
+      const now = new Date().toISOString();
+      this.db
+        .prepare("INSERT INTO ack_receipts (ack_id, msg_id, processed_at) VALUES (?, ?, ?)")
+        .run(ack.ackId, ack.msgId, now);
+      this.db
+        .prepare(
+          `UPDATE outbox
+           SET status = ?, last_error = ?, next_attempt_at = ?, updated_at = ?, version = version + 1
+           WHERE msg_id = ?`,
+        )
+        .run(
+          ack.status === "ack" ? "acked" : "failed",
+          ack.status === "nack" ? (ack.reason ?? "nack") : null,
+          ack.status === "nack" ? now : current.nextAttemptAt,
+          now,
+          ack.msgId,
+        );
+      this.db.exec("COMMIT");
+      return "applied";
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // Preserve the original database error.
+      }
+      throw error;
+    }
   }
 
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {
@@ -1215,17 +1344,44 @@ export const isEnvelopeV1 = (v: unknown): v is EnvelopeV1 => {
   );
 };
 
+export const isAckV1 = (v: unknown): v is AckV1 => {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    o.ackVersion === "1.0" &&
+    typeof o.ackId === "string" && o.ackId.length > 0 &&
+    typeof o.msgId === "string" && o.msgId.length > 0 &&
+    typeof o.messageDigest === "string" && /^[0-9a-f]{64}$/.test(o.messageDigest) &&
+    typeof o.conversationId === "string" && o.conversationId.length > 0 &&
+    typeof o.consumerId === "string" && o.consumerId.length > 0 &&
+    typeof o.senderAgentId === "string" && o.senderAgentId.length > 0 &&
+    typeof o.recipientAgentId === "string" && o.recipientAgentId.length > 0 &&
+    (o.status === "ack" || o.status === "nack") &&
+    (o.reason === undefined || typeof o.reason === "string") &&
+    typeof o.at === "string" && !Number.isNaN(Date.parse(o.at)) &&
+    typeof o.signature === "string" && o.signature.length > 0
+  );
+};
+
 export const createAck = (
-  msgId: string,
+  envelope: EnvelopeV1,
   consumerId: string,
+  senderAgentId: string,
   status: AckV1["status"],
   reason?: string,
 ): AckV1 => ({
-  msgId,
+  ackVersion: "1.0",
+  ackId: randomUUID(),
+  msgId: envelope.msgId,
+  messageDigest: envelopeDigest(envelope),
+  conversationId: envelope.conversationId,
   consumerId,
+  senderAgentId,
+  recipientAgentId: envelope.senderAgentId,
   status,
   reason,
   at: new Date().toISOString(),
+  signature: "",
 });
 
 export const computeBackoffMs = (attempt: number, baseMs = 500, maxMs = 60_000): number => {

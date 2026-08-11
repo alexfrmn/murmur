@@ -135,6 +135,24 @@ test("dispatchInboundTask: rejects a non-allowlisted external agent (no NATS nee
   );
 });
 
+test("unsigned ACK-shaped JSON cannot resolve or suppress a pending A2A task", async () => {
+  const { cfg } = await fixture();
+  const bridge = new A2AMurmurBridge(cfg);
+  let resolved = false;
+  bridge.pending.set("original-message", () => { resolved = true; });
+
+  await bridge.handleInternalReply(JSON.stringify({
+    msgId: "original-message",
+    consumerId: "claimed-peer",
+    status: "nack",
+    reason: "attacker-controlled",
+    at: new Date().toISOString(),
+  }));
+
+  assert.equal(resolved, false);
+  assert.equal(bridge.pending.has("original-message"), true);
+});
+
 test("sealTaskEnvelope: throws when target has no recipient key", async () => {
   const { cfg } = await fixture();
   await assert.rejects(

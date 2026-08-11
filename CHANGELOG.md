@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Signed, outbox-bound delivery ACKs** — NATS and WebSocket brokers now fail
+  closed on legacy unsigned ACKs; Ed25519 signatures bind every ACK/NACK to the
+  exact envelope, conversation, original sender, intended recipient, timestamp,
+  and durable replay nonce. Per-agent ACK subjects are enforced, invalid frames
+  emit metadata-only counters/logs, and SQLite/JSON stores apply verified ACKs
+  exactly once. This is a coordinated, wire-breaking peer upgrade; see
+  `docs/signed-acks.md`.
 - **Production file-level deploy tooling** — `deploy/production-file-deploy.sh`
   now builds gitignored `dist/` artifacts before copying the live-runtime
   allowlist, includes Phase N core/MCP/channel roster files, and refuses to

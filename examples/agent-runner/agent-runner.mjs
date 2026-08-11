@@ -18,7 +18,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { NatsBroker } from "@murmurv2/broker-nats";
-import { SQLiteDedupeOutboxStore, SQLiteMessageStore } from "@murmurv2/core";
+import { SQLiteDedupeOutboxStore, SQLiteMessageStore, stableEnvelopePayload } from "@murmurv2/core";
 import {
   decryptPayload,
   encryptPayload,
@@ -38,30 +38,19 @@ const log = (level, msg, data = {}) =>
 
 const store = new SQLiteMessageStore(dbPath);
 const outbox = new SQLiteDedupeOutboxStore(dbPath);
-const broker = new NatsBroker({ url: natsUrl, token: natsToken });
-
-// Stable payload that gets signed. The canonical source of truth is
-// `stableEnvelopePayload` in @murmurv2/core, golden-locked in
-// packages/core/test/stable-envelope-payload.test.mjs — this MUST stay byte-identical
-// (field set + order) or signatures will not verify against the mesh.
-//
-// It is intentionally INLINED here (not imported from core) because this example pins
-// the PUBLISHED `@murmurv2/core@^0.1.0`, which predates the exported helper; importing
-// it would break a standalone `npm install` of this template. Switch to
-// `import { stableEnvelopePayload } from "@murmurv2/core"` when bumping to the core
-// version that exports it — tracked for auth/authz #47 PR-C (when authToken enters the
-// signed payload and core is re-published).
-const stableEnvelopePayload = (e) =>
-  JSON.stringify({
-    schemaVersion: e.schemaVersion,
-    msgId: e.msgId,
-    conversationId: e.conversationId,
-    senderAgentId: e.senderAgentId,
-    recipients: [...e.recipients],
-    createdAt: e.createdAt,
-    payloadCiphertext: e.payloadCiphertext,
-    payloadNonce: e.payloadNonce,
-  });
+const broker = new NatsBroker({
+  url: natsUrl,
+  token: natsToken,
+  ackSecurity: {
+    localAgentId: agentId,
+    sign: (payload) => signEnvelope(payload, keys.signing.privateKey),
+    verify: async (senderAgentId, payload, signature) => {
+      const peer = peers[senderAgentId];
+      return !!peer?.signing?.publicKey && verifyEnvelopeSignature(payload, signature, peer.signing.publicKey);
+    },
+    onRejected: (event) => log("warn", "ack-rejected", event),
+  },
+});
 
 // --- send: encrypt -> sign -> enqueue to outbox (daemon flushes to NATS) ---
 async function sendMessage(to, text, conversationId) {

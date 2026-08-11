@@ -3,12 +3,15 @@ import {
   applyJitter,
   computeBackoffMs,
   createAck,
+  envelopeDigest,
   type AckV1,
   type DedupeStore,
   type EnvelopeV1,
+  isAckV1,
   isEnvelopeV1,
   type OutboxStore,
   type SecurityPolicy,
+  stableAckPayload,
   validateEnvelopePolicy,
 } from "@murmurv2/core";
 
@@ -56,6 +59,22 @@ export interface WebSocketRelayListenResult {
 
 export interface WebSocketBrokerConfig {
   url: string;
+  ackSecurity?: AckSecurityConfig;
+}
+
+export interface AckRejectedEvent {
+  reason: string;
+  msgId?: string;
+  senderAgentId?: string;
+}
+
+export interface AckSecurityConfig {
+  localAgentId: string;
+  sign(payload: string): Promise<string>;
+  verify(senderAgentId: string, payload: string, signature: string): Promise<boolean>;
+  maxAgeMs?: number;
+  maxFutureSkewMs?: number;
+  onRejected?: (event: AckRejectedEvent) => void;
 }
 
 export type WebSocketMessageHandler = (envelope: EnvelopeV1) => Promise<void>;
@@ -175,8 +194,48 @@ export class WebSocketBroker {
   private readonly messageSubscriptions = new Set<MessageSubscription>();
   private readonly ackSubscriptions = new Set<AckSubscription>();
   private readonly failedDeliveries = new Map<string, number>();
+  private readonly ackRejections = new Map<string, number>();
 
   constructor(private readonly config: WebSocketBrokerConfig) {}
+
+  getAckRejectionCounts(): Record<string, number> {
+    return Object.fromEntries(this.ackRejections.entries());
+  }
+
+  private requireAckSecurity(): AckSecurityConfig {
+    const security = this.config.ackSecurity;
+    if (!security || !security.localAgentId || typeof security.sign !== "function" || typeof security.verify !== "function") {
+      throw new Error("ack-security-required");
+    }
+    return security;
+  }
+
+  private rejectAck(reason: string, ack?: Partial<AckV1>): void {
+    this.ackRejections.set(reason, (this.ackRejections.get(reason) ?? 0) + 1);
+    const event: AckRejectedEvent = {
+      reason,
+      ...(typeof ack?.msgId === "string" ? { msgId: ack.msgId } : {}),
+      ...(typeof ack?.senderAgentId === "string" ? { senderAgentId: ack.senderAgentId } : {}),
+    };
+    this.config.ackSecurity?.onRejected?.(event);
+    console.warn("[WebSocketBroker.ack] rejected", event);
+  }
+
+  private async signedAck(
+    envelope: EnvelopeV1,
+    consumerId: string,
+    status: AckV1["status"],
+    reason?: string,
+  ): Promise<AckV1> {
+    const security = this.requireAckSecurity();
+    if (!envelope.recipients.includes(security.localAgentId)) {
+      throw new Error("ack-local-agent-not-recipient");
+    }
+    const ack = createAck(envelope, consumerId, security.localAgentId, status, reason);
+    ack.signature = await security.sign(stableAckPayload(ack));
+    if (!isAckV1(ack)) throw new Error("ack-signing-failed");
+    return ack;
+  }
 
   async connect(): Promise<void> {
     if (this.socket?.readyState === WebSocket.OPEN) return;
@@ -221,6 +280,10 @@ export class WebSocketBroker {
   }
 
   async publishAck(subject: string, ack: AckV1): Promise<void> {
+    if (!isAckV1(ack)) throw new Error("signed-ack-required");
+    const security = this.requireAckSecurity();
+    if (ack.senderAgentId !== security.localAgentId) throw new Error("ack-sender-mismatch");
+    if (subject !== `ack.${ack.recipientAgentId}`) throw new Error("ack-subject-mismatch");
     await this.send({ type: "ack", subject, ack });
   }
 
@@ -231,6 +294,7 @@ export class WebSocketBroker {
     onMessage: WebSocketMessageHandler;
     maxPoisonAttempts?: number;
   }): Promise<WebSocketBrokerSubscription> {
+    this.requireAckSecurity();
     await this.connect();
     const sub: MessageSubscription = { ...params, active: true, queue: Promise.resolve() };
     this.messageSubscriptions.add(sub);
@@ -247,6 +311,8 @@ export class WebSocketBroker {
     outbox: OutboxStore;
     ackSubject: string;
   }): Promise<WebSocketBrokerSubscription> {
+    const security = this.requireAckSecurity();
+    if (params.ackSubject !== `ack.${security.localAgentId}`) throw new Error("ack-subject-mismatch");
     await this.connect();
     const sub: AckSubscription = { subject: params.ackSubject, outbox: params.outbox, active: true };
     this.ackSubscriptions.add(sub);
@@ -294,10 +360,6 @@ export class WebSocketBroker {
 
   private async processEnvelopeFrame(raw: unknown, params: MessageSubscription): Promise<void> {
     if (!isEnvelopeV1(raw)) {
-      const sender = typeof raw === "object" && raw && typeof (raw as Record<string, unknown>).senderAgentId === "string"
-        ? String((raw as Record<string, unknown>).senderAgentId)
-        : params.consumerId;
-      await this.publishAck(`ack.${sender}`, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
       return;
     }
 
@@ -305,7 +367,7 @@ export class WebSocketBroker {
     const ackSubject = `ack.${envelope.senderAgentId}`;
     const isDup = await params.dedupe.seen(envelope.msgId, params.consumerId);
     if (isDup) {
-      await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "ack", "duplicate-ignored"));
+      await this.publishAck(ackSubject, await this.signedAck(envelope, params.consumerId, "ack", "duplicate-ignored"));
       return;
     }
 
@@ -313,7 +375,7 @@ export class WebSocketBroker {
       await params.onMessage(envelope);
       await params.dedupe.markSeen(envelope.msgId, params.consumerId);
       this.failedDeliveries.delete(`${params.consumerId}:${envelope.msgId}`);
-      await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "ack"));
+      await this.publishAck(ackSubject, await this.signedAck(envelope, params.consumerId, "ack"));
     } catch (err) {
       const reason = err instanceof Error ? err.message : "handler-failed";
       const maxPoisonAttempts = params.maxPoisonAttempts ?? 3;
@@ -323,22 +385,56 @@ export class WebSocketBroker {
       if (failures >= maxPoisonAttempts) {
         await params.dedupe.markSeen(envelope.msgId, params.consumerId);
         this.failedDeliveries.delete(key);
-        await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", `poison-message:${reason}`));
+        await this.publishAck(ackSubject, await this.signedAck(envelope, params.consumerId, "nack", `poison-message:${reason}`));
         return;
       }
-      await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", reason));
+      await this.publishAck(ackSubject, await this.signedAck(envelope, params.consumerId, "nack", reason));
     }
   }
 
   private async processAckFrame(ack: AckV1, outbox: OutboxStore): Promise<void> {
-    if (!ack || typeof ack.msgId !== "string" || ack.msgId.length === 0) return;
-    if (ack.status === "ack") {
-      await outbox.markAcked(ack.msgId);
+    if (!isAckV1(ack)) {
+      this.rejectAck("unsigned-or-invalid", ack && typeof ack === "object" ? ack : undefined);
       return;
     }
-    if (ack.status === "nack") {
-      await outbox.markFailed(ack.msgId, ack.reason ?? "nack", new Date().toISOString());
+    const security = this.config.ackSecurity;
+    if (!security) {
+      this.rejectAck("security-unavailable", ack);
+      return;
     }
+    const at = Date.parse(ack.at);
+    const now = Date.now();
+    if (now - at > (security.maxAgeMs ?? 10 * 60_000) || at - now > (security.maxFutureSkewMs ?? 60_000)) {
+      this.rejectAck("stale-or-future", ack);
+      return;
+    }
+    let signatureValid = false;
+    try {
+      signatureValid = await security.verify(ack.senderAgentId, stableAckPayload(ack), ack.signature);
+    } catch {
+      signatureValid = false;
+    }
+    if (!signatureValid) {
+      this.rejectAck("signature-invalid", ack);
+      return;
+    }
+    const pending = await outbox.get(ack.msgId);
+    if (!pending) {
+      this.rejectAck("message-unknown", ack);
+      return;
+    }
+    if (
+      ack.recipientAgentId !== security.localAgentId ||
+      ack.recipientAgentId !== pending.envelope.senderAgentId ||
+      !pending.envelope.recipients.includes(ack.senderAgentId) ||
+      ack.conversationId !== pending.envelope.conversationId ||
+      ack.messageDigest !== envelopeDigest(pending.envelope)
+    ) {
+      this.rejectAck("binding-mismatch", ack);
+      return;
+    }
+    const result = await outbox.applyVerifiedAck(ack);
+    if (result !== "applied") this.rejectAck(result === "replay" ? "replay" : result, ack);
   }
 
   async flushOutbox(params: {

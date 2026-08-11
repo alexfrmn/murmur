@@ -1,13 +1,24 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { NatsBroker } from "@murmurv2/broker-nats";
 import { SQLiteDedupeOutboxStore, validateEnvelopePolicy } from "@murmurv2/core";
-import { decryptPayload, getCryptoProvider, verifyEnvelopeSignature } from "@murmurv2/security";
+import { decryptPayload, getCryptoProvider, signEnvelope, verifyEnvelopeSignature } from "@murmurv2/security";
 import { ensureDemoKeys, loadDemoConfig, policyFromConfig, stableEnvelopePayload } from "./demo-secure-common.mjs";
 
 const cfg = loadDemoConfig();
 const keys = await ensureDemoKeys(cfg.keysPath);
 
-const broker = new NatsBroker({ url: cfg.natsUrl, token: cfg.natsToken });
+const broker = new NatsBroker({
+  url: cfg.natsUrl,
+  token: cfg.natsToken,
+  ackSecurity: {
+    localAgentId: cfg.recipientAgentId,
+    sign: (payload) => signEnvelope(payload, keys.recipient.signing.privateKey),
+    verify: (senderAgentId, payload, signature) =>
+      senderAgentId === cfg.senderAgentId
+        ? verifyEnvelopeSignature(payload, signature, keys.sender.signing.publicKey)
+        : Promise.resolve(false),
+  },
+});
 const dedupe = new SQLiteDedupeOutboxStore(cfg.dedupeDbPath);
 const policy = policyFromConfig(cfg);
 

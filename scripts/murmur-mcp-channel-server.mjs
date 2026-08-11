@@ -8,6 +8,7 @@ import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
 import { SQLiteDedupeOutboxStore } from "../packages/core/dist/src/index.js";
 import {
   decryptPayload,
+  signEnvelope,
   verifyEnvelopeSignature,
 } from "../packages/security/dist/src/index.js";
 
@@ -83,7 +84,19 @@ const emitToSession = envFlag("MURMUR_MCP_TO_SESSION", true);
 const textPrefix = process.env.MURMUR_MCP_TEXT_PREFIX || "";
 const { SessionLeaseStore } = await import(leaseModuleUrl);
 
-const broker = new NatsBroker({ url: config.natsUrl, token: config.natsToken });
+const broker = new NatsBroker({
+  url: config.natsUrl,
+  token: config.natsToken,
+  ackSecurity: {
+    localAgentId: config.agentId,
+    sign: (payload) => signEnvelope(payload, config.keys.signing.privateKey),
+    verify: async (senderAgentId, payload, signature) => {
+      const peer = config.peers?.[senderAgentId];
+      return !!peer?.signing?.publicKey && verifyEnvelopeSignature(payload, signature, peer.signing.publicKey);
+    },
+    onRejected: (event) => log("warn", "ACK rejected", event),
+  },
+});
 const dedupe = new SQLiteDedupeOutboxStore(dbPath);
 const lease = new SessionLeaseStore(leaseDbPath);
 

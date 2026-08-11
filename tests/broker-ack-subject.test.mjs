@@ -4,6 +4,11 @@ import { StringCodec } from "nats";
 import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
 
 const sc = StringCodec();
+const ackSecurity = {
+  localAgentId: "agent-receiver",
+  sign: async () => "test-signature",
+  verify: async () => true,
+};
 
 const envelope = {
   schemaVersion: "1.0",
@@ -38,7 +43,7 @@ test("subscribeWithAck publishes ack to original sender ack subject", async () =
     async seen() { return false; },
     async markSeen() {},
   };
-  const broker = new NatsBroker({ url: "nats://example.invalid" });
+  const broker = new NatsBroker({ url: "nats://example.invalid", ackSecurity });
   broker.nc = fakeNc;
 
   await broker.subscribeWithAck({
@@ -54,5 +59,8 @@ test("subscribeWithAck publishes ack to original sender ack subject", async () =
   assert.equal(published[0].subject, "ack.agent-sender");
   assert.equal(published[0].body.msgId, envelope.msgId);
   assert.equal(published[0].body.consumerId, "agent-receiver");
+  assert.equal(published[0].body.senderAgentId, "agent-receiver");
+  assert.equal(published[0].body.recipientAgentId, "agent-sender");
+  assert.equal(published[0].body.signature, "test-signature");
   assert.equal(published[0].body.status, "ack");
 });

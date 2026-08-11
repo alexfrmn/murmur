@@ -9,6 +9,11 @@ import { StringCodec } from "nats";
 import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
 
 const sc = StringCodec();
+const ackSecurity = {
+  localAgentId: "agent-receiver",
+  sign: async () => "test-signature",
+  verify: async () => true,
+};
 
 const envelope = {
   schemaVersion: "1.0",
@@ -40,7 +45,7 @@ function harness() {
     async drain() {},
   };
   const dedupe = { async seen() { return false; }, async markSeen() {} };
-  const broker = new NatsBroker({ url: "nats://example.invalid" });
+  const broker = new NatsBroker({ url: "nats://example.invalid", ackSecurity });
   broker.nc = fakeNc;
   return { broker, dedupe, published };
 }

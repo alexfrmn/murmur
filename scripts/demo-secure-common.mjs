@@ -48,11 +48,20 @@ export const policyFromConfig = (cfg) => ({
 export const ensureDemoKeys = async (keysPath = DEFAULT_KEYS_PATH) => {
   try {
     const raw = await readFile(keysPath, "utf8");
-    return JSON.parse(raw);
+    const existing = JSON.parse(raw);
+    if (!existing.recipient?.signing?.privateKey || !existing.recipient?.signing?.publicKey) {
+      existing.recipient = {
+        ...existing.recipient,
+        signing: await createSigningKeyPair(),
+      };
+      await writeFile(keysPath, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
+    }
+    return existing;
   } catch {
     const senderEncryption = await createKeyPair();
     const recipientEncryption = await createKeyPair();
     const senderSigning = await createSigningKeyPair();
+    const recipientSigning = await createSigningKeyPair();
 
     const keys = {
       cryptoProvider: getCryptoProvider().name,
@@ -63,6 +72,7 @@ export const ensureDemoKeys = async (keysPath = DEFAULT_KEYS_PATH) => {
       },
       recipient: {
         encryption: recipientEncryption,
+        signing: recipientSigning,
       },
     };
 

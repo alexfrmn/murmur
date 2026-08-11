@@ -63,11 +63,22 @@ forthcoming in auth/authz #47 PR-D.
 
 | Field | Required | Type | Constraint |
 |-------|----------|------|------------|
+| `ackVersion` | ✅ | string | `const "1.0"` |
+| `ackId` | ✅ | string | non-empty, replay nonce |
 | `msgId` | ✅ | string | non-empty |
+| `messageDigest` | ✅ | string | lowercase SHA-256 hex of the exact signed envelope |
+| `conversationId` | ✅ | string | non-empty, must match the pending envelope |
 | `consumerId` | ✅ | string | non-empty |
+| `senderAgentId` | ✅ | string | non-empty, trusted signing peer and envelope recipient |
+| `recipientAgentId` | ✅ | string | non-empty, original envelope sender |
 | `status` | ✅ | string | enum `ack` \| `nack` |
 | `at` | ✅ | string | ISO-8601 date-time |
 | `reason` | — | string | |
+| `signature` | ✅ | string | non-empty Ed25519 signature over canonical ACK fields |
+
+Legacy unsigned ACKs are wire-incompatible and rejected. ACK correlation additionally
+enforces freshness, the exact per-agent ACK subject, pinned-peer signature verification,
+outbox binding, and durable nonce replay protection.
 
 ## PresenceFrameV1 (discovery)
 
@@ -154,9 +165,9 @@ and are intentionally **outside** the schema↔guard agreement matrices:
 - **`createdAt` / `ts` date-time validity** — `format: date-time` is an advisory
   annotation in Draft 2020-12; the runtime guards enforce it via `Date.parse`
   (`isEnvelopeV1` for `EnvelopeV1.createdAt`, `isPresenceFrameV1` for `PresenceFrameV1.ts`).
-- **`AckV1.at`** — generated as an ISO-8601 string by `createAck`, but there is **no
-  `isAckV1` guard**: its `format: date-time` is advisory only (validator-dependent) with
-  no runtime enforcement on read.
+- **`AckV1.at`** — generated as an ISO-8601 string by `createAck` and enforced by
+  `isAckV1` via `Date.parse`. Brokers additionally reject ACKs outside their configured
+  age/future-skew window before signature and outbox correlation can change state.
 - **signature verification & payload decryption** — `@murmurv2/security`, not shape.
 - **stream semantics** — `chunkIndex` bounds, `totalBytes` accounting, and
   `digest`/`sha256` matching are the reassembler's job, not the frame guards'.

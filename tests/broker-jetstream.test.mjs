@@ -5,6 +5,11 @@ import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
 import { createAck } from "../packages/core/dist/src/index.js";
 
 const sc = StringCodec();
+const receiverAckSecurity = {
+  localAgentId: "agent-receiver",
+  sign: async () => "test-signature",
+  verify: async () => true,
+};
 
 const envelope = {
   schemaVersion: "1.0",
@@ -129,6 +134,7 @@ const makeJetStreamBroker = ({
     jetstream: true,
     stream: "MURMUR",
     streamSubjects: ["msg.>", "ack.>"],
+    ackSecurity: receiverAckSecurity,
     ...brokerConfig,
   });
   broker.nc = fakeNc;
@@ -193,7 +199,7 @@ test("JetStream subscribeWithAck creates durable explicit-ack consumer", async (
   assert.equal(consumersAdded[0].config.ack_wait, 30_000_000_000);
   assert.equal(published[0].subject, "ack.agent-sender");
   assert.equal(published[0].body.status, "ack");
-  assert.equal(published[0].opts.msgID, `ack:${envelope.msgId}:agent-receiver:ack`);
+  assert.equal(published[0].opts.msgID, `ack:${published[0].body.ackId}`);
   assert.equal(acked.length, 1);
 });
 
@@ -311,17 +317,28 @@ test("JetStream poison-message terminal failure is acked", async () => {
 });
 
 test("JetStream ACK correlation consumes durable ack subject and updates outbox", async () => {
-  const ack = createAck(envelope.msgId, "agent-receiver", "ack");
+  const ack = createAck(envelope, "agent-receiver", "agent-receiver", "ack");
+  ack.signature = "test-signature";
   const { broker, consumersAdded, acked } = makeJetStreamBroker({
     messages: [sc.encode(JSON.stringify(ack))],
+    brokerConfig: {
+      ackSecurity: {
+        localAgentId: "agent-sender",
+        sign: async () => "sender-signature",
+        verify: async () => true,
+      },
+    },
   });
   const marked = [];
   const outbox = {
-    async markAcked(msgId) {
-      marked.push(["acked", msgId]);
+    async get(msgId) {
+      return msgId === envelope.msgId
+        ? { msgId, envelope, status: "sent", subject: "msg.agent-receiver", attempts: 1, nextAttemptAt: envelope.createdAt, createdAt: envelope.createdAt, updatedAt: envelope.createdAt }
+        : undefined;
     },
-    async markFailed(msgId, reason) {
-      marked.push(["failed", msgId, reason]);
+    async applyVerifiedAck(frame) {
+      marked.push([frame.status === "ack" ? "acked" : "failed", frame.msgId]);
+      return "applied";
     },
   };
 

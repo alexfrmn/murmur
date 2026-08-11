@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  isAckV1,
   isEnvelopeV1,
   isPresenceFrameV1,
   isSignedPresenceFrameV1,
@@ -60,6 +61,7 @@ function validate(def, value, p = "$") {
     case "string":
       if (typeof value !== "string") errs.push(`${p}: string`);
       else if (def.minLength != null && value.length < def.minLength) errs.push(`${p}: minLength`);
+      else if (def.pattern != null && !(new RegExp(def.pattern)).test(value)) errs.push(`${p}: pattern`);
       break;
     case "number":
       if (typeof value !== "number") errs.push(`${p}: number`);
@@ -102,6 +104,19 @@ const GOOD = Object.freeze({
   signature: "sig",
 });
 const without = (key) => { const e = { ...GOOD }; delete e[key]; return e; };
+const GOOD_ACK = Object.freeze({
+  ackVersion: "1.0",
+  ackId: "ack-1",
+  msgId: "m1",
+  messageDigest: "a".repeat(64),
+  conversationId: "c1",
+  consumerId: "agent-b-consumer",
+  senderAgentId: "agent-b",
+  recipientAgentId: "agent-a",
+  status: "ack",
+  at: "2026-06-21T00:00:00.000Z",
+  signature: "sig",
+});
 
 test("schema bundle is a valid Draft 2020-12 $defs registry", () => {
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
@@ -151,11 +166,20 @@ test("optional fields + forward-compatible unknown fields are accepted by both",
   assert.equal(isEnvelopeV1(e), true);
 });
 
-test("AckV1: required fields + status enum", () => {
-  assert.equal(ackOk({ msgId: "m", consumerId: "c", status: "ack", at: "2026-06-21T00:00:00Z" }), true);
-  assert.equal(ackOk({ msgId: "m", consumerId: "c", status: "nack", reason: "x", at: "2026-06-21T00:00:00Z" }), true);
-  assert.equal(ackOk({ msgId: "m", consumerId: "c", status: "maybe", at: "2026-06-21T00:00:00Z" }), false);
-  assert.equal(ackOk({ msgId: "m", status: "ack", at: "2026-06-21T00:00:00Z" }), false);
+test("AckV1: schema and runtime require the complete signed binding", () => {
+  assert.equal(ackOk(GOOD_ACK), true);
+  assert.equal(isAckV1(GOOD_ACK), true);
+  for (const [label, ack] of [
+    ["unsigned legacy ACK", { msgId: "m", consumerId: "c", status: "ack", at: GOOD_ACK.at }],
+    ["wrong version", { ...GOOD_ACK, ackVersion: "2.0" }],
+    ["missing peer", { ...GOOD_ACK, senderAgentId: "" }],
+    ["bad digest", { ...GOOD_ACK, messageDigest: "not-a-digest" }],
+    ["bad status", { ...GOOD_ACK, status: "maybe" }],
+    ["missing signature", { ...GOOD_ACK, signature: "" }],
+  ]) {
+    assert.equal(ackOk(ack), false, `schema must reject: ${label}`);
+    assert.equal(isAckV1(ack), false, `runtime must reject: ${label}`);
+  }
 });
 
 // Note: `createdAt` carries JSON-Schema `format: date-time` (advisory) and is enforced at

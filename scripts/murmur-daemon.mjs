@@ -8,7 +8,7 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { NatsBroker } from "@murmurv2/broker-nats";
 import { ChannelRosterStore, SQLiteDedupeOutboxStore, SQLiteMessageStore, stableEnvelopePayload } from "@murmurv2/core";
-import { decryptPayload, verifyEnvelopeSignature } from "@murmurv2/security";
+import { decryptPayload, signEnvelope, verifyEnvelopeSignature } from "@murmurv2/security";
 import { NotifyQueue, flushNotifyQueue, normalizeNotifyTargets } from "./notify-router.mjs";
 import { createChannelThreadStartBindingResolver, createCodexAppServerInjector } from "./codex-app-server-wake.mjs";
 import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.mjs";
@@ -134,6 +134,15 @@ const broker = new NatsBroker({
   streamSubjects: jetstreamSubjects,
   jetstreamMaxDeliver,
   jetstreamAckWaitMs,
+  ackSecurity: {
+    localAgentId: agentId,
+    sign: (payload) => signEnvelope(payload, keys.signing.privateKey),
+    verify: async (senderAgentId, payload, signature) => {
+      const peer = peers[senderAgentId];
+      return !!peer?.signing?.publicKey && verifyEnvelopeSignature(payload, signature, peer.signing.publicKey);
+    },
+    onRejected: (event) => log("warn", "ACK rejected", event),
+  },
 });
 
 const durableSafe = (value) => value.replace(/[^A-Za-z0-9_-]/g, "-");
