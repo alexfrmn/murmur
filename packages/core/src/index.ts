@@ -522,6 +522,36 @@ export interface LocalMessageRecord {
   transport?: string;
 }
 
+/**
+ * Lifecycle stage of a single message, recorded independently of transport
+ * delivery. The outbox proves an envelope was *handed to the broker*; these
+ * events prove what happened *after* — whether a peer actually woke, handled
+ * it, and answered.
+ *
+ * Delivery progress is not processing success: a durable cursor shows an event
+ * was received, never that it was trusted, acted on, or acknowledged complete.
+ */
+export type MessageEventKind =
+  | "queued"       // accepted locally, handed to the outbox
+  | "delivered"    // transport confirmed handoff (broker ack)
+  | "woke"         // recipient session was actually woken
+  | "wake_failed"  // wake attempted and refused — delivered but nobody is listening
+  | "handled"      // recipient processed it
+  | "replied"      // recipient answered; relatesTo carries the answering msgId
+  | "failed";      // terminal failure, detail carries the reason
+
+export interface MessageEventRecord {
+  id: string;
+  msgId: string;
+  conversationId?: string;
+  event: MessageEventKind;
+  actor?: string;
+  detail?: string;
+  /** For `replied`: the msgId of the answer. For others: a correlated msgId. */
+  relatesTo?: string;
+  createdAt: string;
+}
+
 export class SQLiteMessageStore {
   private readonly db: DatabaseSync;
 
@@ -541,7 +571,120 @@ export class SQLiteMessageStore {
       );
       CREATE INDEX IF NOT EXISTS idx_local_messages_conversation ON local_messages(conversation_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_local_messages_text ON local_messages(text);
+
+      CREATE TABLE IF NOT EXISTS message_events (
+        id TEXT PRIMARY KEY,
+        msg_id TEXT NOT NULL,
+        conversation_id TEXT,
+        event TEXT NOT NULL,
+        actor TEXT,
+        detail TEXT,
+        relates_to TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_message_events_msg ON message_events(msg_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_message_events_conversation ON message_events(conversation_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_message_events_relates ON message_events(relates_to);
     `);
+  }
+
+  /**
+   * Append a lifecycle event. Additive and idempotent-safe: events accumulate,
+   * nothing is overwritten, so a trace stays readable even when a message goes
+   * delivered → wake_failed → (retry) → woke → handled.
+   */
+  async recordEvent(input: Omit<MessageEventRecord, "id" | "createdAt"> & { createdAt?: string }): Promise<MessageEventRecord> {
+    const row: MessageEventRecord = {
+      id: randomUUID(),
+      createdAt: input.createdAt ?? new Date().toISOString(),
+      ...input,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO message_events
+         (id, msg_id, conversation_id, event, actor, detail, relates_to, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.id,
+        row.msgId,
+        row.conversationId ?? null,
+        row.event,
+        row.actor ?? null,
+        row.detail ?? null,
+        row.relatesTo ?? null,
+        row.createdAt,
+      );
+    return row;
+  }
+
+  /** Full lifecycle of one message, oldest first — the answer to "what happened to it". */
+  async traceMessage(msgId: string): Promise<MessageEventRecord[]> {
+    return this.db
+      .prepare(
+        `SELECT
+           id,
+           msg_id as msgId,
+           conversation_id as conversationId,
+           event,
+           actor,
+           detail,
+           relates_to as relatesTo,
+           created_at as createdAt
+         FROM message_events
+         WHERE msg_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(msgId) as unknown as MessageEventRecord[];
+  }
+
+  /** Lifecycle across a conversation, newest first. */
+  async traceConversation(conversationId: string, limit = 100): Promise<MessageEventRecord[]> {
+    return this.db
+      .prepare(
+        `SELECT
+           id,
+           msg_id as msgId,
+           conversation_id as conversationId,
+           event,
+           actor,
+           detail,
+           relates_to as relatesTo,
+           created_at as createdAt
+         FROM message_events
+         WHERE conversation_id = ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(conversationId, limit) as unknown as MessageEventRecord[];
+  }
+
+  /**
+   * Outbound messages that were delivered but never answered — the question
+   * "who is silently ignoring me" that transport metrics cannot answer.
+   * A message counts as stalled when it has no `replied` event and its newest
+   * event is older than `olderThanIso`.
+   */
+  async stalledOutbound(olderThanIso: string, limit = 50): Promise<Array<{ msgId: string; conversationId: string | null; lastEvent: string; lastEventAt: string }>> {
+    return this.db
+      .prepare(
+        `SELECT
+           e.msg_id as msgId,
+           e.conversation_id as conversationId,
+           e.event as lastEvent,
+           e.created_at as lastEventAt
+         FROM message_events e
+         JOIN (
+           SELECT msg_id, MAX(created_at) as newest
+           FROM message_events
+           GROUP BY msg_id
+         ) latest ON latest.msg_id = e.msg_id AND latest.newest = e.created_at
+         WHERE e.created_at < ?
+           AND e.msg_id NOT IN (SELECT msg_id FROM message_events WHERE event = 'replied')
+         ORDER BY e.created_at ASC
+         LIMIT ?`,
+      )
+      .all(olderThanIso, limit) as unknown as Array<{ msgId: string; conversationId: string | null; lastEvent: string; lastEventAt: string }>;
   }
 
   async append(input: Omit<LocalMessageRecord, "id">): Promise<LocalMessageRecord> {
