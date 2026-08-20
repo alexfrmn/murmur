@@ -45,6 +45,57 @@ export interface AckV1 {
   at: string;
 }
 
+export interface SignedAckV1 {
+  ackVersion: "1.0";
+  msgId: string;
+  messageDigest: string;
+  conversationId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  status: "ack" | "nack";
+  reason?: string;
+  at: string;
+  nonce: string;
+  signature: string;
+}
+
+export type UnsignedAckV1 = Omit<SignedAckV1, "signature">;
+
+export const envelopeDigest = (envelope: EnvelopeV1): string =>
+  `sha256:${createHash("sha256").update(stableEnvelopePayload(envelope)).digest("hex")}`;
+
+export const stableAckPayload = (ack: UnsignedAckV1 | SignedAckV1): string =>
+  JSON.stringify({
+    ackVersion: ack.ackVersion,
+    msgId: ack.msgId,
+    messageDigest: ack.messageDigest,
+    conversationId: ack.conversationId,
+    senderAgentId: ack.senderAgentId,
+    recipientAgentId: ack.recipientAgentId,
+    status: ack.status,
+    ...(ack.reason !== undefined ? { reason: ack.reason } : {}),
+    at: ack.at,
+    nonce: ack.nonce,
+  });
+
+export const isSignedAckV1 = (value: unknown): value is SignedAckV1 => {
+  if (!value || typeof value !== "object") return false;
+  const ack = value as Record<string, unknown>;
+  return (
+    ack.ackVersion === "1.0" &&
+    typeof ack.msgId === "string" && ack.msgId.length > 0 &&
+    typeof ack.messageDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(ack.messageDigest) &&
+    typeof ack.conversationId === "string" && ack.conversationId.length > 0 &&
+    typeof ack.senderAgentId === "string" && ack.senderAgentId.length > 0 &&
+    typeof ack.recipientAgentId === "string" && ack.recipientAgentId.length > 0 &&
+    (ack.status === "ack" || ack.status === "nack") &&
+    (ack.reason === undefined || typeof ack.reason === "string") &&
+    typeof ack.at === "string" && !Number.isNaN(Date.parse(ack.at)) &&
+    typeof ack.nonce === "string" && ack.nonce.length > 0 &&
+    typeof ack.signature === "string" && ack.signature.length > 0
+  );
+};
+
 /**
  * Canonical signing payload for an EnvelopeV1 — the SINGLE SOURCE OF TRUTH every
  * signer and verifier MUST use, so signatures interoperate across the whole mesh
@@ -174,10 +225,17 @@ export interface OutboxStore {
   enqueue(subject: string, envelope: EnvelopeV1): Promise<void>;
   claimDue(limit?: number): Promise<OutboxRecord[]>;
   listInFlight?(): Promise<OutboxRecord[]>;
+  getOutboxRecord(msgId: string): Promise<OutboxRecord | undefined>;
   markSent(msgId: string): Promise<void>;
   markAcked(msgId: string): Promise<void>;
   markFailed(msgId: string, error: string, nextAttemptAt: string): Promise<void>;
   markDlq(msgId: string, error: string): Promise<void>;
+  applyAckTransition(
+    msgId: string,
+    status: AckV1["status"],
+    error?: string,
+    nextAttemptAt?: string,
+  ): Promise<"applied" | "not-found" | "not-in-flight">;
   requeueStaleSent?(ackTimeoutMs: number, reason?: string): Promise<number>;
 }
 
@@ -237,6 +295,11 @@ export class JsonFileOutboxStore implements OutboxStore {
     return state.records.filter((r) => r.status === "sent");
   }
 
+  async getOutboxRecord(msgId: string): Promise<OutboxRecord | undefined> {
+    const state = await this.load();
+    return state.records.find((record) => record.msgId === msgId);
+  }
+
   async markSent(msgId: string): Promise<void> {
     const state = await this.load();
     const row = state.records.find((r) => r.msgId === msgId);
@@ -279,6 +342,31 @@ export class JsonFileOutboxStore implements OutboxStore {
     row.updatedAt = new Date().toISOString();
     row.version = (row.version ?? 0) + 1;
     await this.save(state);
+  }
+
+  async applyAckTransition(
+    msgId: string,
+    status: AckV1["status"],
+    error = "nack",
+    nextAttemptAt = new Date().toISOString(),
+  ): Promise<"applied" | "not-found" | "not-in-flight"> {
+    const state = await this.load();
+    const row = state.records.find((record) => record.msgId === msgId);
+    if (!row) return "not-found";
+    if (row.status !== "sent") return "not-in-flight";
+
+    const now = new Date().toISOString();
+    if (status === "ack") {
+      row.status = "acked";
+    } else {
+      row.status = "failed";
+      row.lastError = error;
+      row.nextAttemptAt = nextAttemptAt;
+    }
+    row.updatedAt = now;
+    row.version = (row.version ?? 0) + 1;
+    await this.save(state);
+    return "applied";
   }
 
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {
@@ -410,6 +498,10 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
     return rows.map((row) => this.toOutboxRecord(row));
   }
 
+  async getOutboxRecord(msgId: string): Promise<OutboxRecord | undefined> {
+    return this.getOutboxRow(msgId);
+  }
+
   async markSent(msgId: string): Promise<void> {
     await this.updateOutboxOptimistic(msgId, (row) => ({
       status: "sent",
@@ -440,6 +532,26 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
       lastError: error,
       updatedAt: new Date().toISOString(),
     }));
+  }
+
+  async applyAckTransition(
+    msgId: string,
+    status: AckV1["status"],
+    error = "nack",
+    nextAttemptAt = new Date().toISOString(),
+  ): Promise<"applied" | "not-found" | "not-in-flight"> {
+    const now = new Date().toISOString();
+    const nextStatus = status === "ack" ? "acked" : "failed";
+    const nextError = status === "ack" ? null : error;
+    const changed = this.db
+      .prepare(
+        `UPDATE outbox
+         SET status = ?, last_error = ?, next_attempt_at = ?, updated_at = ?, version = version + 1
+         WHERE msg_id = ? AND status = 'sent'`,
+      )
+      .run(nextStatus, nextError, nextAttemptAt, now, msgId);
+    if (changed.changes > 0) return "applied";
+    return this.getOutboxRow(msgId) ? "not-in-flight" : "not-found";
   }
 
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {
@@ -1397,6 +1509,24 @@ export const createAck = (
   status,
   reason,
   at: new Date().toISOString(),
+});
+
+export const createBoundAck = (
+  envelope: EnvelopeV1,
+  consumerId: string,
+  status: SignedAckV1["status"],
+  reason?: string,
+): UnsignedAckV1 => ({
+  ackVersion: "1.0",
+  msgId: envelope.msgId,
+  messageDigest: envelopeDigest(envelope),
+  conversationId: envelope.conversationId,
+  senderAgentId: consumerId,
+  recipientAgentId: envelope.senderAgentId,
+  status,
+  ...(reason !== undefined ? { reason } : {}),
+  at: new Date().toISOString(),
+  nonce: randomUUID(),
 });
 
 export const computeBackoffMs = (attempt: number, baseMs = 500, maxMs = 60_000): number => {

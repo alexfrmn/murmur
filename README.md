@@ -66,6 +66,10 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 - **Message streaming — complete.** Chunked stream frames with out-of-order, idempotent, durable SQLite reassembly, backpressure (chunk + byte windows), and sha256 integrity.
 - **Auth/authz enforcement.** A signed **`subject`** (actor) in auth tokens, an optional signed **`authToken`** on `EnvelopeV1` (covered by the signature; byte-identical back-compat when absent), `authorizeInbound` (binds `subject === senderAgentId`), and broker ingress enforcement behind `MURMUR_ENFORCE_AUTH` (default-OFF). *Daemon end-to-end wiring is the remaining step.*
 - **Conformance + versioned protocol spec — all wire types.** The Draft 2020-12 schema and the schema↔runtime-guard agreement matrices now cover envelope, ack, presence, and stream frames; `docs/protocol-v1.md` + `docs/protocol-compatibility.md` document them.
+- **Signed, peer-bound acknowledgements.** Daemons emit Ed25519-signed ACKs bound to the original
+  message digest, conversation, sender, recipient, timestamp, and nonce. After every peer is
+  upgraded, set `ackSecurity.requireSigned: true` (or `MURMUR_REQUIRE_SIGNED_ACKS=1`) to reject
+  unsigned, mismatched, stale, or replayed ACKs without logging message bodies.
 - **Validated: real cross-host A2A.** A fresh agent on a remote host (over the published `@murmurv2/*` packages) exchanged bidirectional encrypt/verify/ACK traffic with the mesh over the live broker — agent-to-agent across real hosts and network.
 - **Single canonical signing payload.** `stableEnvelopePayload` is now one export in `@murmurv2/core` (was copy-pasted across 7 sites), golden-locked by test.
 

@@ -12,7 +12,8 @@ the guards cannot drift. Versioning and forward-compatibility rules live in
 | Type | Purpose | Schema `$def` | Runtime guard |
 |------|---------|---------------|---------------|
 | `EnvelopeV1` | encrypted inbound message | document root (`#/$defs/EnvelopeV1`) | `isEnvelopeV1` |
-| `AckV1` | delivery acknowledgement | `#/$defs/AckV1` | — |
+| `AckV1` | legacy unsigned delivery acknowledgement | `#/$defs/AckV1` | — |
+| `SignedAckV1` | signed, peer/message-bound delivery acknowledgement | `#/$defs/SignedAckV1` | `isSignedAckV1` |
 | `PresenceFrameV1` | discovery announcement (public metadata) | `#/$defs/PresenceFrameV1` | `isPresenceFrameV1` |
 | `SignedPresenceFrameV1` | Ed25519-signed presence | `#/$defs/SignedPresenceFrameV1` | `isSignedPresenceFrameV1` |
 | `StreamStart` / `StreamChunk` / `StreamEnd` | chunked payload streaming | `#/$defs/Stream*` (+ `StreamFrame` union) | `isStreamStart` / `isStreamChunk` / `isStreamEnd` / `isStreamFrame` |
@@ -28,8 +29,21 @@ Envelope message payloads are encrypted on the wire; presence frames are intenti
 3. Publish to subject `msg.<conversationId>`
 4. Consumer validates schema+signature
 5. Consumer processes idempotently using `msgId`
-6. Consumer emits ACK or NACK
-7. Retry policy moves failed messages; terminal failures go to DLQ
+6. Consumer emits a signed ACK or NACK bound to the message digest, conversation, sender,
+   recipient, timestamp, and nonce.
+7. Sender verifies the signature against the expected peer key and applies an atomic transition
+   only while the outbox row is in flight. Replays and mismatched bindings are rejected.
+8. Retry policy moves failed messages; terminal failures go to DLQ.
+
+### Signed ACK migration
+
+The daemon emits `SignedAckV1` by default. During a rolling upgrade,
+`ackSecurity.requireSigned` (or `MURMUR_REQUIRE_SIGNED_ACKS=1`) remains disabled until every peer
+emits signed ACKs; old consumers ignore the additional signed fields. Once peers are upgraded,
+enable strict mode on every endpoint. Strict correlation rejects legacy ACKs, stale/future
+timestamps, wrong peers, wrong conversations or recipients, digest mismatches, invalid signatures,
+and repeated/non-in-flight transitions. Rejections increment reason-tagged counters and emit
+metadata-only security events; ACK bodies and message contents are never logged.
 
 An optional `authToken` (bearer `MURMUR-AUTH:…`) authorizes the sender. When present it
 is part of the signed payload (cannot be stripped/swapped) and can be verified with

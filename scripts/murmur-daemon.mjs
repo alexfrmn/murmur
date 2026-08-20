@@ -6,8 +6,14 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { NatsBroker } from "@murmurv2/broker-nats";
-import { ChannelRosterStore, SQLiteDedupeOutboxStore, SQLiteMessageStore, stableEnvelopePayload } from "@murmurv2/core";
-import { decryptPayload, verifyEnvelopeSignature } from "@murmurv2/security";
+import {
+  ChannelRosterStore,
+  SQLiteDedupeOutboxStore,
+  SQLiteMessageStore,
+  stableAckPayload,
+  stableEnvelopePayload,
+} from "@murmurv2/core";
+import { decryptPayload, signEnvelope, verifyEnvelopeSignature } from "@murmurv2/security";
 import { NotifyQueue, flushNotifyQueue, normalizeNotifyTargets } from "./notify-router.mjs";
 import { createChannelThreadStartBindingResolver, createCodexAppServerInjector } from "./codex-app-server-wake.mjs";
 import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.mjs";
@@ -64,6 +70,17 @@ const ackTimeoutMs = optionalPositiveInteger(
   "ack-timeout-ms",
   firstDefined(streamingConfig.ackTimeoutMs, process.env.MURMUR_ACK_TIMEOUT_MS),
 ) ?? 15_000;
+const ackSecurityConfig = config.ackSecurity || {};
+const emitSignedAcks = process.env.MURMUR_EMIT_SIGNED_ACKS !== undefined
+  ? process.env.MURMUR_EMIT_SIGNED_ACKS !== "0"
+  : ackSecurityConfig.emitSigned ?? true;
+const requireSignedAcks = process.env.MURMUR_REQUIRE_SIGNED_ACKS !== undefined
+  ? process.env.MURMUR_REQUIRE_SIGNED_ACKS === "1"
+  : ackSecurityConfig.requireSigned ?? false;
+const maxAckAgeMs = optionalPositiveInteger(
+  "ack-max-age-ms",
+  firstDefined(ackSecurityConfig.maxAgeMs, process.env.MURMUR_ACK_MAX_AGE_MS),
+) ?? 5 * 60_000;
 const ackWindowEnabled = ackWindowConfig.enabled ?? process.env.MURMUR_STREAM_ACK_WINDOW === "1";
 const ackWindow = ackWindowEnabled
   ? {
@@ -101,6 +118,11 @@ log("info", "Daemon starting", {
   jetstreamMaxDeliver,
   jetstreamAckWaitMs,
   ackTimeoutMs,
+  ackSecurity: {
+    emitSigned: emitSignedAcks,
+    requireSigned: requireSignedAcks,
+    maxAgeMs: maxAckAgeMs,
+  },
   ackWindow,
   notifyTargets: effectiveNotifyTargets.map((t) => `${t.type}:${t.channel}`),
   notifyFallbackFromEnv: envTelegramFallback.length > 0,
@@ -138,6 +160,17 @@ const broker = new NatsBroker({
   jetstreamMaxDeliver,
   jetstreamAckWaitMs,
 });
+
+const signAck = async (unsignedAck) => ({
+  ...unsignedAck,
+  signature: await signEnvelope(stableAckPayload(unsignedAck), keys.signing.privateKey),
+});
+
+const verifyAck = async (ack) => {
+  const peer = peers[ack.senderAgentId];
+  if (!peer?.signing?.publicKey) return false;
+  return verifyEnvelopeSignature(stableAckPayload(ack), ack.signature, peer.signing.publicKey);
+};
 
 const durableSafe = (value) => value.replace(/[^A-Za-z0-9_-]/g, "-");
 
@@ -315,7 +348,13 @@ try {
   await broker.connect();
   log("info", "NATS connected", { url: natsUrl });
 
-  await broker.subscribeWithAck({ subject, consumerId: agentId, dedupe: store, onMessage });
+  await broker.subscribeWithAck({
+    subject,
+    consumerId: agentId,
+    dedupe: store,
+    onMessage,
+    ...(emitSignedAcks ? { signAck } : {}),
+  });
   log("info", "Subscribed", { subject });
 
   // Also subscribe to proxy subjects (agents without their own daemon)
@@ -337,8 +376,20 @@ try {
     log("info", "Subscribed (proxy)", { subject: ps });
   }
 
-  await broker.startAckCorrelation({ outbox: store, ackSubject: `ack.${agentId}`, consumerId: `${agentId}-ack` });
-  log("info", "ACK correlation started", { ackSubject: `ack.${agentId}` });
+  await broker.startAckCorrelation({
+    outbox: store,
+    ackSubject: `ack.${agentId}`,
+    consumerId: `${agentId}-ack`,
+    verifyAck,
+    requireSignedAcks,
+    maxAckAgeMs,
+    onInvalidAck: (event) => log("warn", "Invalid ACK rejected", event),
+  });
+  log("info", "ACK correlation started", {
+    ackSubject: `ack.${agentId}`,
+    emitSignedAcks,
+    requireSignedAcks,
+  });
   await startJetStreamAdvisoryDlqIfEnabled({
     broker,
     outbox: store,
