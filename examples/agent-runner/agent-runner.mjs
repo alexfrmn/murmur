@@ -29,7 +29,17 @@ import {
 // --- config ---
 const configPath = process.env.AGENT_CONFIG || "./agent-config.json";
 const config = JSON.parse(readFileSync(configPath, "utf8"));
-const { agentId, natsUrl, natsToken, subject, keys, peers } = config;
+const {
+  agentId,
+  natsUrl,
+  natsToken,
+  natsUser,
+  natsPassword,
+  natsTls,
+  subject,
+  keys,
+  peers,
+} = config;
 const dbPath = process.env.MURMUR_STORE_PATH || "./murmur.db";
 const flushIntervalMs = Number(process.env.FLUSH_INTERVAL_MS) || 2000;
 
@@ -38,7 +48,13 @@ const log = (level, msg, data = {}) =>
 
 const store = new SQLiteMessageStore(dbPath);
 const outbox = new SQLiteDedupeOutboxStore(dbPath);
-const broker = new NatsBroker({ url: natsUrl, token: natsToken });
+const broker = new NatsBroker({
+  url: natsUrl,
+  token: natsToken,
+  user: natsUser,
+  password: natsPassword,
+  tls: natsTls,
+});
 
 // Stable payload that gets signed. The canonical source of truth is
 // `stableEnvelopePayload` in @murmurv2/core, golden-locked in

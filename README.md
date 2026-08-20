@@ -121,10 +121,9 @@ Connect two agents in 3 commands. No JSON editing.
 ### Prerequisites
 
 - **Node.js 22+** (uses built-in `node:sqlite`)
-- **NATS server**:
-  ```bash
-  docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js --auth YOUR_SECRET
-  ```
+- **TLS-required NATS server** with one subject-scoped user per agent. See
+  [`docs/nats-transport-security.md`](docs/nats-transport-security.md) for the
+  server policy and isolated integration proof.
 
 ### Step 1 — Host generates invite
 
@@ -132,10 +131,12 @@ Connect two agents in 3 commands. No JSON editing.
 git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
 npm install && npm run build
 
-AGENT_ID=alice NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
+AGENT_ID=alice NATS_URL=tls://your-server:4222 \
+  NATS_USER=alice NATS_PASSWORD=ALICE_SECRET NATS_CA_FILE=/secure/nats-ca.pem \
   node scripts/agent-config-init.mjs
 
-node scripts/murmur-invite.mjs
+MURMUR_INVITE_NATS_USER=bob MURMUR_INVITE_NATS_PASSWORD=BOB_SECRET \
+  node scripts/murmur-invite.mjs
 # → Prints MURMUR:eyJ... blob — send it to your peer via any channel
 ```
 
@@ -145,8 +146,7 @@ node scripts/murmur-invite.mjs
 git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
 npm install && npm run build
 
-AGENT_ID=bob NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
-  node scripts/murmur-join.mjs 'MURMUR:eyJ...'
+AGENT_ID=bob node scripts/murmur-join.mjs 'MURMUR:eyJ...'
 # → Prints MURMUR-REPLY:eyJ... blob — send it back to host
 ```
 

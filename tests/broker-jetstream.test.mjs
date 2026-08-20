@@ -125,7 +125,7 @@ const makeJetStreamBroker = ({
   };
 
   const broker = new NatsBroker({
-    url: "nats://example.invalid",
+    url: "tls://example.invalid",
     jetstream: true,
     stream: "MURMUR",
     streamSubjects: ["msg.>", "ack.>"],
@@ -150,7 +150,7 @@ test("JetStream publish ensures stream and uses envelope msgId as dedupe id", as
 
 test("JetStream disabled keeps core NATS publish path", async () => {
   const published = [];
-  const broker = new NatsBroker({ url: "nats://example.invalid" });
+  const broker = new NatsBroker({ url: "tls://example.invalid" });
   broker.nc = {
     publish(subject, data) {
       published.push({ subject, body: JSON.parse(sc.decode(data)) });
