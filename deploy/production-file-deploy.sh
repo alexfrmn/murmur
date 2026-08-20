@@ -8,7 +8,7 @@
 set -euo pipefail
 
 DST="${MURMUR_DEPLOY_DST:-/opt/lifecoach/mur-mur-v2}"
-REPO="${MURMUR_DEPLOY_REPO:-https://github.com/alexfrmn/mur-mur-v2.git}"
+REPO="${MURMUR_DEPLOY_REPO:-https://github.com/alexfrmn/murmur.git}"
 REF="${MURMUR_DEPLOY_REF:-main}"
 RUN_TESTS="${MURMUR_DEPLOY_TESTS:-1}"
 RESTART_SERVICES="${MURMUR_DEPLOY_RESTART:-1}"

@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 
-const REPO_URL = "git+https://github.com/alexfrmn/mur-mur-v2.git";
+const REPO_URL = "git+https://github.com/alexfrmn/murmur.git";
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const pkgsDir = path.join(root, "packages");
 

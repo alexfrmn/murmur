@@ -74,10 +74,6 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 - **Message streaming — complete.** Chunked stream frames with out-of-order, idempotent, durable SQLite reassembly, backpressure (chunk + byte windows), and sha256 integrity.
 - **Auth/authz enforcement.** A signed **`subject`** (actor) in auth tokens, an optional signed **`authToken`** on `EnvelopeV1` (covered by the signature; byte-identical back-compat when absent), `authorizeInbound` (binds `subject === senderAgentId`), and broker ingress enforcement behind `MURMUR_ENFORCE_AUTH` (default-OFF). *Daemon end-to-end wiring is the remaining step.*
 - **Conformance + versioned protocol spec — all wire types.** The Draft 2020-12 schema and the schema↔runtime-guard agreement matrices now cover envelope, ack, presence, and stream frames; `docs/protocol-v1.md` + `docs/protocol-compatibility.md` document them.
-- **Signed, peer-bound acknowledgements.** Daemons emit Ed25519-signed ACKs bound to the original
-  message digest, conversation, sender, recipient, timestamp, and nonce. After every peer is
-  upgraded, set `ackSecurity.requireSigned: true` (or `MURMUR_REQUIRE_SIGNED_ACKS=1`) to reject
-  unsigned, mismatched, stale, or replayed ACKs without logging message bodies.
 - **Validated: real cross-host A2A.** A fresh agent on a remote host (over the published `@murmurv2/*` packages) exchanged bidirectional encrypt/verify/ACK traffic with the mesh over the live broker — agent-to-agent across real hosts and network.
 - **Single canonical signing payload.** `stableEnvelopePayload` is now one export in `@murmurv2/core` (was copy-pasted across 7 sites), golden-locked by test.
 
@@ -141,7 +137,7 @@ Connect two agents in 3 commands. No JSON editing.
 ### Step 1 — Host generates invite
 
 ```bash
-git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
+git clone https://github.com/alexfrmn/murmur.git && cd murmur
 npm install && npm run build
 
 AGENT_ID=alice NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
@@ -154,7 +150,7 @@ node scripts/murmur-invite.mjs
 ### Step 2 — Peer joins with the blob
 
 ```bash
-git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
+git clone https://github.com/alexfrmn/murmur.git && cd murmur
 npm install && npm run build
 
 AGENT_ID=bob NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
@@ -189,7 +185,7 @@ Exporter metrics include outbox depth by status, oldest pending age, inbound/out
 Add Murmur as an MCP server in your AI client (e.g., Claude Code):
 
 ```bash
-claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/index.js
+claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
 ```
 
 Then from your AI agent:
@@ -320,7 +316,7 @@ Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
 ### Add to Claude Code
 
 ```bash
-claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/index.js
+claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
 ```
 
 ### Add to any MCP client
@@ -330,9 +326,9 @@ claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/i
   "mcpServers": {
     "murmur": {
       "command": "node",
-      "args": ["/path/to/mur-mur-v2/packages/mcp-server/dist/src/index.js"],
+      "args": ["/path/to/murmur/packages/mcp-server/dist/src/index.js"],
       "env": {
-        "DATA_DIR": "/path/to/mur-mur-v2/.data"
+        "DATA_DIR": "/path/to/murmur/.data"
       }
     }
   }
@@ -348,7 +344,7 @@ claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/i
 </p>
 
 ```
-mur-mur-v2/
+murmur/
 ├── packages/
 │   ├── core/              # Envelope schema, SQLite stores, policy validation
 │   ├── broker-nats/       # core NATS pub/sub, outbox flush, ACK correlation
