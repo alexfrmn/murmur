@@ -37,8 +37,29 @@ data:
           user: $NATS_USER
           password: $NATS_PASSWORD_BCRYPT
           permissions: {
-            publish: ["msg.agent-peer", "ack.agent-peer"]
-            subscribe: ["msg.agent-k8s-demo", "ack.agent-k8s-demo"]
+            # Least privilege on the message plane: publish only to the peer this agent
+            # talks to, subscribe only to its own inbound and ack subjects.
+            #
+            # The $JS.* and _INBOX entries are NOT optional when jetstream is enabled
+            # above. JetStream is a request/reply API over regular subjects: stream and
+            # consumer setup goes through $JS.API.*, message acknowledgement through
+            # $JS.ACK.*, and every reply lands on an _INBOX.* subject minted per request.
+            # Grant only msg.*/ack.* and the client authenticates fine, then fails on
+            # ensureJetStream, the durable consumer and DLQ advisories — a permissions
+            # error that reads like a broken transport. Drop these three lines only if
+            # the jetstream block above is also removed.
+            publish: [
+              "msg.agent-peer",
+              "ack.agent-peer",
+              "$JS.API.>",
+              "$JS.ACK.>"
+            ]
+            subscribe: [
+              "msg.agent-k8s-demo",
+              "ack.agent-k8s-demo",
+              "_INBOX.>",
+              "$JS.EVENT.ADVISORY.>"
+            ]
           }
         }
       ]

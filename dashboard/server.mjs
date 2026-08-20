@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { connect, StringCodec } from "nats";
+import { buildSecureNatsConnectionOptions } from "@murmurv2/core";
 import Database from "better-sqlite3";
 import { SECURITY_HEADERS, isAuthorizedHeader, isSameOriginWebSocket, loadDashboardToken } from "./http-security.mjs";
 import { authenticateEnvelope } from "./message-security.mjs";
@@ -16,6 +17,10 @@ import { validAgentId } from "./render.mjs";
 const PORT = Number(process.env.DASHBOARD_PORT) || 4280;
 const NATS_URL = process.env.NATS_URL || "nats://localhost:4222";
 const NATS_TOKEN = process.env.NATS_TOKEN;
+const NATS_USER = process.env.NATS_USER;
+const NATS_PASSWORD = process.env.NATS_PASSWORD;
+const NATS_CA_FILE = process.env.NATS_CA_FILE;
+const NATS_SERVER_NAME = process.env.NATS_SERVER_NAME;
 const DASHBOARD_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(DASHBOARD_DIR, "..", ".data");
 const TOKEN_FILE = process.env.DASHBOARD_TOKEN_FILE || path.join(homedir(), ".config", "murmur", "dashboard-token");
@@ -150,7 +155,22 @@ let rejectedCount = 0;
 const startTime = Date.now();
 
 try {
-  const nc = await connect({ servers: NATS_URL, token: NATS_TOKEN });
+  // Same secure-transport rules as the daemon: TLS is required off loopback, and the
+  // broker can demand a per-agent user/password instead of a shared token. Connecting
+  // with `{ servers, token }` only — as this dashboard did — meant it was the one
+  // component left behind by a broker cutover, failing with what looks like a network
+  // fault rather than an auth one.
+  const nc = await connect(
+    buildSecureNatsConnectionOptions({
+      url: NATS_URL,
+      token: NATS_TOKEN,
+      user: NATS_USER,
+      password: NATS_PASSWORD,
+      tls: NATS_CA_FILE || NATS_SERVER_NAME
+        ? { caFile: NATS_CA_FILE, serverName: NATS_SERVER_NAME }
+        : undefined,
+    }),
+  );
   console.log(`[dashboard] NATS connected: ${NATS_URL}`);
   const sub = nc.subscribe("msg.>");
 
