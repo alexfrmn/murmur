@@ -125,6 +125,41 @@ export interface DedupeStore {
   markSeen(msgId: string, consumerId: string): Promise<void>;
 }
 
+/**
+ * Durable replay protection for signed acknowledgements.
+ *
+ * An in-memory nonce set forgets everything on restart, which lets a signed NACK be
+ * replayed against a fresh process: the retry returns the row to `sent` and the replayed
+ * NACK fails it again. Implementations of this interface must survive a restart.
+ *
+ * `claimAckNonce` is claim-once semantics: it returns true the first time a nonce is seen
+ * and false for every subsequent call, so callers never need a separate check-then-write.
+ */
+export interface AckReceiptStore {
+  claimAckNonce(senderAgentId: string, nonce: string): Promise<boolean>;
+}
+
+/** Non-durable fallback. Use only where a restart cannot happen (tests, one-shot tools). */
+export class InMemoryAckReceiptStore implements AckReceiptStore {
+  private readonly keys = new Map<string, true>();
+  private readonly maxSize: number;
+
+  constructor(maxSize = 10_000) {
+    this.maxSize = Math.max(1, Math.floor(maxSize));
+  }
+
+  async claimAckNonce(senderAgentId: string, nonce: string): Promise<boolean> {
+    const key = `${senderAgentId}:${nonce}`;
+    if (this.keys.has(key)) return false;
+    this.keys.set(key, true);
+    if (this.keys.size > this.maxSize) {
+      const oldest = this.keys.keys().next();
+      if (!oldest.done) this.keys.delete(oldest.value);
+    }
+    return true;
+  }
+}
+
 export class InMemoryDedupeStore implements DedupeStore {
   private readonly keys: Map<string, true>;
   private readonly maxSize: number;
@@ -207,6 +242,13 @@ export class JsonFileDedupeStore implements DedupeStore {
 }
 
 export type OutboxStatus = "pending" | "sent" | "acked" | "failed" | "dlq";
+
+/** Statuses a row cannot be moved out of by a late `markSent()`. */
+export const TERMINAL_OUTBOX_STATUSES: ReadonlySet<OutboxStatus> = new Set<OutboxStatus>([
+  "acked",
+  "failed",
+  "dlq",
+]);
 
 export interface OutboxRecord {
   msgId: string;
@@ -304,6 +346,10 @@ export class JsonFileOutboxStore implements OutboxStore {
     const state = await this.load();
     const row = state.records.find((r) => r.msgId === msgId);
     if (!row) return;
+    // Never downgrade a terminal status: a fast ACK can land between publish() and this
+    // call, and overwriting `acked`/`failed` with `sent` would resurrect a settled row
+    // into a retry.
+    if (TERMINAL_OUTBOX_STATUSES.has(row.status)) return;
     row.status = "sent";
     row.attempts += 1;
     row.updatedAt = new Date().toISOString();
@@ -353,7 +399,9 @@ export class JsonFileOutboxStore implements OutboxStore {
     const state = await this.load();
     const row = state.records.find((record) => record.msgId === msgId);
     if (!row) return "not-found";
-    if (row.status !== "sent") return "not-in-flight";
+    // See the SQLite implementation: 'pending' is accepted so a fast ACK arriving between
+    // publish() and markSent() is not rejected into a spurious retry.
+    if (row.status !== "sent" && row.status !== "pending") return "not-in-flight";
 
     const now = new Date().toISOString();
     if (status === "ack") {
@@ -421,7 +469,7 @@ const secureSqliteFiles = (filePath: string): void => {
   }
 };
 
-export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
+export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckReceiptStore {
   private readonly db: DatabaseSync;
 
   constructor(dbPath = ".data/murmur.db") {
@@ -434,6 +482,12 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
         msg_id TEXT NOT NULL,
         seen_at TEXT NOT NULL,
         PRIMARY KEY (consumer_id, msg_id)
+      );
+      CREATE TABLE IF NOT EXISTS ack_receipts (
+        sender_agent_id TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        claimed_at TEXT NOT NULL,
+        PRIMARY KEY (sender_agent_id, nonce)
       );
       CREATE TABLE IF NOT EXISTS outbox (
         msg_id TEXT PRIMARY KEY,
@@ -465,6 +519,22 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
         "INSERT OR IGNORE INTO dedupe_seen (consumer_id, msg_id, seen_at) VALUES (?, ?, ?)",
       )
       .run(consumerId, msgId, new Date().toISOString());
+  }
+
+  /**
+   * Claim-once on `(sender_agent_id, nonce)`, durable across restarts.
+   *
+   * The PRIMARY KEY does the work: `INSERT OR IGNORE` reports zero changes when the nonce
+   * was already claimed, so a replayed ACK is rejected even by a process that never saw
+   * the original.
+   */
+  async claimAckNonce(senderAgentId: string, nonce: string): Promise<boolean> {
+    const result = this.db
+      .prepare(
+        "INSERT OR IGNORE INTO ack_receipts (sender_agent_id, nonce, claimed_at) VALUES (?, ?, ?)",
+      )
+      .run(senderAgentId, nonce, new Date().toISOString());
+    return Number(result.changes ?? 0) > 0;
   }
 
   async enqueue(subject: string, envelope: EnvelopeV1): Promise<void> {
@@ -503,11 +573,16 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
   }
 
   async markSent(msgId: string): Promise<void> {
-    await this.updateOutboxOptimistic(msgId, (row) => ({
-      status: "sent",
-      attempts: row.attempts + 1,
-      updatedAt: new Date().toISOString(),
-    }));
+    await this.updateOutboxOptimistic(msgId, (row) =>
+      // See the JSON store: a terminal status wins over a late markSent().
+      TERMINAL_OUTBOX_STATUSES.has(row.status)
+        ? {}
+        : {
+            status: "sent",
+            attempts: row.attempts + 1,
+            updatedAt: new Date().toISOString(),
+          },
+    );
   }
 
   async markAcked(msgId: string): Promise<void> {
@@ -543,11 +618,15 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
     const now = new Date().toISOString();
     const nextStatus = status === "ack" ? "acked" : "failed";
     const nextError = status === "ack" ? null : error;
+    // 'pending' is accepted alongside 'sent' on purpose: a fast peer can acknowledge
+    // between publish() and markSent(), and rejecting that ACK leaves the row to time out
+    // into a spurious retry. markSent() refuses to downgrade a terminal status, so the
+    // late markSent() cannot overwrite the transition applied here.
     const changed = this.db
       .prepare(
         `UPDATE outbox
          SET status = ?, last_error = ?, next_attempt_at = ?, updated_at = ?, version = version + 1
-         WHERE msg_id = ? AND status = 'sent'`,
+         WHERE msg_id = ? AND status IN ('sent', 'pending')`,
       )
       .run(nextStatus, nextError, nextAttemptAt, now, msgId);
     if (changed.changes > 0) return "applied";

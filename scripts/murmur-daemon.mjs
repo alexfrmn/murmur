@@ -376,8 +376,14 @@ try {
     log("info", "Subscribed (proxy)", { subject: ps });
   }
 
+  // `store` is a SQLiteDedupeOutboxStore, which also implements AckReceiptStore: ACK nonces
+  // are claimed in the same database as the outbox, so replay protection survives a daemon
+  // restart. Without this the broker falls back to an in-memory set that forgets everything
+  // on exit.
+  const ackReceipts = typeof store.claimAckNonce === "function" ? store : undefined;
   await broker.startAckCorrelation({
     outbox: store,
+    ackReceipts,
     ackSubject: `ack.${agentId}`,
     consumerId: `${agentId}-ack`,
     verifyAck,
@@ -389,7 +395,13 @@ try {
     ackSubject: `ack.${agentId}`,
     emitSignedAcks,
     requireSignedAcks,
+    durableAckReplayProtection: Boolean(ackReceipts),
   });
+  if (!ackReceipts) {
+    log("warn", "ACK replay protection is in-memory only — nonces are forgotten on restart", {
+      hint: "use the SQLite store (storePath) so ack_receipts is persisted",
+    });
+  }
   await startJetStreamAdvisoryDlqIfEnabled({
     broker,
     outbox: store,

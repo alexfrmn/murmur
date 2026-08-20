@@ -26,8 +26,21 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import express from "express";
 import { StringCodec, connect, type NatsConnection, type Subscription } from "nats";
-import { isEnvelopeV1, stableEnvelopePayload, type AckV1, type EnvelopeV1 } from "@murmurv2/core";
-import { decryptPayload, encryptPayload, signEnvelope } from "@murmurv2/security";
+import {
+  isEnvelopeV1,
+  isSignedAckV1,
+  stableAckPayload,
+  stableEnvelopePayload,
+  type AckV1,
+  type EnvelopeV1,
+  type SignedAckV1,
+} from "@murmurv2/core";
+import {
+  decryptPayload,
+  encryptPayload,
+  signEnvelope,
+  verifyEnvelopeSignature,
+} from "@murmurv2/security";
 import {
   DefaultRequestHandler,
   InMemoryTaskStore,
@@ -69,6 +82,11 @@ export interface BridgeA2AConfig {
   /** Internal agentId -> X25519 public key. Used to seal to the target AND to open
    *  a reply (the sender pubkey is not carried in the envelope). */
   recipientPublicKeys: Record<string, string>;
+  /** Internal agentId -> Ed25519 signing public key. Required to verify SignedAckV1
+   *  frames: without an entry for a peer, that peer's NACKs cannot resolve a task.
+   *  Historically the bridge accepted unsigned `{msgId, status}` objects here, which let
+   *  anyone able to publish to the ACK subject resolve someone else's in-flight task. */
+  signingPublicKeys?: Record<string, string>;
   /** Allowlist of external A2A agent ids permitted to delegate tasks. */
   allowedExternalAgents: string[];
   /** ms to wait for the internal agent's reply before failing the A2A task. */
@@ -303,15 +321,35 @@ export class A2AMurmurBridge {
       return;
     }
 
-    const ack = parsed as AckV1;
-    if (ack?.msgId && ack.status === "nack") {
-      const resolve = this.pending.get(ack.msgId);
-      if (resolve) {
-        this.pending.delete(ack.msgId);
-        resolve(`[murmur nack] ${ack.reason ?? "rejected"}`);
-      }
+    // Only a verified SignedAckV1 may resolve a pending task.
+    //
+    // This path used to accept a bare `{msgId, status: "nack"}` object: anyone able to
+    // publish to the ACK subject could resolve someone else's in-flight A2A task with an
+    // arbitrary failure string. Signature verification is mandatory here — an unsigned or
+    // unverifiable frame is dropped, and the task stays pending until a real answer or the
+    // caller's own timeout.
+    if (!isSignedAckV1(parsed)) return;
+    if (!(await this.verifySignedAck(parsed))) return;
+    if (parsed.status !== "nack") {
+      // A positive ack only confirms delivery; the real answer arrives as an envelope.
+      return;
     }
-    // A positive AckV1 only confirms delivery; the real answer arrives as an envelope.
+    const resolve = this.pending.get(parsed.msgId);
+    if (resolve) {
+      this.pending.delete(parsed.msgId);
+      resolve(`[murmur nack] ${parsed.reason ?? "rejected"}`);
+    }
+  }
+
+  /** True only for an ACK signed by the pinned key of the agent it claims to come from. */
+  private async verifySignedAck(ack: SignedAckV1): Promise<boolean> {
+    const publicKey = this.config.signingPublicKeys?.[ack.senderAgentId];
+    if (!publicKey) return false;
+    try {
+      return await verifyEnvelopeSignature(stableAckPayload(ack), ack.signature, publicKey);
+    } catch {
+      return false;
+    }
   }
 
   async stop(): Promise<void> {

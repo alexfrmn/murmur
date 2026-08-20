@@ -21,6 +21,7 @@ import {
   isEnvelopeV1,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
+  type AckReceiptStore,
   type DedupeStore,
   type OutboxStore,
   type AckV1,
@@ -556,6 +557,9 @@ export class NatsBroker {
 
   async startAckCorrelation(params: {
     outbox: OutboxStore;
+    /** Durable replay protection. Omit only where a restart cannot happen — without it
+     *  the in-memory fallback forgets every nonce when the process dies. */
+    ackReceipts?: AckReceiptStore;
     ackSubject: string;
     consumerId?: string;
     verifyAck?: AckVerifier;
@@ -604,7 +608,20 @@ export class NatsBroker {
     params.onInvalidAck?.(event);
   }
 
-  private rememberAckNonce(nonce: string): boolean {
+  /**
+   * Claim an ACK nonce once. Prefers the durable store; the in-memory set is a fallback
+   * that does NOT survive a restart — see AckReceiptStore in @murmurv2/core.
+   */
+  private async claimAckNonce(
+    store: AckReceiptStore | undefined,
+    senderAgentId: string,
+    nonce: string,
+  ): Promise<boolean> {
+    if (store) return store.claimAckNonce(senderAgentId, nonce);
+    return this.rememberAckNonceInMemory(`${senderAgentId}:${nonce}`);
+  }
+
+  private rememberAckNonceInMemory(nonce: string): boolean {
     if (this.seenAckNonces.has(nonce)) return false;
     this.seenAckNonces.add(nonce);
     if (this.seenAckNonces.size > 10_000) {
@@ -618,6 +635,7 @@ export class NatsBroker {
     data: Uint8Array,
     params: {
       outbox: OutboxStore;
+      ackReceipts?: AckReceiptStore;
       verifyAck?: AckVerifier;
       requireSignedAcks?: boolean;
       maxAckAgeMs?: number;
@@ -654,7 +672,9 @@ export class NatsBroker {
         this.invalidAck(params, "unknown-message", decoded);
         return;
       }
-      if (record.status !== "sent") {
+      // 'pending' is in flight too: the peer can acknowledge between publish() and
+      // markSent(). Rejecting that ACK leaves the row to time out into a spurious retry.
+      if (record.status !== "sent" && record.status !== "pending") {
         this.invalidAck(params, "message-not-in-flight", decoded);
         return;
       }
@@ -687,7 +707,7 @@ export class NatsBroker {
         this.invalidAck(params, "signature-invalid", decoded);
         return;
       }
-      if (!this.rememberAckNonce(`${decoded.senderAgentId}:${decoded.nonce}`)) {
+      if (!(await this.claimAckNonce(params.ackReceipts, decoded.senderAgentId, decoded.nonce))) {
         this.invalidAck(params, "nonce-replay", decoded);
         return;
       }
