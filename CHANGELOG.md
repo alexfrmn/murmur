@@ -8,8 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Pending
-- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge.
-- **Strict wire-breaking ACK envelope** — #104 (draft), the strict counterpart to the compatible signed-ACK path shipped below. Under evaluation for the delta it carries over #100 (nonce persistence across restarts, exactly-once outbox transitions, removal of the A2A raw-NACK shortcut).
+- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
+- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+
+## [2.6.0] - 2026-08-20
+
+> Closes the four gaps that v2.5.0's compatible signed-ACK path left open. Found by diffing
+> #100 against @fedoseevstanislav's strict variant in #104 — the compatible PR looked complete
+> on its own, and only the comparison exposed what it did not cover.
+
+### Security
+
+- **Replay protection survives a restart** (#109, #110) — `AckReceiptStore` in `@murmurv2/core` plus an `ack_receipts` table in `SQLiteDedupeOutboxStore` provide claim-once semantics on `(sender_agent_id, nonce)`. Previously nonces lived in a bounded in-memory `Set`: a restart forgot them, so a signed NACK could be replayed against a fresh process — the retry returned the row to `sent` and the replayed NACK failed it again. The in-memory store remains as an explicit fallback, and the daemon now logs a warning when that fallback is what is running rather than implying protection it does not have.
+- **The fast-ACK race no longer causes a spurious retry** — `applyAckTransition` accepts `pending` alongside `sent`, so an ACK arriving between `publish()` and `markSent()` is applied instead of rejected as `message-not-in-flight`. `markSent()` now refuses to downgrade a terminal status, so the late call cannot resurrect a settled row.
+- **The A2A bridge no longer honours an unsigned NACK** — it resolved a pending task from a bare `{msgId, status: "nack"}` object, letting anyone able to publish to the ACK subject settle someone else's in-flight task with an arbitrary failure string. A verified `SignedAckV1` is now required; `signingPublicKeys` was added to `BridgeA2AConfig`.
+- **The WebSocket ACK path is verified like the NATS one** — `processAckFrame` verified nothing and called `markAcked`/`markFailed` straight from the frame. It now checks record lookup, digest, conversation, recipient, known peer, ack-subject binding, signature and nonce claim, with unsigned frames accepted only while `requireSignedAcks` is off.
+
+### Fixed
+
+- **Five packages were built and tested against a stale core.** `bridge-a2a`, `bridge-openclaw`, `bridge-telegram`, `broker-ws` and `federation-nats` declared `@murmurv2/core: ^0.2.0`. Once core reached 0.4.0 npm could no longer satisfy that from the workspace and silently installed 0.2.0 from the registry — their passing tests were passing against code two minor versions behind.
+
+### Published
+- **npm** — `@murmurv2/core` **0.5.0**, `@murmurv2/broker-ws` **0.2.0**, `@murmurv2/bridge-a2a` **0.2.0**, `@murmurv2/broker-nats` **0.3.1**.
 
 ## [2.5.0] - 2026-08-20
 
