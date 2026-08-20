@@ -8,12 +8,22 @@
 
 ## Reporting a Vulnerability
 
-**Do not open a public issue for security vulnerabilities.**
+Please report vulnerabilities via [GitHub Security Advisories](https://github.com/alexfrmn/murmur/security/advisories/new)
+rather than a public issue, so a fix can ship before the details do.
 
-Please report vulnerabilities via [GitHub Security Advisories](https://github.com/alexfrmn/murmur/security/advisories/new).
+- Acknowledgement target: **48 hours**
+- Initial assessment target: **7 days**
 
-- You will receive an acknowledgment within **48 hours**
-- We aim to provide an initial assessment within **7 days**
+**If those targets are missed, you are free to disclose publicly.** A private channel that nobody
+answers is worse than a public one — an unanswered report protects nothing and only delays the fix.
+Reporters who go public after our silence will not be treated as having broken this policy.
+
+This is written from experience rather than principle: in August 2026 an external audit of the ACK,
+transport, local-state and dashboard surfaces was submitted as public pull requests, and we did not
+respond for nine days. The policy above now matches how the project actually behaves.
+
+If you are unsure whether a finding counts as a vulnerability, open the advisory anyway — triage is
+our job, not yours.
 
 Include as much detail as possible:
 - Description of the vulnerability

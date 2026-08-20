@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Pending
+- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge.
+- **Strict wire-breaking ACK envelope** — #104 (draft), the strict counterpart to the compatible signed-ACK path shipped below. Under evaluation for the delta it carries over #100 (nonce persistence across restarts, exactly-once outbox transitions, removal of the A2A raw-NACK shortcut).
+
+## [2.5.0] - 2026-08-20
+
+> First release built substantially from **external contributions**. The security series came from an
+> independent audit by [@fedoseevstanislav](https://github.com/fedoseevstanislav); the wake fixes and the
+> delivery-semantics analysis came from [@alexanderyswork](https://github.com/alexanderyswork).
+
+### Security
+
+- **Signed and bound delivery acknowledgements** (#100) — ACK correlation previously trusted attacker-controlled JSON carrying only `{msgId, status}`: anyone able to publish to an ACK subject could mark an arbitrary pending outbox row `acked` or `failed`, suppressing delivery or forcing retries without authenticating as the consumer. ACKs are now a versioned `SignedAckV1` with an Ed25519 signature over the message digest, conversation, ACK sender, intended recipient, status, timestamp and nonce; wrong-message, wrong-conversation, wrong-recipient, wrong-peer, stale/future, invalid-signature and replayed ACKs are rejected, and ACK/NACK state changes apply atomically only from the `sent` state. Invalid attempts are metered by bounded reason as metadata-only security events — raw ACK and message bodies are never logged. **Migration is deliberately two-stage:** upgraded daemons emit signed ACKs that legacy peers still parse; strict rejection is opt-in behind `ackSecurity.requireSigned` / `MURMUR_REQUIRE_SIGNED_ACKS=1` until every peer is upgraded.
+- **Hardened local state handling** (#101) — the daemon now sets umask `0077` before state/database creation, creates state directories `0700`, atomically creates/replaces secret JSON as `0600`, rejects symlinked, non-regular and wrong-owner config paths, reads configs with `O_NOFOLLOW` and re-checks the opened descriptor, and forces SQLite database/WAL/shared-memory files to `0600`. Agent configs hold long-term signing/encryption private keys and NATS credentials, and rewrites could previously return them to `0664`; SQLite files containing decrypted history were commonly `0644`. OpenClaw config setup no longer prints secret-bearing fields. `SECURITY.md` now documents that local message bodies remain plaintext and require a dedicated OS identity plus encrypted storage or an explicit retention policy.
+- **Dashboard rendering and ingress** (#102) — the optional dashboard renders every untrusted field through DOM `textContent` (no `innerHTML`, inline scripts or inline handlers), serves a strict CSP plus clickjacking, MIME-sniffing, referrer, opener, resource and cache protections, and requires Basic authentication backed by a private server-local token file for both HTTP and WebSocket access. Live messages are accepted only after envelope-schema, signature, NATS subject/recipient binding, traffic-direction and known-peer verification; the listener stays loopback-only. **Fails closed** unless `DASHBOARD_TOKEN_FILE` exists with at least 32 URL-safe characters and no group/other permission bits.
+
+### Fixed
+
+- **Codex wake seeded threads are usable** (#97) — `thread/start` no longer discards `thread.path`, and new threads carry `peer.cwd` instead of starting at `cwd: null`, which previously produced wrong workspace roots, missing project instructions and wrong permissions.
+- **Per-peer `baseInstructions` no longer dropped** (#98) — `normalizeWakeConfig` carries the value through, making the injector's `peer.resume === false` opt-out reachable from real configuration for the first time.
+
 ### Added
 - **Production file-level deploy tooling** — `deploy/production-file-deploy.sh`
   now builds gitignored `dist/` artifacts before copying the live-runtime
@@ -19,11 +40,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Phase N / N3 personality binding** — `buildChannelThreadStartBinding()` projects a `ChannelMemberRecord` into Codex app-server `thread/start` overrides (`model`, `personality`, optional `baseInstructions`, and audit metadata). Daemon wiring is opt-in only (`channelRoster.enabled` or `MURMUR_CHANNEL_ROSTER=1`) and leaves legacy wake behavior unchanged by default.
 - **Phase N / N6 MCP roster surface** — `@murmurv2/mcp-server` exposes `channel_create`, `channel_list`, `channel_members`, and `channel_evaluate_addressing`, backed by `MURMUR_CHANNEL_ROSTER_PATH` (default `DATA_DIR/channel-roster.db`) so agents and UI can manage rosters without direct SQLite access.
 
-### Pending
+### Known gaps
 - **Auth enforcement end-to-end** — the broker ingress hook + `authorizeInbound` exist; the daemon does not yet wire them (so `MURMUR_ENFORCE_AUTH` is not enforced end-to-end). Requires daemon roster/identity wiring + token provisioning.
+- **Delivery semantics** — failed wakes still advance the cursor and the relay is not idempotent (#105); an empty `finalText` still logs as relayed (#106); `WakeMonitor.drain` is sequential (#107); `threadId` is process-memory only and scoped per peer (#108). All four reported by @alexanderyswork in #96.
 
 ### Published
-- **npm** — `@murmurv2/core` @ **`0.3.0`** (v2.4: adds `SessionLeaseStore` / `createNativeLeaseGate` / `NATIVE_SESSION_PREFIX` — the scoped-channels lease primitive, typed + parity-tested). `@murmurv2/federation` + `@murmurv2/broker-nats` @ `0.2.0`; `security`/`observability` @ `0.1.1`, all other `@murmurv2/*` @ `0.1.0`.
+- **npm** — `@murmurv2/core` @ **`0.4.0`** (adds the signed-ACK primitive and the `SignedAckV1` protocol schema). `@murmurv2/broker-nats` @ `0.3.0` (signed-ACK emission and verification at the transport boundary), `@murmurv2/mcp-server` @ `0.2.0` (channel roster surface). `@murmurv2/federation` @ `0.2.0`; `bridge-murmur` @ `0.1.1`; `observability` @ `0.1.2`; `security` @ `0.1.1`; all other `@murmurv2/*` @ `0.1.0`.
+
+## [2.4.0] - 2026-06-23
+
+> Retroactively written on 2026-08-20. The v2.4.0 tag and GitHub release shipped on 2026-06-23 pointing
+> at "See CHANGELOG.md for details", but the section was never added — the release notes lived only on
+> the tag. Reconstructed here from the release body and the #77 epic record.
+
+### Added
+
+- **DB-backed session-ownership lease.** For an addressed conversation, only the owning session of the addressed agent responds; every other session and agent stays silent. Fixes multi-session double-emit and native wake hitting or spawning the wrong session.
+- **`SessionLeaseStore`** — atomic CAS `claim_or_skip`, heartbeat, per-turn fencing token, `session_presence` registry, `preemptPrefix`. Published in `@murmurv2/core@0.3.0`.
+- **Presence-deferring native wake** — `createNativeLeaseGate` defers to a live interactive session and claims only as a cold fallback, behind `MURMUR_SCOPED_CHANNELS` (default OFF, backwards compatible).
+- **All delivery paths honour one claim** — MCP channel, foreground push and coldstart each claim, fence and suppress against the same contract.
+
+### Validated
+
+- Lease smoke 11/11, wake-lease 7/7, cross-path coordination 9/9, real multi-process race N→1, wake-monitor regression green. Live: N sessions → exactly one emit, native defer with no competing thread.
+- External review by the Stas team: approved, no blockers; two minor notes closed (token-monotonicity fence invariant, reserved `native:` preempt namespace).
 
 ## [2.3.0] - 2026-06-22
 
