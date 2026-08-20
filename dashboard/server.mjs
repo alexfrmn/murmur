@@ -1,240 +1,185 @@
 #!/usr/bin/env node
-/**
- * Murmur V2 Observability Dashboard — Backend
- * 
- * Subscribes to NATS wildcard msg.> and ack.>
- * Decrypts messages when possible
- * Streams events to browser via WebSocket
- * Serves static dashboard.html
- * 
- * Usage: node dashboard/server.mjs
- * Env: NATS_URL, NATS_TOKEN, DATA_DIR, DASHBOARD_PORT
- */
+/** Authenticated, signature-verifying Murmur observability dashboard. */
 
 import { createServer } from "node:http";
-import { readFile, readdir } from "node:fs/promises";
-import { WebSocketServer } from "ws";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { WebSocketServer } from "ws";
 import { connect, StringCodec } from "nats";
-import { x25519 } from "@noble/curves/ed25519";
-import { xchacha20poly1305 } from "@noble/ciphers/chacha";
-import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
+import { SECURITY_HEADERS, isAuthorizedHeader, isSameOriginWebSocket, loadDashboardToken } from "./http-security.mjs";
+import { authenticateEnvelope } from "./message-security.mjs";
+import { validAgentId } from "./render.mjs";
 
 const PORT = Number(process.env.DASHBOARD_PORT) || 4280;
 const NATS_URL = process.env.NATS_URL || "nats://localhost:4222";
 const NATS_TOKEN = process.env.NATS_TOKEN;
-const DATA_DIR = process.env.DATA_DIR || path.join(path.dirname(new URL(import.meta.url).pathname), "..", ".data");
-const DASHBOARD_DIR = path.dirname(new URL(import.meta.url).pathname);
+const DASHBOARD_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = process.env.DATA_DIR || path.join(DASHBOARD_DIR, "..", ".data");
+const TOKEN_FILE = process.env.DASHBOARD_TOKEN_FILE || path.join(homedir(), ".config", "murmur", "dashboard-token");
 
-// Load agent config
 let config;
+let dashboardToken;
 try {
   config = JSON.parse(await readFile(path.join(DATA_DIR, "agent-config.json"), "utf8"));
-} catch (e) {
-  console.error("[dashboard] Cannot load agent-config.json:", e.message);
+  dashboardToken = loadDashboardToken(TOKEN_FILE);
+} catch (error) {
+  console.error(`[dashboard] Refusing to start: ${error.message}`);
   process.exit(1);
 }
 
-// Crypto helpers
-const fromB64 = (s) => new Uint8Array(Buffer.from(s, "base64"));
-const deriveSymmetricKey = (shared) => new Uint8Array(createHash("sha256").update(shared).digest());
-
-function tryDecrypt(envelope) {
-  try {
-    const senderId = envelope.senderAgentId;
-    const peer = config.peers[senderId];
-    if (!peer) return { decrypted: false, text: `[encrypted from ${senderId}]` };
-
-    const senderPubKey = fromB64(peer.encryption.publicKey);
-    const myPrivKey = fromB64(config.keys.encryption.privateKey);
-    const shared = x25519.getSharedSecret(myPrivKey, senderPubKey);
-    const key = deriveSymmetricKey(shared);
-    const nonce = fromB64(envelope.payloadNonce);
-    const ciphertext = fromB64(envelope.payloadCiphertext);
-    const cipher = xchacha20poly1305(key, nonce);
-    const plaintext = new TextDecoder().decode(cipher.decrypt(ciphertext));
-    return { decrypted: true, text: plaintext };
-  } catch (e) {
-    return { decrypted: false, text: `[decrypt failed: ${e.message}]` };
-  }
+const agents = [config.agentId, ...Object.keys(config.peers || {})];
+if (!agents.every(validAgentId)) {
+  console.error("[dashboard] Refusing to start: invalid agent identifier in configuration");
+  process.exit(1);
 }
 
-// Load message history from SQLite
+const staticFiles = new Map([
+  ["/", ["dashboard.html", "text/html; charset=utf-8"]],
+  ["/index.html", ["dashboard.html", "text/html; charset=utf-8"]],
+  ["/dashboard.css", ["dashboard.css", "text/css; charset=utf-8"]],
+  ["/dashboard.js", ["dashboard.js", "text/javascript; charset=utf-8"]],
+  ["/render.mjs", ["render.mjs", "text/javascript; charset=utf-8"]],
+]);
+
+const write = (res, status, contentType, body, extra = {}) => {
+  res.writeHead(status, { ...SECURITY_HEADERS, "Content-Type": contentType, ...extra });
+  res.end(body);
+};
+
+const unauthorized = (res) => write(
+  res,
+  401,
+  "application/json; charset=utf-8",
+  JSON.stringify({ error: "authentication required" }),
+  { "WWW-Authenticate": 'Basic realm="Murmur dashboard", charset="UTF-8"' },
+);
+
+const authorized = (req) => isAuthorizedHeader(req.headers.authorization, dashboardToken);
+
 function loadHistory(limit = 50) {
   try {
-    const dbPath = path.join(DATA_DIR, "murmur.db");
-    const db = new Database(dbPath, { readonly: true });
+    const db = new Database(path.join(DATA_DIR, "murmur.db"), { readonly: true });
     const rows = db.prepare(`
-      SELECT conversation_id, msg_id, direction, sender, text, created_at, transport 
-      FROM local_messages 
-      ORDER BY rowid DESC 
+      SELECT conversation_id, msg_id, direction, sender, text, created_at, transport
+      FROM local_messages
+      ORDER BY rowid DESC
       LIMIT ?
     `).all(limit);
     db.close();
     return rows.reverse();
-  } catch (e) {
-    console.warn("[dashboard] Cannot load history:", e.message);
+  } catch (error) {
+    console.warn("[dashboard] Cannot load history:", error.message);
     return [];
   }
 }
 
-// HTTP server — serves dashboard.html
+const historyEvent = (row) => {
+  const from = validAgentId(row.sender) ? row.sender : "unknown";
+  const inferredTo = row.direction === "inbound" ? config.agentId : row.conversation_id?.split(":")?.[1];
+  const to = validAgentId(inferredTo) ? inferredTo : "unknown";
+  return {
+    type: "message",
+    from,
+    to,
+    text: typeof row.text === "string" ? row.text.slice(0, 500) : "",
+    ts: typeof row.created_at === "string" ? row.created_at : "",
+    msgId: typeof row.msg_id === "string" ? row.msg_id : "",
+    encrypted: false,
+    authenticated: true,
+    direction: row.direction === "inbound" ? "inbound" : "outbound",
+    historical: true,
+    provenance: "verified-local-store",
+  };
+};
+
 const httpServer = createServer(async (req, res) => {
-  if (req.url === "/3d" || req.url === "/3d/") {
+  if (!authorized(req)) return unauthorized(res);
+
+  const pathname = new URL(req.url || "/", "http://localhost").pathname;
+  if (staticFiles.has(pathname)) {
+    const [filename, contentType] = staticFiles.get(pathname);
     try {
-      const html = await readFile(path.join(DASHBOARD_DIR, "3d.html"), "utf8");
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(html);
+      return write(res, 200, contentType, await readFile(path.join(DASHBOARD_DIR, filename)));
     } catch {
-      res.writeHead(404);
-      res.end("3d.html not found");
+      return write(res, 404, "text/plain; charset=utf-8", "Not found");
     }
-  } else if (req.url === "/" || req.url === "/index.html") {
-    try {
-      const html = await readFile(path.join(DASHBOARD_DIR, "dashboard.html"), "utf8");
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(html);
-    } catch {
-      res.writeHead(404);
-      res.end("dashboard.html not found");
-    }
-  } else if (req.url === "/api/agents") {
-    const agents = [config.agentId, ...Object.keys(config.peers)];
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ agents, self: config.agentId }));
-  } else if (req.url === "/api/history") {
-    const history = loadHistory(100);
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(history));
-  } else {
-    res.writeHead(404);
-    res.end("Not found");
   }
+
+  if (pathname === "/api/agents") {
+    return write(res, 200, "application/json; charset=utf-8", JSON.stringify({ agents, self: config.agentId }));
+  }
+
+  if (pathname === "/api/history") {
+    return write(res, 200, "application/json; charset=utf-8", JSON.stringify(loadHistory(100).map(historyEvent)));
+  }
+
+  return write(res, 404, "text/plain; charset=utf-8", "Not found");
 });
 
-// WebSocket server
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ noServer: true });
 const clients = new Set();
+
+httpServer.on("upgrade", (req, socket, head) => {
+  const pathname = new URL(req.url || "/", "http://localhost").pathname;
+  if (pathname !== "/ws" || !authorized(req) || !isSameOriginWebSocket(req)) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+});
 
 wss.on("connection", (ws) => {
   clients.add(ws);
-  console.log(`[dashboard] Client connected (${clients.size} total)`);
-
-  // Send agent list
-  ws.send(JSON.stringify({
-    type: "init",
-    self: config.agentId,
-    agents: [config.agentId, ...Object.keys(config.peers)],
-    ts: new Date().toISOString(),
-  }));
-
-  // Send history
-  const history = loadHistory(50);
-  for (const row of history) {
-    ws.send(JSON.stringify({
-      type: "message",
-      from: row.sender,
-      to: row.direction === "inbound" ? config.agentId : row.conversation_id?.split(":")?.[1] || "unknown",
-      text: row.text?.slice(0, 500),
-      ts: row.created_at,
-      msgId: row.msg_id,
-      encrypted: false, // already decrypted in store
-      direction: row.direction,
-      historical: true,
-    }));
-  }
-
-  ws.on("close", () => {
-    clients.delete(ws);
-    console.log(`[dashboard] Client disconnected (${clients.size} total)`);
-  });
+  ws.send(JSON.stringify({ type: "init", self: config.agentId, agents, ts: new Date().toISOString() }));
+  for (const row of loadHistory(50)) ws.send(JSON.stringify(historyEvent(row)));
+  ws.on("close", () => clients.delete(ws));
 });
 
 function broadcast(data) {
   const json = JSON.stringify(data);
-  for (const ws of clients) {
-    if (ws.readyState === 1) ws.send(json);
-  }
+  for (const ws of clients) if (ws.readyState === 1) ws.send(json);
 }
 
-// NATS subscription — listen to all agent messages
 const sc = StringCodec();
-let nc;
-let msgCount = 0;
+let authenticatedCount = 0;
+let rejectedCount = 0;
 const startTime = Date.now();
 
 try {
-  nc = await connect({ servers: NATS_URL, token: NATS_TOKEN });
+  const nc = await connect({ servers: NATS_URL, token: NATS_TOKEN });
   console.log(`[dashboard] NATS connected: ${NATS_URL}`);
-
-  // Subscribe to all msg.* subjects
   const sub = nc.subscribe("msg.>");
-  console.log(`[dashboard] Subscribed to msg.>`);
 
   (async () => {
-    for await (const m of sub) {
-      msgCount++;
-      try {
-        const raw = sc.decode(m.data);
-        const envelope = JSON.parse(raw);
-
-        if (envelope.payloadCiphertext) {
-          // Encrypted envelope
-          const { decrypted, text } = tryDecrypt(envelope);
-          broadcast({
-            type: "message",
-            from: envelope.senderAgentId || "unknown",
-            to: (envelope.recipients || [])[0] || m.subject.replace("msg.", ""),
-            text: text.slice(0, 1000),
-            ts: envelope.createdAt || new Date().toISOString(),
-            msgId: envelope.msgId,
-            encrypted: true,
-            decrypted,
-            direction: m.subject === `msg.${config.agentId}` ? "inbound" : "outbound",
-          });
-        } else if (envelope.payload) {
-          // Plain message
-          broadcast({
-            type: "message",
-            from: envelope.from || "unknown",
-            to: envelope.to || m.subject.replace("msg.", ""),
-            text: (envelope.payload || "").slice(0, 1000),
-            ts: envelope.ts || new Date().toISOString(),
-            msgId: envelope.msgId,
-            encrypted: false,
-            decrypted: true,
-            direction: m.subject === `msg.${config.agentId}` ? "inbound" : "outbound",
-          });
-        }
-      } catch (e) {
-        broadcast({
-          type: "error",
-          text: `Parse error: ${e.message}`,
-          ts: new Date().toISOString(),
-        });
+    for await (const message of sub) {
+      const result = await authenticateEnvelope(sc.decode(message.data), message.subject, config);
+      if (result.accepted) {
+        authenticatedCount += 1;
+        broadcast(result.event);
+      } else {
+        rejectedCount += 1;
+        console.warn(`[dashboard] Rejected broker frame: ${result.reason}`);
       }
     }
   })();
 
-  // Periodic stats
-  setInterval(() => {
-    broadcast({
-      type: "stats",
-      totalMessages: msgCount,
-      activeClients: clients.size,
-      uptimeMs: Date.now() - startTime,
-      agents: [config.agentId, ...Object.keys(config.peers)],
-      ts: new Date().toISOString(),
-    });
-  }, 5000);
-
-} catch (e) {
-  console.error(`[dashboard] NATS failed: ${e.message}`);
+  setInterval(() => broadcast({
+    type: "stats",
+    totalMessages: authenticatedCount,
+    rejectedMessages: rejectedCount,
+    activeClients: clients.size,
+    uptimeMs: Date.now() - startTime,
+    agents,
+    ts: new Date().toISOString(),
+  }), 5000);
+} catch (error) {
+  console.error(`[dashboard] NATS failed: ${error.message}`);
 }
 
 httpServer.listen(PORT, "127.0.0.1", () => {
-  console.log(`[dashboard] 🚀 http://localhost:${PORT}`);
-  console.log(`[dashboard] WebSocket: ws://localhost:${PORT}`);
-  console.log(`[dashboard] Agents: ${config.agentId}, ${Object.keys(config.peers).join(", ")}`);
+  console.log(`[dashboard] Authenticated dashboard listening on http://127.0.0.1:${PORT}`);
 });
