@@ -45,12 +45,49 @@ FILES=(
   "packages/mcp-server/dist/src/index.d.ts"
   "packages/mcp-server/dist/src/request-reply.js"
   "packages/mcp-server/dist/src/request-reply.d.ts"
+  "packages/broker-ws/package.json"
+  "packages/broker-ws/tsconfig.json"
+  "packages/broker-ws/src/index.ts"
+  "packages/broker-ws/dist/src/index.js"
+  "packages/broker-ws/dist/src/index.d.ts"
+  "packages/security/package.json"
+  "packages/observability/package.json"
+  "packages/federation/package.json"
+  "packages/federation-nats/package.json"
+  "packages/bridge-murmur/package.json"
+  "packages/bridge-openclaw/package.json"
+  "packages/bridge-telegram/package.json"
   "scripts/murmur-daemon.mjs"
   "scripts/murmur-jetstream-advisory.mjs"
   "scripts/codex-app-server-wake.mjs"
   "scripts/wake-monitor.mjs"
   "scripts/prometheus-exporter.mjs"
+  "scripts/secure-state.mjs"
+  "scripts/lease.mjs"
+  "scripts/notify-router.mjs"
+  "scripts/agent-config-init.mjs"
 )
+
+# Every relative import reachable from the deployed scripts must itself be in FILES.
+# Without this the allowlist silently rots: a new module lands in the repo, the daemon
+# starts importing it, the deploy copies the importer but not the import, and the live
+# daemon dies on ERR_MODULE_NOT_FOUND at restart — after the old code is already gone.
+verify_local_imports() {
+  local root="$1" missing=0 f m resolved
+  for f in "${FILES[@]}"; do
+    case "$f" in *.mjs|*.js) ;; *) continue ;; esac
+    [ -f "$root/$f" ] || continue
+    while IFS= read -r m; do
+      resolved="$(dirname "$f")/${m#./}"
+      resolved="${resolved#./}"
+      if ! printf '%s\n' "${FILES[@]}" | grep -qxF "$resolved"; then
+        echo "DEPLOY ABORT: $f imports $m -> '$resolved' is not in the deploy allowlist" >&2
+        missing=1
+      fi
+    done < <(grep -ohE 'from "\./[^"]+"' "$root/$f" 2>/dev/null | grep -oE '\./[^"]+')
+  done
+  return $missing
+}
 
 require_root() {
   if [ "$(id -u)" != "0" ]; then
@@ -102,6 +139,10 @@ if [ "$RUN_TESTS" = "1" ]; then
 fi
 
 echo "== sanity gates =="
+verify_local_imports "$tmp/repo" || {
+  echo "FAIL: deploy allowlist is missing a module the deployed code imports" >&2
+  exit 1
+}
 test -f packages/core/dist/src/channel.js || { echo "FAIL: core channel dist missing"; exit 1; }
 grep -q "ChannelRosterStore" packages/core/dist/src/channel.js || { echo "FAIL: core dist missing ChannelRosterStore"; exit 1; }
 grep -q "./channel.js" packages/core/dist/src/index.js || { echo "FAIL: core index missing channel export"; exit 1; }
