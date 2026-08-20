@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readPrivateJson, writePrivateJson } from "./secure-state.mjs";
 
 const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
@@ -8,7 +8,7 @@ const preset = (process.argv[2] || "telegram").toLowerCase();
 
 const requireConfig = async () => {
   try {
-    return JSON.parse(await readFile(configPath, "utf8"));
+    return await readPrivateJson(configPath);
   } catch (err) {
     console.error(`[notify-init] Failed to read ${configPath}: ${err.message}`);
     process.exit(1);
@@ -61,7 +61,7 @@ const run = async () => {
     process.exit(1);
   }
 
-  await writeFile(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  await writePrivateJson(configPath, cfg);
   console.log(`[notify-init] Updated ${configPath}`);
 };
 

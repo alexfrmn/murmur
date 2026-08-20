@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, promises as fs } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -304,8 +304,33 @@ export class JsonFileOutboxStore implements OutboxStore {
 }
 
 const ensureDir = (filePath: string): void => {
+  if (filePath === ":memory:" || filePath.startsWith("file::memory:")) return;
   const dir = path.dirname(filePath);
-  mkdirSync(dir, { recursive: true });
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const dirStats = lstatSync(dir);
+  if (dirStats.isSymbolicLink() || !dirStats.isDirectory()) {
+    throw new Error(`sqlite-state-directory-invalid:${dir}`);
+  }
+  if (typeof process.getuid === "function" && dirStats.uid !== process.getuid()) {
+    throw new Error(`sqlite-state-directory-owner-mismatch:${dir}`);
+  }
+
+  if (existsSync(filePath)) {
+    const fileStats = lstatSync(filePath);
+    if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
+      throw new Error(`sqlite-state-file-invalid:${filePath}`);
+    }
+    if (typeof process.getuid === "function" && fileStats.uid !== process.getuid()) {
+      throw new Error(`sqlite-state-file-owner-mismatch:${filePath}`);
+    }
+  }
+};
+
+const secureSqliteFiles = (filePath: string): void => {
+  if (filePath === ":memory:" || filePath.startsWith("file::memory:")) return;
+  for (const candidate of [filePath, `${filePath}-wal`, `${filePath}-shm`]) {
+    if (existsSync(candidate)) chmodSync(candidate, 0o600);
+  }
 };
 
 export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
@@ -336,6 +361,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
       );
       CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox(status, next_attempt_at);
     `);
+    secureSqliteFiles(dbPath);
   }
 
   async seen(msgId: string, consumerId: string): Promise<boolean> {
@@ -586,6 +612,7 @@ export class SQLiteMessageStore {
       CREATE INDEX IF NOT EXISTS idx_message_events_conversation ON message_events(conversation_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_message_events_relates ON message_events(relates_to);
     `);
+    secureSqliteFiles(dbPath);
   }
 
   /**
@@ -1155,6 +1182,7 @@ export class SQLiteStreamReassembler {
       );
       CREATE INDEX IF NOT EXISTS idx_stream_reassembly_chunks_stream ON stream_reassembly_chunks(stream_id);
     `);
+    secureSqliteFiles(dbPath);
   }
 
   acceptEnd(end: StreamEnd): StreamReassemblyResult {

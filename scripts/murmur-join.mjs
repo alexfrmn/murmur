@@ -8,9 +8,9 @@
  * Env: AGENT_ID (default: prompted), DATA_DIR (default: .data)
  */
 import { createInterface } from "node:readline/promises";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createKeyPair, createSigningKeyPair, getCryptoProvider } from "@murmurv2/security";
+import { readPrivateJson, writePrivateJson } from "./secure-state.mjs";
 
 const blob = process.argv[2];
 if (!blob || !blob.startsWith("MURMUR:")) {
@@ -38,9 +38,10 @@ const configPath = path.join(dataDir, "agent-config.json");
 // Check if config exists
 let config;
 try {
-  config = JSON.parse(await readFile(configPath, "utf8"));
+  config = await readPrivateJson(configPath);
   console.log(`[join] Using existing config: ${config.agentId}`);
-} catch {
+} catch (err) {
+  if (err?.code !== "ENOENT") throw err;
   // Need to create config — ask for agent ID
   let agentId = process.env.AGENT_ID;
   if (!agentId) {
@@ -64,8 +65,7 @@ try {
     peers: {},
   };
 
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+  await writePrivateJson(configPath, config);
   console.log(`[join] Config created: ${configPath}`);
 }
 
@@ -83,7 +83,7 @@ if (config.natsUrl !== invite.natsUrl) {
   console.log(`[join] Keeping yours. Edit .data/agent-config.json if needed.`);
 }
 
-await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+await writePrivateJson(configPath, config);
 console.log(`[join] Added peer: ${invite.agentId}`);
 
 // Generate reply blob

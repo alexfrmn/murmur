@@ -2,7 +2,6 @@
 /**
  * murmur-daemon.mjs — Persistent agent-to-agent messaging daemon.
  */
-import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -14,7 +13,10 @@ import { createChannelThreadStartBindingResolver, createCodexAppServerInjector }
 import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.mjs";
 import { WakeMonitor, createAuditShellHook, createShellHook, normalizeWakeConfig } from "./wake-monitor.mjs";
 import { SessionLeaseStore, createNativeLeaseGate } from "./lease.mjs";
+import { ensurePrivateDirectory, readPrivateJson, setPrivateUmask } from "./secure-state.mjs";
 // vault-guard: optional content policy hook (not included in OSS release)
+
+setPrivateUmask();
 
 const log = (level, msg, data) => {
   const entry = { ts: new Date().toISOString(), level, msg, ...data };
@@ -26,7 +28,8 @@ const configPath = path.join(dataDir, "agent-config.json");
 
 let config;
 try {
-  config = JSON.parse(await readFile(configPath, "utf8"));
+  await ensurePrivateDirectory(dataDir);
+  config = await readPrivateJson(configPath);
 } catch (err) {
   log("fatal", "Cannot load agent config", { path: configPath, error: err.message });
   log("info", "Run: node scripts/agent-config-init.mjs");

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readPrivateJson, writePrivateJson } from "./secure-state.mjs";
 
 const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
 
 const readConfig = async () => {
   try {
-    return JSON.parse(await readFile(configPath, "utf8"));
+    return await readPrivateJson(configPath);
   } catch (err) {
     console.error(`[openclaw-init] Failed to read ${configPath}: ${err.message}`);
     process.exit(1);
@@ -48,10 +48,19 @@ const run = async () => {
     ...(command ? { command } : { helperScript }),
   };
 
-  await writeFile(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  await writePrivateJson(configPath, cfg);
   console.log(`[openclaw-init] Updated ${configPath}`);
-  console.log("[openclaw-init] notify.openclaw:");
-  console.log(JSON.stringify(cfg.notify.openclaw, null, 2));
+  console.log("[openclaw-init] notify.openclaw configured", {
+    channel: cfg.notify.openclaw.channel,
+    routeChannel: cfg.notify.openclaw.routeChannel,
+    hasAgent: Boolean(cfg.notify.openclaw.agent),
+    hasSessionId: Boolean(cfg.notify.openclaw.sessionId),
+    hasSessionKey: Boolean(cfg.notify.openclaw.sessionKey),
+    hasTarget: Boolean(cfg.notify.openclaw.to),
+    hasGatewayUrl: Boolean(cfg.notify.openclaw.gatewayUrl),
+    hasGatewayToken: Boolean(cfg.notify.openclaw.gatewayToken),
+    mode: cfg.notify.openclaw.command ? "command" : "helper-script",
+  });
 };
 
 run().catch((err) => {
