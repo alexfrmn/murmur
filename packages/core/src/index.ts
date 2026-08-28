@@ -960,6 +960,36 @@ export class SQLiteMessageStore {
     return rows;
   }
 
+  /**
+   * Inbound messages for this agent, newest first.
+   *
+   * The store is per-agent, so every inbound row in it is already addressed to this
+   * agent: `direction` is the whole filter. Do NOT express an inbox as a
+   * `searchMessages()` call — that is a LIKE query, and a message whose text happens
+   * not to mention the agent's own name is then silently absent from the result while
+   * the sender sees the delivery acked (#114).
+   */
+  async listInbound(limit = 20): Promise<LocalMessageRecord[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT
+           id,
+           conversation_id as conversationId,
+           msg_id as msgId,
+           direction,
+           sender,
+           text,
+           created_at as createdAt,
+           transport
+         FROM local_messages
+         WHERE direction = 'inbound'
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit) as unknown as LocalMessageRecord[];
+    return rows;
+  }
+
   async searchMessages(query: string, limit = 50): Promise<LocalMessageRecord[]> {
     const q = `%${query}%`;
     const rows = this.db
