@@ -82,6 +82,8 @@ export async function waitForReply(deps: ReplyWaiterDeps): Promise<LocalMessageR
  * plaintext (conversationId / senderAgentId), so this needs no decryption.
  */
 export const buildReplyMatcher =
-  (conversationId: string, fromAgentId: string) =>
-  (envelope: { conversationId: string; senderAgentId: string }): boolean =>
-    envelope.conversationId === conversationId && envelope.senderAgentId === fromAgentId;
+  (conversationId: string, fromAgentId: string, fromMemberId?: string) =>
+  (envelope: { conversationId: string; senderAgentId: string; senderMemberId?: string }): boolean =>
+    envelope.conversationId === conversationId &&
+    envelope.senderAgentId === fromAgentId &&
+    (!fromMemberId || envelope.senderMemberId === fromMemberId);

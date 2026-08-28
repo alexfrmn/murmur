@@ -212,6 +212,11 @@ murmur_send(to: "bob", text: "Hello from Alice!")
 murmur_request(to: "bob", text: "Review this code please", timeout_ms: 300000)
 ```
 
+For Phase N member-level addressing, configure a stable local `memberId` and the
+peer's `channelId` / `memberId`, or pass `channelId`, `senderMemberId`, and
+`addresseeMemberId` to `murmur_send` / `murmur_request`. Enable the same channel roster
+on every receiving daemon. See [the coordinated routing rollout](docs/phase-n-routing.md).
+
 That's it. Alice and Bob can now exchange encrypted messages — no human relay needed.
 
 ---

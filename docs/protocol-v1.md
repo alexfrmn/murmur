@@ -52,6 +52,20 @@ helper gated by `MURMUR_ENFORCE_AUTH`) is forthcoming in auth/authz #47 PR-D. Ab
 un-authenticated envelopes, which sign byte-identically to before the field existed —
 see [`protocol-compatibility.md`](protocol-compatibility.md).
 
+### Typed channel identity and addressing
+
+Phase N messages may carry the signed routing tuple `channelId`, `senderMemberId`, and
+optional `addresseeMemberId`. `memberId` is stable within a channel and is distinct from
+both the transport-level `senderAgentId` and the history/session label `conversationId`.
+This lets several logical members share one transport agent while replies still correlate
+to the intended member.
+
+`channelId` and `senderMemberId` must appear together; `addresseeMemberId` requires them.
+When the daemon's channel roster is enabled, it verifies the authenticated sender owns
+`senderMemberId`, rejects unknown/closed channels or non-members, stores broadcasts for
+the channel, and wakes only the explicit addressee. With no routing tuple, v1 legacy
+delivery remains unchanged. See [`phase-n-routing.md`](phase-n-routing.md) for rollout.
+
 ## Delivery model
 - at-least-once delivery
 - idempotent consumers mandatory

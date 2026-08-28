@@ -33,10 +33,18 @@
         "traceId": { "type": "string" },
         "sequence": { "type": "number" },
         "parentMsgId": { "type": "string" },
+        "channelId": { "type": "string", "minLength": 1 },
+        "senderMemberId": { "type": "string", "minLength": 1 },
+        "addresseeMemberId": { "type": "string", "minLength": 1 },
         "authToken": { "type": "string", "minLength": 1 },
         "payloadCiphertext": { "type": "string", "minLength": 1 },
         "payloadNonce": { "type": "string", "minLength": 1 },
         "signature": { "type": "string", "minLength": 1 }
+      },
+      "dependentRequired": {
+        "channelId": ["senderMemberId"],
+        "senderMemberId": ["channelId"],
+        "addresseeMemberId": ["channelId"]
       }
     },
     "AckV1": {

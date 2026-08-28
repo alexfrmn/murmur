@@ -31,6 +31,7 @@ interface JsonRpcRequest {
 
 interface AgentConfig {
   agentId: string;
+  memberId?: string;
   natsUrl: string;
   natsToken?: string;
   subject: string;
@@ -45,6 +46,8 @@ interface AgentConfig {
       encryption: { publicKey: string };
       signing: { publicKey: string };
       subject: string;
+      channelId?: string;
+      memberId?: string;
     }
   >;
 }
@@ -154,7 +157,37 @@ const asMessage = (r: LocalMessageRecord): Record<string, unknown> => ({
   text: r.text,
   createdAt: r.createdAt,
   transport: r.transport,
+  channelId: r.channelId,
+  senderMemberId: r.senderMemberId,
+  addresseeMemberId: r.addresseeMemberId,
 });
+
+interface RoutingMetadata {
+  channelId?: string;
+  senderMemberId?: string;
+  addresseeMemberId?: string;
+}
+
+const optionalString = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) return undefined;
+  const result = String(value).trim();
+  return result || undefined;
+};
+
+const resolveRoutingMetadata = (
+  args: Record<string, unknown>,
+  config: AgentConfig,
+  peer: AgentConfig["peers"][string],
+): RoutingMetadata => {
+  const channelId = optionalString(args.channelId) ?? optionalString(peer.channelId);
+  const senderMemberId = optionalString(args.senderMemberId) ?? optionalString(config.memberId);
+  const addresseeMemberId = optionalString(args.addresseeMemberId) ?? optionalString(peer.memberId);
+  if (!channelId && !senderMemberId && !addresseeMemberId) return {};
+  if (!channelId || !senderMemberId) {
+    throw new Error("channelId and senderMemberId are required together for structured routing");
+  }
+  return { channelId, senderMemberId, addresseeMemberId };
+};
 
 // --- Tool handlers ---
 const handleTool = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
@@ -240,6 +273,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
         channelId: args.channelId === undefined ? undefined : String(args.channelId),
         selfAgentId,
         senderAgentId: args.senderAgentId === undefined ? undefined : String(args.senderAgentId),
+        senderMemberId: args.senderMemberId === undefined ? undefined : String(args.senderMemberId),
         addresseeMemberId: args.addresseeMemberId === undefined ? undefined : String(args.addresseeMemberId),
         addresseeAgentId: args.addresseeAgentId === undefined ? undefined : String(args.addresseeAgentId),
       }),
@@ -261,6 +295,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
 
     const conversationId = String(args.conversationId ?? `dm:${agentConfig.agentId}:${to}`);
     const msgId = randomUUID();
+    const routing = resolveRoutingMetadata(args, agentConfig, peer);
 
     // Encrypt
     const encrypted = await encryptPayload(
@@ -280,6 +315,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
       payloadCiphertext: encrypted.ciphertext,
       payloadNonce: encrypted.nonce,
       signature: "",
+      ...routing,
     };
 
     // Sign
@@ -300,9 +336,10 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
       text,
       createdAt: envelope.createdAt,
       transport: "nats",
+      ...routing,
     });
 
-    return { msgId, to, conversationId, status: "queued" };
+    return { msgId, to, conversationId, status: "queued", ...routing };
   }
 
   if (name === "murmur_inbox") {
@@ -335,6 +372,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     const conversationId = String(args.conversationId ?? `dm:${agentConfig.agentId}:${to}`);
     const msgId = randomUUID();
     const sentAt = new Date().toISOString();
+    const routing = resolveRoutingMetadata(args, agentConfig, peer);
 
     // Encrypt
     const encrypted = await encryptPayload(
@@ -354,6 +392,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
       payloadCiphertext: encrypted.ciphertext,
       payloadNonce: encrypted.nonce,
       signature: "",
+      ...routing,
     };
 
     // Sign
@@ -374,6 +413,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
       text,
       createdAt: sentAt,
       transport: "nats",
+      ...routing,
     });
 
     // Wait for the reply. Store polling is the durable fallback and always runs;
@@ -382,7 +422,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     // signal-only — the daemon stays the source of truth for decrypt + persistence.
     const graceMs = Number(args.grace_ms ?? 250);
     const deadline = Date.now() + timeoutMs;
-    const matchReply = buildReplyMatcher(conversationId, to);
+    const matchReply = buildReplyMatcher(conversationId, to, routing.addresseeMemberId);
 
     const broker = await getWakeBroker();
     // Holder object: the tap is attached inside a callback, so a plain `let` would be
@@ -415,8 +455,11 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     try {
       reply = await waitForReply({
         checkStore: async () => {
-          const inbound = await store.getInboundAfter(conversationId, sentAt, 1);
-          return inbound.length > 0 ? inbound[0] : null;
+          const inbound = await store.getInboundAfter(conversationId, sentAt, 50);
+          return inbound.find((row) =>
+            row.sender === to &&
+            (!routing.addresseeMemberId || row.senderMemberId === routing.addresseeMemberId)
+          ) ?? null;
         },
         pollMs,
         graceMs,
@@ -440,6 +483,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
         msgId,
         conversationId,
         sentAt,
+        ...routing,
         reply: asMessage(reply),
         // Precise telemetry (per CODEX-VOLT review): tapAttached = the read-only NATS
         // tap was live for this wait; wokenBySignal = a matching envelope actually
@@ -454,6 +498,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
       msgId,
       conversationId,
       sentAt,
+      ...routing,
       timeout_ms: timeoutMs,
       hint: "Use murmur_inbox to check for late responses",
     };
@@ -465,6 +510,8 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     const peerList = Object.entries(agentConfig.peers).map(([id, p]) => ({
       agentId: id,
       subject: p.subject,
+      channelId: p.channelId,
+      memberId: p.memberId,
       hasEncryptionKey: !!p.encryption?.publicKey,
       hasSigningKey: !!p.signing?.publicKey,
     }));
@@ -575,6 +622,7 @@ const tools = [
         channelId: { type: "string" },
         selfAgentId: { type: "string" },
         senderAgentId: { type: "string" },
+        senderMemberId: { type: "string" },
         addresseeMemberId: { type: "string" },
         addresseeAgentId: { type: "string" },
       },
@@ -591,6 +639,9 @@ const tools = [
         to: { type: "string", description: "Recipient agent ID (must be in peers config)" },
         text: { type: "string", description: "Message text (will be encrypted)" },
         conversationId: { type: "string", description: "Optional conversation ID" },
+        channelId: { type: "string", description: "Optional typed-channel ID; may default from peer config" },
+        senderMemberId: { type: "string", description: "Optional sender member identity; may default from local config" },
+        addresseeMemberId: { type: "string", description: "Optional target member identity; may default from peer config" },
       },
       required: ["to", "text"],
     },
@@ -605,6 +656,9 @@ const tools = [
         to: { type: "string", description: "Recipient agent ID (must be in peers config)" },
         text: { type: "string", description: "Message text (will be encrypted)" },
         conversationId: { type: "string", description: "Optional conversation ID" },
+        channelId: { type: "string", description: "Optional typed-channel ID; may default from peer config" },
+        senderMemberId: { type: "string", description: "Optional sender member identity; may default from local config" },
+        addresseeMemberId: { type: "string", description: "Optional target member identity; may default from peer config" },
         timeout_ms: { type: "number", description: "Max wait time in ms (default: 300000 = 5 min)" },
         poll_interval_ms: { type: "number", description: "Store-poll fallback interval in ms (default: 10000 = 10s)" },
         grace_ms: { type: "number", description: "Delay after a wake signal before re-checking the store, to let the daemon persist (default: 250)" },

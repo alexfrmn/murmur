@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Phase N structured member routing** — optional signed `channelId`, `senderMemberId`,
+  and `addresseeMemberId` fields now flow through the envelope, MCP send/request tools,
+  durable inbox, daemon roster policy, receive-hook environment, and shell sender. Legacy
+  fieldless envelopes remain byte-identical. `murmur_request` can distinguish replies from
+  multiple members sharing one transport agent. The receive-time wake decision is persisted
+  so observer-muted history cannot wake through delayed backlog processing, and configured
+  proxy subjects apply the same structured member-addressing decision.
+
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.

@@ -70,6 +70,7 @@ export interface ChannelAddressingInput {
   channelId?: string;
   selfAgentId: string;
   senderAgentId?: string;
+  senderMemberId?: string;
   addresseeMemberId?: string;
   addresseeAgentId?: string;
 }
@@ -418,8 +419,12 @@ export class ChannelRosterStore {
       return { allowAppend: false, allowWake: false, reject: true, reason: "self-not-member", channel };
     }
 
-    const senderMember = input.senderAgentId ? this.findActiveChannelMemberForAgent(input.channelId, input.senderAgentId) : undefined;
-    if (input.senderAgentId && !senderMember) {
+    const senderMember = input.senderMemberId
+      ? this.getChannelMember(input.channelId, input.senderMemberId)
+      : input.senderAgentId
+        ? this.findActiveChannelMemberForAgent(input.channelId, input.senderAgentId)
+        : undefined;
+    if (input.senderAgentId && (!senderMember || senderMember.leftAt || senderMember.agentId !== input.senderAgentId)) {
       return { allowAppend: false, allowWake: false, reject: true, reason: "sender-not-member", channel, selfMember };
     }
 
