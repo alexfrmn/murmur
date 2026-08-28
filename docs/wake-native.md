@@ -36,6 +36,31 @@ Drain semantics:
   drain, so repeated hook invocations do not double-wake the same message.
 - Cursor writes use a temporary file plus rename where the filesystem allows it.
 
+### Windows / no `sqlite3` CLI — `wake-drain-claude.mjs`
+
+`wake-drain-claude.sh` shells out to the `sqlite3` CLI, which is not installed
+by default on Windows (the daemon uses `node:sqlite`, not the CLI). There the
+query returns empty, the hook exits `0`, and the session is never woken — native
+wake silently looks broken.
+
+`scripts/wake-drain-claude.mjs` is a dependency-free node port that reads the
+store via `node:sqlite`, so it runs anywhere node does. It also polls (up to
+`MURMUR_WAKE_MAX_SECONDS`, single-poller lock) so a message that arrives while
+the session is already idle still wakes it, which a one-shot Stop hook cannot.
+Run it under `node --no-warnings` and register the same way:
+
+```json
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node --no-warnings /path/to/scripts/wake-drain-claude.mjs", "asyncRewake": true }] }]
+  }
+}
+```
+
+Same env as the shell version (`MURMUR_DB`, `MURMUR_WAKE_CURSOR`) plus
+`MURMUR_WAKE_LOCK`, `MURMUR_WAKE_MAX_SECONDS`, `MURMUR_WAKE_POLL_MS`. Pass
+`--once` for a single non-polling check (e.g. a PostToolUse hook).
+
 ## Codex CLI - App-Server WS-over-UDS
 
 Codex is woken over the `codex app-server` WebSocket protocol on a Unix-domain
