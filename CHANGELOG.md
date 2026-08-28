@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
 
+## [2.7.0] - 2026-08-28
+
+> Delivery correctness, found by running the mesh where it had not been run before. A
+> cross-host test between a Mac and a Windows box by
+> [@lichtpfad](https://github.com/lichtpfad) surfaced three defects that our own hosts
+> could not: two of them made a message vanish or repeat forever without a single error
+> line, and the third stopped the install outright.
+
+### Fixed
+
+- **A `failed` outbox row could never finish its retry** (#113, #117) — `failed` was listed in `TERMINAL_OUTBOX_STATUSES`, but `claimDue()` selects `failed` on purpose. The retry was re-claimed, published successfully, and then `markSent()` refused it: the status stayed `failed`, `attempts` never grew (so `maxAttempts`/DLQ never fired), `nextAttemptAt` stayed in the past, and the row was re-claimed again on every flush. The returning ACK bounced as `message-not-in-flight`. Nothing short of a manual `dlq` could settle it — 766 log lines over two `msgId`s in the report. The race that v2.6.0 was guarding (a fast ACK/NACK landing between `publish()` and `markSent()`) is now handled per row: `claimDue()` hands out the row `version`, the flush loop passes it to `markSent(msgId, expectedVersion)`, and the update applies only while the row is untouched. That covers any concurrent transition rather than a hand-maintained list of statuses.
+- **`murmur_inbox` reported `count:0` for messages that had been delivered** (#114, #116) — the tool ran `searchMessages(agentId)`, a `LIKE` over text/sender/conversationId, and then filtered by direction. A reply that did not happen to spell out the receiving agent's name matched nothing, so the inbox looked empty while the row sat in `local_messages` and the sender saw the delivery `acked`. Measured across three agents: 4 inbound → 0, 3 → 1, 2 → 0. The store is per-agent, so direction is the whole filter; `SQLiteMessageStore.listInbound()` replaces the search. The worst shape a delivery bug can take for autonomous agents — no error, no retry, both sides confident.
+- **Install failed on Windows** (#112) — `writePrivateJson` fsync'd the containing directory, which Windows does not support on a directory handle (`FlushFileBuffers` → `EPERM`), so `murmur-join.mjs` died while generating keys. The file itself is fsync'd a line earlier; the directory sync is a durability nicety and is now skipped on win32. Contributed by [@lichtpfad](https://github.com/lichtpfad).
+- **Native wake did nothing on Windows** (#115, #118) — `wake-drain-claude.sh` shells out to the `sqlite3` CLI, which a default Windows install does not have (the daemon uses `node:sqlite`, not the CLI). The query came back empty, the hook exited `0`, and the session was never woken: native wake looked broken when a binary was simply missing. `scripts/wake-drain-claude.mjs` is a dependency-free node port that runs anywhere node does, contributed by [@lichtpfad](https://github.com/lichtpfad), plus a poller so a message arriving while the session is already idle still wakes it. The follow-up gave it the per-session cursor from #111, bound the cursor to the last row actually reported (advancing to `MAX(rowid)` could step over a row inserted mid-drain), and made faults report themselves instead of exiting `0` in silence.
+- **One inbound message woke only one session** (#111) — the wake cursor and the watcher lock were shared per host, so whichever session reached the hook first advanced the cursor past the message and every other live session, including the one holding the conversation, stayed asleep. Measured over 23–26.08: of 24 sessions that armed a watcher, exactly one was ever on duty. Both are keyed per session now, and a session's first run seeds the cursor to the current tip instead of replaying the whole history.
+
+### Changed
+
+- `MURMUR_DB` defaults to `.data/murmur.db` — the same path `SQLiteMessageStore` uses — in the wake drains and the cold-idle watcher, instead of an absolute path inside one machine's home. `scripts/murmur-to-acp-producer.sh` resolves its Python entry point relative to the repo for the same reason. Set `MURMUR_DB` explicitly when a hook runs from another working directory.
+- `OutboxStore.markSent()` takes an optional second argument, `expectedVersion`. Existing callers keep working; anything on the claim → publish → mark path should pass `record.version`.
+
+### Published
+- **npm** — `@murmurv2/core` **0.6.0**, `@murmurv2/broker-nats` **0.3.2**, `@murmurv2/broker-ws` **0.2.1**, `@murmurv2/mcp-server` **0.2.1**.
+
 ## [2.6.0] - 2026-08-20
 
 > Closes the four gaps that v2.5.0's compatible signed-ACK path left open. Found by diffing

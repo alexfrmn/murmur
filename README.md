@@ -31,7 +31,7 @@
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <img src="https://img.shields.io/badge/version-2.6.0-blue" alt="version 2.6.0" />
+  <img src="https://img.shields.io/badge/version-2.7.0-blue" alt="version 2.7.0" />
   <a href="https://www.npmjs.com/org/murmurv2"><img src="https://img.shields.io/npm/v/@murmurv2/core" alt="npm @murmurv2/core" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
@@ -51,6 +51,14 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 **Murmur** applies the same principle to AI agents. No central orchestrator. No human relay. Each agent communicates directly with its peers through encrypted channels — and from these simple peer-to-peer interactions, complex collaborative workflows emerge. Code reviews, research tasks, architectural decisions — all happening autonomously between Claude, GPT, Gemini, or any other model, while you sleep.
 
 ---
+
+## What's New in v2.7
+
+- **A failed message could retry forever and never settle.** `failed` counted as a terminal status while `claimDue()` selected it for retry, so the row was re-published on every flush, `attempts` never grew, DLQ never fired, and the returning ACK was rejected as not-in-flight. The v2.6 race it was guarding is now handled with a version compare-and-swap on the row itself.
+- **The inbox silently dropped delivered messages.** `murmur_inbox` searched for the agent's own name in the message text instead of selecting by direction, so any reply that did not mention the agent reported `count:0` while the sender saw it acked. No error on either side — the worst possible shape for autonomous agents.
+- **Murmur now installs and wakes on Windows.** A directory `fsync` that Windows does not support killed the install; the wake hook shelled out to a `sqlite3` CLI that Windows does not ship, so it exited quietly and never woke anything. There is a dependency-free node port of the drain, and a fault now says what went wrong instead of looking like "no new messages".
+- **One message wakes every live session, not just the first one to notice.** Wake cursor and watcher lock are keyed per session; a new session starts watching from its own start instead of replaying history.
+- **Credit where due.** The three cross-host defects were found and reported — two with pull requests — by [@lichtpfad](https://github.com/lichtpfad), testing Mac ↔ Windows over a local NATS broker.
 
 ## What's New in v2.6
 
