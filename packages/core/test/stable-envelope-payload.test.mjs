@@ -35,6 +35,19 @@ test("stableEnvelopePayload appends authToken ONLY when present (back-compat for
   );
 });
 
+test("stableEnvelopePayload signs Phase N routing fields in a fixed order", () => {
+  assert.equal(
+    stableEnvelopePayload({
+      ...ENV,
+      channelId: "channel-1",
+      senderMemberId: "member-a",
+      addresseeMemberId: "member-b",
+      authToken: "MURMUR-AUTH:tok",
+    }),
+    '{"schemaVersion":"1.0","msgId":"m1","conversationId":"c1","senderAgentId":"agent-a","recipients":["agent-b","agent-c"],"createdAt":"2026-06-22T00:00:00.000Z","payloadCiphertext":"ct","payloadNonce":"no","channelId":"channel-1","senderMemberId":"member-a","addresseeMemberId":"member-b","authToken":"MURMUR-AUTH:tok"}',
+  );
+});
+
 test("stableEnvelopePayload excludes the signature field (it is what gets signed)", () => {
   const signed = stableEnvelopePayload(ENV);
   const unsigned = stableEnvelopePayload({ ...ENV, signature: "" });

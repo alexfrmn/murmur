@@ -193,7 +193,11 @@ const loadInboundAfter = async (cursor) => {
          msg_id as msgId,
          sender as "from",
          text,
-         created_at as ts
+         created_at as ts,
+         channel_id as channelId,
+         sender_member_id as senderMemberId,
+         addressee_member_id as addresseeMemberId,
+         wake_eligible as wakeEligible
        FROM local_messages
        WHERE direction = 'inbound' AND rowid > ?
        ORDER BY rowid ASC
@@ -205,6 +209,11 @@ const loadInboundAfter = async (cursor) => {
     text: row.text,
     msgId: row.msgId,
     conversationId: row.conversationId,
+    channelId: row.channelId || undefined,
+    senderMemberId: row.senderMemberId || undefined,
+    addresseeMemberId: row.addresseeMemberId || undefined,
+    // NULL is a pre-Phase-N/legacy row and retains legacy wake behavior.
+    wakeEligible: row.wakeEligible === null ? true : Boolean(row.wakeEligible),
     ts: row.ts,
     cursor: Number(row.cursor),
   }));
@@ -272,6 +281,16 @@ const onMessage = async (envelope) => {
     keys.encryption.privateKey,
   );
 
+  const addressing = channelRosterStore?.evaluateAddressing({
+    channelId: envelope.channelId,
+    selfAgentId: agentId,
+    senderAgentId: senderId,
+    senderMemberId: envelope.senderMemberId,
+    addresseeMemberId: envelope.addresseeMemberId,
+  });
+  if (addressing?.reject) throw new Error(`channel-addressing-rejected:${addressing.reason}`);
+  const wakeEligible = addressing?.allowWake !== false;
+
   await msgStore.append({
     conversationId: envelope.conversationId,
     msgId: envelope.msgId,
@@ -280,12 +299,20 @@ const onMessage = async (envelope) => {
     text: plaintext,
     createdAt: envelope.createdAt,
     transport: "nats",
+    channelId: envelope.channelId,
+    senderMemberId: envelope.senderMemberId,
+    addresseeMemberId: envelope.addresseeMemberId,
+    wakeEligible,
   });
 
   log("info", "Message received", {
     msgId: envelope.msgId,
     from: senderId,
     conversationId: envelope.conversationId,
+    channelId: envelope.channelId,
+    senderMemberId: envelope.senderMemberId,
+    addresseeMemberId: envelope.addresseeMemberId,
+    wakeEligible,
     textLen: plaintext.length,
   });
 
@@ -294,11 +321,15 @@ const onMessage = async (envelope) => {
     text: plaintext,
     msgId: envelope.msgId,
     conversationId: envelope.conversationId,
+    channelId: envelope.channelId,
+    senderMemberId: envelope.senderMemberId,
+    addresseeMemberId: envelope.addresseeMemberId,
+    wakeEligible,
     ts: new Date().toISOString(),
     cursor: inboundCursorForMsg(envelope.msgId),
   };
 
-  if (effectiveNotifyTargets.length > 0) {
+  if (effectiveNotifyTargets.length > 0 && wakeEligible) {
     notifyQueue.enqueueMessage(payload, effectiveNotifyTargets);
     log("info", "Notifications queued", {
       msgId: envelope.msgId,
@@ -306,7 +337,7 @@ const onMessage = async (envelope) => {
     });
   }
 
-  await wakeMonitor.onInbound(payload);
+  if (wakeEligible) await wakeMonitor.onInbound(payload);
 };
 
 let running = true;
@@ -360,16 +391,38 @@ try {
   // Also subscribe to proxy subjects (agents without their own daemon)
   const proxySubjects = (config.proxySubjects || []);
   for (const ps of proxySubjects) {
+    const proxyAgentId = ps.replace(/^msg\./, "");
     const proxyOnMessage = async (envelope, plaintext) => {
       const senderId = envelope.senderAgentId || "unknown";
-      log("info", "Proxy message received", { subject: ps, from: senderId, len: plaintext?.length });
+      const addressing = channelRosterStore?.evaluateAddressing({
+        channelId: envelope.channelId,
+        selfAgentId: proxyAgentId,
+        senderAgentId: senderId,
+        senderMemberId: envelope.senderMemberId,
+        addresseeMemberId: envelope.addresseeMemberId,
+      });
+      if (addressing?.reject) throw new Error(`channel-addressing-rejected:${addressing.reason}`);
+      const wakeEligible = addressing?.allowWake !== false;
+      log("info", "Proxy message received", {
+        subject: ps,
+        from: senderId,
+        channelId: envelope.channelId,
+        senderMemberId: envelope.senderMemberId,
+        addresseeMemberId: envelope.addresseeMemberId,
+        wakeEligible,
+        len: plaintext?.length,
+      });
       await proxyWakeMonitor.onInbound({
         from: senderId,
         text: plaintext ?? "",
         msgId: envelope.msgId,
         conversationId: envelope.conversationId,
+        channelId: envelope.channelId,
+        senderMemberId: envelope.senderMemberId,
+        addresseeMemberId: envelope.addresseeMemberId,
+        wakeEligible,
         ts: new Date().toISOString(),
-        env: { MURMUR_PROXY_AGENT: ps.replace("msg.", "") },
+        env: { MURMUR_PROXY_AGENT: proxyAgentId },
       });
     };
     await broker.subscribeWithAck({ subject: ps, consumerId: `${agentId}-proxy-${durableSafe(ps)}`, dedupe: store, onMessage: proxyOnMessage });

@@ -25,6 +25,13 @@ test("buildReplyMatcher matches same conversation + peer, rejects others", () =>
   assert.equal(match({ conversationId: "conv-2", senderAgentId: "agent.b" }), false);
 });
 
+test("buildReplyMatcher can distinguish members sharing one transport agent", () => {
+  const match = buildReplyMatcher("conv-1", "agent.b", "topic:5935");
+  assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.b", senderMemberId: "topic:5935" }), true);
+  assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.b", senderMemberId: "topic:33" }), false);
+  assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.b" }), false);
+});
+
 // --- A: durability when live-wait is OFF (pure store polling, no signal) ------
 
 test("A: resolves via store-poll fallback when no wake signal is wired", async () => {

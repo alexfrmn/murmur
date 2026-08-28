@@ -25,6 +25,10 @@ export interface EnvelopeV1 {
   traceId?: string;
   sequence?: number;
   parentMsgId?: string;
+  /** Phase N routing identity. Member ids are scoped to channelId. */
+  channelId?: string;
+  senderMemberId?: string;
+  addresseeMemberId?: string;
   /** Optional bearer auth token (`MURMUR-AUTH:...`) authorizing the sender. When present
    *  it is part of the signed payload (so it can't be stripped/swapped) and can be
    *  verified with @murmurv2/federation `verifyAuthToken`. Ingress enforcement (an
@@ -114,6 +118,11 @@ export const stableEnvelopePayload = (envelope: EnvelopeV1): string =>
     createdAt: envelope.createdAt,
     payloadCiphertext: envelope.payloadCiphertext,
     payloadNonce: envelope.payloadNonce,
+    // Phase N identity is optional and appended only when present. Legacy
+    // envelopes therefore retain their byte-identical signing payload.
+    ...(envelope.channelId !== undefined ? { channelId: envelope.channelId } : {}),
+    ...(envelope.senderMemberId !== undefined ? { senderMemberId: envelope.senderMemberId } : {}),
+    ...(envelope.addresseeMemberId !== undefined ? { addresseeMemberId: envelope.addresseeMemberId } : {}),
     // authToken is appended ONLY when present, in a fixed final position: envelopes
     // without it sign byte-identically to before this field existed (back-compat),
     // and when present it is covered by the signature so it can't be stripped/swapped.
@@ -773,6 +782,11 @@ export interface LocalMessageRecord {
   text: string;
   createdAt: string;
   transport?: string;
+  channelId?: string;
+  senderMemberId?: string;
+  addresseeMemberId?: string;
+  /** Local receive-time authorization decision; never transported on EnvelopeV1. */
+  wakeEligible?: boolean;
 }
 
 /**
@@ -820,7 +834,11 @@ export class SQLiteMessageStore {
         sender TEXT NOT NULL,
         text TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        transport TEXT
+        transport TEXT,
+        channel_id TEXT,
+        sender_member_id TEXT,
+        addressee_member_id TEXT,
+        wake_eligible INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_local_messages_conversation ON local_messages(conversation_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_local_messages_text ON local_messages(text);
@@ -839,6 +857,13 @@ export class SQLiteMessageStore {
       CREATE INDEX IF NOT EXISTS idx_message_events_conversation ON message_events(conversation_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_message_events_relates ON message_events(relates_to);
     `);
+    const messageColumns = new Set(
+      (this.db.prepare("PRAGMA table_info(local_messages)").all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    if (!messageColumns.has("channel_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN channel_id TEXT");
+    if (!messageColumns.has("sender_member_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN sender_member_id TEXT");
+    if (!messageColumns.has("addressee_member_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN addressee_member_id TEXT");
+    if (!messageColumns.has("wake_eligible")) this.db.exec("ALTER TABLE local_messages ADD COLUMN wake_eligible INTEGER");
     secureSqliteFiles(dbPath);
   }
 
@@ -946,8 +971,9 @@ export class SQLiteMessageStore {
     this.db
       .prepare(
         `INSERT INTO local_messages
-         (id, conversation_id, msg_id, direction, sender, text, created_at, transport)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, conversation_id, msg_id, direction, sender, text, created_at, transport,
+          channel_id, sender_member_id, addressee_member_id, wake_eligible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -958,6 +984,10 @@ export class SQLiteMessageStore {
         row.text,
         row.createdAt,
         row.transport ?? null,
+        row.channelId ?? null,
+        row.senderMemberId ?? null,
+        row.addresseeMemberId ?? null,
+        row.wakeEligible === undefined ? null : Number(row.wakeEligible),
       );
     return row;
   }
@@ -986,7 +1016,10 @@ export class SQLiteMessageStore {
            sender,
            text,
            created_at as createdAt,
-           transport
+           transport,
+           channel_id as channelId,
+           sender_member_id as senderMemberId,
+           addressee_member_id as addresseeMemberId
          FROM local_messages
          WHERE conversation_id = ? AND direction = 'inbound' AND created_at > ?
          ORDER BY created_at ASC
@@ -1016,7 +1049,10 @@ export class SQLiteMessageStore {
            sender,
            text,
            created_at as createdAt,
-           transport
+           transport,
+           channel_id as channelId,
+           sender_member_id as senderMemberId,
+           addressee_member_id as addresseeMemberId
          FROM local_messages
          WHERE direction = 'inbound'
          ORDER BY created_at DESC, rowid DESC
@@ -1038,7 +1074,10 @@ export class SQLiteMessageStore {
            sender,
            text,
            created_at as createdAt,
-           transport
+           transport,
+           channel_id as channelId,
+           sender_member_id as senderMemberId,
+           addressee_member_id as addresseeMemberId
          FROM local_messages
          WHERE text LIKE ? OR sender LIKE ? OR conversation_id LIKE ?
          ORDER BY created_at DESC
@@ -1638,6 +1677,14 @@ export const isEnvelopeV1 = (v: unknown): v is EnvelopeV1 => {
     hasOptional("traceId", "string") &&
     hasOptional("sequence", "number") &&
     hasOptional("parentMsgId", "string") &&
+    hasOptional("channelId", "string") &&
+    hasOptional("senderMemberId", "string") &&
+    hasOptional("addresseeMemberId", "string") &&
+    (o.channelId === undefined || (typeof o.channelId === "string" && o.channelId.length > 0)) &&
+    (o.senderMemberId === undefined || (typeof o.senderMemberId === "string" && o.senderMemberId.length > 0)) &&
+    (o.addresseeMemberId === undefined || (typeof o.addresseeMemberId === "string" && o.addresseeMemberId.length > 0)) &&
+    (o.channelId === undefined) === (o.senderMemberId === undefined) &&
+    (o.addresseeMemberId === undefined || o.channelId !== undefined) &&
     // authToken: optional, but if present must be a non-empty string (a bearer token)
     (o.authToken === undefined || (typeof o.authToken === "string" && o.authToken.length > 0))
   );
