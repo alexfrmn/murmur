@@ -15,7 +15,7 @@
 #   MURMUR_WAKE_SESSION_KEY overrides the session key used to build the default cursor
 set -uo pipefail
 
-DB="${MURMUR_DB:-/opt/lifecoach/murmur/.data/murmur.db}"
+DB="${MURMUR_DB:-.data/murmur.db}"
 
 # ── ключ сессии: свой курсор у каждой сессии ─────────────────────────────
 # WHY (26.08.2026): общий курсор на всех означает, что первая же сессия, дошедшая
