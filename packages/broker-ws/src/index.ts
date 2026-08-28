@@ -466,7 +466,7 @@ export class WebSocketBroker {
     for (const rec of due) {
       try {
         await this.publish(rec.subject, rec.envelope, params.policy);
-        await params.outbox.markSent(rec.msgId);
+        await params.outbox.markSent(rec.msgId, rec.version);
       } catch (err) {
         const nextAttemptNum = rec.attempts + 1;
         const reason = err instanceof Error ? err.message : "publish-failed";
