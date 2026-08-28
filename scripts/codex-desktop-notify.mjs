@@ -12,6 +12,7 @@ const DEFAULT_CODEX_HOME = process.env.CODEX_HOME || path.join(homedir(), ".code
 const DEFAULT_DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(MURMUR_ROOT, ".data"));
 const DEFAULT_REQUEST_WAIT_DIR = path.join(DEFAULT_DATA_DIR, ".codex-request-waits");
 const DEFAULT_TASK_BINDING_DIR = path.join(DEFAULT_DATA_DIR, ".codex-task-bindings");
+const DEFAULT_MURMUR_DB_PATH = path.join(DEFAULT_DATA_DIR, "murmur.db");
 const CODEX_CANDIDATES = [
   "/Applications/ChatGPT.app/Contents/Resources/codex",
   "/Applications/Codex.app/Contents/Resources/codex",
@@ -160,6 +161,39 @@ export const hasCodexTaskPeerBinding = (payload, taskBindingDir = DEFAULT_TASK_B
   }
 };
 
+export const hasAcknowledgedOutboundPeerHistory = (payload, dbPath = DEFAULT_MURMUR_DB_PATH) => {
+  const conversationId = String(payload.conversationId || "");
+  const peerId = String(payload.from || "");
+  if (!addressedThreadId(conversationId) || !peerId || !dbPath || !existsSync(dbPath)) return false;
+  let db;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    const row = db.prepare(`
+      SELECT 1 AS matched
+      FROM local_messages AS message
+      JOIN outbox ON outbox.msg_id = message.msg_id
+      JOIN json_each(outbox.envelope_json, '$.recipients') AS recipient
+      WHERE message.direction = 'outbound'
+        AND message.conversation_id = ?
+        AND outbox.status = 'acked'
+        AND recipient.type = 'text'
+        AND recipient.value = ?
+      LIMIT 1
+    `).get(conversationId, peerId);
+    return row?.matched === 1;
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
+};
+
+export const hasCodexTaskPeerParticipation = (payload, {
+  taskBindingDir = DEFAULT_TASK_BINDING_DIR,
+  murmurDbPath = DEFAULT_MURMUR_DB_PATH,
+} = {}) => hasCodexTaskPeerBinding(payload, taskBindingDir)
+  || hasAcknowledgedOutboundPeerHistory(payload, murmurDbPath);
+
 export const isCodexDesktopRunning = async () => {
   try {
     const { stdout } = await run("/bin/ps", ["-axo", "args="]);
@@ -172,12 +206,14 @@ export const isCodexDesktopRunning = async () => {
   }
 };
 
+export const buildNotificationBody = ({ queued, threadTitle }) => queued
+  ? `Queued for ${threadTitle || "the addressed Codex task"}; Codex will start it when available.`
+  : "Stored securely. Open Codex to read it.";
+
 export const showNotification = async ({ from, queued, threadTitle }) => {
   const title = "Murmur";
   const subtitle = `Message from ${from || "another agent"}`;
-  const body = queued
-    ? `Delivered to ${threadTitle || "the addressed Codex task"}`
-    : "Stored securely. Open Codex to read it.";
+  const body = buildNotificationBody({ queued, threadTitle });
   const script = `display notification "${escapeAppleScript(body)}" with title "${escapeAppleScript(title)}" subtitle "${escapeAppleScript(subtitle)}" sound name "Glass"`;
   try {
     await run("/usr/bin/osascript", ["-e", script], { timeout: 5_000 });
@@ -198,7 +234,10 @@ export const deliverToAddressedCodexThread = async (payload, options = {}) => {
       queueOutput: "",
     };
   }
-  const peerBound = hasCodexTaskPeerBinding(payload, options.taskBindingDir);
+  const peerBound = hasCodexTaskPeerParticipation(payload, {
+    taskBindingDir: options.taskBindingDir,
+    murmurDbPath: options.murmurDbPath,
+  });
   const desktopRunning = options.desktopRunning ?? await isCodexDesktopRunning();
   const target = desktopRunning && peerBound
     ? selectTargetUserThread({ ...options, conversationId: payload.conversationId })

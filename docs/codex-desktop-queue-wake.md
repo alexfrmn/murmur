@@ -33,10 +33,15 @@ conversation remains in the Murmur inbox. It may produce a privacy-safe desktop
 notification, but it is never redirected into the latest task. This prevents
 project-specific work from landing in an unrelated conversation.
 
-The outbound MCP call records the peer/task participation binding under the
-private Murmur data directory. A peer cannot opt itself into an unrelated task
-by sending or guessing a task UUID. Binding-write failure fails closed to
-inbox-only delivery.
+An outbound MCP call records the peer/task participation binding under the
+private Murmur data directory. The hook also accepts durable local evidence of
+an earlier outbound message on the exact task conversation, but only when that
+message was acknowledged by the same authenticated peer. This supports older
+tasks and sends made through `murmur-shell-send.mjs`, which predate the binding
+marker. An inbound message alone never creates this permission, so a peer
+cannot opt itself into an unrelated task by sending or guessing a task UUID.
+Missing or malformed participation evidence fails closed to inbox-only
+delivery.
 
 `conversationId` is local task affinity, not a replacement for Murmur's Phase N
 channel roster. Logical agent/member addressing should continue to use
@@ -97,6 +102,8 @@ reply to both calls.
   shell command.
 - Desktop notifications contain the peer id and target task title, not the
   message body.
+- A successful queue command is described as queued, not already delivered;
+  Codex starts it when the exact addressed task becomes available.
 - Auto-delivery is authenticated agent input, not new authorization from the
   desktop owner. The queued prompt states this boundary explicitly.
 - A task must have initiated contact with the peer before that peer can inject
@@ -112,4 +119,6 @@ node --test tests/codex-desktop-notify.test.mjs tests/mcp-request-reply.test.mjs
 
 For an end-to-end test, send a request from a Desktop task without an explicit
 `conversationId`. The response should retain `codex:task:<UUID>` and appear in
-that task. A legacy `dm:` test should remain inbox-only.
+that task. Repeat with `murmur-shell-send.mjs` on the same exact conversation to
+cover acknowledged-history migration. A legacy `dm:` test should remain
+inbox-only.

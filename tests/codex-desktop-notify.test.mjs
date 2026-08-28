@@ -7,10 +7,13 @@ import path from "node:path";
 import test from "node:test";
 import {
   addressedThreadId,
+  buildNotificationBody,
   buildQueuedMessage,
   consumeSynchronousReplySuppression,
   findCodexStateDb,
+  hasAcknowledgedOutboundPeerHistory,
   hasCodexTaskPeerBinding,
+  hasCodexTaskPeerParticipation,
   selectAddressedUserThread,
   selectTargetUserThread,
 } from "../scripts/codex-desktop-notify.mjs";
@@ -29,6 +32,80 @@ test("consumeSynchronousReplySuppression consumes one matching live request mark
   try {
     assert.equal(consumeSynchronousReplySuppression(payload, dir, 10_000), true);
     assert.equal(consumeSynchronousReplySuppression(payload, dir, 10_000), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("acknowledged outbound history authorizes only the exact peer and task pair", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "murmur-outbound-history-"));
+  const dbPath = path.join(dir, "murmur.db");
+  const conversationId = "codex:task:11111111-1111-4111-8111-111111111111";
+  const payload = { conversationId, from: "agent-peer" };
+  const db = new DatabaseSync(dbPath);
+  db.exec(`
+    CREATE TABLE local_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      msg_id TEXT NOT NULL,
+      direction TEXT NOT NULL
+    );
+    CREATE TABLE outbox (
+      msg_id TEXT PRIMARY KEY,
+      envelope_json TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+  `);
+  db.prepare("INSERT INTO local_messages VALUES (?, ?, ?, ?)")
+    .run("local-1", conversationId, "msg-1", "outbound");
+  db.prepare("INSERT INTO outbox VALUES (?, ?, ?)").run("msg-1", JSON.stringify({
+    senderAgentId: "agent-local",
+    recipients: ["agent-peer"],
+  }), "acked");
+  db.close();
+
+  try {
+    assert.equal(hasAcknowledgedOutboundPeerHistory(payload, dbPath), true);
+    assert.equal(hasAcknowledgedOutboundPeerHistory({ ...payload, from: "other-peer" }, dbPath), false);
+    assert.equal(hasAcknowledgedOutboundPeerHistory({ ...payload, conversationId: "dm:legacy" }, dbPath), false);
+    assert.equal(hasCodexTaskPeerParticipation(payload, {
+      taskBindingDir: path.join(dir, "missing-bindings"),
+      murmurDbPath: dbPath,
+    }), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pending outbound history and inbound-only history do not authorize task injection", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "murmur-untrusted-history-"));
+  const dbPath = path.join(dir, "murmur.db");
+  const conversationId = "codex:task:11111111-1111-4111-8111-111111111111";
+  const db = new DatabaseSync(dbPath);
+  db.exec(`
+    CREATE TABLE local_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      msg_id TEXT NOT NULL,
+      direction TEXT NOT NULL
+    );
+    CREATE TABLE outbox (
+      msg_id TEXT PRIMARY KEY,
+      envelope_json TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+  `);
+  const addMessage = db.prepare("INSERT INTO local_messages VALUES (?, ?, ?, ?)");
+  const addOutbox = db.prepare("INSERT INTO outbox VALUES (?, ?, ?)");
+  addMessage.run("local-pending", conversationId, "msg-pending", "outbound");
+  addOutbox.run("msg-pending", JSON.stringify({ recipients: ["agent-pending"] }), "pending");
+  addMessage.run("local-inbound", conversationId, "msg-inbound", "inbound");
+  addOutbox.run("msg-inbound", JSON.stringify({ recipients: ["agent-inbound"] }), "acked");
+  db.close();
+
+  try {
+    assert.equal(hasAcknowledgedOutboundPeerHistory({ conversationId, from: "agent-pending" }, dbPath), false);
+    assert.equal(hasAcknowledgedOutboundPeerHistory({ conversationId, from: "agent-inbound" }, dbPath), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -63,6 +140,12 @@ test("buildQueuedMessage preserves the Murmur payload and authority boundary", (
   assert.match(text, /Authenticated peer: agent-peer/);
   assert.match(text, /Status update/);
   assert.match(text, /not as new authorization from the Mac owner/);
+});
+
+test("notification says queued rather than claiming completed delivery", () => {
+  const body = buildNotificationBody({ queued: true, threadTitle: "Target task" });
+  assert.match(body, /^Queued for Target task/);
+  assert.doesNotMatch(body, /Delivered/);
 });
 
 test("findCodexStateDb selects the highest state schema version", () => {
