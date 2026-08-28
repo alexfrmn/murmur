@@ -26,8 +26,13 @@
 // Run under `node --no-warnings` to suppress the node:sqlite ExperimentalWarning
 // so it does not leak into the wake system-reminder.
 //
+// A fault never exits non-zero (that would wake the session with a false alarm) and never
+// exits silently either — the reason goes to stderr and the exit code stays 0.
+//
 // Env (all optional; same contract as wake-drain-claude.sh plus lock/poll knobs):
-//   MURMUR_DB               daemon SQLite store path
+//   MURMUR_DB               daemon SQLite store path (default: .data/murmur.db)
+//   MURMUR_WAKE_SESSION_KEY overrides the key used to build the default cursor/lock names
+//                           (defaults to CLAUDE_CODE_SESSION_ID, first 8 chars)
 //   MURMUR_WAKE_CURSOR      file holding the last-drained inbound rowid
 //   MURMUR_WAKE_LOCK        single-poller lock file
 //   MURMUR_WAKE_MAX_SECONDS poll lifetime in seconds (default 1200)
@@ -42,9 +47,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const HOME = homedir();
-const DB = process.env.MURMUR_DB || "/opt/lifecoach/mur-mur-v2/.data/murmur.db";
-const CURSOR = process.env.MURMUR_WAKE_CURSOR || join(HOME, ".murmur-wake-cursor");
-const LOCK = process.env.MURMUR_WAKE_LOCK || join(HOME, ".murmur-wake-lock");
+const DB = process.env.MURMUR_DB || ".data/murmur.db";
+
+// Session key: one cursor and one lock per Claude Code session. A shared cursor means
+// the first session to reach the hook advances it past the message and every other live
+// session — including the one holding the conversation — never sees it (see
+// murmur-coldidle-watch.sh for the measurement that produced this).
+const SESSION_KEY = (process.env.MURMUR_WAKE_SESSION_KEY || process.env.CLAUDE_CODE_SESSION_ID || "").slice(0, 8);
+const suffix = SESSION_KEY ? `-${SESSION_KEY}` : "";
+const CURSOR = process.env.MURMUR_WAKE_CURSOR || join(HOME, `.murmur-wake-cursor${suffix}`);
+const LOCK = process.env.MURMUR_WAKE_LOCK || join(HOME, `.murmur-wake-lock${suffix}`);
 const MAX_SECONDS = Number(process.env.MURMUR_WAKE_MAX_SECONDS || 1200);
 const POLL_MS = Number(process.env.MURMUR_WAKE_POLL_MS || 10000);
 const ONCE = process.argv.includes("--once");
@@ -92,8 +104,11 @@ function newRows(db, since) {
   ).all(since);
 }
 
-function emitAndExit(rows, maxid) {
-  writeCursor(maxid);
+function emitAndExit(rows) {
+  // Advance to the last row we are about to REPORT, never to the table's tip: a message
+  // landing between the SELECT and the tip query would be skipped over by the cursor and
+  // would then never wake anyone.
+  writeCursor(rows[rows.length - 1].rowid);
   releaseLock();
   const lines = rows.map((r) => `  rowid=${r.rowid} [${r.sender}] ${r.snippet}`);
   process.stderr.write(
@@ -125,9 +140,20 @@ function releaseLock() {
   if (haveLock) { try { rmSync(LOCK, { force: true }); } catch {} haveLock = false; }
 }
 
+// Never exit non-zero on a fault: that would wake the session with a false alarm. But
+// never exit SILENTLY either — a hook that dies without a word is the exact failure this
+// script exists to fix. One line on stderr is visible when run by hand and harmless to
+// the harness at exit 0.
+function bail(what, err) {
+  const detail = err instanceof Error ? err.message : String(err ?? "");
+  process.stderr.write(`murmur wake: ${what}${detail ? `: ${detail}` : ""} (db=${DB})\n`);
+  releaseLock();
+  process.exit(0);
+}
+
 async function main() {
-  // DB not present (daemon never started) → nothing to do.
-  try { statSync(DB); } catch { process.exit(0); }
+  // DB not present (daemon never started) → nothing to do, and say which path was tried.
+  try { statSync(DB); } catch (err) { bail("store not readable", err); }
 
   // First run ever: establish a baseline at the current tip, do not dump history.
   let cursorExists = true;
@@ -144,9 +170,8 @@ async function main() {
     const db = openDb();
     const since = readCursor();
     const rows = newRows(db, since);
-    const maxid = maxInbound(db);
     db.close();
-    if (rows.length) emitAndExit(rows, maxid);
+    if (rows.length) emitAndExit(rows);
     process.exit(0);
   }
 
@@ -159,13 +184,12 @@ async function main() {
     const db = openDb();
     const since = readCursor();
     const rows = newRows(db, since);
-    const maxid = maxInbound(db);
     db.close();
-    if (rows.length) emitAndExit(rows, maxid);
+    if (rows.length) emitAndExit(rows);
     await sleep(POLL_MS);
   }
   releaseLock();
   process.exit(0);
 }
 
-main().catch(() => { releaseLock(); process.exit(0); });
+main().catch((err) => bail("drain failed", err));

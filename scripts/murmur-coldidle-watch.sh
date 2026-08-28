@@ -12,7 +12,7 @@
 # Re-arm after each fire (launch again in background).
 set -uo pipefail
 
-DB="${MURMUR_DB:-/opt/lifecoach/murmur/.data/murmur.db}"
+DB="${MURMUR_DB:-.data/murmur.db}"
 INTERVAL="${MURMUR_WATCH_INTERVAL:-20}"
 LOCK_WAIT="${MURMUR_WATCH_LOCK_WAIT:-21600}"   # 6ч — дольше любой разумной сессии
 

@@ -26,14 +26,23 @@ Register it out-of-the-box in the agent's `.claude/settings.json`:
 
 Env:
 
-- `MURMUR_DB`: daemon SQLite store path.
-- `MURMUR_WAKE_CURSOR`: per-session cursor file.
+- `MURMUR_DB`: daemon SQLite store path (default `.data/murmur.db`, relative to the
+  working directory — set it explicitly when the hook runs from elsewhere).
+- `MURMUR_WAKE_CURSOR`: cursor file. Defaults to one file **per session**,
+  `~/.murmur-wake-cursor-<session>`.
+- `MURMUR_WAKE_SESSION_KEY`: overrides the session key (first 8 chars of
+  `CLAUDE_CODE_SESSION_ID` otherwise).
 
 Drain semantics:
 
 - Only `local_messages.direction='inbound'` rows are surfaced.
-- The cursor advances to the current max inbound `rowid` after a non-empty
-  drain, so repeated hook invocations do not double-wake the same message.
+- One cursor per session, so a message wakes **every** live session rather than only
+  whichever one reached the hook first. Within a session the hook and the cold-idle
+  watcher share the key, so it still wakes exactly once.
+- The first run in a new session seeds the cursor to the current tip and stays silent:
+  without that, a fresh session would replay the whole inbound history as "new".
+- The cursor advances to the last **reported** `rowid`, never to the table's tip: a row
+  inserted mid-drain would otherwise be stepped over and never wake anyone.
 - Cursor writes use a temporary file plus rename where the filesystem allows it.
 
 ### Windows / no `sqlite3` CLI — `wake-drain-claude.mjs`
@@ -57,9 +66,15 @@ Run it under `node --no-warnings` and register the same way:
 }
 ```
 
-Same env as the shell version (`MURMUR_DB`, `MURMUR_WAKE_CURSOR`) plus
-`MURMUR_WAKE_LOCK`, `MURMUR_WAKE_MAX_SECONDS`, `MURMUR_WAKE_POLL_MS`. Pass
-`--once` for a single non-polling check (e.g. a PostToolUse hook).
+Same env and the same per-session cursor as the shell version (`MURMUR_DB`,
+`MURMUR_WAKE_CURSOR`, `MURMUR_WAKE_SESSION_KEY`) plus `MURMUR_WAKE_LOCK`,
+`MURMUR_WAKE_MAX_SECONDS`, `MURMUR_WAKE_POLL_MS`. Pass `--once` for a single
+non-polling check (e.g. a PostToolUse hook). Requires Node with `node:sqlite`
+(22.5+).
+
+A fault — no store, an unreadable store, no `node:sqlite` — prints one line to stderr
+and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
+silently is the failure this port exists to remove, so it does neither.
 
 ## Codex CLI - App-Server WS-over-UDS
 
