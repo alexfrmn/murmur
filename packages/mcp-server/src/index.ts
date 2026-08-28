@@ -310,12 +310,12 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
 
     const limit = Number(args.limit ?? 20);
     const effectiveLimit = Number.isFinite(limit) ? limit : 20;
-    // Search inbound messages for this agent
-    const messages = await store.searchMessages(agentConfig.agentId, effectiveLimit * 5);
-    // Filter to only inbound messages
-    const inbound = messages
-      .filter((m) => m.direction === "inbound")
-      .slice(0, effectiveLimit);
+    // Select by direction, not by a text search for the agent's own name: this store
+    // belongs to one agent, so every inbound row in it is addressed to that agent.
+    // The old searchMessages(agentId) form was a LIKE over text/sender/conversationId
+    // and silently returned count:0 for any message that did not spell out the agent's
+    // name — delivered, acked, present in local_messages, invisible to the inbox (#114).
+    const inbound = await store.listInbound(effectiveLimit);
     return { messages: inbound.map(asMessage), count: inbound.length };
   }
 
