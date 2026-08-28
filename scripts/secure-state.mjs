@@ -85,11 +85,16 @@ export const writePrivateJson = async (filePath, value) => {
     await rename(tempPath, filePath);
     await chmod(filePath, 0o600);
 
-    const dirHandle = await open(dirPath, constants.O_RDONLY | constants.O_DIRECTORY);
-    try {
-      await dirHandle.sync();
-    } finally {
-      await dirHandle.close();
+    // Windows does not support fsync on a directory handle (FlushFileBuffers
+    // returns EPERM/EINVAL). The file itself is already fsync'd above; the
+    // directory sync is a best-effort durability nicety, so skip it on win32.
+    if (process.platform !== "win32") {
+      const dirHandle = await open(dirPath, constants.O_RDONLY | constants.O_DIRECTORY);
+      try {
+        await dirHandle.sync();
+      } finally {
+        await dirHandle.close();
+      }
     }
   } catch (err) {
     if (handle) await handle.close().catch(() => {});
