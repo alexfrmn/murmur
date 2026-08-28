@@ -243,10 +243,25 @@ export class JsonFileDedupeStore implements DedupeStore {
 
 export type OutboxStatus = "pending" | "sent" | "acked" | "failed" | "dlq";
 
-/** Statuses a row cannot be moved out of by a late `markSent()`. */
+/**
+ * Statuses a row can never be moved out of: the message is settled for good.
+ *
+ * `failed` is deliberately NOT here. A failed row is *scheduled for retry*, not
+ * settled — `claimDue()` selects it on purpose. Listing it as terminal made the
+ * retry unable to complete: claimDue re-selected the row, publish succeeded,
+ * markSent() refused to touch it, so status stayed `failed`, `attempts` never
+ * grew (no DLQ), `nextAttemptAt` stayed in the past (immediate re-claim), and
+ * the returning ACK was rejected as message-not-in-flight. An infinite loop with
+ * no way to settle it short of a manual dlq (#113).
+ *
+ * The race that put it here — a fast ACK landing between publish() and markSent(),
+ * where a late markSent() would drag the settled row back into flight — is handled
+ * by the `expectedVersion` compare-and-swap on markSent() instead. That guards the
+ * row against *any* concurrent transition, not just the two statuses someone
+ * remembered to enumerate.
+ */
 export const TERMINAL_OUTBOX_STATUSES: ReadonlySet<OutboxStatus> = new Set<OutboxStatus>([
   "acked",
-  "failed",
   "dlq",
 ]);
 
@@ -268,7 +283,16 @@ export interface OutboxStore {
   claimDue(limit?: number): Promise<OutboxRecord[]>;
   listInFlight?(): Promise<OutboxRecord[]>;
   getOutboxRecord(msgId: string): Promise<OutboxRecord | undefined>;
-  markSent(msgId: string): Promise<void>;
+  /**
+   * Move a claimed row into flight.
+   *
+   * Pass the `version` the row carried when `claimDue()` returned it: the update is
+   * then applied only while the row is untouched, so an ACK/NACK that landed between
+   * publish() and this call keeps its verdict instead of being overwritten with
+   * `sent`. Omitting it keeps the old best-effort behaviour (settled rows are still
+   * protected) and is only appropriate outside the claim → publish → mark path.
+   */
+  markSent(msgId: string, expectedVersion?: number): Promise<void>;
   markAcked(msgId: string): Promise<void>;
   markFailed(msgId: string, error: string, nextAttemptAt: string): Promise<void>;
   markDlq(msgId: string, error: string): Promise<void>;
@@ -342,14 +366,15 @@ export class JsonFileOutboxStore implements OutboxStore {
     return state.records.find((record) => record.msgId === msgId);
   }
 
-  async markSent(msgId: string): Promise<void> {
+  async markSent(msgId: string, expectedVersion?: number): Promise<void> {
     const state = await this.load();
     const row = state.records.find((r) => r.msgId === msgId);
     if (!row) return;
-    // Never downgrade a terminal status: a fast ACK can land between publish() and this
-    // call, and overwriting `acked`/`failed` with `sent` would resurrect a settled row
-    // into a retry.
+    // A settled row is never dragged back into flight.
     if (TERMINAL_OUTBOX_STATUSES.has(row.status)) return;
+    // Compare-and-swap against the version claimDue() handed out: if anything moved the
+    // row since (a fast ACK/NACK between publish() and this call), that verdict wins.
+    if (expectedVersion !== undefined && (row.version ?? 1) !== expectedVersion) return;
     row.status = "sent";
     row.attempts += 1;
     row.updatedAt = new Date().toISOString();
@@ -572,17 +597,28 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
     return this.getOutboxRow(msgId);
   }
 
-  async markSent(msgId: string): Promise<void> {
-    await this.updateOutboxOptimistic(msgId, (row) =>
-      // See the JSON store: a terminal status wins over a late markSent().
-      TERMINAL_OUTBOX_STATUSES.has(row.status)
-        ? {}
-        : {
-            status: "sent",
-            attempts: row.attempts + 1,
-            updatedAt: new Date().toISOString(),
-          },
-    );
+  async markSent(msgId: string, expectedVersion?: number): Promise<void> {
+    // Single statement, so the guard and the write cannot be split by a concurrent
+    // transition. A settled row (acked/dlq) is never dragged back into flight, and when
+    // the caller passes the version claimDue() handed out, an ACK/NACK that landed
+    // between publish() and this call keeps its verdict — see the JSON store.
+    const terminal = [...TERMINAL_OUTBOX_STATUSES];
+    const placeholders = terminal.map(() => "?").join(", ");
+    this.db
+      .prepare(
+        `UPDATE outbox
+         SET status = 'sent', attempts = attempts + 1, updated_at = ?, version = version + 1
+         WHERE msg_id = ?
+           AND status NOT IN (${placeholders})
+           AND (? IS NULL OR version = ?)`,
+      )
+      .run(
+        new Date().toISOString(),
+        msgId,
+        ...terminal,
+        expectedVersion ?? null,
+        expectedVersion ?? null,
+      );
   }
 
   async markAcked(msgId: string): Promise<void> {

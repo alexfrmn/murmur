@@ -853,7 +853,7 @@ export class NatsBroker {
 
       try {
         await this.publish(rec.subject, rec.envelope, params.policy);
-        await params.outbox.markSent(rec.msgId);
+        await params.outbox.markSent(rec.msgId, rec.version);
         if (params.ackWindow) {
           inFlightChunks += 1;
           inFlightBytes += nextChunkBytes;

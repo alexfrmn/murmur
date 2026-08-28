@@ -137,10 +137,16 @@ for (const [label, makeStore] of [
   });
 }
 
-test("terminal statuses are the ones markSent must refuse to downgrade", () => {
+// `failed` was originally listed here too, to stop a late markSent() from overwriting a
+// NACK that arrived mid-publish. It also stopped the ordinary retry of a failed row from
+// ever completing (#113) — claimDue() selects `failed` by design. The row-level guard for
+// that race is the expectedVersion compare-and-swap on markSent(), covered by the two
+// tests above and by tests/outbox-failed-retry-settles.test.mjs; this set now means only
+// "settled for good".
+test("terminal statuses are the ones a row can never leave", () => {
   assert.equal(TERMINAL_OUTBOX_STATUSES.has("acked"), true);
-  assert.equal(TERMINAL_OUTBOX_STATUSES.has("failed"), true);
   assert.equal(TERMINAL_OUTBOX_STATUSES.has("dlq"), true);
+  assert.equal(TERMINAL_OUTBOX_STATUSES.has("failed"), false, "failed is retryable, not settled");
   assert.equal(TERMINAL_OUTBOX_STATUSES.has("pending"), false);
   assert.equal(TERMINAL_OUTBOX_STATUSES.has("sent"), false);
 });
