@@ -86,6 +86,10 @@ The hook looks for Codex binaries bundled in `/Applications/ChatGPT.app` or
 Native Desktop delivery is capability-detected on every message because the
 owner-only app-tools socket changes when the app restarts. The hook accepts only
 an absolute Unix socket owned by the current user with no group or world access.
+It performs the short IPC call with the Node runtime bundled inside the active
+Codex/ChatGPT application; this avoids runtime-level Unix socket incompatibility
+with unrelated system Node installations and does not create a persistent
+process or background service.
 If discovery, validation, or the native call fails, the durable queue remains
 the compatibility path.
 

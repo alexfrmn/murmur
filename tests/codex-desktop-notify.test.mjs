@@ -14,6 +14,7 @@ import {
   deliverToAddressedCodexThread,
   extractCodexAppToolsPipe,
   findCodexStateDb,
+  findCodexIpcNode,
   hasAcknowledgedOutboundPeerHistory,
   hasCodexTaskPeerBinding,
   hasCodexTaskPeerParticipation,
@@ -166,6 +167,10 @@ test("extractCodexAppToolsPipe selects the Desktop app-server socket", () => {
   assert.equal(extractCodexAppToolsPipe(processList), "/tmp/codex-browser-use/private.sock");
 });
 
+test("findCodexIpcNode selects a present bundled runtime", () => {
+  assert.equal(findCodexIpcNode(["/missing/node", process.execPath]), process.execPath);
+});
+
 test("sendViaCodexAppTools sends an exact-task follow-up through a private native socket", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "murmur-codex-app-tools-"));
   const socketPath = path.join(dir, "app-tools.sock");
@@ -202,6 +207,7 @@ test("sendViaCodexAppTools sends an exact-task follow-up through a private nativ
       threadId,
       prompt: "Murmur guidance",
       msgId: "msg-1",
+      ipcNodeCandidates: [process.execPath],
     });
     assert.equal(result.success, true);
     assert.equal(received.method, "tools/call");
