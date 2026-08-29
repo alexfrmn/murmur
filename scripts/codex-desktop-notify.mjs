@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import net from "node:net";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -13,6 +14,7 @@ const DEFAULT_DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(MURMUR_R
 const DEFAULT_REQUEST_WAIT_DIR = path.join(DEFAULT_DATA_DIR, ".codex-request-waits");
 const DEFAULT_TASK_BINDING_DIR = path.join(DEFAULT_DATA_DIR, ".codex-task-bindings");
 const DEFAULT_MURMUR_DB_PATH = path.join(DEFAULT_DATA_DIR, "murmur.db");
+const MAX_NATIVE_PIPE_FRAME_BYTES = 8 * 1024 * 1024;
 const CODEX_CANDIDATES = [
   "/Applications/ChatGPT.app/Contents/Resources/codex",
   "/Applications/Codex.app/Contents/Resources/codex",
@@ -123,6 +125,112 @@ export const buildQueuedMessage = (payload) => [
 
 export const findCodexBinary = (candidates = CODEX_CANDIDATES) => candidates.find((candidate) => existsSync(candidate)) || null;
 
+export const extractCodexAppToolsPipe = (processList) => {
+  for (const line of String(processList || "").split("\n")) {
+    if (!/\/Applications\/(?:ChatGPT|Codex)\.app\/Contents\/Resources\/codex\b/.test(line) || !/\bapp-server\b/.test(line)) continue;
+    const match = /CODEX_APP_TOOLS_PIPE_PATH["']?\s*=\s*["']?([^"',}\s]+\.sock)/.exec(line);
+    if (match) return match[1];
+  }
+  return null;
+};
+
+export const isPrivateOwnedSocket = (socketPath) => {
+  if (!socketPath || !path.isAbsolute(socketPath)) return false;
+  try {
+    const stat = statSync(socketPath);
+    const ownedByCurrentUser = typeof process.getuid !== "function" || stat.uid === process.getuid();
+    return stat.isSocket() && ownedByCurrentUser && (stat.mode & 0o077) === 0;
+  } catch {
+    return false;
+  }
+};
+
+export const findCodexAppToolsPipe = async (explicitPath = process.env.CODEX_APP_TOOLS_PIPE_PATH) => {
+  if (isPrivateOwnedSocket(explicitPath)) return explicitPath;
+  try {
+    const { stdout } = await run("/bin/ps", ["-axo", "args="]);
+    const discovered = extractCodexAppToolsPipe(stdout);
+    return isPrivateOwnedSocket(discovered) ? discovered : null;
+  } catch {
+    return null;
+  }
+};
+
+const encodeNativePipeFrame = (message) => {
+  const payload = Buffer.from(JSON.stringify(message), "utf8");
+  if (payload.length > MAX_NATIVE_PIPE_FRAME_BYTES) throw new Error("codex-app-tools-request-too-large");
+  const frame = Buffer.alloc(4 + payload.length);
+  frame.writeUInt32LE(payload.length, 0);
+  payload.copy(frame, 4);
+  return frame;
+};
+
+export const sendViaCodexAppTools = ({ socketPath, threadId, prompt, msgId, timeoutMs = 5_000 }) => new Promise((resolve, reject) => {
+  if (!isPrivateOwnedSocket(socketPath)) {
+    reject(new Error("codex-app-tools-private-socket-missing"));
+    return;
+  }
+  const deliveryKey = String(msgId || createHash("sha256").update(`${threadId}\0${prompt}`).digest("hex"));
+  const callId = `murmur-${deliveryKey}`;
+  const request = {
+    id: 1,
+    jsonrpc: "2.0",
+    method: "tools/call",
+    params: {
+      arguments: { threadId, prompt },
+      callId,
+      namespace: "codex_app",
+      threadId,
+      tool: "send_message_to_thread",
+      turnId: callId,
+    },
+  };
+  const socket = net.createConnection(socketPath);
+  let pending = Buffer.alloc(0);
+  let settled = false;
+  const finish = (error, result) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    socket.destroy();
+    if (error) reject(error);
+    else resolve(result);
+  };
+  const timer = setTimeout(() => finish(new Error("codex-app-tools-timeout")), timeoutMs);
+  timer.unref?.();
+  socket.once("connect", () => socket.write(encodeNativePipeFrame(request)));
+  socket.on("data", (chunk) => {
+    pending = Buffer.concat([pending, chunk]);
+    if (pending.length < 4) return;
+    const frameLength = pending.readUInt32LE(0);
+    if (frameLength > MAX_NATIVE_PIPE_FRAME_BYTES) {
+      finish(new Error("codex-app-tools-response-too-large"));
+      return;
+    }
+    if (pending.length < frameLength + 4) return;
+    let response;
+    try {
+      response = JSON.parse(pending.subarray(4, frameLength + 4).toString("utf8"));
+    } catch {
+      finish(new Error("codex-app-tools-invalid-response"));
+      return;
+    }
+    if (response.error) {
+      finish(new Error(`codex-app-tools-error:${response.error.message || "unknown"}`));
+      return;
+    }
+    if (response.result?.success !== true) {
+      finish(new Error("codex-app-tools-send-failed"));
+      return;
+    }
+    finish(null, response.result);
+  });
+  socket.once("error", (error) => finish(error));
+  socket.once("close", () => {
+    if (!settled) finish(new Error("codex-app-tools-closed-before-response"));
+  });
+});
+
 export const consumeSynchronousReplySuppression = (payload, requestWaitDir = DEFAULT_REQUEST_WAIT_DIR, now = Date.now()) => {
   const key = createHash("sha256")
     .update(`${payload.conversationId || ""}\0${payload.from || ""}`)
@@ -206,14 +314,17 @@ export const isCodexDesktopRunning = async () => {
   }
 };
 
-export const buildNotificationBody = ({ queued, threadTitle }) => queued
-  ? `Queued for ${threadTitle || "the addressed Codex task"}; Codex will start it when available.`
-  : "Stored securely. Open Codex to read it.";
+export const buildNotificationBody = ({ desktopDelivered, queued, threadTitle }) => {
+  const target = threadTitle || "the addressed Codex task";
+  if (desktopDelivered) return `Sent to ${target}; Codex will read it at the next safe point.`;
+  if (queued) return `Queued for ${target}; Codex will start it when available.`;
+  return "Stored securely. Open Codex to read it.";
+};
 
-export const showNotification = async ({ from, queued, threadTitle }) => {
+export const showNotification = async ({ from, desktopDelivered, queued, threadTitle }) => {
   const title = "Murmur";
   const subtitle = `Message from ${from || "another agent"}`;
-  const body = buildNotificationBody({ queued, threadTitle });
+  const body = buildNotificationBody({ desktopDelivered, queued, threadTitle });
   const script = `display notification "${escapeAppleScript(body)}" with title "${escapeAppleScript(title)}" subtitle "${escapeAppleScript(subtitle)}" sound name "Glass"`;
   try {
     await run("/usr/bin/osascript", ["-e", script], { timeout: 5_000 });
@@ -226,11 +337,14 @@ export const deliverToAddressedCodexThread = async (payload, options = {}) => {
   if (consumeSynchronousReplySuppression(payload, options.requestWaitDir)) {
     return {
       queued: false,
+      desktopDelivered: false,
+      delivered: false,
       suppressed: "synchronous-request",
       desktopRunning: options.desktopRunning ?? await isCodexDesktopRunning(),
       threadId: addressedThreadId(payload.conversationId),
       routing: "addressed",
       requestedThreadId: addressedThreadId(payload.conversationId),
+      desktopOutput: "",
       queueOutput: "",
     };
   }
@@ -249,9 +363,31 @@ export const deliverToAddressedCodexThread = async (payload, options = {}) => {
   const thread = target.thread;
   const codexBinary = findCodexBinary(options.codexCandidates);
   let queued = false;
+  let desktopDelivered = false;
+  let desktopOutput = "";
   let queueOutput = "";
 
-  if (desktopRunning && thread && codexBinary) {
+  if (desktopRunning && thread) {
+    const findDesktopPipe = options.findCodexAppToolsPipe || findCodexAppToolsPipe;
+    const sendDesktop = options.sendViaCodexAppTools || sendViaCodexAppTools;
+    const pipePath = await findDesktopPipe(options.codexAppToolsPipe);
+    if (pipePath) {
+      try {
+        const result = await sendDesktop({
+          socketPath: pipePath,
+          threadId: thread.id,
+          prompt: buildQueuedMessage(payload),
+          msgId: payload.msgId,
+        });
+        desktopDelivered = true;
+        desktopOutput = JSON.stringify(result);
+      } catch (error) {
+        desktopOutput = String(error.message || "desktop delivery failed");
+      }
+    }
+  }
+
+  if (desktopRunning && thread && codexBinary && !desktopDelivered) {
     try {
       const result = await run(codexBinary, [
         "queue",
@@ -268,16 +404,19 @@ export const deliverToAddressedCodexThread = async (payload, options = {}) => {
   }
 
   if (options.notify !== false) {
-    await showNotification({ from: payload.from, queued, threadTitle: thread?.title });
+    await showNotification({ from: payload.from, desktopDelivered, queued, threadTitle: thread?.title });
   }
 
   return {
     queued,
+    desktopDelivered,
+    delivered: desktopDelivered || queued,
     desktopRunning,
     threadId: thread?.id || null,
     threadTitle: thread?.title || null,
     routing: target.routing,
     requestedThreadId: target.requestedThreadId,
+    desktopOutput,
     queueOutput,
   };
 };
@@ -293,12 +432,14 @@ const main = async () => {
   const result = dryRun
     ? {
         queued: false,
+        desktopDelivered: false,
+        delivered: false,
         desktopRunning: await isCodexDesktopRunning(),
         target: selectTargetUserThread({ conversationId: payload.conversationId }),
       }
     : await deliverToAddressedCodexThread(payload);
   process.stdout.write(`${JSON.stringify(result)}\n`);
-  if (!dryRun && result.desktopRunning && result.threadId && !result.queued) {
+  if (!dryRun && !result.suppressed && result.desktopRunning && result.threadId && !result.delivered) {
     process.exitCode = 2;
   }
 };
