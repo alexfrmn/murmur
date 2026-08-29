@@ -10,6 +10,14 @@ bundled in ChatGPT Desktop (`codex-cli 0.150.0-alpha.8`). Unsupported Codex
 versions fail closed: the message remains in Murmur's local store and the wake
 hook reports a queue failure.
 
+`codex queue` starts an idle addressed task, but current Desktop builds do not
+steer a turn that is already sampling. A task that is actively coordinating
+through Murmur should therefore read `murmur_inbox` after long-running tool
+calls or waits and immediately before reporting completion, filtering for its
+exact `codex:task:<UUID>` conversation. The queued message remains the durable
+fallback and becomes visible on the next turn if the safe-point pull did not
+consume the guidance during the active one.
+
 ## Routing Contract
 
 When the MCP server runs inside a Codex task, Codex sets `CODEX_THREAD_ID`.
