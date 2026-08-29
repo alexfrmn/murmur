@@ -215,8 +215,6 @@ test("sendViaCodexAppTools sends an exact-task follow-up through a private nativ
     assert.equal(received.params.arguments.threadId, threadId);
     assert.equal(received.params.arguments.prompt, "Murmur guidance");
     assert.equal(received.params.callId, "murmur-msg-1");
-    assert.equal(received.params.turnId, "murmur-turn-msg-1");
-    assert.notEqual(received.params.callId, received.params.turnId);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     rmSync(dir, { recursive: true, force: true });

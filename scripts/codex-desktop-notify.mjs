@@ -177,7 +177,6 @@ const sendViaCodexAppToolsSocket = ({ socketPath, threadId, prompt, msgId, timeo
   }
   const deliveryKey = String(msgId || createHash("sha256").update(`${threadId}\0${prompt}`).digest("hex"));
   const callId = `murmur-${deliveryKey}`;
-  const turnId = `murmur-turn-${deliveryKey}`;
   const request = {
     id: 1,
     jsonrpc: "2.0",
@@ -188,7 +187,7 @@ const sendViaCodexAppToolsSocket = ({ socketPath, threadId, prompt, msgId, timeo
       namespace: "codex_app",
       threadId,
       tool: "send_message_to_thread",
-      turnId,
+      turnId: callId,
     },
   };
   const socket = net.createConnection(socketPath);
