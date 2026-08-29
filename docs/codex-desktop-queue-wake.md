@@ -1,13 +1,9 @@
 # Codex Desktop Exact-Task Delivery
 
 Murmur can deliver an inbound message to the exact visible Codex Desktop task
-that originated the conversation. When the Desktop app exposes its private,
-owner-only app-tools socket, the hook uses the app's native
-`send_message_to_thread` operation. An idle task starts promptly; an active task
-receives the message as same-turn guidance at the next safe model boundary,
-normally after the current tool call completes. If native delivery is
-unavailable, the hook falls back to the shared local `codex queue` command. It
-does not start a headless app-server turn or create a new task.
+that originated the conversation. This path uses the Desktop app's shared local
+`codex queue` command; it does not start a headless app-server turn or create a
+new task.
 
 This integration is macOS-only and opt-in. It was tested with the Codex binary
 bundled in ChatGPT Desktop (`codex-cli 0.150.0-alpha.8`). Unsupported Codex
@@ -26,8 +22,7 @@ codex:task:<CODEX_THREAD_ID>
 
 The receiver accepts only that exact form for Desktop injection. It verifies
 that the UUID belongs to a non-archived Desktop user task and that the task
-previously initiated a Murmur exchange with the sending peer before invoking
-native exact-task delivery or its fallback:
+previously initiated a Murmur exchange with the sending peer before invoking:
 
 ```text
 codex queue --thread <UUID> --message <text>
@@ -83,12 +78,6 @@ Optional environment variables:
 The hook looks for Codex binaries bundled in `/Applications/ChatGPT.app` or
 `/Applications/Codex.app`, then common Homebrew locations.
 
-Native Desktop delivery is capability-detected on every message because the
-owner-only app-tools socket changes when the app restarts. The hook accepts only
-an absolute Unix socket owned by the current user with no group or world access.
-If discovery, validation, or the native call fails, the durable queue remains
-the compatibility path.
-
 ## Request/Reply Deduplication
 
 `murmur_request` already returns its reply to the waiting tool call. Queueing
@@ -113,9 +102,8 @@ reply to both calls.
   shell command.
 - Desktop notifications contain the peer id and target task title, not the
   message body.
-- Native delivery is described as sent for reading at the next safe point. A
-  successful fallback queue command is described as queued, not already
-  delivered; Codex starts it when the exact addressed task becomes available.
+- A successful queue command is described as queued, not already delivered;
+  Codex starts it when the exact addressed task becomes available.
 - Auto-delivery is authenticated agent input, not new authorization from the
   desktop owner. The queued prompt states this boundary explicitly.
 - A task must have initiated contact with the peer before that peer can inject
