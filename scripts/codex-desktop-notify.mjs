@@ -15,10 +15,6 @@ const DEFAULT_REQUEST_WAIT_DIR = path.join(DEFAULT_DATA_DIR, ".codex-request-wai
 const DEFAULT_TASK_BINDING_DIR = path.join(DEFAULT_DATA_DIR, ".codex-task-bindings");
 const DEFAULT_MURMUR_DB_PATH = path.join(DEFAULT_DATA_DIR, "murmur.db");
 const MAX_NATIVE_PIPE_FRAME_BYTES = 8 * 1024 * 1024;
-const CODEX_IPC_NODE_CANDIDATES = [
-  "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
-  "/Applications/Codex.app/Contents/Resources/cua_node/bin/node",
-];
 const CODEX_CANDIDATES = [
   "/Applications/ChatGPT.app/Contents/Resources/codex",
   "/Applications/Codex.app/Contents/Resources/codex",
@@ -128,7 +124,6 @@ export const buildQueuedMessage = (payload) => [
 ].join("\n");
 
 export const findCodexBinary = (candidates = CODEX_CANDIDATES) => candidates.find((candidate) => existsSync(candidate)) || null;
-export const findCodexIpcNode = (candidates = CODEX_IPC_NODE_CANDIDATES) => candidates.find((candidate) => existsSync(candidate)) || null;
 
 export const extractCodexAppToolsPipe = (processList) => {
   for (const line of String(processList || "").split("\n")) {
@@ -170,7 +165,7 @@ const encodeNativePipeFrame = (message) => {
   return frame;
 };
 
-const sendViaCodexAppToolsSocket = ({ socketPath, threadId, prompt, msgId, timeoutMs = 5_000 }) => new Promise((resolve, reject) => {
+export const sendViaCodexAppTools = ({ socketPath, threadId, prompt, msgId, timeoutMs = 5_000 }) => new Promise((resolve, reject) => {
   if (!isPrivateOwnedSocket(socketPath)) {
     reject(new Error("codex-app-tools-private-socket-missing"));
     return;
@@ -235,42 +230,6 @@ const sendViaCodexAppToolsSocket = ({ socketPath, threadId, prompt, msgId, timeo
     if (!settled) finish(new Error("codex-app-tools-closed-before-response"));
   });
 });
-
-const runNativeSendHelper = ({ nodeBinary, request, timeoutMs }) => new Promise((resolve, reject) => {
-  const child = execFile(
-    nodeBinary,
-    [fileURLToPath(import.meta.url), "--native-send"],
-    { timeout: timeoutMs + 2_000, maxBuffer: 1024 * 1024 },
-    (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(String(stderr || error.message || "codex-app-tools-helper-failed").trim()));
-        return;
-      }
-      try {
-        resolve(JSON.parse(String(stdout || "").trim()));
-      } catch {
-        reject(new Error("codex-app-tools-helper-invalid-response"));
-      }
-    },
-  );
-  child.stdin.end(JSON.stringify(request));
-});
-
-export const sendViaCodexAppTools = async ({
-  socketPath,
-  threadId,
-  prompt,
-  msgId,
-  timeoutMs = 5_000,
-  ipcNodeCandidates = CODEX_IPC_NODE_CANDIDATES,
-}) => {
-  const request = { socketPath, threadId, prompt, msgId, timeoutMs };
-  const ipcNode = findCodexIpcNode(ipcNodeCandidates);
-  if (ipcNode && path.resolve(process.execPath) !== path.resolve(ipcNode)) {
-    return runNativeSendHelper({ nodeBinary: ipcNode, request, timeoutMs });
-  }
-  return sendViaCodexAppToolsSocket(request);
-};
 
 export const consumeSynchronousReplySuppression = (payload, requestWaitDir = DEFAULT_REQUEST_WAIT_DIR, now = Date.now()) => {
   const key = createHash("sha256")
@@ -463,13 +422,6 @@ export const deliverToAddressedCodexThread = async (payload, options = {}) => {
 };
 
 const main = async () => {
-  if (process.argv.includes("--native-send")) {
-    let input = "";
-    for await (const chunk of process.stdin) input += chunk;
-    const result = await sendViaCodexAppToolsSocket(JSON.parse(input));
-    process.stdout.write(`${JSON.stringify(result)}\n`);
-    return;
-  }
   const payload = {
     from: process.env.MURMUR_FROM || "unknown",
     text: process.env.MURMUR_TEXT || "",
