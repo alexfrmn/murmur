@@ -4,6 +4,28 @@ import {
   buildReplyMatcher,
   waitForReply,
 } from "../packages/mcp-server/dist/src/request-reply.js";
+import {
+  codexTaskConversationId,
+  defaultPeerConversationId,
+} from "../packages/mcp-server/dist/src/codex-routing.js";
+
+test("Codex task ids become exact-task conversation ids", () => {
+  const threadId = "11111111-1111-4111-8111-111111111111";
+  assert.equal(codexTaskConversationId(threadId), `codex:task:${threadId}`);
+  assert.equal(defaultPeerConversationId({
+    to: "agent-b",
+    agentId: "agent-a",
+    codexThreadId: threadId,
+  }), `codex:task:${threadId}`);
+});
+
+test("non-Codex callers preserve the legacy peer conversation default", () => {
+  assert.equal(defaultPeerConversationId({
+    to: "agent-b",
+    agentId: "agent-a",
+    codexThreadId: "not-a-thread-id",
+  }), "dm:agent-a:agent-b");
+});
 
 const reply = (msgId) => ({
   id: msgId,
