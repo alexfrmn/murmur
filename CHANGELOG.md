@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
 
+## [2.8.0] - 2026-09-08
+
+> A message that arrived while nothing was listening is now delivered on the next
+> session start. The per-session cursor shipped in 2.7.0 fixed one delivery gap and
+> quietly opened another; this release closes it with a cursor that outlives the
+> session it was drained by.
+
+### Added
+- **`--session` cold-start drain for `scripts/wake-drain-claude.mjs`.** A `SessionStart`
+  hook that reports inbound messages which arrived while no session was alive, using a
+  shared anchor (`MURMUR_WAKE_ANCHOR`) alongside the existing per-session cursor. Writes
+  to stdout and exits `0`, since a `SessionStart` hook feeds its stdout to the session as
+  context. Output capped by `MURMUR_WAKE_SESSION_MAX` (default 20). Reported by
+  [@lichtpfad](https://github.com/lichtpfad) against 2.7.0: the per-session cursor
+  introduced in that release closed the multi-session gap and opened this one, because a
+  session with no cursor seeds its baseline at the current tip. The shell port keeps
+  `poll` and `--once` only.
+
 ## [2.7.0] - 2026-08-28
 
 > Delivery correctness, found by running the mesh where it had not been run before. A
