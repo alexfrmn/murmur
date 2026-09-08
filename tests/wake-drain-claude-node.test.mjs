@@ -26,7 +26,12 @@ function withDb() {
       text TEXT
     );
   `);
-  return { db, dbPath, dir, cursorPath: path.join(dir, "cursor"), lockPath: path.join(dir, "lock") };
+  return {
+    db, dbPath, dir,
+    cursorPath: path.join(dir, "cursor"),
+    lockPath: path.join(dir, "lock"),
+    anchorPath: path.join(dir, "anchor"),
+  };
 }
 
 function insertMessage(db, { msgId, direction = "inbound", sender = "agent-jarvis", text = "hello" }) {
@@ -43,6 +48,9 @@ function drain(ctx, extraEnv = {}) {
       MURMUR_DB: ctx.dbPath,
       MURMUR_WAKE_CURSOR: ctx.cursorPath,
       MURMUR_WAKE_LOCK: ctx.lockPath,
+      // Isolated on purpose: the drain advances the shared anchor, and a test must never
+      // reach the real one in $HOME.
+      MURMUR_WAKE_ANCHOR: ctx.anchorPath,
       ...extraEnv,
     },
     encoding: "utf8",
@@ -179,14 +187,8 @@ function drainSession(ctx, extraEnv = {}) {
   });
 }
 
-function withAnchor() {
-  const ctx = withDb();
-  ctx.anchorPath = path.join(ctx.dir, "anchor");
-  return ctx;
-}
-
 test("session drain adopts the tip when no anchor exists yet and stays silent", () => {
-  const ctx = withAnchor();
+  const ctx = withDb();
   insertMessage(ctx.db, { msgId: "pre-1", text: "before the anchor existed" });
 
   const result = drainSession(ctx);
@@ -198,7 +200,7 @@ test("session drain adopts the tip when no anchor exists yet and stays silent", 
 });
 
 test("session drain reports what arrived while no session was alive", () => {
-  const ctx = withAnchor();
+  const ctx = withDb();
   insertMessage(ctx.db, { msgId: "seen-1", text: "already delivered" });
   drainSession(ctx); // anchor := 1
 
@@ -216,7 +218,7 @@ test("session drain reports what arrived while no session was alive", () => {
 });
 
 test("session drain is silent when the contour was never dark", () => {
-  const ctx = withAnchor();
+  const ctx = withDb();
   insertMessage(ctx.db, { msgId: "only-1", text: "one" });
   drainSession(ctx);
 
@@ -227,7 +229,7 @@ test("session drain is silent when the contour was never dark", () => {
 });
 
 test("session drain caps its output and counts what it did not print", () => {
-  const ctx = withAnchor();
+  const ctx = withDb();
   insertMessage(ctx.db, { msgId: "base", text: "base" });
   drainSession(ctx);
   for (let i = 0; i < 5; i += 1) {
@@ -243,7 +245,7 @@ test("session drain caps its output and counts what it did not print", () => {
 });
 
 test("a fresh session does not lose a message delivered while nothing was listening", () => {
-  const ctx = withAnchor();
+  const ctx = withDb();
   insertMessage(ctx.db, { msgId: "hist", text: "history" });
   drainSession(ctx); // session A starts, anchor := 1
 
