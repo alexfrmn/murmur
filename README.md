@@ -31,7 +31,7 @@
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <img src="https://img.shields.io/badge/version-2.7.0-blue" alt="version 2.7.0" />
+  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="version 2.8.0" />
   <a href="https://www.npmjs.com/org/murmurv2"><img src="https://img.shields.io/npm/v/@murmurv2/core" alt="npm @murmurv2/core" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
@@ -399,7 +399,13 @@ See [ADR-001](docs/ADR-001-core-bus-nats.md) and [ADR-002](docs/ADR-002-envelope
 Murmur wakes agents through native runtime mechanisms instead of tmux or
 OpenClaw:
 
-- Claude Code: `asyncRewake` hook via `scripts/wake-drain-claude.sh`.
+- Claude Code: `asyncRewake` hook via `scripts/wake-drain-claude.sh`, or the
+  dependency-free node port `scripts/wake-drain-claude.mjs` (no `sqlite3` CLI
+  needed, so it also runs on a default Windows install).
+- Claude Code cold start: `scripts/wake-drain-claude.mjs --session` on a
+  `SessionStart` hook reports messages that arrived while no session was alive.
+  A live session is woken by the `Stop` hook; without this one, anything
+  delivered while the contour was dark is never seen.
 - Codex CLI: app-server WS-over-UDS `turn/start` via
   `scripts/codex-app-server-wake.mjs`.
 - Human notification remains on Telegram/webhook notify queues.
