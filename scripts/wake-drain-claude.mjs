@@ -13,12 +13,24 @@
 // stderr and exits 2 — Claude Code then wraps the output in a <system-reminder>
 // and wakes the idle session.
 //
-// Two modes:
+// Three modes:
 //   (default)  poll — watch the store for up to MURMUR_WAKE_MAX_SECONDS and
 //              exit 2 the moment a new inbound row appears, else exit 0 at the
 //              deadline. A one-shot Stop hook cannot catch a message that lands
 //              while the session is already idle; polling closes that gap.
 //   --once     single check, no polling (cheap; e.g. a PostToolUse hook).
+//   --session  cold-start drain, for a SessionStart hook. Reports what arrived
+//              while NO session was alive. Writes to stdout and exits 0 — a
+//              SessionStart hook feeds its stdout to the session as context, and
+//              exit 2 there means "block", not "wake".
+//
+// Why --session exists: the cursor is per-session (see SESSION_KEY below), so a
+// brand-new session has no cursor and seeds its baseline at the current tip. That
+// is correct for a Stop hook — it must not dump history on every start — but it
+// means a message delivered while the contour was dark is skipped by every future
+// session. The per-session cursor closed one gap and opened this one. The shared
+// anchor below is the fix: it records how far the contour as a whole has been
+// drained, survives session boundaries, and only ever moves forward.
 //
 // Dedup is cursor-based (last drained inbound rowid), so a message wakes exactly
 // once. In poll mode a lock file keeps at most one poller alive at a time.
@@ -37,6 +49,9 @@
 //   MURMUR_WAKE_LOCK        single-poller lock file
 //   MURMUR_WAKE_MAX_SECONDS poll lifetime in seconds (default 1200)
 //   MURMUR_WAKE_POLL_MS     poll interval in ms (default 10000)
+//   MURMUR_WAKE_ANCHOR      shared cross-session cursor used by --session
+//   MURMUR_WAKE_SESSION_MAX max messages --session prints (default 20; older ones
+//                           are counted, not printed)
 
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -60,6 +75,13 @@ const LOCK = process.env.MURMUR_WAKE_LOCK || join(HOME, `.murmur-wake-lock${suff
 const MAX_SECONDS = Number(process.env.MURMUR_WAKE_MAX_SECONDS || 1200);
 const POLL_MS = Number(process.env.MURMUR_WAKE_POLL_MS || 10000);
 const ONCE = process.argv.includes("--once");
+const SESSION = process.argv.includes("--session");
+const SESSION_MAX = Number(process.env.MURMUR_WAKE_SESSION_MAX || 20);
+
+// Shared across sessions on purpose: this one is NOT suffixed with the session key.
+// It answers "how far has anyone drained this store", which is what a cold start
+// needs to know and what a per-session cursor cannot say.
+const ANCHOR = process.env.MURMUR_WAKE_ANCHOR || join(HOME, ".murmur-wake-anchor");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -77,6 +99,28 @@ function writeCursor(v) {
   try {
     writeFileSync(tmp, `${v}\n`);
     renameSync(tmp, CURSOR);
+  } catch {
+    try { rmSync(tmp, { force: true }); } catch {}
+  }
+}
+
+// The anchor only ever moves forward: a stale writer must never rewind the contour's
+// high-water mark and make a delivered message look undelivered.
+function readAnchor() {
+  try {
+    const v = parseInt(readFileSync(ANCHOR, "utf8").trim(), 10);
+    return Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function advanceAnchor(v) {
+  if (!(v > readAnchor())) return;
+  const tmp = `${ANCHOR}.${process.pid}`;
+  try {
+    writeFileSync(tmp, `${v}\n`);
+    renameSync(tmp, ANCHOR);
   } catch {
     try { rmSync(tmp, { force: true }); } catch {}
   }
@@ -109,6 +153,7 @@ function emitAndExit(rows) {
   // landing between the SELECT and the tip query would be skipped over by the cursor and
   // would then never wake anyone.
   writeCursor(rows[rows.length - 1].rowid);
+  advanceAnchor(rows[rows.length - 1].rowid);
   releaseLock();
   const lines = rows.map((r) => `  rowid=${r.rowid} [${r.sender}] ${r.snippet}`);
   process.stderr.write(
@@ -155,6 +200,39 @@ async function main() {
   // DB not present (daemon never started) → nothing to do, and say which path was tried.
   try { statSync(DB); } catch (err) { bail("store not readable", err); }
 
+  // --session: cold-start drain. Runs before the per-session cursor exists and reads the
+  // shared anchor instead, so it reports exactly what landed while nothing was listening.
+  if (SESSION) {
+    const db = openDb();
+    const tip = maxInbound(db);
+    const anchor = readAnchor();
+    // No anchor yet (first install, or upgrade from a build without one): adopt the tip
+    // as the baseline rather than replaying the whole store.
+    if (!anchor) {
+      db.close();
+      advanceAnchor(tip);
+      writeCursor(tip);
+      process.exit(0);
+    }
+    const rows = newRows(db, anchor);
+    db.close();
+    // Seed this session's own cursor at the tip either way: the Stop hook takes over from
+    // here and must not re-report what this drain just printed.
+    writeCursor(tip);
+    advanceAnchor(tip);
+    if (!rows.length) process.exit(0);
+    const shown = rows.slice(-SESSION_MAX);
+    const hidden = rows.length - shown.length;
+    const lines = shown.map((r) => `  rowid=${r.rowid} [${r.sender}] ${r.snippet}`);
+    process.stdout.write(
+      `Murmur cold-start drain: ${rows.length} inbound message(s) arrived while no session was alive` +
+      `${hidden ? `; showing the ${shown.length} most recent, ${hidden} older not printed` : ""}:\n` +
+      `${lines.join("\n")}\n` +
+      `Read the full text with murmur_inbox before replying.\n`,
+    );
+    process.exit(0);
+  }
+
   // First run ever: establish a baseline at the current tip, do not dump history.
   let cursorExists = true;
   try { statSync(CURSOR); } catch { cursorExists = false; }
@@ -163,6 +241,7 @@ async function main() {
     const tip = maxInbound(db);
     db.close();
     writeCursor(tip);
+    advanceAnchor(tip);
     process.exit(0);
   }
 
