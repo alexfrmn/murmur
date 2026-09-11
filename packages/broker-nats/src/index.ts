@@ -19,6 +19,7 @@ import {
   type EnvelopeV1,
   isSignedAckV1,
   isEnvelopeV1,
+  isRecoverableRejection,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
   type AckReceiptStore,
@@ -104,12 +105,17 @@ export const buildNatsConnectionOptions = (config: BrokerConfig): ConnectionOpti
   waitOnFirstConnect: config.waitOnFirstConnect ?? true,
 });
 
+const ADVISORY_FAILURE_LOG_INTERVAL_MS = 60_000;
+
 export class NatsBroker {
   private nc?: NatsConnection;
   private js?: JetStreamClient;
   private jsm?: JetStreamManager;
   private readonly sc = StringCodec();
   private readonly failedDeliveries = new Map<string, number>();
+  /** Подавление повторов в логе DLQ-обработчика: один и тот же отказ печатается
+   *  не чаще раза в минуту, с числом подавленных с прошлой печати. */
+  private readonly advisoryFailureLog = new Map<string, { at: number; suppressed: number }>();
   private readonly seenAckNonces = new Set<string>();
   private readonly invalidAckCounts = new Map<string, number>();
   private reconnects = 0;
@@ -339,7 +345,9 @@ export class NatsBroker {
       }
 
       await params.onMessage(decoded);
-      await params.dedupe.markSeen(decoded.msgId, params.consumerId);
+      await params.dedupe.markSeen(decoded.msgId, params.consumerId, {
+        senderAgentId: decoded.senderAgentId,
+      });
       this.failedDeliveries.delete(`${params.consumerId}:${decoded.msgId}`);
       await this.publishAck(
         ackSubject,
@@ -350,10 +358,27 @@ export class NatsBroker {
       const reason = err instanceof Error ? err.message : "handler-failed";
       const maxPoisonAttempts = params.maxPoisonAttempts ?? 3;
       const key = `${params.consumerId}:${msgId}`;
+      // Отказ, который чинит настройка, а не переотправка, отравленным письмом не считается:
+      // иначе конверт от ещё не добавленного пира уходит в dedupe_seen навсегда и не доедет
+      // даже после add-peer. Счётчик попыток не растёт — это не сбой доставки.
+      if (isRecoverableRejection(reason)) {
+        const recoverableAck = decodedEnvelope
+          ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
+          : createAck(msgId, params.consumerId, "nack", reason);
+        await this.publishAck(ackSubject, recoverableAck);
+        return "retry";
+      }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
       this.failedDeliveries.set(key, failures);
       if (msgId !== "unknown" && failures >= maxPoisonAttempts) {
-        await params.dedupe.markSeen(msgId, params.consumerId);
+        // Отправитель записывается ЗАЯВЛЕННЫЙ — на этом пути подпись могла и не сойтись.
+        // Поле служит одному: `add-peer` должен уметь снять отметку с писем того пира,
+        // которого только что добавили или чей ключ обновили. Худшее, что даёт подлог
+        // имени, — конверт проедет круг ещё раз и снова отобьётся.
+        await params.dedupe.markSeen(msgId, params.consumerId, {
+          senderAgentId: decodedEnvelope?.senderAgentId,
+          poisonReason: reason,
+        });
         this.failedDeliveries.delete(key);
         const ack = decodedEnvelope
           ? await this.createDeliveryAck(
@@ -784,11 +809,24 @@ export class NatsBroker {
       await outbox.markDlq(envelope.msgId, this.jetStreamAdvisoryReason(advisoryKind, advisory, streamSeq));
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
-      console.error("[NatsBroker.startJetStreamAdvisoryDlq] malformed advisory frame", {
+      // Диагноз обязан называть то, чем ошибка является. Таймаут запроса к JetStream — не
+      // «malformed advisory frame»: кадр разобран, не ответил сервер. Прежняя формулировка
+      // уводила читателя лога в сторону, а стек с сырым кадром печатались на КАЖДОЕ событие:
+      // за ночь daemon.log вырос с 33 строк до 117 307 (9.1 МБ), ротации и rate-limit нет.
+      // Найдено agent-kirill 2026-09-11.
+      const kind = /timeout/i.test(e.message) ? "advisory lookup timed out" : "malformed advisory frame";
+      const now = Date.now();
+      const bucket = `${kind}:${e.message}`;
+      const prev = this.advisoryFailureLog.get(bucket);
+      if (prev && now - prev.at < ADVISORY_FAILURE_LOG_INTERVAL_MS) {
+        prev.suppressed += 1;
+        return;
+      }
+      console.error(`[NatsBroker.startJetStreamAdvisoryDlq] ${kind}`, {
         message: e.message,
-        stack: e.stack,
-        raw: this.sc.decode(data),
+        ...(prev?.suppressed ? { suppressedSince: prev.suppressed } : {}),
       });
+      this.advisoryFailureLog.set(bucket, { at: now, suppressed: 0 });
     }
   }
 

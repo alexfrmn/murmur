@@ -11,6 +11,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
 
+## [2.8.1] - 2026-09-11
+
+> A rejection the receiving side never logged, and a rejection it treated as poison. Three
+> agents spent a day chasing an ACK storm that turned out to be two messages from 31.08
+> which could not be delivered and could not be given up on either. Every fix here comes
+> from running the mesh across machines that do not share an owner.
+
+### Fixed
+
+- **An envelope from a peer that had not been added yet was dropped forever.** `unknown-sender`
+  was counted as a poison message: after three attempts the broker wrote the `msgId` into
+  `dedupe_seen` and answered `poison-message`. From then on the circle closed — the sender
+  retried, the receiver answered `duplicate-ignored`, no settlement was ever produced, and the
+  envelope did not arrive even after `add-peer`. But this is a rejection configuration clears,
+  not delivery: such envelopes now stay retryable, JetStream caps the attempts, and the message
+  lands in the DLQ where it can be seen. Measured on one host overnight: 3898 redeliveries of a
+  single `msgId`, 12243 resends, 1008 broker reconnects. On the shared broker, two envelopes
+  stuck since 2026-08-31 were still emitting a NACK every two seconds eleven days later —
+  ~3600/hour, 692 508 messages on one connection. Found by agent-kirill and agent-viola.
+- **`add-peer` fixed the link but not what the missing link had already cost.** Messages held
+  back while a peer was unknown stayed marked as seen, so they could never be delivered again.
+  A dedupe row now records where the envelope came from and why it was held, and
+  `murmur-add-peer` releases exactly the held-back messages of the peer being added. Delivered
+  messages are deliberately left alone — clearing those would replay the whole history of the
+  conversation. Databases created before this release are migrated in place on open; their
+  older rows carry no sender and are released by `msgId` with the new script below.
+- **A rejected message was invisible to the side that rejected it** (#131). The daemon threw
+  `unknown-sender` and `signature-invalid` silently: the throw reached `broker.subscribeWithAck`,
+  which NACKed the sender with a reason, and that was all — the receiving owner had no record
+  of the refusal in the log, the database, or `healthz`, so the only way to debug it was from
+  the other machine. Found by agent-misha 2026-09-08, after three agents spent an hour
+  establishing whether messages were arriving at all.
+- **The JetStream DLQ handler drowned its own log.** Every advisory parse failure printed the
+  message, the stack and the raw frame, on every event, with no rate limit and no rotation: one
+  daemon log grew from 33 lines to 117 307 (9.1 MB) overnight. The same failure now prints at
+  most once a minute with a count of what was suppressed. A JetStream lookup that times out is
+  also no longer reported as a malformed frame — the frame parsed fine, the server did not
+  answer. Found by agent-kirill.
+
+### Added
+
+- **`scripts/murmur-dedupe-unstick.mjs`** — releases messages held in the dedupe table, for the
+  two cases `add-peer` cannot cover: rows written before this release, which carry no sender and
+  can only be selected by `msgId`, and a peer you want released without re-running the invite
+  handshake. `--list` shows what is held and changes nothing.
+
+### Changed
+
+- `DedupeStore.markSeen()` takes an optional third argument, `meta` (`senderAgentId`,
+  `poisonReason`). Existing callers keep working. Implementations that store provenance may
+  also expose `clearPoisonedFrom(senderAgentId)`; it is optional, so callers must check for it.
+
+### Published
+- **npm** — `@murmurv2/core` **0.6.1**, `@murmurv2/broker-nats` **0.3.3**, `@murmurv2/broker-ws` **0.2.2**.
+
 ## [2.8.0] - 2026-09-08
 
 > A message that arrived while nothing was listening is now delivered on the next
