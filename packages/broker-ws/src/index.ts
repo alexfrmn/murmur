@@ -9,6 +9,7 @@ import {
   type EnvelopeV1,
   envelopeDigest,
   isEnvelopeV1,
+  isRecoverableRejection,
   isSignedAckV1,
   type OutboxStore,
   type SecurityPolicy,
@@ -350,6 +351,11 @@ export class WebSocketBroker {
       const reason = err instanceof Error ? err.message : "handler-failed";
       const maxPoisonAttempts = params.maxPoisonAttempts ?? 3;
       const key = `${params.consumerId}:${envelope.msgId}`;
+      // Симметрично NATS-брокеру: «нет пира» — состояние настройки, а не отравленное письмо.
+      if (isRecoverableRejection(reason)) {
+        await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", reason));
+        return;
+      }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
       this.failedDeliveries.set(key, failures);
       if (failures >= maxPoisonAttempts) {

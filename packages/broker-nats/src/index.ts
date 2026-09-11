@@ -19,6 +19,7 @@ import {
   type EnvelopeV1,
   isSignedAckV1,
   isEnvelopeV1,
+  isRecoverableRejection,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
   type AckReceiptStore,
@@ -350,6 +351,16 @@ export class NatsBroker {
       const reason = err instanceof Error ? err.message : "handler-failed";
       const maxPoisonAttempts = params.maxPoisonAttempts ?? 3;
       const key = `${params.consumerId}:${msgId}`;
+      // Отказ, который чинит настройка, а не переотправка, отравленным письмом не считается:
+      // иначе конверт от ещё не добавленного пира уходит в dedupe_seen навсегда и не доедет
+      // даже после add-peer. Счётчик попыток не растёт — это не сбой доставки.
+      if (isRecoverableRejection(reason)) {
+        const recoverableAck = decodedEnvelope
+          ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
+          : createAck(msgId, params.consumerId, "nack", reason);
+        await this.publishAck(ackSubject, recoverableAck);
+        return "retry";
+      }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
       this.failedDeliveries.set(key, failures);
       if (msgId !== "unknown" && failures >= maxPoisonAttempts) {

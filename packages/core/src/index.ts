@@ -494,6 +494,28 @@ const secureSqliteFiles = (filePath: string): void => {
   }
 };
 
+/**
+ * Отказы, которые чинит настройка, а не переотправка.
+ *
+ * Письмо от ещё не добавленного пира расшифровать нельзя, но это временное состояние:
+ * `add-peer` его исправит. Если считать такой отказ отравленным письмом, конверт после
+ * трёх попыток уходит в `dedupe_seen` НАВСЕГДА — и уже не доедет даже после добавления
+ * пира, потому что каждый следующий ретрай отбивается как `duplicate-ignored`.
+ *
+ * Отправитель при этом продолжает ретраить, получатель продолжает отбивать: за ночь на
+ * машине agent-kirill это дало 3898 повторных доставок одного msgId, 12243 переотправки
+ * и 1008 реконнектов к брокеру (найдено 2026-09-11). Наши собственные два застрявших
+ * msgId лежат в dedupe_seen с 31.08 и штормят ACK по сей день.
+ *
+ * Такие отказы обязаны оставаться retryable: JetStream ограничит число доставок сам и
+ * положит конверт в DLQ, откуда он виден и восстановим.
+ */
+export const RECOVERABLE_REJECTION_PREFIXES = ["unknown-sender:"] as const;
+
+export function isRecoverableRejection(reason: string): boolean {
+  return RECOVERABLE_REJECTION_PREFIXES.some((p) => reason.startsWith(p));
+}
+
 export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckReceiptStore {
   private readonly db: DatabaseSync;
 
