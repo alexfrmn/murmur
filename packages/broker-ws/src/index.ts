@@ -344,7 +344,9 @@ export class WebSocketBroker {
 
     try {
       await params.onMessage(envelope);
-      await params.dedupe.markSeen(envelope.msgId, params.consumerId);
+      await params.dedupe.markSeen(envelope.msgId, params.consumerId, {
+        senderAgentId: envelope.senderAgentId,
+      });
       this.failedDeliveries.delete(`${params.consumerId}:${envelope.msgId}`);
       await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "ack"));
     } catch (err) {
@@ -359,7 +361,11 @@ export class WebSocketBroker {
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
       this.failedDeliveries.set(key, failures);
       if (failures >= maxPoisonAttempts) {
-        await params.dedupe.markSeen(envelope.msgId, params.consumerId);
+        // Симметрично NATS-брокеру: отправитель заявленный, нужен только для `add-peer`.
+        await params.dedupe.markSeen(envelope.msgId, params.consumerId, {
+          senderAgentId: envelope.senderAgentId,
+          poisonReason: reason,
+        });
         this.failedDeliveries.delete(key);
         await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", `poison-message:${reason}`));
         return;

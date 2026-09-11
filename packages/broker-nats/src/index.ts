@@ -345,7 +345,9 @@ export class NatsBroker {
       }
 
       await params.onMessage(decoded);
-      await params.dedupe.markSeen(decoded.msgId, params.consumerId);
+      await params.dedupe.markSeen(decoded.msgId, params.consumerId, {
+        senderAgentId: decoded.senderAgentId,
+      });
       this.failedDeliveries.delete(`${params.consumerId}:${decoded.msgId}`);
       await this.publishAck(
         ackSubject,
@@ -369,7 +371,14 @@ export class NatsBroker {
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
       this.failedDeliveries.set(key, failures);
       if (msgId !== "unknown" && failures >= maxPoisonAttempts) {
-        await params.dedupe.markSeen(msgId, params.consumerId);
+        // Отправитель записывается ЗАЯВЛЕННЫЙ — на этом пути подпись могла и не сойтись.
+        // Поле служит одному: `add-peer` должен уметь снять отметку с писем того пира,
+        // которого только что добавили или чей ключ обновили. Худшее, что даёт подлог
+        // имени, — конверт проедет круг ещё раз и снова отобьётся.
+        await params.dedupe.markSeen(msgId, params.consumerId, {
+          senderAgentId: decodedEnvelope?.senderAgentId,
+          poisonReason: reason,
+        });
         this.failedDeliveries.delete(key);
         const ack = decodedEnvelope
           ? await this.createDeliveryAck(
