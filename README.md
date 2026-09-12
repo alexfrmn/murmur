@@ -119,6 +119,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, Web
 
 All packages are published on npm under the [`@murmurv2`](https://www.npmjs.com/org/murmurv2) scope (MIT):
 
+> **Registry lag (as of 2026-09-12).** npm currently serves `@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 — the code of 2.6.x. Everything from 2.7.0 to 2.9.0 (ACK-storm fixes, exactly-once wake delivery, Phase N routing) is in the repo and tagged but not yet published: publishing is paused by an npm account-security hold, expected to lift around 2026-09-14. To run the current release today, clone the `v2.9.0` tag and build from source (`npm ci && npm run build`), as in [Quick Start](#quick-start).
+
 ```bash
 # core types + SQLite stores, crypto, MCP server
 npm install @murmurv2/core @murmurv2/security @murmurv2/mcp-server
@@ -561,6 +563,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [x] `murmur_request` send-and-wait — wake-accelerated via a read-only ephemeral NATS tap; SQLite store-poll is the durable fallback (daemon stays source of truth for decrypt)
 - [x] Optional JetStream durability — finite `max_deliver`/`ack_wait`, consumer repair, advisory → DLQ; default-OFF, SQLite outbox stays source of truth; running live on the reference mesh
 - [x] Dead-letter queue + poison handling · SQLite WAL with optimistic locking
+- [x] **Exactly-once wake delivery** (v2.9) — one durable row per inbound delivery (`delivery_id` UNIQUE, committed with its wake state in one transaction), ACK after the durable commit, redelivered envelopes ACKed without a second wake, failed wakes retried under the same id with backoff then dead-lettered visibly, a cursor that never skips a gap and survives restarts, relay replies with a derived `msgId` so a retry never runs the turn twice
 - [x] **Message streaming** — stream frames (start/chunk/end), UTF-8-safe chunking, in-memory + durable SQLite reassembly (out-of-order, idempotent, conflict-reject), backpressure (chunk + byte windows), sha256 integrity, ACK-window
 - [x] **Agent discovery** — presence frames + candidate registry (ttl expiry, dedupe, out-of-order guard), signed presence over NATS (`announcePresence`/`subscribePresence`), operator promote-flow (`queryCandidates`/`promoteCandidate`); trust is always an explicit operator promotion — candidates are never auto-trusted
 
@@ -580,18 +583,30 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [x] **Versioned protocol spec** — machine-readable schema (`protocol-v1.schema.json`) + prose (`docs/protocol-v1.md`) + compatibility matrix (`docs/protocol-compatibility.md`)
 
 *Distribution*
-- [x] **npm — public** under `@murmurv2/*` (MIT): `core` @ `0.3.0` (adds the scoped-channels lease primitive), `federation`/`broker-nats` @ `0.2.0`, `security`/`observability` @ `0.1.1`, the rest @ `0.1.0`
+- [x] **npm — public** under `@murmurv2/*` (MIT). Registry today: `core` 0.5.0, `mcp-server` 0.2.0, `federation`/`broker-nats` 0.2.0, `security`/`observability` 0.1.1, the rest 0.1.0 — three releases behind the repo until the publish hold lifts (see In Progress → Distribution)
 
 ### In Progress (next up)
-- [ ] **Auth/authz end-to-end** — the mechanism is shipped; wire it into the daemon (read `MURMUR_ENFORCE_AUTH` + build the authorizer from the roster) so enforcement is live, then provision org-authority tokens
-- [ ] **WebSocket transport** — `@murmurv2/broker-ws` relay + client are shipped (delivery, ACK correlation, dedupe, invalid-envelope NACKs); remaining: browser/edge deployment examples + hardening
 
-### Needs a real external partner (mechanism done, gated on a counterpart)
-- [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**
-- [ ] **A2A protocol bridge** — a real `@a2a-js/sdk` client → bridge → NATS → reply round-trip is proven (vs a mock internal agent) and Agent-Card discovery is fixed; agent-to-agent **over the Murmur mesh** is separately proven **cross-host** (fresh remote agent on published npm, bidirectional encrypt/verify/ACK). Gate: a **real remote A2A agent**
+*Security first — the shared broker still runs on one token*
+- [ ] **TLS + per-peer NATS authentication** (#103) — reviewed, CI-green, held for a coordinated cutover: every peer today shares one broker token, which is why a 2.6.0 client storming the broker could not be cut off and why a leaked invite blob (10.09) meant rotating everyone. Ships with a maintenance window (broker config + re-invite of all peers), not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client speaks token only (no user/password, no CA).
+- [ ] **Auth/authz end-to-end** — the mechanism is shipped (`@murmurv2/federation`: roster-backed signed tokens, `authorizeInbound`; broker ingress hook `authorize`). Remaining: the daemon does not read `MURMUR_ENFORCE_AUTH` or build the authorizer from the roster yet, and there is no CLI to mint org-authority tokens. Two small pieces: `murmur-daemon.mjs` wiring (default OFF) and `murmur-auth-token.mjs` (mint / verify), then provision tokens to the peers.
+- [ ] **`ackSecurity.requireSigned` rollout** — a rollout step, not a code step: unsigned ACKs are accepted until every peer runs 2.5.0+ and the flag is on. Blocked by the last 2.6.0 peer on the reference mesh.
+
+*Delivery & observability*
+- [ ] **Lifecycle events writer** — `message_events` (`queued → delivered → woke → handled → replied`), `recordEvent`, `traceMessage`, `traceConversation` and `stalledOutbound` are in `@murmurv2/core` with tests, and nothing in the daemon or MCP server calls them: after four days and thousands of messages the table holds zero rows. Since v2.9 the receiving side is covered by the durable `wake_status` on each inbound row; "delivered but never answered" on the *outbound* side still has no writer. Wire the four events into the daemon (send / broker ACK / wake settle) and the MCP server (send), then surface `stalledOutbound` next to `murmur_inbox`.
+- [ ] **Lane coalescing** (#124) — since v2.9 inbound messages for one peer/conversation queue in a lane; an opt-in mode to deliver everything queued for a lane as one turn at the turn boundary (quiet window + per-turn cap) is the next step for coordination-heavy days.
+- [ ] **Phase N tail** — N4 chat-session presence (#89), N5 subject scoping (#90).
+
+*Distribution*
+- [ ] **npm publish of 2.7.0 → 2.9.0** — the registry is three releases behind the repo (`@murmurv2/core` 0.5.0 published vs 0.6.3 in the tree; `mcp-server` 0.2.0 vs 0.2.2). Publishing is paused by an npm account-security hold on the maintainer's account, expected to lift around **2026-09-14**; until then run from the `v2.9.0` tag (see [Install](#install)).
+
+### Needs a real external counterpart (mechanism done, gated on a partner)
+- [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**. The reference mesh's external peers today share one broker account, so they do not count; the natural first partner is that contour on its own account once #103 lands.
+- [ ] **A2A protocol bridge** — a real `@a2a-js/sdk` client → bridge → NATS → reply round-trip is proven (vs a mock internal agent) and Agent-Card discovery is fixed; agent-to-agent **over the Murmur mesh** is separately proven **cross-host** (fresh remote agent on published npm, bidirectional encrypt/verify/ACK). Gate: a **real remote A2A agent**.
+- [ ] **WebSocket transport** — `@murmurv2/broker-ws` relay + client are shipped (delivery, ACK correlation, dedupe, invalid-envelope NACKs). Remaining: a browser/edge deployment example and hardening (origin checks, connection limits, TLS behind a proxy). Gate: a **real browser or edge consumer** — nothing on the reference mesh uses it yet.
 
 ### Research
-- [ ] MLS group encryption (RFC 9420) — forward secrecy for multi-agent groups via OpenMLS WASM
+- [ ] **MLS group encryption (RFC 9420)** — forward secrecy for multi-agent groups. Today a feature-flagged scaffold only: `MlsProvider` interface in `@murmurv2/security` with a noop provider that throws `mls-disabled`; no OpenMLS backend is wired.
 
 ---
 
