@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Pending
+- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
+- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+
+## [2.9.0] - 2026-09-12
+
+> Two things had to stop being true at once for a wake to be trustworthy: that a failed wake
+> could be marked handled, and that a retried one could answer twice. This release makes the
+> receiving side exactly-once — one durable row per delivery, retries under the same id, a
+> cursor that never skips a gap, an idempotent relay — and then fixes what that exposed: turn
+> status never read, one long turn blocking every peer, Codex threads living in process
+> memory, and a cold-start watcher spawning next to a live session. Phase N member routing
+> and Codex Desktop exact-task delivery from @fedoseevstanislav ship with it.
+
 ### Added
 - **Phase N structured member routing** — optional signed `channelId`, `senderMemberId`,
   and `addresseeMemberId` fields now flow through the envelope, MCP send/request tools,
@@ -69,9 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the agent (`--presence-ttl-ms`, default 60 s), logging `skip_live_session` with the
   reason; `--ignore-live-session` restores the old behaviour.
 
-### Pending
-- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
-- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+### Packages
+
+- `@murmurv2/core` 0.6.2 → 0.6.3 — `delivery_id` + wake state on `local_messages`, `wake_threads`, `AppendedMessageRecord`, wake delivery API.
+- `@murmurv2/mcp-server` 0.2.1 → 0.2.2 — Phase N routing fields, Codex Desktop exact-task delivery.
 
 ## [2.8.2] - 2026-09-12
 
