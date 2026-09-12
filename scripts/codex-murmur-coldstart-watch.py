@@ -6,6 +6,7 @@ import os
 import shutil
 import signal
 import sqlite3
+import socket
 import subprocess
 import sys
 import tempfile
@@ -172,6 +173,50 @@ def is_current_token(args, conversation_id, member_slot, token):
             (conversation_id, member_slot),
         ).fetchone()
     return bool(row and int(row["token"]) == int(token))
+
+
+def detect_live_session(lease_db, agent_id, app_server_socket, presence_ttl_ms, now_ms=None):
+    """#123 — is an interactive session already alive for this agent?
+
+    The lease claim alone did not answer that: a TUI session that never registered a
+    lease left the claim free, and the watcher spawned a headless Codex per inbound
+    message next to a live window. Two signals, either one is enough:
+
+      * the app-server socket accepts a connection (the live wake path is up);
+      * a fresh non-coldstart row in session_presence for the same agent
+        (foreground / native / mcp-channel sessions heartbeat there, #83).
+
+    Returns a reason string when the watcher should stand down, else None.
+    """
+    if app_server_socket:
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(1.0)
+            probe.connect(app_server_socket)
+            return f"app-server-socket:{app_server_socket}"
+        except OSError:
+            pass
+        finally:
+            probe.close()
+    if lease_db and os.path.exists(lease_db):
+        now_ms = lease_now_ms() if now_ms is None else int(now_ms)
+        try:
+            with connect_ro(lease_db) as conn:
+                row = conn.execute(
+                    """
+                    SELECT session_id, mode
+                    FROM session_presence
+                    WHERE agent_id = ? AND mode <> 'coldstart' AND (? - heartbeat_at) <= ?
+                    ORDER BY heartbeat_at DESC
+                    LIMIT 1
+                    """,
+                    (agent_id, now_ms, int(presence_ttl_ms)),
+                ).fetchone()
+        except sqlite3.Error:
+            row = None
+        if row:
+            return f"presence:{row['mode']}:{row['session_id']}"
+    return None
 
 
 def connect_ro(db_path):
@@ -447,6 +492,19 @@ def process_batch(args, rows):
             mark_processed(args.db, row, "skipped_existing_outbound", existing["msg_id"])
         return {"event": "skip_existing_outbound", "outbound_rowid": existing["rowid"], "outbound_msg_id": existing["msg_id"]}
 
+    # #123 — a live interactive session owns its inbox; spawning a headless Codex next
+    # to it produced several sessions competing for the same messages. Checked after the
+    # settle window so a session that came up while we waited is seen too.
+    if not getattr(args, "ignore_live_session", False):
+        live = detect_live_session(
+            getattr(args, "lease_db", None),
+            args.agent_id,
+            getattr(args, "app_server_socket", None),
+            getattr(args, "presence_ttl_ms", 60000),
+        )
+        if live:
+            return {"event": "skip_live_session", "reason": live, "messages": len(rows)}
+
     session_id = f"coldstart:{os.getpid()}:{anchor['msg_id']}"
     register_session(args, session_id, anchor)
     claim = claim_or_skip(args, anchor["conversation_id"], args.member_slot, session_id)
@@ -508,6 +566,13 @@ def parse_args():
     parser.add_argument("--lease-db", default=DEFAULT_LEASE_DB)
     parser.add_argument("--lease-schema", default=DEFAULT_LEASE_SCHEMA)
     parser.add_argument("--lease-ttl-ms", type=int, default=20000)
+    # #123 — stand down while an interactive session is alive.
+    parser.add_argument("--app-server-socket", default=os.environ.get("CODEX_APP_SERVER_SOCKET") or None,
+                        help="Unix socket of the live Codex app-server; if it accepts a connection, no headless session is spawned")
+    parser.add_argument("--presence-ttl-ms", type=int, default=60000,
+                        help="a non-coldstart session_presence heartbeat younger than this counts as a live session")
+    parser.add_argument("--ignore-live-session", action="store_true",
+                        help="spawn even when a live interactive session is detected (pre-#123 behaviour)")
     parser.add_argument("--sender", default="agent-jarvis")
     parser.add_argument("--recipient", default="agent-jarvis")
     parser.add_argument("--agent-id", default="agent-codex-volt")
