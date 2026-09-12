@@ -61,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   restart resumes the same Codex thread and conversations from one sender stop sharing
   context. A static `peer.threadId` stays an explicit pin; a thread re-seeded to replace
   a stale pin remembers which pin it replaced, so a new pin in config takes over.
+- **`codex-murmur-coldstart-watch.py` spawned headless Codex sessions next to a live
+  interactive one** (#123). Its only guard was the conversation lease, which a TUI session
+  that never registered a lease leaves free. The watcher now stands down when the Codex
+  app-server socket accepts a connection (`--app-server-socket`, default
+  `$CODEX_APP_SERVER_SOCKET`) or when `session_presence` has a fresh non-coldstart row for
+  the agent (`--presence-ttl-ms`, default 60 s), logging `skip_live_session` with the
+  reason; `--ignore-live-session` restores the old behaviour.
 
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
