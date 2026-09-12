@@ -66,6 +66,8 @@ FILES=(
   "scripts/lease.mjs"
   "scripts/notify-router.mjs"
   "scripts/agent-config-init.mjs"
+  "scripts/murmur-shell-send.mjs"
+  "scripts/codex-murmur-coldstart-watch.py"
 )
 
 # Every relative import reachable from the deployed scripts must itself be in FILES.
