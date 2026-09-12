@@ -15,8 +15,10 @@ import {
   CodexAppServerClient,
   createChannelThreadStartBindingResolver,
   createCodexAppServerInjector,
+  deriveRelayReplyMsgId,
   readFinalAnswerFromSessionLog,
 } from "../scripts/codex-app-server-wake.mjs";
+import { SQLiteDedupeOutboxStore } from "../packages/core/dist/src/index.js";
 
 const payload = {
   from: "agent-jarvis",
@@ -131,7 +133,7 @@ test("Codex app-server injector keeps the seeded thread path and skips resume", 
 
     async startTurnAndWaitForFinal(params, options) {
       calls.push({ method: "turn/start:wait", params, options });
-      return { finalText: "", turnId: "turn-1" };
+      return { finalText: "done", turnId: "turn-1" };
     }
   }
 
@@ -144,7 +146,7 @@ test("Codex app-server injector keeps the seeded thread path and skips resume", 
     dataDir: "/work/.data",
     storePath: "/work/.data/murmur.db",
   };
-  const injector = createCodexAppServerInjector({ Client: FakeClient });
+  const injector = createCodexAppServerInjector({ Client: FakeClient, relay: async () => ({ msgId: "reply-1" }) });
 
   await injector(payload, peer);
 
@@ -480,4 +482,102 @@ test("Codex app-server injector fails loud without socket", async () => {
   const injector = createCodexAppServerInjector();
 
   await assert.rejects(() => injector(payload, { mode: "codex_app_server", threadId: "thread-1" }), /socket-missing/);
+});
+
+// #105/#106 — the relay is the side effect that must happen exactly once, and "relayed"
+// must never be logged for a turn that produced nothing to relay.
+
+const relayPeer = (storePath) => ({
+  mode: "codex_app_server",
+  socketPath: "/tmp/codex.sock",
+  threadId: "thread-1",
+  relayFinalToMurmur: true,
+  murmurRoot: "/work/murmur",
+  dataDir: path.dirname(storePath),
+  storePath,
+});
+
+test("Codex app-server relay reply id is derived from the inbound msgId so a retry reuses it", () => {
+  const a = deriveRelayReplyMsgId("msg-codex-1");
+  assert.equal(a, deriveRelayReplyMsgId("msg-codex-1"));
+  assert.notEqual(a, deriveRelayReplyMsgId("msg-codex-2"));
+  assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+});
+
+test("Codex app-server injector hands the derived reply id to the relay and reports it", async () => {
+  const relays = [];
+  class FakeClient {
+    async request() { return {}; }
+    async startTurnAndWaitForFinal() { return { finalText: "answer", turnId: "turn-1", source: "session-log" }; }
+  }
+  const injector = createCodexAppServerInjector({
+    Client: FakeClient,
+    relay: async (peer, p, text, options) => { relays.push({ text, options }); return { msgId: options.msgId, status: "queued" }; },
+    relayAlreadyQueued: async () => false,
+  });
+
+  const result = await injector(payload, relayPeer("/work/.data/murmur.db"));
+
+  assert.equal(relays.length, 1);
+  assert.equal(relays[0].options.msgId, deriveRelayReplyMsgId(payload.msgId));
+  assert.equal(result.replyMsgId, deriveRelayReplyMsgId(payload.msgId));
+});
+
+test("Codex app-server injector refuses to report an empty final answer as relayed", async () => {
+  const relays = [];
+  const logs = [];
+  class FakeClient {
+    async request() { return {}; }
+    async startTurnAndWaitForFinal() { return { finalText: "", turnId: "turn-1", source: "app-server-events" }; }
+  }
+  const injector = createCodexAppServerInjector({
+    Client: FakeClient,
+    relay: async () => { relays.push(1); return null; },
+    relayAlreadyQueued: async () => false,
+    log: (level, message, data) => logs.push({ level, message, data }),
+  });
+
+  await assert.rejects(
+    injector(payload, relayPeer("/work/.data/murmur.db")),
+    (err) => /^codex-app-server-final-empty:turn-1/.test(err.message) && err.retryable === false,
+  );
+  assert.equal(relays.length, 0);
+  assert.ok(!logs.some((entry) => entry.message === "Codex app-server wake final relayed"));
+});
+
+test("Codex app-server injector does not restart a turn whose reply is already queued", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-relay-idem-"));
+  try {
+    const storePath = path.join(dir, "murmur.db");
+    const outbox = new SQLiteDedupeOutboxStore(storePath);
+    const replyMsgId = deriveRelayReplyMsgId(payload.msgId);
+    await outbox.enqueue("msg.agent-jarvis", {
+      schemaVersion: "1.0",
+      msgId: replyMsgId,
+      conversationId: payload.conversationId,
+      senderAgentId: "agent-codex",
+      recipients: ["agent-jarvis"],
+      createdAt: new Date().toISOString(),
+      payloadCiphertext: "x",
+      payloadNonce: "n",
+      signature: "s",
+    });
+
+    const calls = [];
+    const relays = [];
+    class FakeClient {
+      async request(method) { calls.push(method); return {}; }
+      async startTurnAndWaitForFinal() { calls.push("turn/start:wait"); return { finalText: "again", turnId: "turn-2" }; }
+    }
+    const injector = createCodexAppServerInjector({ Client: FakeClient, relay: async () => { relays.push(1); return null; } });
+
+    const result = await injector({ ...payload, attempt: 2 }, relayPeer(storePath));
+
+    assert.deepEqual(calls, [], "the previous attempt already produced the reply — Codex must not run the instruction twice");
+    assert.equal(relays.length, 0);
+    assert.equal(result.source, "relay-idempotent");
+    assert.equal(result.replyMsgId, replyMsgId);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
