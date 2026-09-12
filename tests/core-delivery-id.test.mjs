@@ -240,3 +240,24 @@ test("settleWake records the relayed reply id so a retry can see the reply alrea
     cleanup();
   }
 });
+
+// #108 — the Codex thread for a (peer, conversation) pair must survive a daemon restart.
+
+test("wake threads are persisted per peer and conversation", async () => {
+  const { store, cleanup } = withStore();
+  try {
+    assert.equal(await store.getWakeThread("agent-a", "conv-1"), undefined);
+
+    await store.setWakeThread({ peerId: "agent-a", conversationId: "conv-1", threadId: "t-1", threadPath: "/tmp/t-1.jsonl" });
+    await store.setWakeThread({ peerId: "agent-a", conversationId: "conv-2", threadId: "t-2" });
+
+    assert.deepEqual(await store.getWakeThread("agent-a", "conv-1"), { peerId: "agent-a", conversationId: "conv-1", threadId: "t-1", threadPath: "/tmp/t-1.jsonl" });
+    assert.equal((await store.getWakeThread("agent-a", "conv-2")).threadId, "t-2");
+    assert.equal(await store.getWakeThread("agent-b", "conv-1"), undefined);
+
+    await store.setWakeThread({ peerId: "agent-a", conversationId: "conv-1", threadId: "t-1b" });
+    assert.equal((await store.getWakeThread("agent-a", "conv-1")).threadId, "t-1b");
+  } finally {
+    cleanup();
+  }
+});

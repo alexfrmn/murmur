@@ -4,6 +4,7 @@ const ensureObject = (value) => (value && typeof value === "object" ? value : {}
 const DEFAULT_WAKE_MAX_ATTEMPTS = 5;
 const DEFAULT_WAKE_RETRY_BACKOFF_MS = 30_000;
 const DEFAULT_WAKE_RETRY_BACKOFF_MAX_MS = 10 * 60_000;
+const DEFAULT_WAKE_CONCURRENCY = 4;
 const validMode = (mode) => mode === "stateless" || mode === "codex_app_server";
 
 export const normalizeWakeConfig = (config = {}) => {
@@ -51,6 +52,9 @@ export const normalizeWakeConfig = (config = {}) => {
       maxWakes: Number.isFinite(Number(loopBreaker.maxWakes)) ? Number(loopBreaker.maxWakes) : 5,
       windowMs: Number.isFinite(Number(loopBreaker.windowMs)) ? Number(loopBreaker.windowMs) : 60000,
     },
+    // #107 — how many wakes may run at once. Lanes are keyed per peer/conversation, so
+    // this bounds parallelism across conversations; within one, order is kept.
+    concurrency: Number.isFinite(Number(wake.concurrency)) && Number(wake.concurrency) >= 1 ? Math.floor(Number(wake.concurrency)) : DEFAULT_WAKE_CONCURRENCY,
     // #105 — how long a delivery keeps being retried before it is dead-lettered.
     retry: {
       maxAttempts: Number.isFinite(Number(retry.maxAttempts)) ? Number(retry.maxAttempts) : DEFAULT_WAKE_MAX_ATTEMPTS,
@@ -152,6 +156,10 @@ export class WakeMonitor {
     this.retryBackoffMs = Number.isFinite(Number(options.retryBackoffMs)) ? Number(options.retryBackoffMs) : wakeConfig.retry.backoffMs;
     this.retryBackoffMaxMs = Number.isFinite(Number(options.retryBackoffMaxMs)) ? Number(options.retryBackoffMaxMs) : wakeConfig.retry.backoffMaxMs;
     this.recoveredInflight = false;
+    this.concurrency = Number.isFinite(Number(options.concurrency)) && Number(options.concurrency) >= 1
+      ? Math.floor(Number(options.concurrency))
+      : wakeConfig.concurrency;
+    this.dispatchSignal = null;
     this.now = options.now || (() => Date.now());
     this.log = options.log || (() => {});
     this.seen = new Map();
@@ -175,14 +183,57 @@ export class WakeMonitor {
     if (this.queuedKeys.has(key)) return;
     this.queuedKeys.add(key);
     this.queue.push(payload);
+    this.kickDispatcher();
   }
 
   nowIso() {
     return new Date(this.now()).toISOString();
   }
 
+  /** Wake a drain that is parked on busy lanes: something new is in the queue. */
+  kickDispatcher() {
+    const signal = this.dispatchSignal;
+    this.dispatchSignal = null;
+    signal?.resolve();
+  }
+
+  /**
+   * #107 — lanes instead of one line. Every queued payload belongs to a lane (see
+   * `laneKeyFor`); at most `concurrency` lanes run at once and a lane never runs two
+   * payloads together, so a long turn for one peer no longer holds a short question for
+   * another, while messages within one conversation keep their order.
+   */
+  async runLanes() {
+    const active = new Map();
+    while (this.queue.length > 0 || active.size > 0) {
+      if (active.size < this.concurrency) {
+        const index = this.queue.findIndex((payload) => !active.has(this.laneKeyFor(payload)));
+        if (index >= 0) {
+          const [payload] = this.queue.splice(index, 1);
+          this.queuedKeys.delete(this.keyFor(payload));
+          const lane = this.laneKeyFor(payload);
+          const run = this.processPayload(payload)
+            .catch((err) => {
+              const e = err instanceof Error ? err : new Error(String(err));
+              this.log("error", "WakeMonitor lane crashed", { error: e.message, msgId: payload.msgId, lane });
+            })
+            .then(() => { active.delete(lane); });
+          active.set(lane, run);
+          continue;
+        }
+      }
+      if (active.size === 0) break;
+      const parked = new Promise((resolve) => { this.dispatchSignal = { resolve }; });
+      await Promise.race([...active.values(), parked]);
+      this.dispatchSignal = null;
+    }
+  }
+
   async drain() {
-    if (this.processing) return;
+    if (this.processing) {
+      this.kickDispatcher();
+      return;
+    }
     this.processing = true;
     try {
       if (this.deliveries && !this.recoveredInflight) {
@@ -193,11 +244,7 @@ export class WakeMonitor {
       }
       const offeredThisDrain = new Set();
       while (true) {
-        while (this.queue.length > 0) {
-          const payload = this.queue.shift();
-          this.queuedKeys.delete(this.keyFor(payload));
-          await this.processPayload(payload);
-        }
+        await this.runLanes();
 
         let backlog;
         if (this.loadBacklogAfter) {
@@ -400,6 +447,17 @@ export class WakeMonitor {
 
   keyFor(payload) {
     return payload.msgId;
+  }
+
+  /**
+   * Which payloads must never run together. A Codex peer pinned to one static thread
+   * takes one turn at a time whatever the conversation; everything else is serialised
+   * per (peer, conversation), which is also how #108 scopes Codex threads.
+   */
+  laneKeyFor(payload) {
+    const peer = this.peerFor(payload);
+    if (peer.mode === "codex_app_server" && peer.threadId) return `peer:${payload.from}`;
+    return `conv:${payload.from}|${payload.conversationId ?? ""}`;
   }
 
   peerFor(payload) {

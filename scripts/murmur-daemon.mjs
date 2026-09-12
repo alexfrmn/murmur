@@ -149,7 +149,8 @@ const channelRosterStore = channelRosterEnabled ? new ChannelRosterStore(channel
 const threadStartBindingResolver = channelRosterStore
   ? createChannelThreadStartBindingResolver({ rosterStore: channelRosterStore, agentId, log })
   : null;
-const codexAppServerInjector = createCodexAppServerInjector({ log, resolveThreadStartBinding: threadStartBindingResolver });
+// #108 — Codex threads are remembered per (peer, conversation) in the message store.
+const codexAppServerInjector = createCodexAppServerInjector({ log, resolveThreadStartBinding: threadStartBindingResolver, threadStore: msgStore });
 if (channelRosterEnabled) log("info", "Channel roster thread-start binding enabled", { channelRosterPath });
 const broker = new NatsBroker({
   url: natsUrl,

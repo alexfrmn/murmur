@@ -46,6 +46,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for a reply that was never sent.
   Rows written before this release keep NULL delivery and wake state: they are outside the
   queue and are not replayed on upgrade. 27 new tests, each seen red first.
+- **A failed or interrupted Codex turn was treated as a success** (#106). `turn/completed`
+  carries `turn.status` and `turn.error`; neither was read. The client now surfaces both,
+  a `failed` turn fails the wake (`codex-app-server-turn-failed:<turnId>:<error>`, retried
+  under the same delivery id) and an `interrupted` turn fails it without retry. Together
+  with the empty-final check above this closes the false "wake final relayed".
+- **One long Codex turn stalled every other inbound message** (#107; measured by
+  @alexanderyswork: a short question waited 90 s behind a long turn). `WakeMonitor.drain`
+  now runs lanes — one per (peer, conversation), or per peer when the Codex peer is pinned
+  to a static `threadId` — up to `wake.concurrency` at once (default 4). Order inside a
+  lane is unchanged; `concurrency: 1` restores the sequential behaviour.
+- **`threadId` lived only in process memory and was scoped per peer** (#108). Seeded
+  threads are now keyed by (peer, conversation) and persisted in `wake_threads`, so a
+  restart resumes the same Codex thread and conversations from one sender stop sharing
+  context. A static `peer.threadId` stays an explicit pin; a thread re-seeded to replace
+  a stale pin remembers which pin it replaced, so a new pin in config takes over.
 
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
