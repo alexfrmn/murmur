@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Opt-in Codex Desktop exact-task delivery** — MCP sends from a Codex task default to `codex:task:<thread-id>`, and a macOS receive hook can use the shared local `codex queue` command to deliver only to that exact non-archived Desktop task. Missing, archived, legacy, and unaddressed targets remain inbox-only; synchronous `murmur_request` replies use a private expiring marker to avoid duplicate queue injection. This local task affinity complements, rather than replaces, Phase N channel/member identity.
+
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
