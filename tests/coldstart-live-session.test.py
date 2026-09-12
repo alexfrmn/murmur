@@ -124,6 +124,9 @@ def test_process_batch_skips_when_live(monkeypatch=None):
     with tempfile.TemporaryDirectory() as tmp:
         db = os.path.join(tmp, "murmur.db")
         conn = watch.connect_rw(db)
+        conn.execute(
+            "CREATE TABLE local_messages (id TEXT PRIMARY KEY, conversation_id TEXT, msg_id TEXT, direction TEXT, sender TEXT, text TEXT, created_at TEXT, transport TEXT)"
+        )
         watch.ensure_processed_table(conn)
         conn.commit()
         conn.close()
