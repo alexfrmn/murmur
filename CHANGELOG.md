@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase N structured member routing** — optional signed `channelId`, `senderMemberId`,
+  and `addresseeMemberId` fields now flow through the envelope, MCP send/request tools,
+  durable inbox, daemon roster policy, receive-hook environment, and shell sender. Legacy
+  fieldless envelopes remain byte-identical. `murmur_request` can distinguish replies from
+  multiple members sharing one transport agent. The receive-time wake decision is persisted
+  so observer-muted history cannot wake through delayed backlog processing, and configured
+  proxy subjects apply the same structured member-addressing decision.
 - **Opt-in Codex Desktop exact-task delivery** — MCP sends from a Codex task default to `codex:task:<thread-id>`, and a macOS receive hook can use the shared local `codex queue` command to deliver only to that exact non-archived Desktop task. Missing, archived, legacy, and unaddressed targets remain inbox-only; synchronous `murmur_request` replies use a private expiring marker to avoid duplicate queue injection. This local task affinity complements, rather than replaces, Phase N channel/member identity.
 
 ### Pending

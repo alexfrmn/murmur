@@ -6,7 +6,7 @@
 // StreamStart/StreamChunk/StreamEnd (+ the discriminated StreamFrame union). No external validator
 // dep: a tiny subset validator interprets the flat protocol $defs
 // (type incl. boolean / required / const / enum / minLength / pattern / minItems / items /
-// exclusiveMinimum / oneOf).
+// exclusiveMinimum / dependentRequired / oneOf).
 // The only runtime-only check is `format: date-time` validity, which Draft 2020-12 treats as an
 // advisory annotation (not an assertion); the guards enforce it via Date.parse and it sits outside
 // the agreement matrices (documented per-type). Everything else — including ttlMs > 0 and non-empty
@@ -55,6 +55,13 @@ function validate(def, value, p = "$") {
       for (const req of def.required ?? []) if (!(req in value)) errs.push(`${p}.${req}: required`);
       for (const [k, sub] of Object.entries(def.properties ?? {})) {
         if (k in value) errs.push(...validate(sub, value[k], `${p}.${k}`));
+      }
+      for (const [trigger, dependencies] of Object.entries(def.dependentRequired ?? {})) {
+        if (trigger in value) {
+          for (const dependency of dependencies) {
+            if (!(dependency in value)) errs.push(`${p}.${dependency}: required by ${trigger}`);
+          }
+        }
       }
       // unknown properties are intentionally allowed (forward compatibility)
       break;
@@ -153,6 +160,26 @@ test("optional fields + forward-compatible unknown fields are accepted by both",
   const e = { ...GOOD, ttlSeconds: 60, traceId: "t", sequence: 3, parentMsgId: "p", authToken: "MURMUR-AUTH:abc", futureFieldV2: "x" };
   assert.equal(envelopeOk(e), true);
   assert.equal(isEnvelopeV1(e), true);
+});
+
+test("Phase N routing fields are optional as a group and schema/runtime reject partial identity", () => {
+  const routed = {
+    ...GOOD,
+    channelId: "channel-1",
+    senderMemberId: "member-a",
+    addresseeMemberId: "member-b",
+  };
+  assert.equal(envelopeOk(routed), true);
+  assert.equal(isEnvelopeV1(routed), true);
+  for (const partial of [
+    { ...GOOD, channelId: "channel-1" },
+    { ...GOOD, senderMemberId: "member-a" },
+    { ...GOOD, addresseeMemberId: "member-b" },
+    { ...GOOD, channelId: "channel-1", addresseeMemberId: "member-b" },
+  ]) {
+    assert.equal(envelopeOk(partial), false);
+    assert.equal(isEnvelopeV1(partial), false);
+  }
 });
 
 test("AckV1: required fields + status enum", () => {

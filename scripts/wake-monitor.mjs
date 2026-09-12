@@ -59,6 +59,9 @@ export const createShellHook = ({ command, timeoutMs = 10000, baseEnv = process.
       MURMUR_TEXT: payload.text,
       MURMUR_MSG_ID: payload.msgId,
       MURMUR_CONVERSATION_ID: payload.conversationId,
+      MURMUR_CHANNEL_ID: payload.channelId || "",
+      MURMUR_SENDER_MEMBER_ID: payload.senderMemberId || "",
+      MURMUR_ADDRESSEE_MEMBER_ID: payload.addresseeMemberId || "",
       ...(payload.env || {}),
     };
     execFile("sh", ["-c", command], { env, timeout: timeoutMs }, (err) => {
@@ -77,6 +80,9 @@ export const createAuditShellHook = ({ command, timeoutMs = 10000, baseEnv = pro
       MURMUR_TEXT: payload.text,
       MURMUR_MSG_ID: payload.msgId,
       MURMUR_CONVERSATION_ID: payload.conversationId,
+      MURMUR_CHANNEL_ID: payload.channelId || "",
+      MURMUR_SENDER_MEMBER_ID: payload.senderMemberId || "",
+      MURMUR_ADDRESSEE_MEMBER_ID: payload.addresseeMemberId || "",
       ...(payload.env || {}),
     };
     execFile("sh", ["-c", command], { env, timeout: timeoutMs }, (err, stdout) => {
@@ -155,6 +161,18 @@ export class WakeMonitor {
   }
 
   async processPayload(payload) {
+    // `wakeEligible` is a local receive-time authorization decision persisted by
+    // the daemon. Check it at the shared effect boundary so delayed backlog rows
+    // cannot bypass the immediate channel-addressing gate. Missing means legacy.
+    if (payload.wakeEligible === false) {
+      this.advanceCursor(payload);
+      this.log("info", "WakeMonitor policy mute", {
+        msgId: payload.msgId,
+        conversationId: payload.conversationId,
+        reason: "receive-time-ineligible",
+      });
+      return;
+    }
     const key = this.keyFor(payload);
     const now = this.now();
     this.pruneSeen(now);
