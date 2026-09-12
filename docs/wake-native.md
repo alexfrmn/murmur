@@ -76,6 +76,51 @@ A fault — no store, an unreadable store, no `node:sqlite` — prints one line 
 and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
 silently is the failure this port exists to remove, so it does neither.
 
+### Cold start: what arrived while nothing was listening
+
+The cursor is per session. That is what makes a message wake every live session
+instead of only the first one to reach the hook — but it also means a brand-new
+session has no cursor and seeds its baseline at the current tip. Anything that
+landed while no session was alive is then skipped by every session that follows.
+
+`--session` closes that gap. It reads a **shared** anchor
+(`MURMUR_WAKE_ANCHOR`, default `~/.murmur-wake-anchor`) that records how far the
+contour as a whole has been drained, reports what came in past it, and moves the
+anchor forward. Register it on `SessionStart`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node --no-warnings /path/to/scripts/wake-drain-claude.mjs --session" }] }]
+  }
+}
+```
+
+It writes to **stdout** and exits `0`, because a `SessionStart` hook feeds its
+stdout to the session as context — there, exit `2` means "block", not "wake".
+With no anchor on disk (fresh install, or an upgrade from a build without one)
+it adopts the tip and stays quiet rather than replaying the whole store. Output
+is capped at `MURMUR_WAKE_SESSION_MAX` messages (default 20); anything older is
+counted, not printed. The anchor only ever moves forward, so a stale writer
+cannot make a delivered message look undelivered.
+
+Only the node port has this mode; `wake-drain-claude.sh` still has `poll` and
+`--once` only.
+
+### A new lane is deaf until its first turn
+
+The poller is started by the `Stop` hook, and `Stop` fires at the end of a turn.
+A session that has just started has not taken one, so the poller is not running
+and inbound messages do not wake it — even though `SessionStart --session` ran
+and seeded the anchor, which makes the wake path look fully wired (#130). For an
+autonomous install this is the normal state after every reboot or watchdog
+restart, not an edge case.
+
+Give the lane one priming turn after launch: the watchdog sends a harmless
+prompt right after starting the session, purely to produce a first `Stop`. In
+tmux, send the text and `Enter` as two separate `send-keys` calls — in one call
+the prompt is typed but never submitted.
+
 ## Codex CLI - App-Server WS-over-UDS
 
 Codex is woken over the `codex app-server` WebSocket protocol on a Unix-domain

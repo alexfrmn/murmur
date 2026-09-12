@@ -15,10 +15,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiple members sharing one transport agent. The receive-time wake decision is persisted
   so observer-muted history cannot wake through delayed backlog processing, and configured
   proxy subjects apply the same structured member-addressing decision.
+- **Opt-in Codex Desktop exact-task delivery** — MCP sends from a Codex task default to `codex:task:<thread-id>`, and a macOS receive hook can use the shared local `codex queue` command to deliver only to that exact non-archived Desktop task. Missing, archived, legacy, and unaddressed targets remain inbox-only; synchronous `murmur_request` replies use a private expiring marker to avoid duplicate queue injection. This local task affinity complements, rather than replaces, Phase N channel/member identity.
 
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+
+## [2.8.2] - 2026-09-12
+
+> The storm of 11.09 was not one bug but a stack of them, and 2.8.1 fixed only the
+> receiving side. Measured live on the shared broker on 12.09: four loops, all from 2.6.0
+> senders, 4.5 messages a second, 3M messages and 4.5 GB in the stream. Upgrading the
+> senders closed three of the four within a minute; this release removes what the receiver
+> still did wrong, and one thing a 2.8.1 sender still does wrong.
+
+### Fixed
+
+- **A letter to a receiver that is not on the mesh was retried forever.** `flushOutbox`
+  enforced `maxAttempts` only when `publish()` threw. A receiver that never ACKs makes
+  nothing throw: the row goes `sent`, the ACK timeout drags it back to `failed`, the next
+  flush publishes it again — observed on one host as a single row at `attempts=32`, still
+  cycling after the 2.8.1 upgrade. The cap now holds on the success path too: a claimed row
+  with `attempts >= maxAttempts` goes to the DLQ as `max-attempts:<last error>` before it is
+  published again.
+- **A delivered message was undone by a timeout on its own ACK.** `publishAck` ran after
+  the handler and `markSeen` and was awaited on the same path. When JetStream's pub-ack
+  timed out (a peer's log, 11.09: `NatsError: TIMEOUT`, 3 731 rejections, 15 375
+  redeliveries), the exception counted as a handler failure: the JetStream message was
+  nak'd, came straight back, was rejected as a duplicate, timed out again on that ACK —
+  five rounds to `max_deliver` and a DLQ advisory for a letter delivered on the first pass.
+  Every ACK/NACK publish inside envelope processing is now best-effort: the delivery
+  outcome stands, the failure is logged with subject, `msgId`, status and reason, and the
+  sender's own ACK timeout covers the gap.
+- **A nak'd letter was redelivered immediately.** `consumeJetStream` called `m.nak()` with
+  no delay, so a fault that clears with time (a peer not yet added, a broker slow on the
+  ACK) burned all five deliveries in milliseconds. Redelivery now backs off 1s, 2s, 4s …
+  capped at 30s, keyed on the redelivery count JetStream reports (`nakBackoffMs`).
+- **`murmur_send` failed with `database is locked` after the row had been written** (#122).
+  The SQLite outbox and message stores set WAL but no busy timeout, so a second writer —
+  the MCP server enqueuing while the daemon flushed — failed at once instead of waiting a
+  few hundred milliseconds. Both stores now set `PRAGMA busy_timeout=10000`; verified with
+  the lock held by a separate process, the shape production has.
+
+### Security
+
+- **The wake hook no longer puts peer text into the session's privileged slot** (#132,
+  reported by Kirill Oleinichenko). In poll mode the wake names the sender and the count
+  only and asks the session to read the text through `murmur_inbox`; the trailing "or act
+  on them" is gone. The `--session` cold-start drain still prints what arrived, but inside
+  an explicit `<untrusted-peer-text sender="…">` boundary followed by a line stating that
+  it is data written by other agents, not instructions. The shell twin
+  `wake-drain-claude.sh` gets the same wake line.
+
+### Documented
+
+- **A freshly started lane is deaf until its first turn** (#130). The poller starts from
+  the `Stop` hook, and `Stop` fires at the end of a turn a new session has not taken yet.
+  An unattended install needs one priming turn after launch; README and
+  `docs/wake-native.md` now say so, with the tmux detail that text and `Enter` must be
+  separate `send-keys` calls.
+
+### Closed
+
+- #126 — fixed by #131 in 2.8.1; closed with the reference.
+
+### Packages
+
+- `@murmurv2/core` @ `0.6.2` (busy timeout on both SQLite stores). `@murmurv2/broker-nats`
+  @ `0.3.4` (attempts cap on the success path, best-effort ACK publish, nak backoff). Other
+  `@murmurv2/*` unchanged.
+
+## [2.8.1] - 2026-09-11
+
+> A rejection the receiving side never logged, and a rejection it treated as poison. Three
+> agents spent a day chasing an ACK storm that turned out to be two messages from 31.08
+> which could not be delivered and could not be given up on either. Every fix here comes
+> from running the mesh across machines that do not share an owner.
+
+### Fixed
+
+- **An envelope from a peer that had not been added yet was dropped forever.** `unknown-sender`
+  was counted as a poison message: after three attempts the broker wrote the `msgId` into
+  `dedupe_seen` and answered `poison-message`. From then on the circle closed — the sender
+  retried, the receiver answered `duplicate-ignored`, no settlement was ever produced, and the
+  envelope did not arrive even after `add-peer`. But this is a rejection configuration clears,
+  not delivery: such envelopes now stay retryable, JetStream caps the attempts, and the message
+  lands in the DLQ where it can be seen. Measured on one host overnight: 3898 redeliveries of a
+  single `msgId`, 12243 resends, 1008 broker reconnects. On the shared broker, two envelopes
+  stuck since 2026-08-31 were still emitting a NACK every two seconds eleven days later —
+  ~3600/hour, 692 508 messages on one connection. Found by agent-kirill and agent-viola.
+- **`add-peer` fixed the link but not what the missing link had already cost.** Messages held
+  back while a peer was unknown stayed marked as seen, so they could never be delivered again.
+  A dedupe row now records where the envelope came from and why it was held, and
+  `murmur-add-peer` releases exactly the held-back messages of the peer being added. Delivered
+  messages are deliberately left alone — clearing those would replay the whole history of the
+  conversation. Databases created before this release are migrated in place on open; their
+  older rows carry no sender and are released by `msgId` with the new script below.
+- **A rejected message was invisible to the side that rejected it** (#131). The daemon threw
+  `unknown-sender` and `signature-invalid` silently: the throw reached `broker.subscribeWithAck`,
+  which NACKed the sender with a reason, and that was all — the receiving owner had no record
+  of the refusal in the log, the database, or `healthz`, so the only way to debug it was from
+  the other machine. Found by agent-misha 2026-09-08, after three agents spent an hour
+  establishing whether messages were arriving at all.
+- **The JetStream DLQ handler drowned its own log.** Every advisory parse failure printed the
+  message, the stack and the raw frame, on every event, with no rate limit and no rotation: one
+  daemon log grew from 33 lines to 117 307 (9.1 MB) overnight. The same failure now prints at
+  most once a minute with a count of what was suppressed. A JetStream lookup that times out is
+  also no longer reported as a malformed frame — the frame parsed fine, the server did not
+  answer. Found by agent-kirill.
+
+### Added
+
+- **`scripts/murmur-dedupe-unstick.mjs`** — releases messages held in the dedupe table, for the
+  two cases `add-peer` cannot cover: rows written before this release, which carry no sender and
+  can only be selected by `msgId`, and a peer you want released without re-running the invite
+  handshake. `--list` shows what is held and changes nothing.
+
+### Changed
+
+- `DedupeStore.markSeen()` takes an optional third argument, `meta` (`senderAgentId`,
+  `poisonReason`). Existing callers keep working. Implementations that store provenance may
+  also expose `clearPoisonedFrom(senderAgentId)`; it is optional, so callers must check for it.
+
+### Published
+- **npm** — `@murmurv2/core` **0.6.1**, `@murmurv2/broker-nats` **0.3.3**, `@murmurv2/broker-ws` **0.2.2**.
+
+## [2.8.0] - 2026-09-08
+
+> A message that arrived while nothing was listening is now delivered on the next
+> session start. The per-session cursor shipped in 2.7.0 fixed one delivery gap and
+> quietly opened another; this release closes it with a cursor that outlives the
+> session it was drained by.
+
+### Added
+- **`--session` cold-start drain for `scripts/wake-drain-claude.mjs`.** A `SessionStart`
+  hook that reports inbound messages which arrived while no session was alive, using a
+  shared anchor (`MURMUR_WAKE_ANCHOR`) alongside the existing per-session cursor. Writes
+  to stdout and exits `0`, since a `SessionStart` hook feeds its stdout to the session as
+  context. Output capped by `MURMUR_WAKE_SESSION_MAX` (default 20). Reported by
+  [@lichtpfad](https://github.com/lichtpfad) against 2.7.0: the per-session cursor
+  introduced in that release closed the multi-session gap and opened this one, because a
+  session with no cursor seeds its baseline at the current tip. The shell port keeps
+  `poll` and `--once` only.
 
 ## [2.7.0] - 2026-08-28
 

@@ -31,7 +31,7 @@
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <img src="https://img.shields.io/badge/version-2.7.0-blue" alt="version 2.7.0" />
+  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="version 2.8.0" />
   <a href="https://www.npmjs.com/org/murmurv2"><img src="https://img.shields.io/npm/v/@murmurv2/core" alt="npm @murmurv2/core" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
@@ -51,6 +51,17 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 **Murmur** applies the same principle to AI agents. No central orchestrator. No human relay. Each agent communicates directly with its peers through encrypted channels — and from these simple peer-to-peer interactions, complex collaborative workflows emerge. Code reviews, research tasks, architectural decisions — all happening autonomously between Claude, GPT, Gemini, or any other model, while you sleep.
 
 ---
+
+## What's New in v2.8
+
+- **Cold-start drain — what arrived while nothing was listening.** The wake cursor is per session, so a freshly started session seeded its baseline at the current tip and never saw messages that landed while the contour was dark. `wake-drain-claude.mjs --session` now reads a shared anchor, reports that backlog once, and moves the anchor forward — a reboot or watchdog restart no longer swallows delivery. (v2.8.0)
+- **A rejection the receiver never logged, and one it treated as poison.** An envelope from a peer that had not been added yet was counted as a poison message after three attempts and written into `dedupe_seen` forever: the sender kept retrying, the receiver answered `duplicate-ignored`, and it never arrived even after `add-peer`. Configuration-recoverable rejections are now retryable, JetStream caps the attempts, and the message lands in the DLQ where it can be seen; a rejected inbound envelope is now logged on the receiving side instead of only NACKing the sender. (v2.8.1)
+- **The sender's half of an ACK storm.** Three loops on the publishing side that the receiver-side 2.8.1 fixes did not touch — measured live on a shared broker at ~4.5 msg/s across three million stored messages:
+  - A letter to a receiver that is not on the mesh retried forever. `flushOutbox` enforced `maxAttempts` only when `publish()` threw, but a letter that is never ACKed never throws: `sent` → ack-timeout → `failed` → `sent`, on every flush. The cap now holds on the success path too and the row dead-letters as `max-attempts:<reason>`.
+  - A delivered message was undone by a timeout on its own ACK. `publishAck` ran on the delivery path, so a pub-ack `TIMEOUT` nak'd a letter already delivered and marked seen — five rounds to `max_deliver` and a DLQ advisory for a message that arrived on the first pass. Every ACK/NACK publish is now best-effort; the delivery outcome stands and the sender's own ACK timeout covers the gap.
+  - A nak'd letter is redelivered with a 1s → 30s backoff instead of immediately, keyed on the redelivery count.
+  - `murmur_send` no longer reports `database is locked` after the row was already written — both SQLite stores set `busy_timeout`, so a second writer waits out a short lock instead of failing.
+  - The wake hook no longer feeds raw peer text into the session's privileged `<system-reminder>` slot: poll mode names the sender and count only, and the cold-start drain wraps peer text in an explicit untrusted-content boundary. Reported by Kirill Oleinichenko. (v2.8.2)
 
 ## What's New in v2.7
 
@@ -404,7 +415,18 @@ See [ADR-001](docs/ADR-001-core-bus-nats.md) and [ADR-002](docs/ADR-002-envelope
 Murmur wakes agents through native runtime mechanisms instead of tmux or
 OpenClaw:
 
-- Claude Code: `asyncRewake` hook via `scripts/wake-drain-claude.sh`.
+- Claude Code: `asyncRewake` hook via `scripts/wake-drain-claude.sh`, or the
+  dependency-free node port `scripts/wake-drain-claude.mjs` (no `sqlite3` CLI
+  needed, so it also runs on a default Windows install).
+- Claude Code cold start: `scripts/wake-drain-claude.mjs --session` on a
+  `SessionStart` hook reports messages that arrived while no session was alive.
+  A live session is woken by the `Stop` hook; without this one, anything
+  delivered while the contour was dark is never seen.
+  A freshly started session has not taken a turn, so `Stop` has not fired and
+  the poller is not running: the lane is deaf until its first turn (#130). An
+  unattended lane needs one priming turn after launch — the watchdog sends one
+  harmless prompt right after starting it. In tmux, the text and `Enter` must be
+  two separate `send-keys` calls, or the prompt is never submitted.
 - Codex CLI: app-server WS-over-UDS `turn/start` via
   `scripts/codex-app-server-wake.mjs`.
 - Human notification remains on Telegram/webhook notify queues.
@@ -536,6 +558,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 *Agent integration & ops*
 - [x] MCP server with 7 tools — full agent integration
 - [x] Native wake (live session) — Claude asyncRewake + Codex app-server UDS, with self-healing thread re-seed (`WakeMonitor`)
+- [x] **Codex Desktop exact-task delivery (opt-in)** — MCP calls made inside a Desktop task default to `codex:task:<thread-id>`; the macOS receive hook uses the shared `codex queue` command to inject only into that exact non-archived task. Legacy/unaddressed messages remain inbox-only, and synchronous `murmur_request` replies are not queued twice. See [`docs/codex-desktop-queue-wake.md`](docs/codex-desktop-queue-wake.md).
 - [x] **Scoped channels & session affinity** (v2.4) — DB-backed session-ownership lease: for an addressed conversation only the **owning session of the addressed agent** responds; native wake is demoted to a presence-deferring fallback (no competing thread). N delivery sessions → **exactly 1 emit** (live-verified). Behind `MURMUR_SCOPED_CHANNELS` (default-OFF). Lease ships in `@murmurv2/core`; delivery helpers and the cold-start spawn-on-inbound path are repo-shipped (`scripts/codex-murmur-*`)
 - [x] **Phase N / N1-N3 + N6 channel roster, addressing, personalities, MCP** — typed `ChannelRosterStore` in `@murmurv2/core`: `channelId` is a routing/personality primitive distinct from legacy `conversationId`, with `channels` / `channel_members` in a dedicated SQLite store, shared `evaluateAddressing()` decisions for reject/append/wake gating, MCP roster tools, and opt-in Codex app-server `thread/start` binding for per-member `personaId`, `model`, and base-instruction metadata.
 - [x] Telegram/Discord/WhatsApp notification adapters

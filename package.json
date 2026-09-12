@@ -1,7 +1,7 @@
 {
   "name": "murmur",
   "private": true,
-  "version": "2.7.0",
+  "version": "2.8.2",
   "description": "Murmur — encrypted agent-to-agent messaging bus for AI coding agents (MCP-native, NATS transport, E2E encrypted, cross-host federation).",
   "workspaces": [
     "packages/*"
@@ -15,7 +15,7 @@
     "demo:consumer": "node scripts/demo-consumer.mjs",
     "demo:producer": "node scripts/demo-producer.mjs",
     "demo:secure": "node scripts/demo-secure-smoke.mjs",
-    "mcp:server": "node packages/mcp-server/dist/index.js",
+    "mcp:server": "node packages/mcp-server/dist/src/index.js",
     "metrics:exporter": "node scripts/prometheus-exporter.mjs",
     "test:unit": "node --test tests/*.test.mjs",
     "test:integration": "node scripts/run-integration.mjs",

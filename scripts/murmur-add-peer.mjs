@@ -6,7 +6,9 @@
  * Usage: node scripts/murmur-add-peer.mjs MURMUR-REPLY:eyJ...
  * Env: DATA_DIR (default: .data)
  */
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { SQLiteDedupeOutboxStore } from "@murmurv2/core";
 import { readPrivateJson, writePrivateJson } from "./secure-state.mjs";
 
 const blob = process.argv[2];
@@ -50,6 +52,25 @@ config.peers[reply.agentId] = {
 await writePrivateJson(configPath, config);
 
 console.log(`[add-peer] Added: ${reply.agentId} (${reply.subject})`);
+
+// Письма, отбитые пока этого пира не было в конфиге, лежат в dedupe как отравленные и
+// сами оттуда не выйдут: каждая следующая доставка отбивается как duplicate-ignored.
+// Причина только что снята — снимаем и отметку, иначе add-peer чинит связь на будущее,
+// а всё пришедшее до него остаётся потерянным навсегда.
+const dbPath = path.join(dataDir, "murmur.db");
+if (existsSync(dbPath)) {
+  try {
+    const store = new SQLiteDedupeOutboxStore(dbPath);
+    const cleared = await store.clearPoisonedFrom(reply.agentId);
+    if (cleared > 0) {
+      console.log(`[add-peer] Unstuck ${cleared} message(s) held back while this peer was unknown.`);
+    }
+  } catch (err) {
+    // Не повод валить добавление пира: связь уже записана и работает.
+    console.warn(`[add-peer] Could not clear held-back messages: ${err?.message ?? err}`);
+  }
+}
+
 console.log("");
 console.log("Connection complete! Restart your daemon if running:");
 console.log("  sudo systemctl restart murmur-daemon");

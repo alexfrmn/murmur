@@ -129,9 +129,31 @@ export const stableEnvelopePayload = (envelope: EnvelopeV1): string =>
     ...(envelope.authToken !== undefined ? { authToken: envelope.authToken } : {}),
   });
 
+/**
+ * Что известно о конверте в момент отметки.
+ *
+ * Хранится ради одной операции: `add-peer` обязан уметь снять отметку ровно с тех писем,
+ * которые не доехали из-за отсутствия этого пира, и не тронуть доставленные. Без
+ * отправителя в строке такая выборка невозможна — по одному `msgId` не видно, от кого он.
+ */
+export interface DedupeSeenMeta {
+  /** Отправитель конверта — по нему `add-peer` находит, что расшивать. */
+  senderAgentId?: string;
+  /** Заполнена, когда конверт отмечен как отравленный, а не как доставленный. */
+  poisonReason?: string;
+}
+
 export interface DedupeStore {
   seen(msgId: string, consumerId: string): Promise<boolean>;
-  markSeen(msgId: string, consumerId: string): Promise<void>;
+  markSeen(msgId: string, consumerId: string, meta?: DedupeSeenMeta): Promise<void>;
+  /**
+   * Снять отметку с ОТРАВЛЕННЫХ конвертов указанного отправителя; возвращает число снятых.
+   *
+   * Доставленные не трогает намеренно: иначе после `add-peer` заново приедет вся история
+   * переписки с этим пиром. Метод необязателен — реализация, не хранящая отправителя,
+   * его не объявляет, и вызывающий обязан это проверить.
+   */
+  clearPoisonedFrom?(senderAgentId: string): Promise<number>;
 }
 
 /**
@@ -170,11 +192,11 @@ export class InMemoryAckReceiptStore implements AckReceiptStore {
 }
 
 export class InMemoryDedupeStore implements DedupeStore {
-  private readonly keys: Map<string, true>;
+  private readonly keys: Map<string, DedupeSeenMeta>;
   private readonly maxSize: number;
 
   constructor(maxSize = 10_000) {
-    this.keys = new Map<string, true>();
+    this.keys = new Map<string, DedupeSeenMeta>();
     this.maxSize = Math.max(1, Math.floor(maxSize));
   }
 
@@ -182,9 +204,20 @@ export class InMemoryDedupeStore implements DedupeStore {
     return this.keys.has(`${consumerId}:${msgId}`);
   }
 
-  async markSeen(msgId: string, consumerId: string): Promise<void> {
-    this.keys.set(`${consumerId}:${msgId}`, true);
+  async markSeen(msgId: string, consumerId: string, meta: DedupeSeenMeta = {}): Promise<void> {
+    this.keys.set(`${consumerId}:${msgId}`, meta);
     this.evictIfNeeded();
+  }
+
+  async clearPoisonedFrom(senderAgentId: string): Promise<number> {
+    let cleared = 0;
+    for (const [key, meta] of this.keys) {
+      if (meta.senderAgentId === senderAgentId && meta.poisonReason) {
+        this.keys.delete(key);
+        cleared += 1;
+      }
+    }
+    return cleared;
   }
 
   private evictIfNeeded(): void {
@@ -503,6 +536,28 @@ const secureSqliteFiles = (filePath: string): void => {
   }
 };
 
+/**
+ * Отказы, которые чинит настройка, а не переотправка.
+ *
+ * Письмо от ещё не добавленного пира расшифровать нельзя, но это временное состояние:
+ * `add-peer` его исправит. Если считать такой отказ отравленным письмом, конверт после
+ * трёх попыток уходит в `dedupe_seen` НАВСЕГДА — и уже не доедет даже после добавления
+ * пира, потому что каждый следующий ретрай отбивается как `duplicate-ignored`.
+ *
+ * Отправитель при этом продолжает ретраить, получатель продолжает отбивать: за ночь на
+ * машине agent-kirill это дало 3898 повторных доставок одного msgId, 12243 переотправки
+ * и 1008 реконнектов к брокеру (найдено 2026-09-11). Наши собственные два застрявших
+ * msgId лежат в dedupe_seen с 31.08 и штормят ACK по сей день.
+ *
+ * Такие отказы обязаны оставаться retryable: JetStream ограничит число доставок сам и
+ * положит конверт в DLQ, откуда он виден и восстановим.
+ */
+export const RECOVERABLE_REJECTION_PREFIXES = ["unknown-sender:"] as const;
+
+export function isRecoverableRejection(reason: string): boolean {
+  return RECOVERABLE_REJECTION_PREFIXES.some((p) => reason.startsWith(p));
+}
+
 export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckReceiptStore {
   private readonly db: DatabaseSync;
 
@@ -511,10 +566,13 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       PRAGMA journal_mode=WAL;
+      PRAGMA busy_timeout=10000;
       CREATE TABLE IF NOT EXISTS dedupe_seen (
         consumer_id TEXT NOT NULL,
         msg_id TEXT NOT NULL,
         seen_at TEXT NOT NULL,
+        sender_agent_id TEXT,
+        poison_reason TEXT,
         PRIMARY KEY (consumer_id, msg_id)
       );
       CREATE TABLE IF NOT EXISTS ack_receipts (
@@ -537,7 +595,27 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
       );
       CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox(status, next_attempt_at);
     `);
+    this.migrateDedupeSeenColumns();
     secureSqliteFiles(dbPath);
+  }
+
+  /**
+   * Дописать колонки происхождения в уже существующую `dedupe_seen`.
+   *
+   * `CREATE TABLE IF NOT EXISTS` на живой базе не делает ничего, поэтому у всех установок,
+   * созданных до 2.8.1, таблица остаётся трёхколоночной. У строк, записанных тогда,
+   * отправитель неизвестен навсегда — `add-peer` их не расшьёт, для них есть
+   * `clearPoisonedMsgIds`.
+   */
+  private migrateDedupeSeenColumns(): void {
+    const columns = this.db.prepare("PRAGMA table_info(dedupe_seen)").all() as Array<{ name: string }>;
+    const present = new Set(columns.map((c) => c.name));
+    for (const [name, ddl] of [
+      ["sender_agent_id", "ALTER TABLE dedupe_seen ADD COLUMN sender_agent_id TEXT"],
+      ["poison_reason", "ALTER TABLE dedupe_seen ADD COLUMN poison_reason TEXT"],
+    ] as const) {
+      if (!present.has(name)) this.db.exec(ddl);
+    }
   }
 
   async seen(msgId: string, consumerId: string): Promise<boolean> {
@@ -547,12 +625,46 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
     return !!row;
   }
 
-  async markSeen(msgId: string, consumerId: string): Promise<void> {
+  async markSeen(msgId: string, consumerId: string, meta: DedupeSeenMeta = {}): Promise<void> {
     this.db
       .prepare(
-        "INSERT OR IGNORE INTO dedupe_seen (consumer_id, msg_id, seen_at) VALUES (?, ?, ?)",
+        `INSERT OR IGNORE INTO dedupe_seen
+        (consumer_id, msg_id, seen_at, sender_agent_id, poison_reason) VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(consumerId, msgId, new Date().toISOString());
+      .run(
+        consumerId,
+        msgId,
+        new Date().toISOString(),
+        meta.senderAgentId ?? null,
+        meta.poisonReason ?? null,
+      );
+  }
+
+  /**
+   * Расшить письма, застрявшие из-за того, что отправителя не было в пирах.
+   *
+   * Вызывается из `murmur-add-peer`: пир добавлен, значит причина отказа снята, и конверт
+   * обязан получить ещё один шанс. Удаляются только строки с непустым `poison_reason` —
+   * доставленные остаются, иначе повторно приедет вся переписка с этим пиром.
+   */
+  async clearPoisonedFrom(senderAgentId: string): Promise<number> {
+    const result = this.db
+      .prepare("DELETE FROM dedupe_seen WHERE sender_agent_id = ? AND poison_reason IS NOT NULL")
+      .run(senderAgentId);
+    return Number(result.changes ?? 0);
+  }
+
+  /**
+   * Ручной путь для строк, записанных до 2.8.1: отправитель в них не сохранён, поэтому
+   * снять отметку можно только по явно названным `msgId`. Ровно этим расшиваются два
+   * конверта, лежащие в боевых базах с 31.08.2026.
+   */
+  async clearPoisonedMsgIds(msgIds: readonly string[]): Promise<number> {
+    if (msgIds.length === 0) return 0;
+    const stmt = this.db.prepare("DELETE FROM dedupe_seen WHERE msg_id = ?");
+    let cleared = 0;
+    for (const msgId of msgIds) cleared += Number(stmt.run(msgId).changes ?? 0);
+    return cleared;
   }
 
   /**
@@ -1460,6 +1572,7 @@ export class SQLiteStreamReassembler {
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       PRAGMA journal_mode=WAL;
+      PRAGMA busy_timeout=10000;
       CREATE TABLE IF NOT EXISTS stream_reassembly_meta (
         stream_id TEXT PRIMARY KEY,
         chunk_count INTEGER NOT NULL,

@@ -9,6 +9,7 @@ import {
   type EnvelopeV1,
   envelopeDigest,
   isEnvelopeV1,
+  isRecoverableRejection,
   isSignedAckV1,
   type OutboxStore,
   type SecurityPolicy,
@@ -343,17 +344,28 @@ export class WebSocketBroker {
 
     try {
       await params.onMessage(envelope);
-      await params.dedupe.markSeen(envelope.msgId, params.consumerId);
+      await params.dedupe.markSeen(envelope.msgId, params.consumerId, {
+        senderAgentId: envelope.senderAgentId,
+      });
       this.failedDeliveries.delete(`${params.consumerId}:${envelope.msgId}`);
       await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "ack"));
     } catch (err) {
       const reason = err instanceof Error ? err.message : "handler-failed";
       const maxPoisonAttempts = params.maxPoisonAttempts ?? 3;
       const key = `${params.consumerId}:${envelope.msgId}`;
+      // Симметрично NATS-брокеру: «нет пира» — состояние настройки, а не отравленное письмо.
+      if (isRecoverableRejection(reason)) {
+        await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", reason));
+        return;
+      }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
       this.failedDeliveries.set(key, failures);
       if (failures >= maxPoisonAttempts) {
-        await params.dedupe.markSeen(envelope.msgId, params.consumerId);
+        // Симметрично NATS-брокеру: отправитель заявленный, нужен только для `add-peer`.
+        await params.dedupe.markSeen(envelope.msgId, params.consumerId, {
+          senderAgentId: envelope.senderAgentId,
+          poisonReason: reason,
+        });
         this.failedDeliveries.delete(key);
         await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", `poison-message:${reason}`));
         return;

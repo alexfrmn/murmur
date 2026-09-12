@@ -266,11 +266,35 @@ const onMessage = async (envelope) => {
   const senderId = envelope.senderAgentId;
   const peer = peers[senderId];
 
-  if (!peer) throw new Error(`unknown-sender:${senderId}`);
+  if (!peer) {
+    // Отказ обязан быть виден ПРИНИМАЮЩЕЙ стороне. Бросок уходит в
+    // broker.subscribeWithAck, тот шлёт отправителю nack с причиной — и на этом всё:
+    // у владельца машины отвергнутого сообщения нет нигде, ни в логе, ни в базе.
+    // Найдено agent-misha 2026-09-08: три агента час выясняли, доходит ли сообщение,
+    // потому что принимающая сторона своих отказов не видела.
+    log("warn", "Message rejected", {
+      reason: "unknown-sender",
+      senderId,
+      msgId: envelope.msgId,
+      conversationId: envelope.conversationId,
+    });
+    throw new Error(`unknown-sender:${senderId}`);
+  }
 
   const sigPayload = stableEnvelopePayload(envelope);
   const valid = await verifyEnvelopeSignature(sigPayload, envelope.signature, peer.signing.publicKey);
-  if (!valid) throw new Error(`signature-invalid:${senderId}`);
+  if (!valid) {
+    // Важнее предыдущего: неизвестный отправитель — это чаще всего незаконченная
+    // настройка, а невалидная подпись при ИЗВЕСТНОМ пире означает либо рассинхрон
+    // ключей, либо попытку писать от чужого имени. Молча такое проходить не должно.
+    log("warn", "Message rejected", {
+      reason: "signature-invalid",
+      senderId,
+      msgId: envelope.msgId,
+      conversationId: envelope.conversationId,
+    });
+    throw new Error(`signature-invalid:${senderId}`);
+  }
 
   const plaintext = await decryptPayload(
     {

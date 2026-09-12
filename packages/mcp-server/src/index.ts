@@ -1,12 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   closeSync,
   constants,
   fstatSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readFileSync,
+  rmSync,
+  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -20,6 +23,7 @@ import {
 } from "@murmurv2/core";
 import { encryptPayload, signEnvelope } from "@murmurv2/security";
 import { NatsBroker, type BrokerSubscription } from "@murmurv2/broker-nats";
+import { codexTaskConversationId, defaultPeerConversationId } from "./codex-routing.js";
 import { buildReplyMatcher, waitForReply } from "./request-reply.js";
 
 interface JsonRpcRequest {
@@ -57,6 +61,99 @@ const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
 const dbPath = process.env.MURMUR_STORE_PATH ?? path.join(dataDir, "murmur.db");
 const channelRosterPath = process.env.MURMUR_CHANNEL_ROSTER_PATH ?? path.join(dataDir, "channel-roster.db");
+const requestWaitDir = path.resolve(dataDir, ".codex-request-waits");
+const taskBindingDir = path.resolve(dataDir, ".codex-task-bindings");
+
+const privateDigestPath = (directory: string, conversationId: string, peerId: string): string => {
+  const key = createHash("sha256").update(`${conversationId}\0${peerId}`).digest("hex");
+  return path.join(directory, `${key}.json`);
+};
+
+const requestWaitPath = (conversationId: string, peerId: string): string => {
+  return privateDigestPath(requestWaitDir, conversationId, peerId);
+};
+
+const armSynchronousReplySuppression = (conversationId: string, peerId: string, timeoutMs: number): string | null => {
+  try {
+    mkdirSync(requestWaitDir, { recursive: true, mode: 0o700 });
+    chmodSync(requestWaitDir, 0o700);
+    const markerPath = requestWaitPath(conversationId, peerId);
+    const marker = {
+      conversationId,
+      peerId,
+      pid: process.pid,
+      expiresAt: Date.now() + Math.max(1_000, timeoutMs) + 60_000,
+    };
+    const create = (): string => {
+      const fd = openSync(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+      try {
+        writeFileSync(fd, JSON.stringify(marker));
+      } finally {
+        closeSync(fd);
+      }
+      return markerPath;
+    };
+    try {
+      return create();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      let existingLive = true;
+      try {
+        const existing = JSON.parse(readFileSync(markerPath, "utf8")) as { pid?: number; expiresAt?: number };
+        existingLive = Number(existing.expiresAt) >= Date.now();
+        if (existingLive && Number.isSafeInteger(existing.pid) && Number(existing.pid) > 0) {
+          try { process.kill(Number(existing.pid), 0); } catch { existingLive = false; }
+        }
+      } catch {
+        existingLive = false;
+      }
+      if (existingLive) throw new Error("murmur-request-already-pending-for-peer-and-conversation");
+      rmSync(markerPath, { force: true });
+      return create();
+    }
+  } catch (error) {
+    if ((error as Error).message === "murmur-request-already-pending-for-peer-and-conversation") throw error;
+    // Suppression is only a convenience. Request/reply must still work if the
+    // marker cannot be written.
+    return null;
+  }
+};
+
+const shortenSynchronousReplySuppression = (markerPath: string | null, graceMs = 5_000): void => {
+  if (!markerPath) return;
+  try {
+    const marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(markerPath, JSON.stringify({ ...marker, expiresAt: Date.now() + graceMs }), { mode: 0o600 });
+    const timer = setTimeout(() => clearSynchronousReplySuppression(markerPath), graceMs);
+    timer.unref();
+  } catch {
+    // The receive hook may already have atomically claimed the marker.
+  }
+};
+
+const recordCodexTaskPeerBinding = (conversationId: string, peerId: string): void => {
+  const ownTaskConversationId = codexTaskConversationId(process.env.CODEX_THREAD_ID);
+  if (!ownTaskConversationId || conversationId !== ownTaskConversationId) return;
+  try {
+    mkdirSync(taskBindingDir, { recursive: true, mode: 0o700 });
+    chmodSync(taskBindingDir, 0o700);
+    const bindingPath = privateDigestPath(taskBindingDir, conversationId, peerId);
+    writeFileSync(bindingPath, JSON.stringify({ conversationId, peerId, createdAt: new Date().toISOString() }), { mode: 0o600 });
+    chmodSync(bindingPath, 0o600);
+  } catch {
+    // Binding is a local auto-delivery authorization. A write failure safely
+    // degrades replies to inbox-only delivery on the receiving hook.
+  }
+};
+
+const clearSynchronousReplySuppression = (markerPath: string | null): void => {
+  if (!markerPath) return;
+  try {
+    rmSync(markerPath, { force: true });
+  } catch {
+    // Best-effort cleanup; stale markers have an expiry and are ignored by the hook.
+  }
+};
 
 const readPrivateAgentConfig = (filePath: string): AgentConfig => {
   process.umask(0o077);
@@ -293,7 +390,11 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     const peer = agentConfig.peers[to];
     if (!peer) throw new Error(`unknown peer: ${to} — add to peers in agent-config.json`);
 
-    const conversationId = String(args.conversationId ?? `dm:${agentConfig.agentId}:${to}`);
+    const conversationId = String(args.conversationId ?? defaultPeerConversationId({
+      to,
+      agentId: agentConfig.agentId,
+      codexThreadId: process.env.CODEX_THREAD_ID,
+    }));
     const msgId = randomUUID();
     const routing = resolveRoutingMetadata(args, agentConfig, peer);
 
@@ -326,6 +427,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
 
     // Enqueue to outbox — daemon will flush to NATS
     await outbox.enqueue(peer.subject, envelope);
+    recordCodexTaskPeerBinding(conversationId, to);
 
     // Store outbound copy in message store
     await store.append({
@@ -369,7 +471,11 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
 
     const timeoutMs = Number(args.timeout_ms ?? 300_000);
     const pollMs = Number(args.poll_interval_ms ?? 10_000);
-    const conversationId = String(args.conversationId ?? `dm:${agentConfig.agentId}:${to}`);
+    const conversationId = String(args.conversationId ?? defaultPeerConversationId({
+      to,
+      agentId: agentConfig.agentId,
+      codexThreadId: process.env.CODEX_THREAD_ID,
+    }));
     const msgId = randomUUID();
     const sentAt = new Date().toISOString();
     const routing = resolveRoutingMetadata(args, agentConfig, peer);
@@ -402,19 +508,31 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     );
 
     // Enqueue to outbox
-    await outbox.enqueue(peer.subject, envelope);
+    const suppressionMarker = armSynchronousReplySuppression(conversationId, to, timeoutMs);
+    try {
+      await outbox.enqueue(peer.subject, envelope);
+      recordCodexTaskPeerBinding(conversationId, to);
+    } catch (error) {
+      clearSynchronousReplySuppression(suppressionMarker);
+      throw error;
+    }
 
     // Store outbound copy
-    await store.append({
-      conversationId,
-      msgId,
-      direction: "outbound",
-      sender: agentConfig.agentId,
-      text,
-      createdAt: sentAt,
-      transport: "nats",
-      ...routing,
-    });
+    try {
+      await store.append({
+        conversationId,
+        msgId,
+        direction: "outbound",
+        sender: agentConfig.agentId,
+        text,
+        createdAt: sentAt,
+        transport: "nats",
+        ...routing,
+      });
+    } catch (error) {
+      clearSynchronousReplySuppression(suppressionMarker);
+      throw error;
+    }
 
     // Wait for the reply. Store polling is the durable fallback and always runs;
     // an optional read-only NATS tap on our own subject accelerates the wait by
@@ -455,7 +573,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     try {
       reply = await waitForReply({
         checkStore: async () => {
-          const inbound = await store.getInboundAfter(conversationId, sentAt, 50);
+          const inbound = await store.getInboundAfter(conversationId, sentAt, 100);
           return inbound.find((row) =>
             row.sender === to &&
             (!routing.addresseeMemberId || row.senderMemberId === routing.addresseeMemberId)
@@ -466,6 +584,9 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
         deadline,
         onSignal,
       });
+    } catch (error) {
+      clearSynchronousReplySuppression(suppressionMarker);
+      throw error;
     } finally {
       if (tap.attach) await tap.attach;
       if (tap.sub) {
@@ -478,6 +599,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     }
 
     if (reply) {
+      shortenSynchronousReplySuppression(suppressionMarker);
       return {
         status: "received",
         msgId,
@@ -492,6 +614,8 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
         wokenBySignal,
       };
     }
+
+    clearSynchronousReplySuppression(suppressionMarker);
 
     return {
       status: "timeout",
@@ -638,7 +762,7 @@ const tools = [
       properties: {
         to: { type: "string", description: "Recipient agent ID (must be in peers config)" },
         text: { type: "string", description: "Message text (will be encrypted)" },
-        conversationId: { type: "string", description: "Optional conversation ID" },
+        conversationId: { type: "string", description: "Optional conversation ID. In Codex Desktop, omission automatically binds replies to the current task." },
         channelId: { type: "string", description: "Optional typed-channel ID; may default from peer config" },
         senderMemberId: { type: "string", description: "Optional sender member identity; may default from local config" },
         addresseeMemberId: { type: "string", description: "Optional target member identity; may default from peer config" },
@@ -655,7 +779,7 @@ const tools = [
       properties: {
         to: { type: "string", description: "Recipient agent ID (must be in peers config)" },
         text: { type: "string", description: "Message text (will be encrypted)" },
-        conversationId: { type: "string", description: "Optional conversation ID" },
+        conversationId: { type: "string", description: "Optional conversation ID. In Codex Desktop, omission automatically binds replies to the current task." },
         channelId: { type: "string", description: "Optional typed-channel ID; may default from peer config" },
         senderMemberId: { type: "string", description: "Optional sender member identity; may default from local config" },
         addresseeMemberId: { type: "string", description: "Optional target member identity; may default from peer config" },
