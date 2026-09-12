@@ -406,6 +406,11 @@ OpenClaw:
   `SessionStart` hook reports messages that arrived while no session was alive.
   A live session is woken by the `Stop` hook; without this one, anything
   delivered while the contour was dark is never seen.
+  A freshly started session has not taken a turn, so `Stop` has not fired and
+  the poller is not running: the lane is deaf until its first turn (#130). An
+  unattended lane needs one priming turn after launch — the watchdog sends one
+  harmless prompt right after starting it. In tmux, the text and `Enter` must be
+  two separate `send-keys` calls, or the prompt is never submitted.
 - Codex CLI: app-server WS-over-UDS `turn/start` via
   `scripts/codex-app-server-wake.mjs`.
 - Human notification remains on Telegram/webhook notify queues.

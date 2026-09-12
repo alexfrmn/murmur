@@ -86,8 +86,9 @@ test("Claude wake drain emits new inbound rows and advances the cursor", () => {
 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /Murmur wake: 2 new inbound message\(s\):/);
-  assert.match(result.stderr, /rowid=1 \[agent-jarvis\] first line/);
-  assert.match(result.stderr, /rowid=3 \[agent-peer\] second/);
+  assert.match(result.stderr, /rowid=1 \[agent-jarvis\]$/m);
+  assert.doesNotMatch(result.stderr, /first line/); // #132: no peer text in the wake line
+  assert.match(result.stderr, /rowid=3 \[agent-peer\]$/m);
   assert.doesNotMatch(result.stderr, /ignore me/);
   assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "3");
 });
@@ -138,8 +139,8 @@ test("Claude wake drain keeps a separate cursor per session key", () => {
 
   assert.equal(wokeA.status, 2, "session A must wake");
   assert.equal(wokeB.status, 2, "session B must wake on the same message");
-  assert.match(wokeA.stderr, /one message, two sessions/);
-  assert.match(wokeB.stderr, /one message, two sessions/);
+  assert.match(wokeA.stderr, /1 new inbound message/);
+  assert.match(wokeB.stderr, /1 new inbound message/);
 
   assert.ok(fs.existsSync(path.join(dirA, ".murmur-wake-cursor-aaaaaaaa")));
   assert.ok(fs.existsSync(path.join(dirB, ".murmur-wake-cursor-bbbbbbbb")));

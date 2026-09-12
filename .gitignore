@@ -26,3 +26,4 @@ Thumbs.db
 # Test artifacts
 # (.data-*/ already covered above)
 docs/operations.md
+.worktrees/

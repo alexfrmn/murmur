@@ -291,6 +291,28 @@ export class NatsBroker {
     return signAck(createBoundAck(envelope, consumerId, status, reason));
   }
 
+  /**
+   * Publishing an ACK is a courtesy to the sender, not a condition of delivery. Once the
+   * letter has been handed to the handler and marked seen, a timeout on the ACK publish
+   * must not undo that: the message would be nak'd, come straight back, be rejected as a
+   * duplicate, time out again on that ACK — five rounds to max_deliver and a DLQ advisory
+   * for a letter delivered on the first pass (Kirill's log, 11.09). Log the phase and carry
+   * on; the sender's own ACK timeout covers the gap.
+   */
+  private async publishAckBestEffort(subject: string, envelope: AckV1 | SignedAckV1): Promise<void> {
+    try {
+      await this.publishAck(subject, envelope);
+    } catch (err) {
+      console.warn("[NatsBroker.publishAck] failed, delivery outcome kept", {
+        subject,
+        msgId: envelope.msgId,
+        status: envelope.status,
+        reason: envelope.reason,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private async processEnvelopeFrame(
     data: Uint8Array,
     params: {
@@ -308,7 +330,7 @@ export class NatsBroker {
     try {
       const decoded = JSON.parse(this.sc.decode(data));
       if (!isEnvelopeV1(decoded)) {
-        await this.publishAck(ackSubject, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
+        await this.publishAckBestEffort(ackSubject, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
         return "ack";
       }
 
@@ -317,7 +339,7 @@ export class NatsBroker {
       ackSubject = `ack.${decoded.senderAgentId}`;
       const isDup = await params.dedupe.seen(decoded.msgId, params.consumerId);
       if (isDup) {
-        await this.publishAck(
+        await this.publishAckBestEffort(
           ackSubject,
           await this.createDeliveryAck(decoded, params.consumerId, "ack", "duplicate-ignored", params.signAck),
         );
@@ -330,7 +352,7 @@ export class NatsBroker {
       if (params.authorize) {
         const authz = await params.authorize(decoded);
         if (!authz.accepted) {
-          await this.publishAck(
+          await this.publishAckBestEffort(
             ackSubject,
             await this.createDeliveryAck(
               decoded,
@@ -349,7 +371,7 @@ export class NatsBroker {
         senderAgentId: decoded.senderAgentId,
       });
       this.failedDeliveries.delete(`${params.consumerId}:${decoded.msgId}`);
-      await this.publishAck(
+      await this.publishAckBestEffort(
         ackSubject,
         await this.createDeliveryAck(decoded, params.consumerId, "ack", undefined, params.signAck),
       );
@@ -365,7 +387,7 @@ export class NatsBroker {
         const recoverableAck = decodedEnvelope
           ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
           : createAck(msgId, params.consumerId, "nack", reason);
-        await this.publishAck(ackSubject, recoverableAck);
+        await this.publishAckBestEffort(ackSubject, recoverableAck);
         return "retry";
       }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
@@ -389,13 +411,13 @@ export class NatsBroker {
               params.signAck,
             )
           : createAck(msgId, params.consumerId, "nack", `poison-message:${reason}`);
-        await this.publishAck(ackSubject, ack);
+        await this.publishAckBestEffort(ackSubject, ack);
         return "ack";
       }
       const ack = decodedEnvelope
         ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
         : createAck(msgId, params.consumerId, "nack", reason);
-      await this.publishAck(ackSubject, ack);
+      await this.publishAckBestEffort(ackSubject, ack);
       return "retry";
     }
   }
@@ -442,10 +464,10 @@ export class NatsBroker {
       for await (const m of messages) {
         try {
           const result = await onMessage(m.data);
-          if (result === "retry") m.nak();
+          if (result === "retry") m.nak(nakBackoffMs(m));
           else m.ack();
         } catch (err) {
-          m.nak();
+          m.nak(nakBackoffMs(m));
           const e = err instanceof Error ? err : new Error(String(err));
           console.error("[NatsBroker.consumeJetStream] message failed", {
             subject,
@@ -889,6 +911,15 @@ export class NatsBroker {
         break;
       }
 
+      // The cap has to hold on the success path too: a letter to a receiver that is not on
+      // the mesh publishes fine every time, goes `sent`, comes back `failed` on ACK timeout
+      // and is claimed again — nothing throws, so the catch below never sees it (observed
+      // on VM105 as one row at attempts=32, still cycling).
+      if (rec.attempts >= maxAttempts) {
+        await params.outbox.markDlq(rec.msgId, `max-attempts:${rec.lastError ?? "ack-timeout"}`);
+        continue;
+      }
+
       try {
         await this.publish(rec.subject, rec.envelope, params.policy);
         await params.outbox.markSent(rec.msgId, rec.version);
@@ -918,3 +949,18 @@ export class NatsBroker {
     }
   }
 }
+
+/**
+ * Redelivery delay for a nak'd JetStream message: 1s, 2s, 4s … capped at 30s. An immediate
+ * nak puts the same letter straight back on the same failing handler — five rounds in as
+ * many milliseconds, then max_deliver and a DLQ advisory. The delay gives the fault (a peer
+ * not yet added, a broker slow to take the ACK) time to clear.
+ */
+export const nakBackoffMs = (
+  m: { info?: { redeliveryCount?: number } },
+  baseMs = 1000,
+  capMs = 30000,
+): number => {
+  const n = Math.max(1, m.info?.redeliveryCount ?? 1);
+  return Math.min(capMs, baseMs * 2 ** (n - 1));
+};
