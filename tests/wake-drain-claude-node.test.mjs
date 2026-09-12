@@ -81,8 +81,9 @@ test("node drain emits new inbound rows and advances the cursor", () => {
 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /Murmur wake: 2 new inbound message\(s\):/);
-  assert.match(result.stderr, /rowid=1 \[agent-jarvis\] first line/);
-  assert.match(result.stderr, /rowid=3 \[agent-peer\] second/);
+  assert.match(result.stderr, /rowid=1 \[agent-jarvis\]$/m);
+  assert.doesNotMatch(result.stderr, /first line/); // #132: no peer text in the wake line
+  assert.match(result.stderr, /rowid=3 \[agent-peer\]$/m);
   assert.doesNotMatch(result.stderr, /ignore me/);
   assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "3");
 });
@@ -110,7 +111,7 @@ test("node drain never advances the cursor past a row it did not report", () => 
   const result = drain(ctx);
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /reported/);
+  assert.match(result.stderr, /1 new inbound message/); // #132: the wake line carries no peer text
   assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "1", "cursor = last reported rowid");
 });
 

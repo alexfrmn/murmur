@@ -557,6 +557,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       PRAGMA journal_mode=WAL;
+      PRAGMA busy_timeout=10000;
       CREATE TABLE IF NOT EXISTS dedupe_seen (
         consumer_id TEXT NOT NULL,
         msg_id TEXT NOT NULL,
@@ -1532,6 +1533,7 @@ export class SQLiteStreamReassembler {
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       PRAGMA journal_mode=WAL;
+      PRAGMA busy_timeout=10000;
       CREATE TABLE IF NOT EXISTS stream_reassembly_meta (
         stream_id TEXT PRIMARY KEY,
         chunk_count INTEGER NOT NULL,

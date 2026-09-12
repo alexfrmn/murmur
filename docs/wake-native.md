@@ -107,6 +107,20 @@ cannot make a delivered message look undelivered.
 Only the node port has this mode; `wake-drain-claude.sh` still has `poll` and
 `--once` only.
 
+### A new lane is deaf until its first turn
+
+The poller is started by the `Stop` hook, and `Stop` fires at the end of a turn.
+A session that has just started has not taken one, so the poller is not running
+and inbound messages do not wake it — even though `SessionStart --session` ran
+and seeded the anchor, which makes the wake path look fully wired (#130). For an
+autonomous install this is the normal state after every reboot or watchdog
+restart, not an edge case.
+
+Give the lane one priming turn after launch: the watchdog sends a harmless
+prompt right after starting the session, purely to produce a first `Stop`. In
+tmux, send the text and `Enter` as two separate `send-keys` calls — in one call
+the prompt is typed but never submitted.
+
 ## Codex CLI - App-Server WS-over-UDS
 
 Codex is woken over the `codex app-server` WebSocket protocol on a Unix-domain
