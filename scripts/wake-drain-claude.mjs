@@ -167,10 +167,31 @@ function emitAndExit(rows) {
 let haveLock = false;
 function acquireLock() {
   try {
-    // stale lock (older than a full lifetime + slack) → take over
+    // Stale lock → take over. Liveness first, age second.
+    //
+    // releaseLock() runs from process.on("exit"), which SIGKILL, a crash and a reboot
+    // all bypass, so a lock outliving its owner is routine rather than exceptional.
+    // Age alone answers that after MAX_SECONDS + 120 (22 minutes by default) — and the
+    // lane stays deaf for the whole of it, even though the owner's pid is written
+    // inside the file and `kill -0` settles the question immediately.
+    //
+    // Age is kept as the fallback: the file may be empty or truncated, hold something
+    // that is not a pid, or name a pid the kernel has since handed to an unrelated
+    // process. In all of those the timer is still the safe answer.
     try {
+      let dead = false;
+      try {
+        const pid = parseInt(readFileSync(LOCK, "utf8").trim(), 10);
+        if (Number.isInteger(pid) && pid > 0 && pid !== process.pid) {
+          try {
+            process.kill(pid, 0); // owner alive → not ours to take
+          } catch (err) {
+            dead = err && err.code === "ESRCH"; // no such process → stale
+          }
+        }
+      } catch {}
       const age = (Date.now() - statSync(LOCK).mtimeMs) / 1000;
-      if (age > MAX_SECONDS + 120) rmSync(LOCK, { force: true });
+      if (dead || age > MAX_SECONDS + 120) rmSync(LOCK, { force: true });
     } catch {}
     const fd = openSync(LOCK, "wx"); // fail if exists
     writeSync(fd, `${process.pid}\n`);
