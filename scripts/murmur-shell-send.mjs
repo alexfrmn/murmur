@@ -21,13 +21,22 @@ for (let i = 0; i < args.length; i += 1) {
   else if (a === "--text") opt.text = args[++i];
   else if (a === "--text-file") opt.textFile = args[++i];
   else if (a === "--stdin") opt.stdin = true;
+  else if (a === "--msg-id") opt.msgId = args[++i];
   else if (a === "--help" || a === "-h") opt.help = true;
 }
 
 if (opt.help || !opt.to || (!opt.text && !opt.textFile && !opt.stdin)) {
   process.stderr.write(
-    "usage: murmur-shell-send.mjs --to <peer-id> (--text <txt> | --text-file <path> | --stdin) [--conv <id>] [--channel <id> --sender-member <id> [--addressee-member <id>]]\n",
+    "usage: murmur-shell-send.mjs --to <peer-id> (--text <txt> | --text-file <path> | --stdin) [--conv <id>] [--msg-id <uuid>] [--channel <id> --sender-member <id> [--addressee-member <id>]]\n",
   );
+  process.exit(1);
+}
+
+// `--msg-id` makes a send idempotent (#105): the caller supplies the id — the Codex wake
+// relay derives it from the inbound msgId — and a repeat with the same id changes nothing.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+if (opt.msgId !== undefined && !UUID_RE.test(String(opt.msgId))) {
+  process.stderr.write("error: --msg-id must be a UUID\n");
   process.exit(1);
 }
 
@@ -61,7 +70,7 @@ if (!peer) {
 }
 
 const conversationId = opt.conversationId || `dm:${cfg.agentId}:${opt.to}`;
-const msgId = randomUUID();
+const msgId = opt.msgId ? String(opt.msgId).toLowerCase() : randomUUID();
 const createdAt = new Date().toISOString();
 const optionalString = (value) => typeof value === "string" && value.trim() ? value.trim() : undefined;
 const channelId = optionalString(opt.channelId) ?? optionalString(peer.channelId);
@@ -104,6 +113,10 @@ try {
 
   const outbox = new SQLiteDedupeOutboxStore(dbPath);
   outbox.db?.exec?.("PRAGMA busy_timeout=5000;");
+  if (opt.msgId && (await outbox.getOutboxRecord(msgId))) {
+    process.stdout.write(`${JSON.stringify({ msgId, to: opt.to, conversationId, status: "already-queued", ...routing })}\n`);
+    process.exit(0);
+  }
   await outbox.enqueue(peer.subject, envelope);
 
   const store = new SQLiteMessageStore(dbPath);

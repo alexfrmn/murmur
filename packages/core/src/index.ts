@@ -902,6 +902,62 @@ export interface LocalMessageRecord {
 }
 
 /**
+ * What `append` hands back: the stored row plus where it landed and whether it was
+ * already there. `duplicate: true` means the delivery id was seen before — the caller
+ * must treat that as a delivery that already succeeded, not as new work (#105).
+ */
+export type AppendedMessageRecord = LocalMessageRecord & { rowid: number; duplicate: boolean };
+
+/**
+ * Durable wake state of one inbound delivery (#105). Lives next to the row itself so the
+ * insert and the initial state commit together, and so a restart resumes from the table,
+ * not from a cursor that only ever existed in process memory.
+ *
+ *   pending  — stored, nobody has started working on it
+ *   inflight — a wake is running right now (claimed by exactly one worker)
+ *   failed   — the wake threw or timed out; retried once `nextAttemptAt` passes
+ *   handled  — the wake completed (and, for relay peers, the reply was queued)
+ *   muted    — an intentional non-wake: policy, audit, lease, loop-breaker
+ *   dlq      — gave up after `maxAttempts`, or the error was not retryable
+ *
+ * Legacy rows written before this state existed carry NULL: outside the queue, never
+ * replayed — the same seeding rule wake-drain applies to a fresh cursor.
+ */
+export type WakeDeliveryStatus = "pending" | "inflight" | "failed" | "handled" | "muted" | "dlq";
+
+export const OPEN_WAKE_STATUSES: ReadonlySet<WakeDeliveryStatus> = new Set<WakeDeliveryStatus>(["pending", "inflight", "failed"]);
+
+export interface WakeDeliveryState {
+  rowid: number;
+  msgId: string;
+  status: WakeDeliveryStatus;
+  attempts: number;
+  nextAttemptAt?: string;
+  error?: string;
+  replyMsgId?: string;
+  updatedAt?: string;
+}
+
+export interface WakeClaimResult {
+  claimed: boolean;
+  attempts: number;
+  status?: WakeDeliveryStatus;
+}
+
+export interface WakeSettleInput {
+  status: Exclude<WakeDeliveryStatus, "pending" | "inflight">;
+  error?: string;
+  replyMsgId?: string;
+  nextAttemptAt?: string;
+  now?: string;
+}
+
+export type OpenWakeRecord = LocalMessageRecord & { rowid: number; wakeStatus: WakeDeliveryStatus; wakeAttempts: number };
+
+/** One delivery id per direction: an agent that writes to itself keeps both copies. */
+export const deliveryIdFor = (direction: LocalMessageRecord["direction"], msgId: string): string => `${direction}:${msgId}`;
+
+/**
  * Lifecycle stage of a single message, recorded independently of transport
  * delivery. The outbox proves an envelope was *handed to the broker*; these
  * events prove what happened *after* — whether a peer actually woke, handled
@@ -976,7 +1032,32 @@ export class SQLiteMessageStore {
     if (!messageColumns.has("sender_member_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN sender_member_id TEXT");
     if (!messageColumns.has("addressee_member_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN addressee_member_id TEXT");
     if (!messageColumns.has("wake_eligible")) this.db.exec("ALTER TABLE local_messages ADD COLUMN wake_eligible INTEGER");
+    this.migrateDeliveryColumns(messageColumns);
     secureSqliteFiles(dbPath);
+  }
+
+  /**
+   * Delivery id + durable wake state (#105). Added with ALTER TABLE like the Phase-N
+   * columns, so an existing base keeps every row. The UNIQUE index tolerates the NULLs
+   * legacy rows carry (SQLite treats NULLs as distinct), which is exactly what makes
+   * this upgrade safe: nothing old conflicts, nothing old is replayed.
+   */
+  private migrateDeliveryColumns(present: Set<string>): void {
+    for (const [name, ddl] of [
+      ["delivery_id", "ALTER TABLE local_messages ADD COLUMN delivery_id TEXT"],
+      ["wake_status", "ALTER TABLE local_messages ADD COLUMN wake_status TEXT"],
+      ["wake_attempts", "ALTER TABLE local_messages ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0"],
+      ["wake_next_at", "ALTER TABLE local_messages ADD COLUMN wake_next_at TEXT"],
+      ["wake_error", "ALTER TABLE local_messages ADD COLUMN wake_error TEXT"],
+      ["wake_reply_msg_id", "ALTER TABLE local_messages ADD COLUMN wake_reply_msg_id TEXT"],
+      ["wake_updated_at", "ALTER TABLE local_messages ADD COLUMN wake_updated_at TEXT"],
+    ] as const) {
+      if (!present.has(name)) this.db.exec(ddl);
+    }
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_local_messages_delivery ON local_messages(delivery_id);
+      CREATE INDEX IF NOT EXISTS idx_local_messages_wake ON local_messages(direction, wake_status);
+    `);
   }
 
   /**
@@ -1078,30 +1159,209 @@ export class SQLiteMessageStore {
       .all(olderThanIso, limit) as unknown as Array<{ msgId: string; conversationId: string | null; lastEvent: string; lastEventAt: string }>;
   }
 
-  async append(input: Omit<LocalMessageRecord, "id">): Promise<LocalMessageRecord> {
+  /**
+   * Store one delivery exactly once (#105).
+   *
+   * The delivery id and the row commit in a single transaction; a redelivered envelope
+   * (JetStream redeliver, sender ACK-timeout resend, a 2.6.0 storm) finds the existing
+   * row and comes back with `duplicate: true`. The caller then ACKs — the delivery did
+   * succeed — but starts no second wake. Inbound rows enter the wake queue right here,
+   * so "stored" and "queued for wake" can never disagree after a crash.
+   */
+  async append(input: Omit<LocalMessageRecord, "id">): Promise<AppendedMessageRecord> {
     const row: LocalMessageRecord = { id: randomUUID(), ...input };
+    const deliveryId = deliveryIdFor(row.direction, row.msgId);
+    const initialWakeStatus: WakeDeliveryStatus | null =
+      row.direction === "inbound" ? (row.wakeEligible === false ? "muted" : "pending") : null;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.selectByDeliveryId(deliveryId);
+      if (existing) {
+        this.db.exec("COMMIT");
+        return { ...existing, duplicate: true };
+      }
+      const result = this.db
+        .prepare(
+          `INSERT INTO local_messages
+           (id, conversation_id, msg_id, direction, sender, text, created_at, transport,
+            channel_id, sender_member_id, addressee_member_id, wake_eligible,
+            delivery_id, wake_status, wake_attempts, wake_updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        )
+        .run(
+          row.id,
+          row.conversationId,
+          row.msgId,
+          row.direction,
+          row.sender,
+          row.text,
+          row.createdAt,
+          row.transport ?? null,
+          row.channelId ?? null,
+          row.senderMemberId ?? null,
+          row.addresseeMemberId ?? null,
+          row.wakeEligible === undefined ? null : Number(row.wakeEligible),
+          deliveryId,
+          initialWakeStatus,
+          initialWakeStatus ? new Date().toISOString() : null,
+        );
+      this.db.exec("COMMIT");
+      return { ...row, rowid: Number(result.lastInsertRowid), duplicate: false };
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  private selectByDeliveryId(deliveryId: string): (LocalMessageRecord & { rowid: number }) | undefined {
+    const raw = this.db
+      .prepare(
+        `SELECT rowid, id, conversation_id, msg_id, direction, sender, text, created_at, transport,
+                channel_id, sender_member_id, addressee_member_id, wake_eligible
+         FROM local_messages WHERE delivery_id = ? LIMIT 1`,
+      )
+      .get(deliveryId) as Record<string, unknown> | undefined;
+    return raw ? this.toRecordWithRowid(raw) : undefined;
+  }
+
+  private toRecordWithRowid(raw: Record<string, unknown>): LocalMessageRecord & { rowid: number } {
+    const record: LocalMessageRecord & { rowid: number } = {
+      rowid: Number(raw.rowid),
+      id: String(raw.id),
+      conversationId: String(raw.conversation_id),
+      msgId: String(raw.msg_id),
+      direction: raw.direction as LocalMessageRecord["direction"],
+      sender: String(raw.sender),
+      text: String(raw.text),
+      createdAt: String(raw.created_at),
+    };
+    if (raw.transport != null) record.transport = String(raw.transport);
+    if (raw.channel_id != null) record.channelId = String(raw.channel_id);
+    if (raw.sender_member_id != null) record.senderMemberId = String(raw.sender_member_id);
+    if (raw.addressee_member_id != null) record.addresseeMemberId = String(raw.addressee_member_id);
+    if (raw.wake_eligible != null) record.wakeEligible = Boolean(raw.wake_eligible);
+    return record;
+  }
+
+  /**
+   * Inbound deliveries still owed a wake, oldest first: pending, or failed with the
+   * retry time already passed. In-flight rows belong to whoever claimed them and are
+   * never offered twice; legacy NULL rows are never offered at all.
+   */
+  async listOpenWakes({ now = new Date().toISOString(), limit = 50 }: { now?: string; limit?: number } = {}): Promise<OpenWakeRecord[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT rowid, id, conversation_id, msg_id, direction, sender, text, created_at, transport,
+                channel_id, sender_member_id, addressee_member_id, wake_eligible,
+                wake_status, wake_attempts
+         FROM local_messages
+         WHERE direction = 'inbound'
+           AND wake_status IN ('pending', 'failed')
+           AND (wake_next_at IS NULL OR wake_next_at <= ?)
+         ORDER BY rowid ASC
+         LIMIT ?`,
+      )
+      .all(now, limit) as Array<Record<string, unknown>>;
+    return rows.map((raw) => ({
+      ...this.toRecordWithRowid(raw),
+      wakeStatus: raw.wake_status as WakeDeliveryStatus,
+      wakeAttempts: Number(raw.wake_attempts ?? 0),
+    }));
+  }
+
+  /**
+   * Take exclusive ownership of one delivery for a wake attempt. The UPDATE's WHERE is
+   * the lock: only a pending or due-for-retry row flips to in-flight, so a duplicate
+   * arriving while the first copy is being processed — or after it was handled — is
+   * refused here, durably, whatever any in-memory cache remembers.
+   */
+  async claimWake(msgId: string, { now = new Date().toISOString() }: { now?: string } = {}): Promise<WakeClaimResult> {
+    const result = this.db
+      .prepare(
+        `UPDATE local_messages
+         SET wake_status = 'inflight', wake_attempts = wake_attempts + 1, wake_updated_at = ?
+         WHERE delivery_id = ?
+           AND wake_status IN ('pending', 'failed')
+           AND (wake_next_at IS NULL OR wake_next_at <= ?)`,
+      )
+      .run(now, deliveryIdFor("inbound", msgId), now);
+    const state = await this.wakeStateFor(msgId);
+    return { claimed: Number(result.changes ?? 0) > 0, attempts: state?.attempts ?? 0, status: state?.status };
+  }
+
+  /** Record the outcome of a wake attempt; `failed` needs `nextAttemptAt` to be retried. */
+  async settleWake(msgId: string, input: WakeSettleInput): Promise<void> {
+    const now = input.now ?? new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO local_messages
-         (id, conversation_id, msg_id, direction, sender, text, created_at, transport,
-          channel_id, sender_member_id, addressee_member_id, wake_eligible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `UPDATE local_messages
+         SET wake_status = ?, wake_error = ?, wake_reply_msg_id = COALESCE(?, wake_reply_msg_id),
+             wake_next_at = ?, wake_updated_at = ?
+         WHERE delivery_id = ?`,
       )
       .run(
-        row.id,
-        row.conversationId,
-        row.msgId,
-        row.direction,
-        row.sender,
-        row.text,
-        row.createdAt,
-        row.transport ?? null,
-        row.channelId ?? null,
-        row.senderMemberId ?? null,
-        row.addresseeMemberId ?? null,
-        row.wakeEligible === undefined ? null : Number(row.wakeEligible),
+        input.status,
+        input.error ?? null,
+        input.replyMsgId ?? null,
+        input.status === "failed" ? input.nextAttemptAt ?? null : null,
+        now,
+        deliveryIdFor("inbound", msgId),
       );
-    return row;
+  }
+
+  async wakeStateFor(msgId: string): Promise<WakeDeliveryState | undefined> {
+    const raw = this.db
+      .prepare(
+        `SELECT rowid, msg_id, wake_status, wake_attempts, wake_next_at, wake_error, wake_reply_msg_id, wake_updated_at
+         FROM local_messages WHERE delivery_id = ? LIMIT 1`,
+      )
+      .get(deliveryIdFor("inbound", msgId)) as Record<string, unknown> | undefined;
+    if (!raw || raw.wake_status == null) return undefined;
+    const state: WakeDeliveryState = {
+      rowid: Number(raw.rowid),
+      msgId: String(raw.msg_id),
+      status: raw.wake_status as WakeDeliveryStatus,
+      attempts: Number(raw.wake_attempts ?? 0),
+    };
+    if (raw.wake_next_at != null) state.nextAttemptAt = String(raw.wake_next_at);
+    if (raw.wake_error != null) state.error = String(raw.wake_error);
+    if (raw.wake_reply_msg_id != null) state.replyMsgId = String(raw.wake_reply_msg_id);
+    if (raw.wake_updated_at != null) state.updatedAt = String(raw.wake_updated_at);
+    return state;
+  }
+
+  /**
+   * Highest inbound rowid such that every inbound row at or below it is settled.
+   * An open delivery — pending, in flight, or awaiting retry — holds the cursor
+   * below itself; nothing after a gap counts until the gap closes.
+   */
+  async wakeCursor(): Promise<number> {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(
+           (SELECT MIN(rowid) - 1 FROM local_messages
+             WHERE direction = 'inbound' AND wake_status IN ('pending', 'inflight', 'failed')),
+           (SELECT COALESCE(MAX(rowid), 0) FROM local_messages WHERE direction = 'inbound')
+         ) as cursor`,
+      )
+      .get() as { cursor: number } | undefined;
+    return Number(row?.cursor ?? 0);
+  }
+
+  /**
+   * A process that died mid-wake leaves rows in flight forever. Called on startup, this
+   * hands them back to the queue as failed-and-due; the attempt they were on already
+   * counted, so a crash loop still ends in the DLQ instead of running for free.
+   */
+  async recoverInflightWakes({ now = new Date().toISOString() }: { now?: string } = {}): Promise<number> {
+    const result = this.db
+      .prepare(
+        `UPDATE local_messages
+         SET wake_status = 'failed', wake_error = COALESCE(wake_error, 'recovered-inflight'), wake_next_at = NULL, wake_updated_at = ?
+         WHERE direction = 'inbound' AND wake_status = 'inflight'`,
+      )
+      .run(now);
+    return Number(result.changes ?? 0);
   }
 
   async listConversations(limit = 50): Promise<Array<{ conversationId: string; lastMessageAt: string; messageCount: number }>> {

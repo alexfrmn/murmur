@@ -17,6 +17,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proxy subjects apply the same structured member-addressing decision.
 - **Opt-in Codex Desktop exact-task delivery** — MCP sends from a Codex task default to `codex:task:<thread-id>`, and a macOS receive hook can use the shared local `codex queue` command to deliver only to that exact non-archived Desktop task. Missing, archived, legacy, and unaddressed targets remain inbox-only; synchronous `murmur_request` replies use a private expiring marker to avoid duplicate queue injection. This local task affinity complements, rather than replaces, Phase N channel/member identity.
 
+### Fixed
+- **Failed wakes were marked handled, and a retried relay could answer twice** (#105, part of
+  #106; design by @alexanderyswork in #96). `WakeMonitor` advanced its cursor from `finally`,
+  kept it only in memory, and re-seeded it at the table tip on every restart — a message
+  whose wake threw, timed out, or was interrupted by a restart was never retried. Fixing
+  the cursor alone would have turned silent loss into duplicate execution, so delivery
+  semantics ship as one package:
+  - `local_messages` carries a UNIQUE `delivery_id` (`<direction>:<msgId>`); `append`
+    commits the row, its delivery id and its initial wake state in one transaction and
+    reports `duplicate: true` for a redelivered envelope. The daemon ACKs a duplicate
+    without waking again (crash window "receiver committed, ACK lost").
+  - The ACK to the sender follows the durable commit, not the end of the wake. Awaiting the
+    whole Codex turn before ACKing meant the sender's ACK timeout resent the message it was
+    still being answered.
+  - Wake state (`pending → inflight → handled | failed | muted | dlq`) lives on the row; a
+    claim is a conditional UPDATE, so a duplicate copy is refused while the first is in
+    flight or after it was handled. Failed wakes retry under the same delivery id with
+    exponential backoff (`wake.retry`: 5 attempts, 30 s doubling to 10 min), then
+    dead-letter with a `wake-dlq` notification (crash window "relay failed, cursor unchanged").
+  - The cursor is read back from the table as the highest contiguous settled row; a gap holds
+    it, a restart resumes from it, and rows left in flight by a dead process re-enter the queue.
+  - The relay reply id is derived from the inbound `msgId`; `murmur-shell-send --msg-id` makes
+    the send idempotent, and a retry whose reply is already in the outbox does not start the
+    turn again (`source: "relay-idempotent"`).
+  - A turn that completes with an empty final answer now fails the wake as
+    `codex-app-server-final-empty` (not retryable) instead of logging `wake final relayed`
+    for a reply that was never sent.
+  Rows written before this release keep NULL delivery and wake state: they are outside the
+  queue and are not replayed on upgrade. 27 new tests, each seen red first.
+
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.

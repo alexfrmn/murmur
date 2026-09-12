@@ -179,46 +179,6 @@ const inboundCursor = () => {
   return Number(row?.cursor ?? 0);
 };
 
-const inboundCursorForMsg = (msgId) => {
-  const row = wakeDb.prepare("SELECT rowid as cursor FROM local_messages WHERE direction = 'inbound' AND msg_id = ? ORDER BY rowid DESC LIMIT 1").get(msgId);
-  return Number(row?.cursor ?? 0);
-};
-
-const loadInboundAfter = async (cursor) => {
-  const rows = wakeDb
-    .prepare(
-      `SELECT
-         rowid as cursor,
-         conversation_id as conversationId,
-         msg_id as msgId,
-         sender as "from",
-         text,
-         created_at as ts,
-         channel_id as channelId,
-         sender_member_id as senderMemberId,
-         addressee_member_id as addresseeMemberId,
-         wake_eligible as wakeEligible
-       FROM local_messages
-       WHERE direction = 'inbound' AND rowid > ?
-       ORDER BY rowid ASC
-       LIMIT 100`,
-    )
-    .all(cursor);
-  return rows.map((row) => ({
-    from: row.from,
-    text: row.text,
-    msgId: row.msgId,
-    conversationId: row.conversationId,
-    channelId: row.channelId || undefined,
-    senderMemberId: row.senderMemberId || undefined,
-    addresseeMemberId: row.addresseeMemberId || undefined,
-    // NULL is a pre-Phase-N/legacy row and retains legacy wake behavior.
-    wakeEligible: row.wakeEligible === null ? true : Boolean(row.wakeEligible),
-    ts: row.ts,
-    cursor: Number(row.cursor),
-  }));
-};
-
 const enqueueWakeNotification = async (payload, reason) => {
   log("warn", "WakeMonitor fallback notify", { reason, msgId: payload.msgId, from: payload.from });
   if (effectiveNotifyTargets.length === 0) return;
@@ -228,10 +188,11 @@ const enqueueWakeNotification = async (payload, reason) => {
   }, effectiveNotifyTargets);
 };
 
+// #105 — the message store is the wake queue. Backlog, retries and the cursor all come
+// from the rows' durable wake state; nothing about a delivery lives only in this process.
 const wakeMonitor = new WakeMonitor({
   ...wakeConfig,
-  initialCursor: inboundCursor(),
-  loadBacklogAfter: loadInboundAfter,
+  deliveries: msgStore,
   leaseGate: nativeLeaseGate,
   auditHook: createAuditShellHook({ command: wakeConfig.auditHook, log }),
   hook: createShellHook({ command: config.onReceive, log }),
@@ -315,7 +276,10 @@ const onMessage = async (envelope) => {
   if (addressing?.reject) throw new Error(`channel-addressing-rejected:${addressing.reason}`);
   const wakeEligible = addressing?.allowWake !== false;
 
-  await msgStore.append({
+  // Durable commit first (#105): the row, its delivery id and its wake state land in
+  // one transaction. Returning from here is what lets the broker mark the envelope seen
+  // and ACK it — so the ACK now means "stored", not "the wake finished".
+  const stored = await msgStore.append({
     conversationId: envelope.conversationId,
     msgId: envelope.msgId,
     direction: "inbound",
@@ -328,6 +292,17 @@ const onMessage = async (envelope) => {
     addresseeMemberId: envelope.addresseeMemberId,
     wakeEligible,
   });
+  if (stored.duplicate) {
+    // Crash window "receiver committed, ACK lost": the sender (or JetStream) delivered
+    // the same envelope again. The delivery already succeeded — ACK it, wake nothing.
+    log("info", "Message duplicate ignored", {
+      msgId: envelope.msgId,
+      from: senderId,
+      conversationId: envelope.conversationId,
+      rowid: stored.rowid,
+    });
+    return;
+  }
 
   log("info", "Message received", {
     msgId: envelope.msgId,
@@ -350,7 +325,7 @@ const onMessage = async (envelope) => {
     addresseeMemberId: envelope.addresseeMemberId,
     wakeEligible,
     ts: new Date().toISOString(),
-    cursor: inboundCursorForMsg(envelope.msgId),
+    cursor: stored.rowid,
   };
 
   if (effectiveNotifyTargets.length > 0 && wakeEligible) {
@@ -361,7 +336,16 @@ const onMessage = async (envelope) => {
     });
   }
 
-  if (wakeEligible) await wakeMonitor.onInbound(payload);
+  // The wake runs off the durable queue, not on the broker's clock. Awaiting it here
+  // used to hold the sender's ACK (and JetStream's ack_wait) for the whole Codex turn —
+  // minutes — so the sender's ACK timeout resent the envelope while the first copy was
+  // still being processed. Failures are retried from the row; nothing is lost by not
+  // waiting.
+  if (wakeEligible) {
+    wakeMonitor.onInbound(payload).catch((err) => {
+      log("error", "WakeMonitor onInbound failed", { error: err instanceof Error ? err.message : String(err), msgId: envelope.msgId });
+    });
+  }
 };
 
 let running = true;
@@ -378,6 +362,14 @@ const flushLoop = async () => {
       await flushNotifyQueue({ queue: notifyQueue, log, limit: 100 });
     } catch (err) {
       log("error", "Notify flush error", { error: err.message });
+    }
+
+    // #105 — retry tick: deliveries whose backoff has elapsed, and anything a previous
+    // process left behind, are picked up from the table here.
+    try {
+      await wakeMonitor.drain();
+    } catch (err) {
+      log("error", "Wake retry drain error", { error: err.message });
     }
 
     await sleep(flushIntervalMs);

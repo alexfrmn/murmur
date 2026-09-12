@@ -292,6 +292,50 @@ With those five steps in the launcher, a new Codex session brings up remote
 control, captures its own app-server thread, wires Murmur wake routing, and
 restarts the daemon without a manual copy/paste step.
 
+## Delivery semantics: one wake per delivery (#105)
+
+The daemon's wake path is exactly-once on the receiving side. What that means in
+practice, and where each guarantee lives:
+
+- **The `msgId` is the delivery id.** It is minted once when the envelope enters the
+  sender's outbox and never changes across retries, so every copy of a redelivered
+  message — JetStream redelivery, a sender's ACK-timeout resend, a 2.6.0 storm —
+  carries the same id.
+- **One row per delivery.** `local_messages` stores `delivery_id` (`inbound:<msgId>`)
+  under a UNIQUE index. `append` runs the existence check and the insert in one
+  transaction and reports `duplicate: true` when the row was already there. The daemon
+  then ACKs — the delivery did succeed — and starts no second wake.
+- **ACK means stored, not woken.** The daemon returns to the broker as soon as the row
+  is committed; the wake itself runs off the durable queue. Before 2.9 the sender's ACK
+  (and JetStream's `ack_wait`) waited for the whole Codex turn, which is how a slow turn
+  produced a resend of the very message it was answering.
+- **The wake state lives on the row.** `wake_status` moves
+  `pending → inflight → handled | failed | muted | dlq`. A claim is an UPDATE whose WHERE
+  clause is the lock: only a pending or due-for-retry row flips to `inflight`, so a
+  duplicate that arrives while the first copy is being processed, or after it was
+  handled, is refused durably.
+- **A failed wake is retried under the same delivery id**, with exponential backoff
+  (`wake.retry.backoffMs`, default 30 s, doubling to `backoffMaxMs`, default 10 min),
+  up to `wake.retry.maxAttempts` (default 5). After that the row is dead-lettered and
+  the fallback notifier fires with reason `wake-dlq`. An error flagged
+  `retryable: false` dead-letters on the first attempt.
+- **The cursor never skips a gap.** It is not a counter the monitor bumps; it is the
+  highest inbound row such that every inbound row at or below it is settled, read back
+  from the table after every change. A restart resumes from the rows, not from the
+  table tip: rows left `inflight` by a dead process return to the queue as failed-and-due.
+- **The relay is idempotent.** For `relayFinalToMurmur` peers the reply's `msgId` is
+  derived from the inbound `msgId` (`deriveRelayReplyMsgId`), and `murmur-shell-send`
+  accepts it via `--msg-id`. On a retry the injector first checks the peer's outbox for
+  that id; if the previous attempt already queued the reply, the turn is **not** started
+  again and the delivery is settled with `source: "relay-idempotent"`.
+- **An empty final answer is not a relay** (#106). A turn that completes with nothing to
+  send fails the wake with `codex-app-server-final-empty:<turnId>:<source>` (not
+  retryable) instead of logging `wake final relayed` with a null reply.
+
+Upgrading is silent: the new columns are added with `ALTER TABLE`, rows written before
+this release keep a NULL `delivery_id` and NULL `wake_status` — outside the queue, never
+replayed — the same seeding rule `wake-drain-claude` applies to a fresh cursor.
+
 ## Scoped Channels & Session Affinity
 
 The Codex autostart sequence above documents a real open problem: app-server
