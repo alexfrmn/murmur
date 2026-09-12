@@ -362,7 +362,8 @@ test("Codex app-server injector re-seeds stale app-server threads", async () => 
   const result = await injector(payload, peer);
 
   assert.deepEqual(result, { turn: { id: "turn-1" } });
-  assert.equal(peer.threadId, "fresh-thread");
+  // #108 — the seeded thread is remembered per conversation, not written back into config.
+  assert.equal(peer.threadId, "stale-thread");
   assert.deepEqual(calls.map((call) => call.method), ["turn/start", "thread/start", "turn/start"]);
   assert.equal(calls[0].params.threadId, "stale-thread");
   assert.equal(calls[2].params.threadId, "fresh-thread");
@@ -384,9 +385,14 @@ test("Codex app-server injector seeds missing app-server threads", async () => {
   const result = await injector(payload, peer);
 
   assert.deepEqual(result, { turn: { id: "turn-1" } });
-  assert.equal(peer.threadId, "fresh-thread");
+  // #108 — the seeded thread belongs to this conversation, not to the peer object.
+  assert.equal(peer.threadId, undefined);
   assert.deepEqual(calls.map((call) => call.method), ["thread/start", "turn/start"]);
   assert.equal(calls[1].params.threadId, "fresh-thread");
+
+  await injector({ ...payload, msgId: "msg-codex-2" }, peer);
+  assert.deepEqual(calls.map((call) => call.method), ["thread/start", "turn/start", "turn/start"], "the same conversation reuses its thread");
+  assert.equal(calls[2].params.threadId, "fresh-thread");
 });
 
 test("Codex app-server injector seeds thread with resolved channel member binding", async () => {
@@ -580,4 +586,153 @@ test("Codex app-server injector does not restart a turn whose reply is already q
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// #106 — a turn that ended with status "failed" or "interrupted" is not a success, whatever
+// text it produced. The status and error come from `turn/completed` itself.
+
+test("Codex app-server client surfaces the turn status and error from turn/completed", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-codex-wake-"));
+  const socketPath = path.join(dir, "codex.sock");
+  const httpServer = http.createServer();
+  const wsServer = new WebSocketServer({ server: httpServer });
+  wsServer.on("connection", (socket) => {
+    socket.on("message", (data) => {
+      const request = JSON.parse(data.toString("utf8"));
+      if (request.method === "initialize") socket.send(JSON.stringify({ id: request.id, result: {} }));
+      if (request.method === "turn/start") {
+        socket.send(JSON.stringify({ id: request.id, result: { turn: { id: "turn-9" } } }));
+        socket.send(JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-9", status: "failed", error: { message: "model exploded" } } } }));
+      }
+    });
+  });
+  httpServer.listen(socketPath);
+  await once(httpServer, "listening");
+  try {
+    const client = new CodexAppServerClient({ socketPath });
+    const result = await client.startTurnAndWaitForFinal({ threadId: "thread-1", input: [] }, { completionTimeoutMs: 2000 });
+    assert.equal(result.turnId, "turn-9");
+    assert.equal(result.status, "failed");
+    assert.equal(result.error?.message, "model exploded");
+  } finally {
+    wsServer.close();
+    httpServer.close();
+  }
+});
+
+test("Codex app-server injector treats a failed turn as a retryable wake failure, not a relay", async () => {
+  const relays = [];
+  class FakeClient {
+    async request() { return {}; }
+    async startTurnAndWaitForFinal() { return { finalText: "partial", turnId: "turn-1", source: "app-server-events", status: "failed", error: { message: "model exploded" } }; }
+  }
+  const injector = createCodexAppServerInjector({ Client: FakeClient, relay: async () => { relays.push(1); return null; }, relayAlreadyQueued: async () => false });
+
+  await assert.rejects(
+    injector(payload, relayPeer("/work/.data/murmur.db")),
+    (err) => /^codex-app-server-turn-failed:turn-1:model exploded/.test(err.message) && err.retryable !== false,
+  );
+  assert.equal(relays.length, 0);
+});
+
+test("Codex app-server injector does not retry an interrupted turn", async () => {
+  class FakeClient {
+    async request() { return {}; }
+    async startTurnAndWaitForFinal() { return { finalText: "", turnId: "turn-1", source: "app-server-events", status: "interrupted", error: null }; }
+  }
+  const injector = createCodexAppServerInjector({ Client: FakeClient, relay: async () => null, relayAlreadyQueued: async () => false });
+
+  await assert.rejects(
+    injector(payload, relayPeer("/work/.data/murmur.db")),
+    (err) => /^codex-app-server-turn-interrupted:turn-1/.test(err.message) && err.retryable === false,
+  );
+});
+
+// #108 — one Codex thread per (peer, conversation), remembered across restarts. A static
+// `peer.threadId` stays an explicit pin; without one, threads are seeded per conversation
+// and persisted instead of living in `peer.threadId` for the life of the process.
+
+const memoryThreadStore = () => {
+  const map = new Map();
+  return {
+    map,
+    async getWakeThread(peerId, conversationId) { return map.get(`${peerId}|${conversationId}`); },
+    async setWakeThread(record) { map.set(`${record.peerId}|${record.conversationId}`, record); },
+  };
+};
+
+const countingClient = (calls) => class FakeClient {
+  async request(method, params) {
+    calls.push({ method, params });
+    if (method === "thread/start") return { thread: { id: `thread-${calls.filter((c) => c.method === "thread/start").length}`, path: "/tmp/r.jsonl" } };
+    if (method === "thread/resume") return { thread: { id: params.threadId, path: "/tmp/r.jsonl" } };
+    return { turn: { id: "turn-1" } };
+  }
+};
+
+test("Codex app-server injector keeps one thread per peer and conversation and persists it", async () => {
+  const calls = [];
+  const threadStore = memoryThreadStore();
+  const injector = createCodexAppServerInjector({ Client: countingClient(calls), threadStore });
+  const peer = { mode: "codex_app_server", socketPath: "/tmp/codex.sock" };
+
+  await injector({ ...payload, msgId: "m-1", conversationId: "conv-x" }, peer);
+  await injector({ ...payload, msgId: "m-2", conversationId: "conv-x" }, peer);
+  await injector({ ...payload, msgId: "m-3", conversationId: "conv-y" }, peer);
+
+  const starts = calls.filter((c) => c.method === "thread/start");
+  assert.equal(starts.length, 2, "one seed per conversation, not per message");
+  const turns = calls.filter((c) => c.method === "turn/start").map((c) => c.params.threadId);
+  assert.deepEqual(turns, ["thread-1", "thread-1", "thread-2"]);
+  assert.equal(threadStore.map.get(`${payload.from}|conv-x`)?.threadId, "thread-1");
+  assert.equal(threadStore.map.get(`${payload.from}|conv-y`)?.threadId, "thread-2");
+  assert.equal(peer.threadId, undefined, "the peer object is not pinned to the last seeded thread");
+});
+
+test("Codex app-server injector resumes the persisted thread after a restart", async () => {
+  const threadStore = memoryThreadStore();
+  await threadStore.setWakeThread({ peerId: payload.from, conversationId: payload.conversationId, threadId: "thread-kept", threadPath: "/tmp/kept.jsonl" });
+  const calls = [];
+  const injector = createCodexAppServerInjector({ Client: countingClient(calls), threadStore });
+
+  await injector(payload, { mode: "codex_app_server", socketPath: "/tmp/codex.sock" });
+
+  assert.deepEqual(calls.map((c) => c.method), ["turn/start"]);
+  assert.equal(calls[0].params.threadId, "thread-kept");
+});
+
+test("Codex app-server injector honours a static peer.threadId as a pin for every conversation", async () => {
+  const threadStore = memoryThreadStore();
+  const calls = [];
+  const injector = createCodexAppServerInjector({ Client: countingClient(calls), threadStore });
+  const peer = { mode: "codex_app_server", socketPath: "/tmp/codex.sock", threadId: "live-session" };
+
+  await injector({ ...payload, msgId: "m-1", conversationId: "conv-x" }, peer);
+  await injector({ ...payload, msgId: "m-2", conversationId: "conv-y" }, peer);
+
+  assert.deepEqual(calls.map((c) => c.method), ["turn/start", "turn/start"]);
+  assert.deepEqual(calls.map((c) => c.params.threadId), ["live-session", "live-session"]);
+  assert.equal(threadStore.map.size, 0, "a pinned thread is config, not state");
+});
+
+test("Codex app-server injector persists the re-seeded thread when the pinned one is gone", async () => {
+  const threadStore = memoryThreadStore();
+  const calls = [];
+  class FakeClient {
+    async request(method, params) {
+      calls.push({ method, params });
+      if (method === "turn/start" && params.threadId === "stale-thread") throw new Error("codex-app-server-error:thread not found: stale-thread");
+      if (method === "thread/start") return { thread: { id: "fresh-thread" } };
+      return { turn: { id: "turn-1" } };
+    }
+  }
+  const injector = createCodexAppServerInjector({ Client: FakeClient, threadStore });
+  const peer = { mode: "codex_app_server", socketPath: "/tmp/codex.sock", threadId: "stale-thread" };
+
+  await injector(payload, peer);
+  await injector({ ...payload, msgId: "m-2" }, peer);
+
+  assert.deepEqual(calls.map((c) => c.method), ["turn/start", "thread/start", "turn/start", "turn/start"]);
+  assert.equal(calls[3].params.threadId, "fresh-thread", "the second message goes to the re-seeded thread without re-seeding again");
+  assert.equal(threadStore.map.get(`${payload.from}|${payload.conversationId}`)?.threadId, "fresh-thread");
 });

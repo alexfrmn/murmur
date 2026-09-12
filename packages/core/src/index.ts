@@ -954,6 +954,15 @@ export interface WakeSettleInput {
 
 export type OpenWakeRecord = LocalMessageRecord & { rowid: number; wakeStatus: WakeDeliveryStatus; wakeAttempts: number };
 
+export interface WakeThreadRecord {
+  peerId: string;
+  conversationId: string;
+  threadId: string;
+  threadPath?: string;
+  /** The static `peer.threadId` this thread was seeded to replace, if any. */
+  replacesThreadId?: string;
+}
+
 /** One delivery id per direction: an agent that writes to itself keeps both copies. */
 export const deliveryIdFor = (direction: LocalMessageRecord["direction"], msgId: string): string => `${direction}:${msgId}`;
 
@@ -1057,7 +1066,51 @@ export class SQLiteMessageStore {
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_local_messages_delivery ON local_messages(delivery_id);
       CREATE INDEX IF NOT EXISTS idx_local_messages_wake ON local_messages(direction, wake_status);
+      CREATE TABLE IF NOT EXISTS wake_threads (
+        peer_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        thread_path TEXT,
+        replaces_thread_id TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (peer_id, conversation_id)
+      );
     `);
+  }
+
+  /**
+   * The Codex thread serving one (peer, conversation) pair (#108). Before this the id
+   * lived in `peer.threadId` for the life of the process — one thread per peer, gone on
+   * restart. `replacesThreadId` remembers which static pin this thread was seeded to
+   * replace, so a newly pinned thread in config still wins over a stale remembered one.
+   */
+  async getWakeThread(peerId: string, conversationId: string): Promise<WakeThreadRecord | undefined> {
+    const raw = this.db
+      .prepare("SELECT peer_id, conversation_id, thread_id, thread_path, replaces_thread_id FROM wake_threads WHERE peer_id = ? AND conversation_id = ?")
+      .get(peerId, conversationId) as Record<string, unknown> | undefined;
+    if (!raw) return undefined;
+    const record: WakeThreadRecord = {
+      peerId: String(raw.peer_id),
+      conversationId: String(raw.conversation_id),
+      threadId: String(raw.thread_id),
+    };
+    if (raw.thread_path != null) record.threadPath = String(raw.thread_path);
+    if (raw.replaces_thread_id != null) record.replacesThreadId = String(raw.replaces_thread_id);
+    return record;
+  }
+
+  async setWakeThread(record: WakeThreadRecord): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT INTO wake_threads (peer_id, conversation_id, thread_id, thread_path, replaces_thread_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(peer_id, conversation_id) DO UPDATE SET
+           thread_id = excluded.thread_id,
+           thread_path = excluded.thread_path,
+           replaces_thread_id = excluded.replaces_thread_id,
+           updated_at = excluded.updated_at`,
+      )
+      .run(record.peerId, record.conversationId, record.threadId, record.threadPath ?? null, record.replacesThreadId ?? null, new Date().toISOString());
   }
 
   /**

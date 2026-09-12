@@ -336,6 +336,39 @@ Upgrading is silent: the new columns are added with `ALTER TABLE`, rows written 
 this release keep a NULL `delivery_id` and NULL `wake_status` — outside the queue, never
 replayed — the same seeding rule `wake-drain-claude` applies to a fresh cursor.
 
+### Turn outcome, lanes and thread memory (#106, #107, #108)
+
+- **A turn's status is checked, not assumed** (#106). `turn/completed` carries
+  `turn.status` (`completed | interrupted | failed | inProgress`) and `turn.error`; the
+  client now surfaces both. A `failed` turn fails the wake as
+  `codex-app-server-turn-failed:<turnId>:<error>` and is retried under the same delivery
+  id; an `interrupted` turn (someone stopped it on purpose) fails as
+  `codex-app-server-turn-interrupted:<turnId>` and is not retried. Neither is relayed.
+- **Wakes run in lanes** (#107). `WakeMonitor` used to be one sequential loop: a long
+  turn for one peer held every other inbound message until it finished or timed out. It
+  now dispatches into lanes — one per (peer, conversation), or one per peer for a Codex
+  peer pinned to a static `threadId` — and runs up to `wake.concurrency` lanes at once
+  (default 4; `1` restores the old behaviour). Within a lane order is kept and nothing
+  overlaps; across lanes a short question no longer waits behind a long turn.
+- **Codex threads are remembered per (peer, conversation)** (#108). Without a static
+  `threadId`, the injector used to seed a thread and write its id into `peer.threadId` —
+  one thread per peer for the life of the process, gone on restart. Threads are now keyed
+  by peer *and* conversation and stored in `wake_threads` in the message store, so a
+  daemon restart resumes the same Codex thread and two conversations from one sender no
+  longer share context. A static `peer.threadId` remains an explicit pin for every
+  conversation; when a pinned thread is gone (`thread not found`) the re-seeded thread is
+  remembered together with the pin it replaced, so changing the pin in config wins over
+  the remembered thread.
+
+```json
+{
+  "wake": {
+    "concurrency": 4,
+    "retry": { "maxAttempts": 5, "backoffMs": 30000, "backoffMaxMs": 600000 }
+  }
+}
+```
+
 ## Scoped Channels & Session Affinity
 
 The Codex autostart sequence above documents a real open problem: app-server
