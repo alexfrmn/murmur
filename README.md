@@ -514,6 +514,31 @@ node scripts/murmur-notify-init.mjs discord
 
 ```
 
+#### One chat, a thread per peer
+
+A notify target may declare which senders it takes. With a Telegram forum chat
+that gives every peer its own thread instead of one mixed feed:
+
+```jsonc
+"notify": {
+  "telegram": [
+    { "channel": "jarvis",  "botToken": "…", "chatId": "-1001234567890", "topicId": 2, "peers": ["agent-jarvis"] },
+    { "channel": "sasha",   "botToken": "…", "chatId": "-1001234567890", "topicId": 3, "peers": ["agent-sasha"] },
+    { "channel": "general", "botToken": "…", "chatId": "-1001234567890", "topicId": 1, "fallback": true }
+  ]
+}
+```
+
+- `peers` — the target takes only these agent ids (case-insensitive).
+- `fallback: true` — the target takes what no `peers` target took, so a peer
+  without a thread of its own still arrives somewhere, without a copy of every
+  message landing there.
+- Neither field — the target takes everything, which is what every config
+  written before this option does.
+
+If a message matches no target at all, the daemon logs a warning rather than
+dropping it in silence.
+
 ---
 
 ## Testing

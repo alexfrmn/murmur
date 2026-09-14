@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A notify target can take one peer** — `peers: ["agent-jarvis"]` on a Telegram or webhook
+  target limits it to those senders, and `fallback: true` marks the target that takes whatever
+  no `peers` target took. One forum chat can now hold a thread per peer; before this, splitting
+  peers meant a second process reading the store and posting by sender. A target with neither
+  field keeps taking everything, so existing configs are untouched. A sender that matches no
+  target at all is logged as a warning rather than dropped in silence.
+
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
