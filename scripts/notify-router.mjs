@@ -5,6 +5,16 @@ const nowIso = () => new Date().toISOString();
 
 const ensureArray = (value) => (Array.isArray(value) ? value : value ? [value] : []);
 
+// Optional sender filter on a notify target: `peers: ["agent-jarvis"]`.
+// A target without it stays a catch-all, so existing configs keep receiving
+// everything. Agent ids are compared case-insensitively.
+const normalizePeers = (value) => {
+  const list = ensureArray(value)
+    .map((peer) => String(peer || "").trim().toLowerCase())
+    .filter(Boolean);
+  return list.length > 0 ? list : undefined;
+};
+
 const normalizeTelegram = (value, channelName = "telegram") => {
   const list = ensureArray(value).filter(Boolean);
   return list
@@ -14,6 +24,8 @@ const normalizeTelegram = (value, channelName = "telegram") => {
       botToken: entry?.botToken,
       chatId: entry?.chatId,
       topicId: entry?.topicId,
+      peers: normalizePeers(entry?.peers ?? entry?.from),
+      fallback: entry?.fallback === true || undefined,
     }))
     .filter((entry) => entry.botToken && entry.chatId);
 };
@@ -26,6 +38,8 @@ const normalizeWebhook = (value, channelName = "webhook") => {
       channel: entry?.channel || entry?.name || `${channelName}${list.length > 1 ? `-${i + 1}` : ""}`,
       url: entry?.url,
       headers: entry?.headers && typeof entry.headers === "object" ? entry.headers : {},
+      peers: normalizePeers(entry?.peers ?? entry?.from),
+      fallback: entry?.fallback === true || undefined,
     }))
     .filter((entry) => entry.url);
 };
@@ -58,6 +72,24 @@ export const normalizeNotifyTargets = (notifyConfig) => {
   }
 
   return targets;
+};
+
+// Which targets a message from `sender` belongs to.
+//
+// Three kinds of target, and the difference matters when one chat has a thread
+// per peer:
+//   - `peers: [...]`      takes only those senders;
+//   - `fallback: true`    takes what no peer-filtered target took — a home for
+//                         a peer nobody made a thread for, without copying
+//                         every message into it;
+//   - neither             takes everything, which is what every config written
+//                         before this option did.
+export const targetsForSender = (targets, sender) => {
+  const from = String(sender || "").trim().toLowerCase();
+  const matched = targets.filter((target) => target.peers && from && target.peers.includes(from));
+  const always = targets.filter((target) => !target.peers && !target.fallback);
+  if (matched.length > 0) return [...matched, ...always];
+  return [...always, ...targets.filter((target) => target.fallback && !target.peers)];
 };
 
 export class NotifyQueue {
