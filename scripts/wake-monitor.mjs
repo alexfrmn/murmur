@@ -363,9 +363,24 @@ export class WakeMonitor {
         if (!this.injector) throw new Error(`wake-native-injector-missing:${payload.from}`);
         result = await this.injector(payload, peer);
         this.log("info", "WakeMonitor native wake completed", { msgId: payload.msgId, conversationId: payload.conversationId, mode: peer.mode });
-      } else {
-        if (this.hook) result = await this.hook(payload);
+      } else if (this.hook) {
+        result = await this.hook(payload);
         this.log("info", "WakeMonitor hook completed", { msgId: payload.msgId, conversationId: payload.conversationId });
+      } else {
+        // Nothing was woken. There is no native injector for this peer and no onReceive
+        // hook, so the message reached the store and stopped there.
+        //
+        // This branch used to log "WakeMonitor hook completed" as well, which read as a
+        // delivered wake. On 2026-09-15 three messages landed on an agent whose config had
+        // neither `wake` nor `onReceive`; the log said "hook completed" four milliseconds
+        // after "Message received" for each of them, and an operator spent an hour looking
+        // for a broken responder that had never been configured. A log line that cannot
+        // distinguish "woke somebody" from "nobody to wake" is worse than no line at all.
+        this.log("warn", "WakeMonitor: hook not configured, message stored only", {
+          msgId: payload.msgId,
+          conversationId: payload.conversationId,
+          from: payload.from,
+        });
       }
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
@@ -458,6 +473,26 @@ export class WakeMonitor {
     const peer = this.peerFor(payload);
     if (peer.mode === "codex_app_server" && peer.threadId) return `peer:${payload.from}`;
     return `conv:${payload.from}|${payload.conversationId ?? ""}`;
+  }
+
+  /**
+   * Can this monitor wake anybody at all?
+   *
+   * `configured: false` means every inbound message will be stored and nothing else —
+   * the zero-responder state that reads like a working contour until somebody waits
+   * half an hour for a reply. Surfaced by the daemon on startup so it is visible
+   * before the first message arrives, not only in the per-message log afterwards.
+   */
+  responderStatus() {
+    const peers = ensureObject(this.peers);
+    const nativePeers = Object.keys(peers).filter(
+      (agentId) => (validMode(peers[agentId]?.mode) ? peers[agentId].mode : this.mode) === "codex_app_server",
+    );
+    const hook = Boolean(this.hook);
+    // A native peer without an injector wired in is not a responder, it is an error waiting
+    // to be thrown on the first message — do not count it as configured.
+    const native = Boolean(this.injector) && (this.mode === "codex_app_server" || nativePeers.length > 0);
+    return { configured: hook || native, hook, native, nativePeers };
   }
 
   peerFor(payload) {
