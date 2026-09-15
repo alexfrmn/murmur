@@ -107,7 +107,7 @@ cannot make a delivered message look undelivered.
 Only the node port has this mode; `wake-drain-claude.sh` still has `poll` and
 `--once` only.
 
-### Filtering what the drain wakes on — and what that costs
+### Filtering what the drain wakes on — and what that costs (#146)
 
 Both drains accept an optional local filter. It is **off by default**: with no
 `MURMUR_WAKE_SKIP_*` set, every inbound row is reported exactly as before.
@@ -150,7 +150,7 @@ prompt right after starting the session, purely to produce a first `Stop`. In
 tmux, send the text and `Enter` as two separate `send-keys` calls — in one call
 the prompt is typed but never submitted.
 
-### No responder configured is a state, not a silence
+### No responder configured is a state, not a silence (#146)
 
 A daemon with neither `onReceive` nor `wake.peers[<id>].mode = "codex_app_server"`
 accepts, decrypts, stores and ACKs every message exactly like a healthy one. The

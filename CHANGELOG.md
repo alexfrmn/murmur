@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **`WakeMonitor hook completed` was logged when there was no hook** — the line was
+- **`WakeMonitor hook completed` was logged when there was no hook** (#146) — the line was
   printed whether or not a responder existed, so a daemon configured with neither `wake`
   nor `onReceive` produced a log byte-identical to a healthy one: `Message received`, then
   `hook completed` four milliseconds later, for messages that reached nobody. The
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actually ran. Wake readiness is also visible before the first message: `Daemon ready`
   carries an additive `wake: { configured, hook, native, nativePeers }`, and a daemon with
   no responder logs `No wake responder configured` at startup.
-- **The wake-drain cursor stepped over rows nobody looked at** —
+- **The wake-drain cursor stepped over rows nobody looked at** (#146) —
   `wake-drain-claude.sh` selected the rows to report and then advanced the cursor to a
   separate `MAX(rowid)` query over the whole table. Anything between the two queries was
   skipped permanently: a row that landed in the gap, and every row a locally added filter
@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SELECT`, and the cursor only ever passes a row that was reported or recorded.
 
 ### Added
-- **Supported filters for the wake drain, with a ledger instead of a silent drop** —
+- **Supported filters for the wake drain, with a ledger instead of a silent drop** (#146) —
   `MURMUR_WAKE_SKIP_SENDERS`, `MURMUR_WAKE_SKIP_CONVERSATIONS` and
   `MURMUR_WAKE_SKIP_INELIGIBLE` (the last one honours the daemon's `wake_eligible=0` mute).
   Every deliberately skipped row is appended to `MURMUR_WAKE_SKIPPED_LOG`
