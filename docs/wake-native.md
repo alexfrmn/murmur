@@ -107,6 +107,35 @@ cannot make a delivered message look undelivered.
 Only the node port has this mode; `wake-drain-claude.sh` still has `poll` and
 `--once` only.
 
+### Filtering what the drain wakes on — and what that costs
+
+Both drains accept an optional local filter. It is **off by default**: with no
+`MURMUR_WAKE_SKIP_*` set, every inbound row is reported exactly as before.
+
+| Env | Effect |
+|---|---|
+| `MURMUR_WAKE_SKIP_SENDERS` | comma-separated sender ids not to wake on |
+| `MURMUR_WAKE_SKIP_CONVERSATIONS` | comma-separated conversation ids not to wake on |
+| `MURMUR_WAKE_SKIP_INELIGIBLE` | `1` to also skip rows the daemon marked `wake_eligible=0` |
+| `MURMUR_WAKE_SKIPPED_LOG` | append-only JSONL ledger of skipped rows (default `~/.murmur-wake-skipped.jsonl`) |
+
+**The cursor rule.** The cursor may only ever pass a row the drain actually looked
+at, and the high-water mark it moves to comes from the same `SELECT` that produced
+the rows — never from a second `MAX(rowid)` query. Break that and messages are lost
+permanently and silently, in two ways: a row landing between the two queries is
+stepped over and reported by nobody, and any row removed by a filter ends up below
+the new cursor, where no future drain will select it again.
+
+So a filter here does not drop a row, it **records** it. Every deliberately skipped
+row is appended to the ledger — `{"ts","rowid","sender","conversationId","reason","cursor"}`
+— *before* the cursor moves past it, and if the ledger cannot be written the cursor
+stays put so the rows are selected again next run. "Skipped" and "never happened"
+stay different things.
+
+Hand-editing the drain's `WHERE` clause to exclude a peer or a conversation is the
+same defect with the ledger removed: the excluded rows go below the cursor and are
+gone. Use the env filters instead.
+
 ### A new lane is deaf until its first turn
 
 The poller is started by the `Stop` hook, and `Stop` fires at the end of a turn.
@@ -120,6 +149,22 @@ Give the lane one priming turn after launch: the watchdog sends a harmless
 prompt right after starting the session, purely to produce a first `Stop`. In
 tmux, send the text and `Enter` as two separate `send-keys` calls — in one call
 the prompt is typed but never submitted.
+
+### No responder configured is a state, not a silence
+
+A daemon with neither `onReceive` nor `wake.peers[<id>].mode = "codex_app_server"`
+accepts, decrypts, stores and ACKs every message exactly like a healthy one. The
+only difference shows up when somebody waits for a reply nobody was going to write.
+
+Two places now say so out loud:
+
+- **Startup.** `Daemon ready` carries `wake: { configured, hook, native, nativePeers }`,
+  and a zero-responder daemon logs `No wake responder configured` at `warn` before the
+  first message arrives. The `agentId` and `peers` fields are unchanged.
+- **Per message.** `WakeMonitor: hook not configured, message stored only` at `warn`,
+  with `msgId` and `conversationId`. It replaces `WakeMonitor hook completed`, which
+  used to be printed whether or not a hook existed — a log in which a working contour
+  and a contour with no responder at all were byte-identical.
 
 ## Codex CLI - App-Server WS-over-UDS
 
