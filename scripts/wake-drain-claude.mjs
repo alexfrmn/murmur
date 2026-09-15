@@ -35,6 +35,18 @@
 // Dedup is cursor-based (last drained inbound rowid), so a message wakes exactly
 // once. In poll mode a lock file keeps at most one poller alive at a time.
 //
+// CURSOR RULE: the cursor may only ever pass a row this drain actually LOOKED AT,
+// and the high-water mark it moves to must come from the same SELECT that produced the
+// rows — never from a second `MAX(rowid)` query. Two ways to break that, both of which
+// lose messages silently and permanently:
+//   1. advancing to the table tip. A row landing between the SELECT and the tip query is
+//      stepped over and never reported by anyone.
+//   2. filtering rows out after the fact (by sender, conversation or wake_eligible) while
+//      still advancing past them. The filtered rows are below the new cursor forever.
+// So a filter here does not drop a row, it RECORDS it: every deliberately skipped row is
+// appended to the skipped ledger (MURMUR_WAKE_SKIPPED_LOG) before the cursor moves past
+// it. What the drain declines to wake on stays visible in state; nothing vanishes.
+//
 // Run under `node --no-warnings` to suppress the node:sqlite ExperimentalWarning
 // so it does not leak into the wake system-reminder.
 //
@@ -52,14 +64,22 @@
 //   MURMUR_WAKE_ANCHOR      shared cross-session cursor used by --session
 //   MURMUR_WAKE_SESSION_MAX max messages --session prints (default 20; older ones
 //                           are counted, not printed)
+//   MURMUR_WAKE_SKIP_SENDERS        comma-separated sender ids not to wake on
+//   MURMUR_WAKE_SKIP_CONVERSATIONS  comma-separated conversation ids not to wake on
+//   MURMUR_WAKE_SKIP_INELIGIBLE     "1" to also skip rows the daemon marked wake_eligible=0
+//   MURMUR_WAKE_SKIPPED_LOG         append-only JSONL ledger of skipped rows
+//                                   (default: ~/.murmur-wake-skipped.jsonl)
+//
+// All three filters are OFF by default: with no MURMUR_WAKE_SKIP_* set, every inbound row
+// is reported exactly as before.
 
 import { DatabaseSync } from "node:sqlite";
 import {
   readFileSync, writeFileSync, renameSync, rmSync,
-  openSync, closeSync, writeSync, statSync,
+  openSync, closeSync, writeSync, statSync, appendFileSync, mkdirSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const HOME = homedir();
 const DB = process.env.MURMUR_DB || ".data/murmur.db";
@@ -82,6 +102,15 @@ const SESSION_MAX = Number(process.env.MURMUR_WAKE_SESSION_MAX || 20);
 // It answers "how far has anyone drained this store", which is what a cold start
 // needs to know and what a per-session cursor cannot say.
 const ANCHOR = process.env.MURMUR_WAKE_ANCHOR || join(HOME, ".murmur-wake-anchor");
+
+// --- deliberate skips ---------------------------------------------------------
+// Shared across sessions like the anchor: "which rows did this contour decline to wake
+// on" is a property of the store, not of one session.
+const SKIPPED_LOG = process.env.MURMUR_WAKE_SKIPPED_LOG || join(HOME, ".murmur-wake-skipped.jsonl");
+const parseList = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+const SKIP_SENDERS = new Set(parseList(process.env.MURMUR_WAKE_SKIP_SENDERS));
+const SKIP_CONVERSATIONS = new Set(parseList(process.env.MURMUR_WAKE_SKIP_CONVERSATIONS));
+const SKIP_INELIGIBLE = process.env.MURMUR_WAKE_SKIP_INELIGIBLE === "1";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -138,9 +167,21 @@ function maxInbound(db) {
   return row?.m ?? 0;
 }
 
+// wake_eligible arrived in a later schema; an older store simply does not have the column.
+// This is a schema question, not a row question, so asking it separately cannot race rows.
+function hasWakeEligible(db) {
+  try {
+    return db.prepare("SELECT 1 FROM pragma_table_info('local_messages') WHERE name='wake_eligible'").get() != null;
+  } catch {
+    return false;
+  }
+}
+
 function newRows(db, since) {
+  const eligible = hasWakeEligible(db) ? "COALESCE(wake_eligible, 1)" : "1";
   return db.prepare(
-    `SELECT rowid, sender,
+    `SELECT rowid, sender, COALESCE(conversation_id, '') AS conversationId,
+            ${eligible} AS wakeEligible,
             substr(replace(replace(text, char(10), ' '), char(13), ' '), 1, 360) AS snippet
        FROM local_messages
       WHERE direction='inbound' AND rowid > ?
@@ -148,12 +189,73 @@ function newRows(db, since) {
   ).all(since);
 }
 
-function emitAndExit(rows) {
-  // Advance to the last row we are about to REPORT, never to the table's tip: a message
+function skipReason(row) {
+  if (SKIP_SENDERS.has(row.sender)) return "sender-filtered";
+  if (SKIP_CONVERSATIONS.has(row.conversationId)) return "conversation-filtered";
+  if (SKIP_INELIGIBLE && Number(row.wakeEligible) === 0) return "wake-ineligible";
+  return null;
+}
+
+/** Split one batch into what we wake on and what we deliberately pass over. */
+function partition(rows) {
+  const report = [];
+  const skipped = [];
+  for (const row of rows) {
+    const reason = skipReason(row);
+    if (reason) skipped.push({ row, reason });
+    else report.push(row);
+  }
+  return { report, skipped };
+}
+
+// Append BEFORE the cursor moves. A skipped row that is not in the ledger and is below the
+// cursor is a lost message: no future drain will select it again.
+function recordSkipped(entries) {
+  if (!entries.length) return;
+  const ts = new Date().toISOString();
+  const payload = entries
+    .map(({ row, reason }) => `${JSON.stringify({
+      ts,
+      rowid: row.rowid,
+      sender: row.sender,
+      conversationId: row.conversationId || null,
+      reason,
+      cursor: CURSOR,
+    })}\n`)
+    .join("");
+  try {
+    try { mkdirSync(dirname(SKIPPED_LOG), { recursive: true }); } catch {}
+    appendFileSync(SKIPPED_LOG, payload);
+  } catch (err) {
+    // The ledger is the only record these rows leave. If it cannot be written, say so and
+    // leave the cursor where it is, so the rows are selected again next run.
+    const detail = err instanceof Error ? err.message : String(err ?? "");
+    process.stderr.write(`murmur wake: skipped ledger not written (${SKIPPED_LOG}): ${detail}\n`);
+    throw err;
+  }
+}
+
+/**
+ * One drain pass. Returns null when there is nothing new, otherwise the rows to report,
+ * the rows recorded as skipped, and the rowid the cursor may safely advance to — which is
+ * the last row of THIS result set, reported or recorded, and nothing beyond it.
+ */
+function drainBatch(db, since) {
+  const rows = newRows(db, since);
+  if (!rows.length) return null;
+  const { report, skipped } = partition(rows);
+  recordSkipped(skipped);
+  return { report, skipped, examinedTo: rows[rows.length - 1].rowid };
+}
+
+function emitAndExit(rows, examinedTo) {
+  // Advance to the last row this batch EXAMINED, never to the table's tip: a message
   // landing between the SELECT and the tip query would be skipped over by the cursor and
-  // would then never wake anyone.
-  writeCursor(rows[rows.length - 1].rowid);
-  advanceAnchor(rows[rows.length - 1].rowid);
+  // would then never wake anyone. Everything between the last reported row and
+  // `examinedTo` was deliberately skipped and is already in the ledger.
+  const upTo = Number.isFinite(examinedTo) ? examinedTo : rows[rows.length - 1].rowid;
+  writeCursor(upTo);
+  advanceAnchor(upTo);
   releaseLock();
   // Sender and count only (#132): this line lands in a privileged slot of the session, so
   // peer text does not belong here at all — it is read deliberately through murmur_inbox.
@@ -237,12 +339,15 @@ async function main() {
       writeCursor(tip);
       process.exit(0);
     }
-    const rows = newRows(db, anchor);
+    const batch = drainBatch(db, anchor);
     db.close();
+    const rows = batch?.report ?? [];
     // Seed this session's own cursor at the tip either way: the Stop hook takes over from
-    // here and must not re-report what this drain just printed.
-    writeCursor(tip);
-    advanceAnchor(tip);
+    // here and must not re-report what this drain just printed. `examinedTo` comes from the
+    // drain's own SELECT, so skipped rows are passed over only once they are in the ledger.
+    const upTo = Math.max(tip, batch?.examinedTo ?? 0);
+    writeCursor(upTo);
+    advanceAnchor(upTo);
     if (!rows.length) process.exit(0);
     const shown = rows.slice(-SESSION_MAX);
     const hidden = rows.length - shown.length;
@@ -275,9 +380,12 @@ async function main() {
   if (ONCE) {
     const db = openDb();
     const since = readCursor();
-    const rows = newRows(db, since);
+    const batch = drainBatch(db, since);
     db.close();
-    if (rows.length) emitAndExit(rows);
+    if (batch?.report.length) emitAndExit(batch.report, batch.examinedTo);
+    // Nothing to wake on, but rows were examined: move the cursor past them. They are in
+    // the ledger, so "skipped" and "never happened" stay different things.
+    if (batch) { writeCursor(batch.examinedTo); advanceAnchor(batch.examinedTo); }
     process.exit(0);
   }
 
@@ -289,9 +397,11 @@ async function main() {
   while (Date.now() < deadline) {
     const db = openDb();
     const since = readCursor();
-    const rows = newRows(db, since);
+    const batch = drainBatch(db, since);
     db.close();
-    if (rows.length) emitAndExit(rows);
+    if (batch?.report.length) emitAndExit(batch.report, batch.examinedTo);
+    // An all-skipped batch must not end the poll: record it, step over it, keep watching.
+    if (batch) { writeCursor(batch.examinedTo); advanceAnchor(batch.examinedTo); }
     await sleep(POLL_MS);
   }
   releaseLock();
