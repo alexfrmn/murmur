@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, cp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, cp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,11 +69,23 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
     } finally {
       if (mode === 'normal-return') {
         // Only the executable created by this test may be stopped.
-        const cleanup = spawnSync('powershell.exe', ['-NoProfile', '-Command',
-          'Get-CimInstance Win32_Process -Filter "Name=\'murmur-tray.exe\'" | Where-Object { $_.ExecutablePath -eq $env:MURMUR_TEST_EXECUTABLE } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }'], {
-          env: { ...process.env, MURMUR_TEST_EXECUTABLE: path.join(dir, 'murmur-tray.exe') }, encoding: 'utf8', timeout: 10_000,
+        const listed = spawnSync('powershell.exe', ['-NoProfile', '-Command',
+          'ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process -Filter "Name=\'murmur-tray.exe\'" | Select-Object ProcessId,ExecutablePath)'], {
+          encoding: 'utf8', timeout: 10_000,
         });
-        assert.equal(cleanup.status, 0, cleanup.stderr);
+        assert.equal(listed.status, 0, listed.stderr);
+        const expected = await stat(path.join(dir, 'murmur-tray.exe'));
+        for (const process of JSON.parse(listed.stdout)) {
+          if (!process.ExecutablePath) continue;
+          const actual = await stat(process.ExecutablePath).catch(() => null);
+          if (!actual || actual.dev !== expected.dev || actual.ino !== expected.ino) continue;
+          assert.ok(Number.isSafeInteger(process.ProcessId) && process.ProcessId > 0);
+          const cleanup = spawnSync('powershell.exe', ['-NoProfile', '-Command',
+            `$p=Get-Process -Id ${process.ProcessId} -ErrorAction SilentlyContinue; if($p){$p.Kill();$p.WaitForExit()}`], {
+            encoding: 'utf8', timeout: 10_000,
+          });
+          assert.equal(cleanup.status, 0, cleanup.stderr);
+        }
       }
       await rm(dir, { recursive: true, force: true });
     }
