@@ -46,6 +46,11 @@ func run(t *testing.T, exe string, env []string, args ...string) (string, error)
 }
 
 func TestSecondInstallLeavesFilesUntouched(t *testing.T) {
+	// Тест ставит настоящую службу Windows, поэтому по умолчанию не гоняется: на общих
+	// раннерах это долго и меняет состояние машины. Включается явно.
+	if os.Getenv("MURMUR_SVC_E2E") != "1" {
+		t.Skip("приёмка службы включается переменной MURMUR_SVC_E2E=1")
+	}
 	if _, err := os.Stat(filepath.Join(os.Getenv("SystemRoot"), "System32", "config", "SAM")); err != nil {
 		t.Skip("нужны права администратора")
 	}
