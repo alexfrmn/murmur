@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`WakeMonitor hook completed` was logged when there was no hook** (#146) — the line was
+  printed whether or not a responder existed, so a daemon configured with neither `wake`
+  nor `onReceive` produced a log byte-identical to a healthy one: `Message received`, then
+  `hook completed` four milliseconds later, for messages that reached nobody. The
+  no-responder branch now logs `WakeMonitor: hook not configured, message stored only` at
+  `warn` with `msgId` and `conversationId`, and `hook completed` is printed only when a hook
+  actually ran. Wake readiness is also visible before the first message: `Daemon ready`
+  carries an additive `wake: { configured, hook, native, nativePeers }`, and a daemon with
+  no responder logs `No wake responder configured` at startup.
+- **The wake-drain cursor stepped over rows nobody looked at** (#146) —
+  `wake-drain-claude.sh` selected the rows to report and then advanced the cursor to a
+  separate `MAX(rowid)` query over the whole table. Anything between the two queries was
+  skipped permanently: a row that landed in the gap, and every row a locally added filter
+  had removed from the report. Both drains now take rows and high-water mark from one
+  `SELECT`, and the cursor only ever passes a row that was reported or recorded.
+
 ### Added
 - **A notify target can take one peer** — `peers: ["agent-jarvis"]` on a Telegram or webhook
   target limits it to those senders, and `fallback: true` marks the target that takes whatever
@@ -14,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   peers meant a second process reading the store and posting by sender. A target with neither
   field keeps taking everything, so existing configs are untouched. A sender that matches no
   target at all is logged as a warning rather than dropped in silence.
+- **Supported filters for the wake drain, with a ledger instead of a silent drop** (#146) —
+  `MURMUR_WAKE_SKIP_SENDERS`, `MURMUR_WAKE_SKIP_CONVERSATIONS` and
+  `MURMUR_WAKE_SKIP_INELIGIBLE` (the last one honours the daemon's `wake_eligible=0` mute).
+  Every deliberately skipped row is appended to `MURMUR_WAKE_SKIPPED_LOG`
+  (default `~/.murmur-wake-skipped.jsonl`) with its reason *before* the cursor moves past
+  it; if the ledger cannot be written the cursor stays put. All three filters are off by
+  default, so an installation that sets none of them behaves exactly as before. Documented
+  in `docs/wake-native.md`.
 
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.

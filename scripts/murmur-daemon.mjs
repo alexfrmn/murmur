@@ -501,7 +501,17 @@ try {
   }
 
   flushLoop();
-  log("info", "Daemon ready", { agentId, peers: Object.keys(peers) });
+  // Wake readiness belongs in the readiness line. A daemon with no responder accepts,
+  // decrypts, stores and ACKs every message exactly like a healthy one — the difference
+  // is only visible once somebody waits for a reply that nobody was ever going to write.
+  // `wake` is additive: `agentId` and `peers` keep their shape for existing log readers.
+  const wakeStatus = wakeMonitor.responderStatus();
+  if (!wakeStatus.configured) {
+    log("warn", "No wake responder configured - inbound messages will be stored and nothing else", {
+      hint: "set onReceive (shell hook), or wake.peers[<agentId>].mode=codex_app_server (native wake), in agent-config.json",
+    });
+  }
+  log("info", "Daemon ready", { agentId, peers: Object.keys(peers), wake: wakeStatus });
 } catch (err) {
   log("fatal", "Daemon startup failed", { error: err.message });
   await broker.close().catch(() => {});
