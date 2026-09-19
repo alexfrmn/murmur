@@ -193,3 +193,32 @@ test("killing a session during the quiet window leaves every message recoverable
   assert.equal((await store.wakeStateFor("one")).status, "handled");
   assert.equal((await store.wakeStateFor("two")).status, "handled");
 });
+
+test("a failed batch shares one retry deadline even when the clock advances per member", async (t) => {
+  const { store, receive } = fixture(t);
+  let clock = Date.now();
+  const monitor = monitorFor(store, async () => { throw new Error("retry"); }, { now: () => clock++, retryBackoffMs: 1000 });
+  monitor.enqueue(await receive("one")); monitor.enqueue(await receive("two"));
+  await monitor.drain();
+  const one = await store.wakeStateFor("one"), two = await store.wakeStateFor("two");
+  assert.equal(one.status, "failed");
+  assert.equal(one.nextAttemptAt, two.nextAttemptAt);
+  clock = Date.parse(one.nextAttemptAt);
+  const calls = [];
+  await monitorFor(store, async (p) => calls.push(p), { now: () => clock }).drain();
+  assert.equal(calls.length, 1);
+  assert.equal((await store.wakeStateFor("two")).status, "handled");
+});
+
+test("mixed prior attempt counts cannot split a batch into DLQ and retryable members", async (t) => {
+  const { store, receive } = fixture(t);
+  const one = await receive("one");
+  await store.claimWake("one");
+  await store.settleWake("one", { status: "failed", nextAttemptAt: "2000-01-01T00:00:00Z" });
+  const two = await receive("two");
+  const monitor = monitorFor(store, async () => { throw new Error("session-gone"); }, { maxAttempts: 2 });
+  monitor.enqueue(one); monitor.enqueue(two);
+  await monitor.drain();
+  assert.equal((await store.wakeStateFor("one")).status, "dlq");
+  assert.equal((await store.wakeStateFor("two")).status, "dlq");
+});

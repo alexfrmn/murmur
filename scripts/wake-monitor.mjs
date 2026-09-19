@@ -513,16 +513,26 @@ export class WakeMonitor {
     };
     this.log("info", "WakeMonitor batch dispatch", { msgId: batch.batchId, msgIds: combined.batchMsgIds, count: ready.length, remaining: this.queue.filter((p) => this.laneKeyFor(p) === lane).length });
     // All pre-effect audit/eligibility/lease gates ran for every individual member.
-    const effect = Promise.resolve().then(() => {
+    let outcome;
+    try {
       if (!this.injector) throw new Error(`wake-native-injector-missing:${first.from}`);
-      return this.injector(combined, this.peerFor(first));
-    });
-    const outcomes = [];
-    await Promise.all(ready.map(({ payload, run }) => run(() => effect, async (status, extra = {}) => {
-      outcomes.push({ msgId: payload.msgId, input: { status, ...extra, now: this.nowIso() } });
-    })));
-    await this.deliveries.settleWakeBatch(outcomes);
+      const result = await this.injector(combined, this.peerFor(first));
+      const replyMsgId = result?.replyMsgId ?? result?.relay?.msgId;
+      outcome = { status: "handled", ...(replyMsgId ? { replyMsgId } : {}), now: this.nowIso() };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      // One effect has one retry deadline and terminal decision. Per-member clocks
+      // or prior attempts must not leave half a persisted batch ineligible to retry.
+      const attempts = Math.max(...ready.map(({ payload }) => payload.attempt));
+      const retryable = error.retryable !== false && attempts < this.maxAttempts;
+      const now = this.now();
+      outcome = { status: retryable ? "failed" : "dlq", error: error.message, now: new Date(now).toISOString(),
+        ...(retryable ? { nextAttemptAt: new Date(now + wakeRetryBackoffMs(attempts, this.retryBackoffMs, this.retryBackoffMaxMs)).toISOString() } : {}) };
+      this.log("warn", "WakeMonitor batch effect failed", { batchId: batch.batchId, attempts, status: outcome.status, error: error.message });
+    }
+    await this.deliveries.settleWakeBatch(ready.map(({ payload }) => ({ msgId: payload.msgId, input: outcome })));
     await this.advanceCursor(first);
+    if (outcome.status === "dlq") for (const { payload } of ready) await this.notify?.(payload, "wake-dlq");
   }
 
   pruneSeen(now = this.now()) {
