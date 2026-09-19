@@ -131,6 +131,7 @@ public struct StatusSnapshot: Decodable, Sendable {
         }
     }
     public let schema: String, generatedAt: String
+    public let agentId: String?
     public let service: Service, broker: Broker, peers: Peers, inbox: Inbox, outbox: Outbox, wake: Wake
 
     public static func decode(_ data: Data) throws -> Self {
