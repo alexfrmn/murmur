@@ -11,6 +11,7 @@ export * from "./lease.js";
 
 // Phase N — typed channel roster (channelId distinct from legacy conversationId)
 export * from "./channel.js";
+export * from "./subjects.js";
 
 export type DeliveryMode = "at-least-once";
 
