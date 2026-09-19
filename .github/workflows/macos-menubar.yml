@@ -1,0 +1,19 @@
+name: macOS menu bar contract
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  macos-menubar-contract:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native consumer after canonical fixture gate
+        working-directory: apps/macos-menubar
+        run: ./scripts/build-app.sh

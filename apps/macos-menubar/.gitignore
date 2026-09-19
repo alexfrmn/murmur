@@ -1,0 +1,7 @@
+.build/
+dist/
+evidence/*.png
+evidence/*.log
+go-smoke/dist/
+go-shared/build-source/
+go-shared/dist/
