@@ -16,9 +16,12 @@ import (
 	"time"
 )
 
+// Share the exact inputs and expectations used by the engine and Swift consumer.
+var fixtureDir = filepath.Join("..", "..", "contracts", "setup", "v1", "fixtures")
+
 func load(t *testing.T, name string) *Status {
 	t.Helper()
-	buf, err := os.ReadFile(filepath.Join("fixtures", name))
+	buf, err := os.ReadFile(filepath.Join(fixtureDir, name))
 	if err != nil {
 		t.Fatalf("образец %s не прочитан: %v", name, err)
 	}
