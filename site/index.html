@@ -7,119 +7,175 @@
 <meta name="description" content="Зашифрованный обмен сообщениями между ИИ-агентами. Прямой канал между двумя агентами без человека-ретранслятора.">
 <link rel="stylesheet" href="fonts.css?v=20260919-1">
 <style>
-  :root {
-    --dark: #070707;
-    --dark-2: #0d0d0c;
-    --light: #f2f0e8;
-    --ink: #f2f0e8;
-    --ink-dark: #16150f;
-    --soft: #c8c6bc;
-    --soft-dark: #55534b;
-    --dim: #96938a;
-    --hair: #24241f;
-    --hair-light: #d8d5c8;
-    --red: #d92027;
-    --red-deep: #7d1217;
+  /* Три гаммы, переключаемые без перезагрузки. Каждая собрана по одному правилу:
+     один нейтральный фон, один тон для текста из той же семьи, один акцент и один
+     приглушённый вторичный. Контраст текста к фону проверен и указан в README. */
+  :root,
+  [data-theme="sand"] {
+    --field: #f7f3ea;          /* тёплый песок */
+    --raise: #efe9dc;
+    --ink: #2a2521;
+    --soft: #5d554c;
+    --dim: #8b8177;
+    --hair: #e0d8c8;
+    --accent: #b5480d;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(181,72,13,.13);
+    --graph: #7a6a58;
   }
+  [data-theme="dusk"] {
+    --field: #141824;          /* глубокие сумерки, не чёрный */
+    --raise: #1b2030;
+    --ink: #e8eaf2;
+    --soft: #aab0c4;
+    --dim: #79819a;
+    --hair: #2a3042;
+    --accent: #f0a868;
+    --accent-ink: #1a1508;
+    --accent-soft: rgba(240,168,104,.14);
+    --graph: #97a0bd;
+  }
+  [data-theme="mint"] {
+    --field: #f0f6f3;          /* светлая мята */
+    --raise: #e4ede8;
+    --ink: #17302a;
+    --soft: #4a6159;
+    --dim: #7d938b;
+    --hair: #d3e2da;
+    --accent: #0f766e;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(15,118,110,.12);
+    --graph: #6b8a80;
+  }
+
+  :root {
+    --gutter: clamp(20px, 4vw, 56px);
+    /* Скругления: страница перестаёт читаться как схема. */
+    --r-lg: 22px;
+    --r-md: 14px;
+    --r-sm: 10px;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
   body {
-    background: var(--dark);
+    background: var(--field);
     color: var(--ink);
     font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
     font-size: 16px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    transition: background .28s ease, color .28s ease;
   }
 
+  /* ——— шапка и переключатель гаммы ——— */
   header {
     position: sticky; top: 0; z-index: 40;
-    background: rgba(7,7,7,.92); backdrop-filter: blur(6px);
+    background: color-mix(in srgb, var(--field) 92%, transparent);
+    backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--hair);
   }
   .bar {
-    max-width: 1320px; margin: 0 auto; padding: 16px clamp(18px, 4vw, 48px);
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    max-width: 1280px; margin: 0 auto; padding: 14px var(--gutter);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }
   .logo { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; }
-  .bar a { color: var(--soft); text-decoration: none; font-size: 14px; letter-spacing: 1px; }
-  .bar a:hover { color: var(--ink); }
+  .bar > a { color: var(--soft); text-decoration: none; font-size: 14px; }
+  .bar > a:hover { color: var(--ink); }
+
+  .themes { display: flex; gap: 8px; align-items: center; }
+  .themes button {
+    width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--hair); font: inherit; font-size: 0; padding: 0;
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  }
+  .themes button:hover { transform: translateY(-2px); }
+  .themes button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .sw-sand { background: linear-gradient(135deg,#f7f3ea 50%,#b5480d 50%); }
+  .sw-dusk { background: linear-gradient(135deg,#141824 50%,#f0a868 50%); }
+  .sw-mint { background: linear-gradient(135deg,#f0f6f3 50%,#0f766e 50%); }
 
   /* ——— кнопки: плашка под низом, при наведении уезжает ——— */
   .chip {
     display: inline-flex; align-items: center; gap: 8px;
-    border: 1px solid #3a3a34; padding: 13px 22px;
-    font-size: 14px; letter-spacing: 1.1px; text-transform: uppercase;
+    border: 1px solid var(--hair); border-radius: var(--r-sm); padding: 13px 22px;
+    font-size: 14px; letter-spacing: 1px; text-transform: uppercase;
     color: var(--ink); background: transparent; text-decoration: none;
     font-family: inherit; cursor: pointer; transition: .18s;
   }
-  .chip:hover { border-color: var(--red); color: var(--red); transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--red-deep); }
+  .chip:hover { border-color: var(--accent); color: var(--accent); transform: translate(-2px,-2px); box-shadow: 3px 3px 0 var(--accent-soft); }
   .chip.primary {
-    background: var(--red); border-color: var(--red); color: #0a0a0a; font-weight: 700;
-    box-shadow: 4px 4px 0 rgba(242,240,233,.18);
+    background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700;
+    box-shadow: 4px 4px 0 var(--accent-soft);
   }
-  .chip.primary:hover { color: #0a0a0a; transform: translate(-2px, -2px); box-shadow: 6px 6px 0 rgba(242,240,233,.25); }
-  .zone.light .chip { border-color: #c2bfae; color: var(--ink-dark); }
-  .zone.light .chip:hover { border-color: var(--red); color: var(--red); box-shadow: 3px 3px 0 rgba(217,32,39,.25); }
-  .zone.light .chip.primary { color: #0a0a0a; box-shadow: 4px 4px 0 rgba(22,21,15,.18); }
+  .chip.primary:hover { color: var(--accent-ink); transform: translate(-2px,-2px); box-shadow: 6px 6px 0 var(--accent-soft); }
 
-  .zone { padding: clamp(64px, 9vw, 140px) 0; }
-  .zone.light { background: var(--light); color: var(--ink-dark); }
-  .zone.light .lead, .zone.light p { color: var(--soft-dark); }
-  .zone.light .tag { color: #6f6c62; }
-  .wrap { max-width: 1320px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 48px); }
+  /* ——— зоны ——— */
+  .zone { padding: clamp(56px, 8vw, 128px) 0; }
+  .zone.alt { background: var(--raise); border-radius: var(--r-lg); }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 var(--gutter); }
+  main { max-width: 1400px; margin: 0 auto; padding: 0 clamp(8px, 2vw, 24px); }
 
-  .tag { font-size: 14px; letter-spacing: 2px; color: var(--dim); display: block; margin-bottom: 18px; }
-  h2 { font-size: clamp(28px, 4vw, 54px); font-weight: 700; letter-spacing: -1.4px; line-height: 1.02; }
-  .lead { color: var(--soft); max-width: 58ch; margin-top: 20px; }
+  .tag { font-size: 14px; letter-spacing: 2px; color: var(--dim); display: block; margin-bottom: 16px; }
+  h2 { font-size: clamp(26px, 3.6vw, 48px); font-weight: 700; letter-spacing: -1.2px; line-height: 1.06; }
+  .lead { color: var(--soft); max-width: 56ch; margin-top: 18px; }
 
-  /* Первый экран непрозрачен: дым идёт фоном всей страницы, а здесь он перекрыл бы
-     граф двух агентов — на одном экране двух подвижных слоёв быть не должно. */
-  .hero { position: relative; min-height: min(86vh, 780px); display: flex; align-items: center;
-          overflow: hidden; background: var(--dark); }
+  /* ——— первый экран ——— */
+  .hero {
+    position: relative; min-height: min(84vh, 760px); display: flex; align-items: center;
+    overflow: hidden; background: var(--field); border-radius: var(--r-lg);
+  }
   #art { position: absolute; inset: 0; width: 100%; height: 100%; }
   .hero .wrap { position: relative; z-index: 2; width: 100%; }
-  .eyebrow { font-size: 15px; letter-spacing: 1.6px; color: var(--soft); margin-bottom: 28px; }
-  .eyebrow i { color: var(--red); font-style: normal; }
-  h1 { font-size: clamp(38px, 7vw, 104px); line-height: .96; font-weight: 700; letter-spacing: -3px; max-width: 16ch; }
-  .hero p { margin-top: 24px; color: var(--soft); max-width: 48ch; }
-  .actions { margin-top: 40px; display: flex; flex-wrap: wrap; gap: 16px; }
+  .eyebrow { font-size: 15px; letter-spacing: 1.4px; color: var(--soft); margin-bottom: 24px; }
+  .eyebrow i { color: var(--accent); font-style: normal; }
+  h1 { font-size: clamp(34px, 6.4vw, 92px); line-height: 1; font-weight: 700; letter-spacing: -2.5px; max-width: 16ch; }
+  .hero p { margin-top: 22px; color: var(--soft); max-width: 46ch; }
+  .actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 14px; }
 
-  .schema { width: 100%; height: auto; margin: clamp(28px, 4vw, 54px) 0; }
-  .facts { display: grid; border-top: 1px solid var(--hair-light); }
-  @media (min-width: 860px) { .facts { grid-template-columns: 1fr 1fr; } }
-  .fact { padding: 26px 0; border-bottom: 1px solid var(--hair-light); }
-  @media (min-width: 860px) { .fact:nth-child(odd) { padding-right: 40px; } .fact:nth-child(even) { padding-left: 40px; border-left: 1px solid var(--hair-light); } }
+  /* ——— как это устроено ——— */
+  .schema { width: 100%; height: auto; margin: clamp(24px, 3.4vw, 46px) 0; }
+  .facts { display: grid; gap: 16px; }
+  @media (min-width: 820px) { .facts { grid-template-columns: 1fr 1fr; } }
+  .fact { padding: 22px; border: 1px solid var(--hair); border-radius: var(--r-md); background: var(--field); }
   .fact h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-  .fact p { font-size: 15px; }
+  .fact p { font-size: 15px; color: var(--soft); }
 
   /* ——— промпт ——— */
-  .promptbox { margin-top: clamp(26px, 3.6vw, 44px); border: 1px solid var(--hair); background: var(--dark-2); }
+  .promptbox { margin-top: clamp(22px, 3vw, 38px); border: 1px solid var(--hair); border-radius: var(--r-md); background: var(--raise); overflow: hidden; }
   .promptbox .head {
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    padding: 14px 18px; border-bottom: 1px solid var(--hair); font-size: 13px;
-    letter-spacing: 1.6px; color: var(--dim);
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 13px 16px; border-bottom: 1px solid var(--hair); font-size: 13px;
+    letter-spacing: 1.4px; color: var(--dim);
   }
   .promptbox pre {
-    margin: 0; padding: 20px 18px; overflow-x: auto; font-size: 14px; line-height: 1.7;
+    margin: 0; padding: 18px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.7;
     color: var(--soft); white-space: pre-wrap; border: 0; background: transparent;
   }
-  .after { margin-top: 26px; color: var(--soft); font-size: 15px; max-width: 60ch; }
-  .after a { color: var(--ink); }
-  code { font-family: inherit; font-size: 14px; background: var(--dark-2); border: 1px solid var(--hair); padding: 2px 6px; }
-  .zone.light code { background: #e7e4d8; border-color: var(--hair-light); color: var(--ink-dark); }
+  .after { margin-top: 22px; color: var(--soft); font-size: 15px; max-width: 60ch; }
+  .after b { color: var(--ink); }
+  .after a { color: var(--accent); }
+  code { font-family: inherit; font-size: 14px; background: var(--raise); border: 1px solid var(--hair); border-radius: 6px; padding: 2px 6px; }
 
-  /* ——— строка про стаю: одна строка, не блок ——— */
-  .murmur-line { padding: clamp(30px, 4vw, 54px) 0; border-top: 1px solid var(--hair); }
-  .murmur-line p { font-size: 15px; color: var(--dim); letter-spacing: .4px; }
+  /* ——— строка про стаю ——— */
+  .murmur-line { padding: clamp(26px, 3.4vw, 46px) 0; }
+  .murmur-line p { font-size: 15px; color: var(--dim); }
 
-  /* ——— дым на всю страницу ——— */
+  footer { border-top: 1px solid var(--hair); }
+  footer .wrap { padding-top: 26px; padding-bottom: 40px; display: flex; flex-wrap: wrap; gap: 10px 28px; justify-content: space-between; font-size: 14px; color: var(--soft); }
+  footer a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair); }
+
+  /* ——— дым ——— */
   #smoke { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
   header, section, footer { position: relative; z-index: 1; }
 
-  footer { background: var(--light); color: var(--soft-dark); }
-  footer .wrap { padding-top: 32px; padding-bottom: 48px; display: flex; flex-wrap: wrap; gap: 10px 32px; justify-content: space-between; font-size: 14px; letter-spacing: .6px; }
-  footer a { color: var(--ink-dark); text-decoration: none; border-bottom: 1px solid var(--hair-light); }
+  /* На телефоне первый экран ниже, поля уже, а блоки не прижимаются к краям. */
+  @media (max-width: 640px) {
+    .hero { min-height: 74vh; }
+    .zone { padding: 46px 0; }
+    .chip { width: 100%; justify-content: center; }
+    .actions { gap: 10px; }
+  }
 
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
@@ -130,6 +186,11 @@
 <header>
   <div class="bar">
     <span class="logo">murmur</span>
+    <div class="themes" role="group" aria-label="цветовая гамма">
+      <button class="sw-sand" data-set="sand" aria-pressed="true" title="песок">песок</button>
+      <button class="sw-dusk" data-set="dusk" aria-pressed="false" title="сумерки">сумерки</button>
+      <button class="sw-mint" data-set="mint" aria-pressed="false" title="мята">мята</button>
+    </div>
     <a href="https://github.com/alexfrmn/murmur">github</a>
   </div>
 </header>
@@ -148,7 +209,7 @@
   </div>
 </section>
 
-<section class="zone light" id="kak">
+<section class="zone alt" id="kak">
   <div class="wrap">
     <span class="tag">как это устроено</span>
     <h2>два демона<br>и брокер между ними</h2>
@@ -200,10 +261,10 @@
       <pre id="prompt">Поставь мне murmur — https://github.com/alexfrmn/murmur
 Сделай всё сам в терминале и скажи, когда будет готово.
 
-1. Проверь, что стоят node 22.13 или новее и git. Чего нет — поставь или
-   скажи мне. Порог именно 22.13: демон хранит сообщения через встроенный
-   node:sqlite, в 22.5 появился только флаг --experimental-sqlite, а без
-   флага модуль доступен с 22.13. Надёжнее числа — проверь возможность:
+1. Проверь, что стоят node 22.13.0 или новее и git. Чего нет — поставь или
+   скажи мне. Порог именно 22.13.0: демон хранит сообщения через встроенный
+   node:sqlite, а в 22.5 появился только флаг --experimental-sqlite — без
+   флага модуль доступен с 22.13.0. Надёжнее числа — проверь возможность:
    node --no-warnings -e "require('node:sqlite')" должен завершиться нулём.
 2. Забери код и собери:
    git clone https://github.com/alexfrmn/murmur.git
@@ -267,6 +328,39 @@ sh, которого там нет, и пробуждение молча не с
 
 <script>
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ——————————— гамма ——————————— */
+// Цвета рисунков берутся из тех же переменных, что и вёрстка: иначе при смене гаммы
+// текст менялся бы, а граф и дым оставались от прошлой.
+let C = {};
+function readPalette() {
+  const s = getComputedStyle(document.documentElement);
+  const v = n => s.getPropertyValue(n).trim();
+  C = { field: v('--field'), ink: v('--ink'), soft: v('--soft'), dim: v('--dim'),
+        hair: v('--hair'), accent: v('--accent'), graph: v('--graph') };
+}
+function rgba(hex, a) {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function applyTheme(name) {
+  document.documentElement.setAttribute('data-theme', name);
+  for (const b of document.querySelectorAll('.themes button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.set === name));
+  }
+  readPalette();
+  if (typeof seedSmoke === 'function') seedSmoke();
+  try { localStorage.setItem('murmur-theme', name); } catch {}
+}
+document.querySelectorAll('.themes button').forEach(b => {
+  b.addEventListener('click', () => applyTheme(b.dataset.set));
+});
+let saved = 'sand';
+try { saved = localStorage.getItem('murmur-theme') || 'sand'; } catch {}
+document.documentElement.setAttribute('data-theme', saved);
+readPalette();
+
 function lcg(seed) {
   return () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
 }
@@ -303,17 +397,17 @@ function drawSchema(P) {
   BOXES.forEach((b, i) => {
     const cx = b.x + b.w / 2;
     const hot = Math.exp(-Math.pow((px - cx) / 120, 2));
-    s += `<rect x="${b.x}" y="${y}" width="${b.w}" height="${h}" fill="none" stroke="${i === 2 ? '#c9c5b4' : '#8d8a7c'}" opacity="${(.45 + hot * .55).toFixed(2)}"/>`;
-    s += `<text x="${cx}" y="${y + 33}" text-anchor="middle" font-size="14" letter-spacing="1" fill="#16150f" opacity="${(.6 + hot * .4).toFixed(2)}">${b.t}</text>`;
-    s += `<text x="${cx}" y="${y + 54}" text-anchor="middle" font-size="12" fill="#55534b" opacity="${(.55 + hot * .45).toFixed(2)}">${b.s}</text>`;
+    s += `<rect x="${b.x}" y="${y}" width="${b.w}" height="${h}" fill="none" stroke="${C.hair}" opacity="${(.45 + hot * .55).toFixed(2)}"/>`;
+    s += `<text x="${cx}" y="${y + 33}" text-anchor="middle" font-size="14" letter-spacing="1" fill="${C.ink}" opacity="${(.6 + hot * .4).toFixed(2)}">${b.t}</text>`;
+    s += `<text x="${cx}" y="${y + 54}" text-anchor="middle" font-size="12" fill="${C.soft}" opacity="${(.55 + hot * .45).toFixed(2)}">${b.s}</text>`;
   });
   for (let i = 0; i < 4; i++) {
-    s += `<line x1="${BOXES[i].x + BOXES[i].w}" y1="${y + h / 2}" x2="${BOXES[i + 1].x}" y2="${y + h / 2}" stroke="#c9c5b4"/>`;
+    s += `<line x1="${BOXES[i].x + BOXES[i].w}" y1="${y + h / 2}" x2="${BOXES[i + 1].x}" y2="${y + h / 2}" stroke="${C.hair}"/>`;
   }
   const encrypted = px > BOXES[1].x + BOXES[1].w * .5 && px < BOXES[3].x + BOXES[3].w * .5;
-  s += `<circle cx="${px.toFixed(1)}" cy="${y + h / 2}" r="5" fill="${encrypted ? '#d92027' : '#16150f'}"/>`;
-  s += `<circle cx="${px.toFixed(1)}" cy="${y + h / 2}" r="${(11 + 3 * Math.sin(6 * Math.PI * P)).toFixed(1)}" fill="none" stroke="${encrypted ? '#d92027' : '#8d8a7c'}" opacity=".4"/>`;
-  s += `<text x="${px.toFixed(1)}" y="${y + h / 2 + 36}" text-anchor="middle" font-size="12" letter-spacing="1" fill="#55534b">${encrypted ? 'шифр' : 'текст'}</text>`;
+  s += `<circle cx="${px.toFixed(1)}" cy="${y + h / 2}" r="5" fill="${encrypted ? C.accent : C.ink}"/>`;
+  s += `<circle cx="${px.toFixed(1)}" cy="${y + h / 2}" r="${(11 + 3 * Math.sin(6 * Math.PI * P)).toFixed(1)}" fill="none" stroke="${encrypted ? C.accent : C.graph}" opacity=".4"/>`;
+  s += `<text x="${px.toFixed(1)}" y="${y + h / 2 + 36}" text-anchor="middle" font-size="12" letter-spacing="1" fill="${C.soft}">${encrypted ? 'шифр' : 'текст'}</text>`;
   schema.innerHTML = s;
 }
 
@@ -323,25 +417,25 @@ function setT(t) {
   const px = A.x + (B.x - A.x) * swing, py = A.y + (B.y - A.y) * swing;
   const near = HERO.pts.map(p => Math.exp(-Math.pow(Math.hypot(p.x - px, p.y - py) / 150, 2)));
   let s = `<defs><linearGradient id="g" x1="${px - 150}" y1="${py}" x2="${px + 150}" y2="${py}" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="#9a9a90" stop-opacity="0"/>
-    <stop offset="0.5" stop-color="#e8e6dc" stop-opacity="0.85"/>
-    <stop offset="1" stop-color="#9a9a90" stop-opacity="0"/></linearGradient></defs>`;
+    <stop offset="0" stop-color="${C.graph}" stop-opacity="0"/>
+    <stop offset="0.5" stop-color="${C.ink}" stop-opacity="0.85"/>
+    <stop offset="1" stop-color="${C.graph}" stop-opacity="0"/></linearGradient></defs>`;
   HERO.pairs.forEach(([i, j]) => {
     const op = near[i] * near[j];
-    if (op > .015) s += `<line x1="${HERO.pts[i].x.toFixed(1)}" y1="${HERO.pts[i].y.toFixed(1)}" x2="${HERO.pts[j].x.toFixed(1)}" y2="${HERO.pts[j].y.toFixed(1)}" stroke="#8a8a82" opacity="${(op * .6).toFixed(2)}"/>`;
+    if (op > .015) s += `<line x1="${HERO.pts[i].x.toFixed(1)}" y1="${HERO.pts[i].y.toFixed(1)}" x2="${HERO.pts[j].x.toFixed(1)}" y2="${HERO.pts[j].y.toFixed(1)}" stroke="${C.graph}" opacity="${(op * .6).toFixed(2)}"/>`;
   });
   HERO.pts.forEach((p, k) => {
-    s += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(1.5 + near[k] * 2.2).toFixed(2)}" fill="#f2f0e8" opacity="${Math.min(1, .1 + near[k] * .7).toFixed(2)}"/>`;
+    s += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(1.5 + near[k] * 2.2).toFixed(2)}" fill="${C.ink}" opacity="${Math.min(1, .1 + near[k] * .7).toFixed(2)}"/>`;
   });
-  s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="#34342f"/>`;
+  s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="${C.hair}"/>`;
   s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="url(#g)" stroke-width="2"/>`;
   [[A, 'агент А', 1 - swing], [B, 'агент B', swing]].forEach(([n, name, hot]) => {
-    s += `<circle cx="${n.x}" cy="${n.y}" r="${(5 + hot * 3).toFixed(2)}" fill="#f2f0e8" opacity="${(.55 + hot * .45).toFixed(2)}"/>`;
-    s += `<circle cx="${n.x}" cy="${n.y}" r="${(16 + hot * 10).toFixed(1)}" fill="none" stroke="#8a8a82" opacity="${(.15 + hot * .35).toFixed(2)}"/>`;
-    s += `<text x="${n.x}" y="${n.y - 30}" text-anchor="middle" font-size="15" letter-spacing="1" fill="#c8c6bc" opacity="${(.45 + hot * .55).toFixed(2)}">${name}</text>`;
+    s += `<circle cx="${n.x}" cy="${n.y}" r="${(5 + hot * 3).toFixed(2)}" fill="${C.ink}" opacity="${(.55 + hot * .45).toFixed(2)}"/>`;
+    s += `<circle cx="${n.x}" cy="${n.y}" r="${(16 + hot * 10).toFixed(1)}" fill="none" stroke="${C.graph}" opacity="${(.15 + hot * .35).toFixed(2)}"/>`;
+    s += `<text x="${n.x}" y="${n.y - 30}" text-anchor="middle" font-size="15" letter-spacing="1" fill="${C.soft}" opacity="${(.45 + hot * .55).toFixed(2)}">${name}</text>`;
   });
-  s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4.5" fill="#d92027"/>`;
-  s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${(11 + 4 * Math.sin(4 * Math.PI * P)).toFixed(1)}" fill="none" stroke="#d92027" opacity=".45"/>`;
+  s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4.5" fill="${C.accent}"/>`;
+  s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${(11 + 4 * Math.sin(4 * Math.PI * P)).toFixed(1)}" fill="none" stroke="${C.accent}" opacity=".45"/>`;
   art.innerHTML = s;
   drawSchema(P);
 }
@@ -376,7 +470,7 @@ function seedSmoke() {
   SW = window.innerWidth; SH = window.innerHeight;
   smoke.width = Math.round(SW * dpr); smoke.height = Math.round(SH * dpr);
   sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  sctx.fillStyle = '#070707';
+  sctx.fillStyle = C.field;
   sctx.fillRect(0, 0, SW, SH);
 
   const rnd = lcg(41);
@@ -393,12 +487,12 @@ function drawSmoke(dt) {
   // Вуаль: старое не стирается, а тускнеет — из этого и получается размазанный след.
   // Доля подобрана так, чтобы след жил около трёх секунд: гуще — и он превращается в
   // мельтешение, реже — и поле зарастает.
-  sctx.fillStyle = 'rgba(7,7,7,0.030)';
+  sctx.fillStyle = rgba(C.field, .03);
   sctx.fillRect(0, 0, SW, SH);
 
   sctx.lineWidth = 1;
   sctx.lineCap = 'round';
-  sctx.strokeStyle = 'rgba(242,240,233,0.22)';
+  sctx.strokeStyle = rgba(C.graph, .5);
   sctx.beginPath();
   for (const g of grains) {
     let a = NOISE(g.x / SW, g.y / SH, smokeT);
