@@ -79,7 +79,9 @@ export interface AckWindowConfig {
 }
 
 export type AckSigner = (ack: UnsignedAckV1) => Promise<SignedAckV1>;
-export type AckVerifier = (ack: SignedAckV1) => Promise<boolean>;
+/** A missing peer key is not evidence of an invalid cryptographic signature. */
+export type AckVerificationResult = boolean | "key-unavailable";
+export type AckVerifier = (ack: SignedAckV1) => Promise<AckVerificationResult>;
 
 export interface InvalidAckEvent {
   reason: string;
@@ -783,7 +785,16 @@ export class NatsBroker {
         this.invalidAck(params, "timestamp-out-of-window", decoded);
         return;
       }
-      if (!params.verifyAck || !(await params.verifyAck(decoded))) {
+      if (!params.verifyAck) {
+        this.invalidAck(params, "signature-verifier-unavailable", decoded);
+        return;
+      }
+      const verified = await params.verifyAck(decoded);
+      if (verified === "key-unavailable") {
+        this.invalidAck(params, "signature-key-unavailable", decoded);
+        return;
+      }
+      if (verified !== true) {
         this.invalidAck(params, "signature-invalid", decoded);
         return;
       }

@@ -182,7 +182,7 @@ const signAck = async (unsignedAck) => ({
 
 const verifyAck = async (ack) => {
   const peer = peers[ack.senderAgentId];
-  if (!peer?.signing?.publicKey) return false;
+  if (!peer?.signing?.publicKey) return "key-unavailable";
   return verifyEnvelopeSignature(stableAckPayload(ack), ack.signature, peer.signing.publicKey);
 };
 
