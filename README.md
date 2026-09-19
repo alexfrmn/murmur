@@ -249,8 +249,10 @@ node scripts/murmur-join.mjs 'MURMUR:eyJ…'
 node scripts/murmur-add-peer.mjs 'MURMUR-REPLY:eyJ…'
 ```
 
-The blobs carry public keys and your agent id — no private key and no broker token, so
-any channel you already trust for a public identifier will do.
+**Treat the invite blob like a password.** It carries your agent id, your public keys —
+and the broker URL together with its token. Base64 is encoding, not protection: anyone
+who gets the blob can connect to your broker. Send it in a direct message to a person you
+know, not into a group chat or a public channel.
 
 Importing the reply confirms **your** side of the pair. It does not prove the other side
 completed it; only a round trip does. If your first message never gets a reply, this is
