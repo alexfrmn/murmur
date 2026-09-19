@@ -76,13 +76,30 @@ Ok "есть, спрашиваются один раз и только для р
 Step "Node.js"
 $node = (Get-Command node -ErrorAction SilentlyContinue)
 if (-not $node) {
-    Stop "node не найден в PATH" "Поставьте Node.js 22.5 или новее с nodejs.org и откройте новое окно PowerShell."
+    Stop "node не найден в PATH" "Поставьте Node.js 22.13 или новее с nodejs.org и откройте новое окно PowerShell."
 }
 $nodeVersion = (& node --version).TrimStart('v')
 $parts = $nodeVersion.Split('.')
 $major = [int]$parts[0]; $minor = [int]$parts[1]
-if ($major -lt 22 -or ($major -eq 22 -and $minor -lt 5)) {
-    Stop "установлен Node $nodeVersion" "Нужен 22.5 или новее: демон хранит сообщения через встроенный модуль node:sqlite, которого в более ранних версиях нет."
+# 22.13, а не 22.5: в 22.5 появился флаг --experimental-sqlite, а сам модуль без флага
+# доступен с 22.13. Человек с версией между ними проходил проверку и получал падение
+# демона на импорте — с сообщением, которое уводит куда угодно, кроме версии Node.
+if ($major -lt 22 -or ($major -eq 22 -and $minor -lt 13)) {
+    Stop "установлен Node $nodeVersion" "Нужен 22.13 или новее: демон хранит сообщения через встроенный модуль node:sqlite, а без флага он доступен только с 22.13."
+}
+# Число устареет при следующем изменении в Node, а попытка импорта — нет. Поэтому
+# проверяется не только версия, но и сама возможность.
+# Вызов обёрнут двумя вещами, и обе обязательны. --no-warnings: node печатает про
+# экспериментальность SQLite в stderr. $ErrorActionPreference Continue: PowerShell 5.1
+# превращает stderr нативной программы в ошибку, и при Stop скрипт падал бы на
+# успешной проверке.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& node --no-warnings -e "require('node:sqlite')" *> $null
+$sqliteOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEAP
+if (-not $sqliteOk) {
+    Stop "этот Node не отдаёт модуль node:sqlite" "Версия $nodeVersion прошла проверку по числу, но модуль недоступен. Поставьте Node 22.13 или новее с nodejs.org."
 }
 Ok "$nodeVersion по пути $($node.Source)"
 

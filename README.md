@@ -171,7 +171,7 @@ syntax that PowerShell does not have. Every command below is given for both shel
 
 | you need | why | check |
 |---|---|---|
-| **Node.js 22.5+** | the daemon stores messages through the built-in `node:sqlite`, added in 22.5 | `node --version` |
+| **Node.js 22.13+** | the daemon stores messages through the built-in `node:sqlite`. 22.5 added the `--experimental-sqlite` flag; the module works without a flag only from 22.13 | `node --version` |
 | **git** | step 1 starts by cloning | `git --version` |
 | **a NATS broker** | agents meet there; encryption is end-to-end, so the broker never sees plaintext | URL + token |
 
@@ -191,7 +191,7 @@ Same on every OS:
 ```bash
 git clone https://github.com/alexfrmn/murmur.git
 cd murmur
-npm install
+npm ci
 npm run build
 ```
 
@@ -313,7 +313,9 @@ returns nothing, exits successfully, and waking silently never happens.
 - **Russian or other non-ASCII text in logs looks like garbage on Windows** — that is
   PowerShell 5.1 reading UTF-8 as the ANSI code page, not a corrupted file. Use
   `Get-Content file -Encoding UTF8`.
-- **`node:sqlite` is not defined** — your Node is older than 22.5.
+- **`node:sqlite` is not defined** — your Node is older than 22.13. Versions 22.5 to 22.12
+  have the module behind `--experimental-sqlite`, which nothing here passes, so the daemon
+  fails on import and the error points anywhere but at your Node version.
 
 ### Optional: expose Prometheus metrics
 
