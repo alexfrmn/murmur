@@ -125,8 +125,13 @@ log("info", "Daemon starting", {
     maxAgeMs: maxAckAgeMs,
   },
   ackWindow,
+  wake: { enabled: wakeConfig.enabled, mode: wakeConfig.mode, hookConfigured: Boolean(config.onReceive) },
   notifyTargets: effectiveNotifyTargets.map((t) => `${t.type}:${t.channel}`),
   notifyFallbackFromEnv: envTelegramFallback.length > 0,
+});
+
+if (!wakeConfig.enabled) log("warn", "Wake dispatch paused by configuration", {
+  reason: "wake-disabled", pendingPolicy: "preserve-until-enabled",
 });
 
 const store = new SQLiteDedupeOutboxStore(dbPath);
@@ -203,7 +208,7 @@ const wakeMonitor = new WakeMonitor({
   deliveries: msgStore,
   leaseGate: nativeLeaseGate,
   auditHook: createAuditShellHook({ command: wakeConfig.auditHook, log }),
-  hook: createShellHook({ command: config.onReceive, log }),
+  hook: createShellHook({ command: config.onReceive, timeoutMs: wakeConfig.hookTimeoutMs, log }),
   injector: async (payload, peer) => {
     if (peer.mode === "codex_app_server") {
       return codexAppServerInjector(payload, peer);
@@ -218,7 +223,7 @@ const proxyWakeMonitor = new WakeMonitor({
   ...wakeConfig,
   initialCursor: inboundCursor(),
   auditHook: createAuditShellHook({ command: wakeConfig.auditHook, log }),
-  hook: createShellHook({ command: config.proxyOnReceive, log }),
+  hook: createShellHook({ command: config.proxyOnReceive, timeoutMs: wakeConfig.hookTimeoutMs, log }),
   leaseGate: nativeLeaseGate,
   injector: async (payload, peer) => {
     if (peer.mode === "codex_app_server") {
