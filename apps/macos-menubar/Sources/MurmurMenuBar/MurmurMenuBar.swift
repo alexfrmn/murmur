@@ -3,7 +3,6 @@ import SwiftUI
 import ServiceManagement
 import MurmurTrayCore
 
-private struct StatusRead: Sendable { let value: StatusSnapshot?; let error: Verdict? }
 private struct DoctorRead: Sendable { let value: DoctorSnapshot?; let error: String? }
 
 @MainActor
@@ -105,23 +104,19 @@ final class TrayModel: ObservableObject {
     func refreshStatus() {
         guard !checkingStatus, !operating, !isDemo, let client else { return }
         let selected = selectionID
+        let expectedAgent = agentID
         checkingStatus = true
         Task {
-            let result = await Task.detached { () -> StatusRead in
-                do {
-                    return StatusRead(value: try client.readStatus(), error: nil)
-                } catch { return StatusRead(value: nil, error: .unavailable(error)) }
+            let result = await Task.detached {
+                client.readProfileStatus(expectedAgent: expectedAgent)
             }.value
             guard selected == selectionID else { return }
-            status = result.value
+            // Publish only a validated observation. A rejected identity supplies
+            // no snapshot/counters and keeps the previous binding until reselect.
+            status = result.status
+            agentID = result.agentID
             statusError = result.error ?? Verdict(.unknown, reason: "Состояние ещё не получено")
-            if let value = result.value {
-                do {
-                    let actualID = try client.verifiedAgent(in: value)
-                    if let agentID, agentID != actualID { throw ProfileError.identityChanged }
-                    agentID = actualID; profileError = nil
-                } catch { profileError = error.localizedDescription }
-            } else { profileError = result.error?.reason ?? ProfileError.unverified.localizedDescription }
+            profileError = result.error?.reason
             checkingStatus = false
         }
     }

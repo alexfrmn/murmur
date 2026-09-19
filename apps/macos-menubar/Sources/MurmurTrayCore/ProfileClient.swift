@@ -106,6 +106,14 @@ public struct ControlReceipt: Sendable {
     }
 }
 
+/// Only identity-validated observations may be published for the selected profile.
+/// A failed observation retains the pinned identity, never the rejected counters.
+public struct ProfileStatusRead: Sendable {
+    public let status: StatusSnapshot?
+    public let agentID: String?
+    public let error: Verdict?
+}
+
 /// One bound CLI executable/profile for reads and controls. No config or SQLite access.
 public struct ProfileClient: Sendable {
     public let executable: URL
@@ -125,6 +133,16 @@ public struct ProfileClient: Sendable {
     }
     public func readStatus() throws -> StatusSnapshot {
         try StatusSnapshot.decode(probe(timeout: statusTimeout).run("status").data)
+    }
+    public func readProfileStatus(expectedAgent: String?) -> ProfileStatusRead {
+        do {
+            let snapshot = try readStatus()
+            let actualID = try verifiedAgent(in: snapshot)
+            if let expectedAgent, expectedAgent != actualID { throw ProfileError.identityChanged }
+            return ProfileStatusRead(status: snapshot, agentID: actualID, error: nil)
+        } catch {
+            return ProfileStatusRead(status: nil, agentID: expectedAgent, error: .unavailable(error))
+        }
     }
     public func readDoctor() throws -> DoctorSnapshot {
         try DoctorSnapshot.decode(probe(timeout: doctorTimeout).run("doctor").data)

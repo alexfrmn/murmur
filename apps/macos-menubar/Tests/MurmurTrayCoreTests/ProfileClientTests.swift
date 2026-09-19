@@ -119,6 +119,35 @@ func runControlChecks(fixtures: URL) throws -> Int {
         _ = try client.readDoctor()
         try check(try f.calls() == ["status", "doctor"], "Only selected reads")
     }
+    for (name, identity): (String, Any?) in [
+        ("changed", "agent-other"), ("missing", nil), ("null", NSNull()), ("invalid", "agent-misha\n"),
+    ] {
+        try scenario("\(name) identity never becomes displayed status") { f in
+            let first = f.client().readProfileStatus(expectedAgent: nil)
+            try check(first.agentID == f.agent && first.status != nil && first.error == nil, "Initial verified binding")
+            // The foreign snapshot otherwise has the canonical green verdict.
+            try f.write("status", object: changing(f.status, ["agentId"], identity))
+            let rejected = f.client().readProfileStatus(expectedAgent: first.agentID)
+            try check(rejected.status == nil, "Rejected status/counters must not be published")
+            try check(rejected.agentID == first.agentID, "Pinned identity survives rejection")
+            try check(rejected.error?.color == "grey" && rejected.error?.reason.isEmpty == false,
+                      "Grey unavailable observation with actionable reason")
+        }
+    }
+    try scenario("unbound invalid identity remains unavailable") { f in
+        try f.write("status", object: changing(f.status, ["agentId"], NSNull()))
+        let read = f.client().readProfileStatus(expectedAgent: nil)
+        try check(read.status == nil && read.agentID == nil && read.error?.color == "grey", "No initial binding from invalid identity")
+    }
+    try scenario("same identity refresh and explicit reselect") { f in
+        let initial = f.client().readProfileStatus(expectedAgent: nil)
+        let same = f.client().readProfileStatus(expectedAgent: initial.agentID)
+        try check(same.status != nil && same.agentID == f.agent && same.error == nil, "Same identity refresh accepted")
+        try f.write("status", object: changing(f.status, ["agentId"], "agent-other"))
+        let reselected = f.client().readProfileStatus(expectedAgent: nil)
+        try check(reselected.agentID == "agent-other" && reselected.status != nil && reselected.error == nil,
+                  "Explicit reselect can establish the new binding")
+    }
     for action in ControlAction.allCases {
         try scenario("\(action.rawValue) uses fresh status, exact argv and no --apply") { f in
             let receipt = try f.client().perform(action, expectedAgent: f.agent)
