@@ -36,6 +36,38 @@ The omitted key blocks are unchanged. Do not commit private keys, broker credent
 production-specific member names. Populate the same roster on every receiver before
 enabling structured sends.
 
+## Chat-session presence (N4)
+
+Presence is an **advisory, local-host view** of sessions participating in a typed
+channel, distinct from NATS peer discovery and from the session-ownership lease.
+It never grants roster membership, changes addressing, claims a lease, or proves
+that a UI has received a wake. Hosts do not replicate these rows across the mesh.
+
+The MCP server exposes:
+
+- `channel_presence({channelId})`: live local sessions, their member, conversation,
+  status (`active`, `idle`, `busy`), join/heartbeat/expiry timestamps in epoch ms.
+- `channel_presence_heartbeat({channelId, memberId?, status?, ttlMs?})`: join or
+  refresh this session. `memberId` defaults to the local config; it must belong to
+  that configured agent in an open channel. TTL defaults to 30 seconds and is
+  bounded to 5–300 seconds. The client integration must repeat before expiry.
+- `channel_presence_leave({channelId, memberId?})`: remove only this session's row.
+  Roster membership and lease ownership are unchanged.
+
+Agent identity comes from the private local config. Session identity is fixed for
+the stdio server lifetime: `MURMUR_SESSION_ID`, then `CODEX_THREAD_ID`, then
+`CLAUDE_CODE_SESSION_ID`, otherwise a process-generated UUID. Use a distinct session
+ID per chat; two local sessions can report the same member independently. Tool
+arguments cannot override the agent/session identity. Presence is opt-in through
+these calls; there is no automatic timer claiming that an idle client is active.
+
+Rows live in the existing roster DB (`MURMUR_CHANNEL_ROSTER_PATH`), not the lease
+DB. Expired rows are filtered at read time and reclaimed on later heartbeats.
+Channel closure, member departure or agent reassignment hides old rows immediately.
+A crashed client ages out after TTL without shutdown cleanup. Stop heartbeats to
+roll back; the additive table is inert on older versions. This reports recently
+observed participation, not distributed or instantaneous online status.
+
 ## Receive hooks
 
 Alongside the existing message variables, `onReceive` and `wake.auditHook` receive:

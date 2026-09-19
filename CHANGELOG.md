@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SELECT`, and the cursor only ever passes a row that was reported or recorded.
 
 ### Added
+- **Channel chat-session presence** (#89): explicit MCP heartbeat/leave/list tools
+  report local sessions with bounded TTL, validated roster identities and immediate
+  hiding of closed/departed memberships. This advisory state is separate from peer
+  discovery and never grants wake/lease authority; see `docs/phase-n-routing.md`.
 - **Opt-in coalescing of Codex wake messages** (#124) — per-peer quiet windows and
   turn caps combine queued messages into a subsequent `turn/start`. FIFO overflow
   stays queued, channel/member boundaries and per-message policy gates stay intact,
