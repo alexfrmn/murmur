@@ -31,8 +31,7 @@
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="version 2.8.0" />
-  <a href="https://www.npmjs.com/org/murmurv2"><img src="https://img.shields.io/npm/v/@murmurv2/core" alt="npm @murmurv2/core" /></a>
+  <a href="#install"><img src="https://img.shields.io/badge/npm-installation_paused-orange" alt="npm installation paused — build from source" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
   <img src="https://img.shields.io/badge/crypto-XChaCha20--Poly1305-orange" alt="E2E Encrypted" />
@@ -111,30 +110,40 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 - **Validated: real cross-host A2A.** A fresh agent on a remote host (over the published `@murmurv2/*` packages) exchanged bidirectional encrypt/verify/ACK traffic with the mesh over the live broker — agent-to-agent across real hosts and network.
 - **Single canonical signing payload.** `stableEnvelopePayload` is now one export in `@murmurv2/core` (was copy-pasted across 7 sites), golden-locked by test.
 
-> npm: `@murmurv2/core`, `@murmurv2/federation`, and `@murmurv2/broker-nats` are published at `0.2.0` (the new API surface — `stableEnvelopePayload`, `EnvelopeV1.authToken`, stream guards, `authorizeInbound`); `security`/`observability` @ `0.1.1`, the rest @ `0.1.0`.
+> Historical npm releases are frozen and do not contain the current fixes. Use the [source installation path](#install) below.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, WebSocket adapter, roster auth tokens, JetStream durability, federation, A2A bridge, native wake).
 
 ## Install
 
-All packages are published on npm under the [`@murmurv2`](https://www.npmjs.com/org/murmurv2) scope (MIT):
+**npm installation and updates are paused. Do not install or update Murmur from
+npm while this notice is present.** The registry still serves older code, including
+`@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 from the 2.6.x era, without
+subsequent ACK-storm and delivery fixes. Publishing is blocked by account-security
+restrictions; there is no confirmed resume date. Follow [GitHub releases](https://github.com/alexfrmn/murmur/releases)
+for an explicit announcement after the account is unblocked and packages are verified.
 
-> **Registry lag (as of 2026-09-12).** npm currently serves `@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 — the code of 2.6.x. Everything from 2.7.0 to 2.9.0 (ACK-storm fixes, exactly-once wake delivery, Phase N routing) is in the repo and tagged but not yet published: publishing is paused by an npm account-security hold, expected to lift around 2026-09-14. To run the current release today, clone the `v2.9.0` tag and build from source (`npm ci && npm run build`), as in [Quick Start](#quick-start).
+**Current path: build the reviewed source snapshot.** You need Git and Node.js 22+;
+a running NATS broker is required to use the mesh. The latest release tag is
+`v2.9.0`, but it predates the ACK hardening merged on September 19. The pinned
+commit below includes those fixes; it is a source snapshot, not a new tagged
+release or a ready-made desktop installer.
 
-```bash
-# core types + SQLite stores, crypto, MCP server
-npm install @murmurv2/core @murmurv2/security @murmurv2/mcp-server
-
-# transports
-npm install @murmurv2/broker-nats   # NATS core + optional JetStream durability
-npm install @murmurv2/broker-ws     # WebSocket relay/client
-
-# federation + bridges
-npm install @murmurv2/federation @murmurv2/federation-nats
-npm install @murmurv2/bridge-a2a @murmurv2/bridge-telegram
+```text
+git clone https://github.com/alexfrmn/murmur.git
+cd murmur
+git checkout --detach 234b03ec59ec66649abcea5a206d011c86958c5a
+npm ci
+npm run build
 ```
 
-Prefer to run the full mesh from source? See [Quick Start](#quick-start).
+Then use [Quick Start](#quick-start) for configuration, keeping this reviewed
+checkout. `npm ci` here installs this checkout's locked dependencies and local
+workspaces; it does not install the obsolete published Murmur packages.
+
+Maintainer-only [npm deprecation commands](docs/npm-deprecation-commands.md) are
+prepared for after account recovery. **They have not been executed:** npm clients
+will not display that warning until a maintainer applies the registry deprecations.
 
 ## The Problem
 
@@ -632,7 +641,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [ ] **Phase N tail** — N4 chat-session presence (#89), N5 subject scoping (#90).
 
 *Distribution*
-- [ ] **npm publish of 2.7.0 → 2.9.0** — the registry is three releases behind the repo (`@murmurv2/core` 0.5.0 published vs 0.6.3 in the tree; `mcp-server` 0.2.0 vs 0.2.2). Publishing is paused by an npm account-security hold on the maintainer's account, expected to lift around **2026-09-14**; until then run from the `v2.9.0` tag (see [Install](#install)).
+- [ ] **npm publication remains paused** — the registry lacks the current delivery fixes. Account recovery has no confirmed deadline; deprecation commands are prepared but not executed. Use the reviewed source snapshot in [Install](#install) until a verified release announcement.
 
 ### Needs a real external counterpart (mechanism done, gated on a partner)
 - [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**. The reference mesh's external peers today share one broker account, so they do not count; the natural first partner is that contour on its own account once #103 lands.
