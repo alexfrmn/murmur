@@ -76,7 +76,7 @@ Ok "есть, спрашиваются один раз и только для р
 Step "Node.js"
 $node = (Get-Command node -ErrorAction SilentlyContinue)
 if (-not $node) {
-    Stop "node не найден в PATH" "Поставьте Node.js 22.13 или новее с nodejs.org и откройте новое окно PowerShell."
+    Stop "node не найден в PATH" "Поставьте Node.js 22.13.0 или новее с nodejs.org и откройте новое окно PowerShell."
 }
 $nodeVersion = (& node --version).TrimStart('v')
 $parts = $nodeVersion.Split('.')
@@ -85,7 +85,7 @@ $major = [int]$parts[0]; $minor = [int]$parts[1]
 # доступен с 22.13. Человек с версией между ними проходил проверку и получал падение
 # демона на импорте — с сообщением, которое уводит куда угодно, кроме версии Node.
 if ($major -lt 22 -or ($major -eq 22 -and $minor -lt 13)) {
-    Stop "установлен Node $nodeVersion" "Нужен 22.13 или новее: демон хранит сообщения через встроенный модуль node:sqlite, а без флага он доступен только с 22.13."
+    Stop "установлен Node $nodeVersion" "Нужен 22.13.0 или новее: демон хранит сообщения через встроенный модуль node:sqlite, а без флага он доступен только с 22.13.0."
 }
 # Число устареет при следующем изменении в Node, а попытка импорта — нет. Поэтому
 # проверяется не только версия, но и сама возможность.
@@ -99,7 +99,7 @@ $ErrorActionPreference = 'Continue'
 $sqliteOk = ($LASTEXITCODE -eq 0)
 $ErrorActionPreference = $prevEAP
 if (-not $sqliteOk) {
-    Stop "этот Node не отдаёт модуль node:sqlite" "Версия $nodeVersion прошла проверку по числу, но модуль недоступен. Поставьте Node 22.13 или новее с nodejs.org."
+    Stop "этот Node не отдаёт модуль node:sqlite" "Версия $nodeVersion прошла проверку по числу, но модуль недоступен. Поставьте Node 22.13.0 или новее с nodejs.org."
 }
 Ok "$nodeVersion по пути $($node.Source)"
 
@@ -129,6 +129,13 @@ Ok "точка входа демона и адаптер службы на ме�
 # --- 5. Личность агента -----------------------------------------------------
 Step "Личность агента и конфиг"
 $dataDir = Join-Path $RepoRoot '.data'
+# Каталог данных задаётся явно и один раз, до первой команды, которая его использует.
+# Иначе каждый потребитель решает сам: init и демон берут .data от текущего рабочего
+# каталога, а строка подключения клиента прописывает путь жёстко. Человек, запустивший
+# демон не из клона, получает два профиля — демон пишет в один, клиент читает другой,
+# ошибки при этом нет, есть тишина и пустой список пиров.
+$env:DATA_DIR = $dataDir
+$env:MURMUR_DATA_DIR = $dataDir
 $configPath = Join-Path $dataDir 'agent-config.json'
 if (Test-Path $configPath) {
     Info "конфиг уже существует, оставляю как есть: $configPath"
@@ -219,6 +226,9 @@ Write-Host ""
 Write-Host "Готово. Демон работает и поднимется сам после перезагрузки." -ForegroundColor Green
 Write-Host "Что дальше: обменяйтесь приглашением со вторым участником."
 Write-Host "  node scripts\murmur-invite.mjs        — напечатает блоб приглашения"
+Write-Host ""
+Write-Host "Подключение клиента — тем же каталогом данных, иначе он заведёт пустой:"
+Write-Host "  claude mcp add murmur -e DATA_DIR=`"$dataDir`" -- node `"$(Join-Path $RepoRoot 'packages\mcp-server\dist\src\index.js')`""
 Write-Host "  node scripts\murmur-join.mjs '<блоб>' — на стороне второго участника"
 Write-Host "  node scripts\murmur-add-peer.mjs '<ответный блоб>'"
 Write-Host ""
