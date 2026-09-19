@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -106,5 +107,40 @@ func TestReadOnlySCMObservesAbsentServiceWithoutElevation(t *testing.T) {
 	}
 	if !serviceAbsent(err) {
 		t.Fatalf("expected observed absence, got %v", err)
+	}
+}
+
+func TestExistingPathIdentityAllowsHardlinksButNotDifferentFiles(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first")
+	alias := filepath.Join(dir, "alias")
+	other := filepath.Join(dir, "other")
+	if err := os.WriteFile(first, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(first, alias); err != nil {
+		t.Fatal(err)
+	}
+	if !sameLocation(first, alias) || sameLocation(first, other) {
+		t.Fatal("path identity lost")
+	}
+}
+func TestCaseSensitiveProfilesRemainDistinct(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("fsutil", "file", "setCaseSensitiveInfo", dir, "enable").CombinedOutput(); err != nil {
+		t.Skipf("case-sensitive directory unavailable: %v %s", err, out)
+	}
+	one, two := filepath.Join(dir, "profile"), filepath.Join(dir, "PROFILE")
+	if err := os.Mkdir(one, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(two, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if sameLocation(one, two) {
+		t.Fatal("different case-sensitive profiles treated as identical")
 	}
 }

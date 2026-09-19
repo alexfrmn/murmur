@@ -47,9 +47,14 @@ func sameLocation(a, b string) bool {
 	if err != nil {
 		return false
 	}
-	// Windows service paths are conservatively case-insensitive. Refusing an
-	// overlap on a case-sensitive subtree is preferable to broadening key ACLs.
-	return strings.EqualFold(first, second)
+	// Existing targets have physical identities even on case-sensitive Windows
+	// subtrees. Case folding here would authorize a different existing profile.
+	one, firstErr := os.Stat(first)
+	two, secondErr := os.Stat(second)
+	if firstErr == nil && secondErr == nil {
+		return os.SameFile(one, two)
+	}
+	return first == second
 }
 
 func rejectMetadataOverlap(profile, metadata string) error {
