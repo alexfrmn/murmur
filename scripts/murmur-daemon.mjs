@@ -21,6 +21,7 @@ import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.
 import { WakeMonitor, createAuditShellHook, createShellHook, normalizeWakeConfig } from "./wake-monitor.mjs";
 import { SessionLeaseStore, createNativeLeaseGate } from "./lease.mjs";
 import { ensurePrivateDirectory, readPrivateJson, setPrivateUmask } from "./secure-state.mjs";
+import { normalizeAckSecurity } from "./ack-security.mjs";
 // vault-guard: optional content policy hook (not included in OSS release)
 
 setPrivateUmask();
@@ -72,12 +73,9 @@ const ackTimeoutMs = optionalPositiveInteger(
   firstDefined(streamingConfig.ackTimeoutMs, process.env.MURMUR_ACK_TIMEOUT_MS),
 ) ?? 15_000;
 const ackSecurityConfig = config.ackSecurity || {};
-const emitSignedAcks = process.env.MURMUR_EMIT_SIGNED_ACKS !== undefined
-  ? process.env.MURMUR_EMIT_SIGNED_ACKS !== "0"
-  : ackSecurityConfig.emitSigned ?? true;
-const requireSignedAcks = process.env.MURMUR_REQUIRE_SIGNED_ACKS !== undefined
-  ? process.env.MURMUR_REQUIRE_SIGNED_ACKS === "1"
-  : ackSecurityConfig.requireSigned ?? false;
+const ackPolicy = normalizeAckSecurity(config, process.env, log);
+const emitSignedAcks = ackPolicy.emitSigned;
+const requireSignedAcks = ackPolicy.requireSigned;
 const maxAckAgeMs = optionalPositiveInteger(
   "ack-max-age-ms",
   firstDefined(ackSecurityConfig.maxAgeMs, process.env.MURMUR_ACK_MAX_AGE_MS),
@@ -120,8 +118,7 @@ log("info", "Daemon starting", {
   jetstreamAckWaitMs,
   ackTimeoutMs,
   ackSecurity: {
-    emitSigned: emitSignedAcks,
-    requireSigned: requireSignedAcks,
+    ...ackPolicy,
     maxAgeMs: maxAckAgeMs,
   },
   ackWindow,
