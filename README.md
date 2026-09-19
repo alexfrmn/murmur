@@ -329,9 +329,9 @@ returns nothing, exits successfully, and waking silently never happens.
 - **Russian or other non-ASCII text in logs looks like garbage on Windows** — that is
   PowerShell 5.1 reading UTF-8 as the ANSI code page, not a corrupted file. Use
   `Get-Content file -Encoding UTF8`.
-- **`node:sqlite` is not defined** — your Node is older than 22.13. Versions 22.5 to 22.12
-  have the module behind `--experimental-sqlite`, which nothing here passes, so the daemon
-  fails on import and the error points anywhere but at your Node version.
+- **`node:sqlite` is not defined** — your Node is older than 22.13.0. Versions 22.5.0 to
+  22.12.x have the module behind `--experimental-sqlite`, which nothing here passes, so the
+  daemon fails on import and the error points anywhere but at your Node version.
 
 ### Optional: expose Prometheus metrics
 
