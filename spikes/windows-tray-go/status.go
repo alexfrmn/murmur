@@ -176,9 +176,13 @@ type Verdict struct {
 	// Code — устойчивый код причины. Именно он сверяется между реализациями: текст
 	// формулировок на разных платформах разойдётся неизбежно, и сравнивать его
 	// бессмысленно.
-	Code   string
-	Unread bool
-	Reason string
+	Code string
+	// Missing — поля, которых не хватило для вывода цвета, поимённо. Сравниваются между
+	// реализациями как множество: один код «не измерено» на разных платформах может
+	// означать разную нехватку, и тогда цвет сойдётся, а человек прочитает разное.
+	Missing []string
+	Unread  bool
+	Reason  string
 	// History — то, что не поместилось в цвет и обязано остаться текстом в меню.
 	// Без этого честное «не знаю» серого превращается в сокрытие: человек видит серый
 	// и решает, что отказов не было вовсе.
@@ -208,8 +212,9 @@ func resolve(s *Status, err error) Verdict {
 
 	unread := s.Inbox.Unread != nil && *s.Inbox.Unread > 0
 	hist := history(s)
+	var missing []string
 	out := func(l Level, code, reason string) Verdict {
-		return Verdict{Level: l, Code: code, Unread: unread, Reason: reason, History: hist}
+		return Verdict{Level: l, Code: code, Missing: missing, Unread: unread, Reason: reason, History: hist}
 	}
 
 	// Возраст, который не удалось определить, — такой же повод для серого, как возраст
@@ -236,7 +241,6 @@ func resolve(s *Status, err error) Verdict {
 	// missing копит поля, без которых цвет не выводится. Разница между нулём и
 	// неизмеренным — это разница между «в очереди пусто» и «я не смог посмотреть в
 	// очередь»: первое успокаивает справедливо, второе ложно.
-	var missing []string
 	need := func(name string, p *int) (int, bool) {
 		if p == nil {
 			missing = append(missing, name)
@@ -323,6 +327,22 @@ func resolve(s *Status, err error) Verdict {
 		missing = append(missing, label)
 	}
 
+	// Система работает в режиме, которого ей не задавали. Человек нажал паузу, она
+	// принята настройками и не действует; зелёный сказал бы ему «всё хорошо» ровно в тот
+	// момент, когда его действие не применилось. Цвет отвечает за состояние целиком, а
+	// не только за доставку: «пиров нет» жёлтый по той же причине — обмен исправен,
+	// система не в том состоянии, которое человек считает установленным.
+	if c, e := s.Wake.Config.Enabled, s.Wake.Effective.Enabled; c != nil && e != nil && *c != *e {
+		reason := "пауза задана в настройках и не применена"
+		if *c {
+			reason = "пробуждение включено в настройках и не действует"
+		}
+		if r := s.Wake.Effective.NeedsRestart; r != nil && *r {
+			reason += ", нужен перезапуск службы"
+		}
+		return out(LevelYellow, "wake.mode-mismatch", reason)
+	}
+
 	if len(missing) > 0 {
 		return out(LevelGrey, "unmeasured", "не измерено: "+strings.Join(missing, ", "))
 	}
@@ -388,7 +408,8 @@ func history(s *Status) []string {
 		if r := s.Wake.Effective.NeedsRestart; r != nil && *r {
 			line += ", нужен перезапуск службы"
 		}
-		out = append(out, line)
+		// Первой строкой: действие человека не применилось, и это важнее прошлых отказов.
+		out = append([]string{line}, out...)
 	}
 	if n := s.Service.RestartsLastHour; n != nil && *n > 0 {
 		out = append(out, "подъёмов демона за час: "+strconv.Itoa(*n))

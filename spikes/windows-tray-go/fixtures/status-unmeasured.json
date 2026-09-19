@@ -83,6 +83,13 @@
   "$expect": {
     "level": "grey",
     "unread": false,
-    "code": "unmeasured"
+    "code": "unmeasured",
+    "missing": [
+      "peers.list (брокер не ответил)",
+      "inbox.unread (база занята записью)",
+      "outbox.queue.failed",
+      "outbox.queue.dlq",
+      "очередь (база занята записью)"
+    ]
   }
 }

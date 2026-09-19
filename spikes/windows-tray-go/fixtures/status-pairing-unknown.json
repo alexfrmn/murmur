@@ -108,6 +108,9 @@
   "$expect": {
     "level": "grey",
     "unread": true,
-    "code": "unmeasured"
+    "code": "unmeasured",
+    "missing": [
+      "парность неизвестна: agent-jarvis"
+    ]
   }
 }

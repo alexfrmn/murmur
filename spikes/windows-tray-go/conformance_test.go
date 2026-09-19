@@ -16,9 +16,10 @@ import (
 )
 
 type expectation struct {
-	Level  string `json:"level"`
-	Unread bool   `json:"unread"`
-	Code   string `json:"code"`
+	Level   string   `json:"level"`
+	Unread  bool     `json:"unread"`
+	Code    string   `json:"code"`
+	Missing []string `json:"missing"`
 }
 
 type fixtureMeta struct {
@@ -77,8 +78,33 @@ func TestConformance(t *testing.T) {
 		if v.Code != meta.Expect.Code {
 			t.Errorf("%s: код причины %q, ожидался %q", filepath.Base(f), v.Code, meta.Expect.Code)
 		}
+		// Перечень недостающих полей сравнивается как множество: один код «не измерено»
+		// на разных платформах может означать разную нехватку, и тогда цвет сойдётся, а
+		// человек прочитает разное.
+		if len(meta.Expect.Missing) > 0 || len(v.Missing) > 0 {
+			if !sameSet(v.Missing, meta.Expect.Missing) {
+				t.Errorf("%s: недостающие поля %v, ожидались %v", filepath.Base(f), v.Missing, meta.Expect.Missing)
+			}
+		}
 		if v.Unread != meta.Expect.Unread {
 			t.Errorf("%s: признак непрочитанного %v, ожидался %v", filepath.Base(f), v.Unread, meta.Expect.Unread)
 		}
 	}
+}
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, s := range a {
+		seen[s]++
+	}
+	for _, s := range b {
+		seen[s]--
+		if seen[s] < 0 {
+			return false
+		}
+	}
+	return true
 }

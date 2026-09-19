@@ -194,7 +194,7 @@
 |------|---------|------|
 | серый | `schema` незнакома, ответа нет, возраст снимка неизвестен или вне диапазона, либо `service.state ∈ {stopped, unknown}` | `schema`, `generatedAt`, `service.state` |
 | красный | `service.state = failed`, `outbox.queue.failed > 0`, `outbox.queue.dlq > 0`, `wake.faults.lastFault ≠ null`, `wake.delivery.pendingUndelivered > 0` | те же поля |
-| жёлтый | `broker.state ≠ connected`, список пиров пуст, либо у любого пира `paired = false` | `broker.state`, `peers.list` |
+| жёлтый | `broker.state ≠ connected`, список пиров пуст, у любого пира `paired = false`, либо `wake.config.enabled ≠ wake.effective.enabled` | `broker.state`, `peers.list`, `wake.config.enabled`, `wake.effective.enabled` |
 | серый | ни один известный отказ не сработал, но поле, нужное для цвета, пришло `null` | `peers.list`, `peers[].paired`, `outbox.queue.failed`, `outbox.queue.dlq`, `wake.delivery.pendingUndelivered`, `inbox.unread`, `*.unknownReason` |
 | зелёный | всё перечисленное выше не сработало | — |
 | синяя точка | `inbox.unread` измерен и больше нуля | `inbox.unread` |
@@ -209,6 +209,12 @@
 известный отказ обязан кричать и тогда, когда часть данных собрать не удалось. Оно же
 стоит выше зелёного: объявлять «всё в порядке», не прочитав половину, нельзя.
 
+**Режим, которого системе не задавали, — жёлтый.** Человек нажал паузу, она принята
+настройками и не действует. Зелёный сказал бы ему «всё хорошо» ровно в тот момент, когда
+его действие не применилось, и узнал бы он об этом, когда кто-то получит сообщение,
+которого получить не должен был. Цвет отвечает за состояние целиком, а не только за
+доставку.
+
 **Ноль пиров — жёлтый.** Для нового участника, который ещё ни с кем не спарен, зелёный
 значок был бы прямой ложью: писать ему некому. Это состояние «ещё не настроено».
 
@@ -219,7 +225,7 @@
 
 - `outbox.faults.lastError` и `outbox.faults.lastErrorAt` — последняя ошибка отправки;
 - `wake.faults.lastFault` и `wake.faults.lastFaultAt` — последний сбой пробуждения;
-- расхождение `wake.config.enabled` и `wake.effective.enabled` — действие принято и не применено;
+- расхождение `wake.config.enabled` и `wake.effective.enabled` — действие принято и не применено; эта строка стоит **первой** в меню, потому что она про действие человека, а не про прошлые отказы;
 - `broker.lastError` и `broker.lastErrorAt` — последняя ошибка брокера;
 - `service.lastFailureAt` и `service.lastExitCode` — когда и с каким кодом падала служба;
 - `service.restartsLastHour` — сколько раз надзор поднимал демона за последний час.

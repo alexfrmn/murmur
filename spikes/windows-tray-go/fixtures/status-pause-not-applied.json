@@ -106,8 +106,8 @@
   },
   "$stamp": "now",
   "$expect": {
-    "level": "green",
+    "level": "yellow",
     "unread": true,
-    "code": "ok"
+    "code": "wake.mode-mismatch"
   }
 }
