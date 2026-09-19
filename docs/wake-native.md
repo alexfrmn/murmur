@@ -31,14 +31,18 @@ later turns and the dispatch log includes the remaining count. Quiet windows do
 not block other lanes. Only the same peer, conversation, channel, sender member
 and addressee can share a batch, even when a peer pins one thread for all channels.
 
-Batching requires the durable message store. Every message passes the existing
+Batching requires the durable message store. Startup fails with
+`wake-batching-requires-durable-store` if it lacks `assignWakeBatch`,
+`getWakeBatch` or `settleWakeBatch`; an in-memory-only batch is never enabled.
+Every message passes the existing
 receive eligibility, audit and ownership gates before its text can enter the batch.
 The loop breaker counts actual wake effects, so one batch counts once. Rows remain
 pending during the quiet window; a crash there loses no messages. Before dispatch,
 membership is persisted in the same SQLite database under a deterministic batch ID.
 Retries and daemon restarts keep that ID (including the relay's deduplication key),
-and new arrivals cannot join an already attempted batch. Individual outcomes are
-committed in one transaction, so a restart cannot observe half of a batch handled.
+and new arrivals cannot join an already attempted batch. All members share one
+retry deadline and terminal decision, using the highest prior attempt count. The
+outcome commits in one transaction, so a restart cannot observe a split batch.
 If a member of a saved batch no longer passes its gates, the remaining members are
 muted with `batch-member-ineligible`; its content is never replayed using another
 member's permission. The batch and original message IDs appear in dispatch logs.
