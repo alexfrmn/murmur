@@ -161,7 +161,7 @@ Same env and the same per-session cursor as the shell version (`MURMUR_DB`,
 `MURMUR_WAKE_CURSOR`, `MURMUR_WAKE_SESSION_KEY`) plus `MURMUR_WAKE_LOCK`,
 `MURMUR_WAKE_MAX_SECONDS`, `MURMUR_WAKE_POLL_MS`. Pass `--once` for a single
 non-polling check (e.g. a PostToolUse hook). Requires Node with `node:sqlite`
-(22.5+).
+(22.13.0+).
 
 A fault — no store, an unreadable store, no `node:sqlite` — prints one line to stderr
 and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
