@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { createLinuxAdapter, renderLinuxUnit } from '../packages/setup/dist/src/platform/linux.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 async function fixture(t) {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-systemd-'));
+  const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-systemd-')));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   const context = resolveContext({ dataDir: path.join(home, 'data'), repoRoot: path.join(home, 'repo'), serviceName: 'murmur-test' });
   const target = path.join(home, '.config/systemd/user/murmur-test.service'), calls = [];
@@ -64,6 +64,9 @@ test('unit escaping keeps environment dollars literal and ExecStart dollars esca
   const text = renderLinuxUnit(c);
   assert.ok(text.includes('$$HOME')); assert.ok(text.includes('100%%'));
   assert.ok(text.includes('StandardOutput=append:'));
+});
+test('installed systemd parser accepts the generated unit', { skip: process.platform !== 'linux' }, async t => {
+  const f = await fixture(t);
   // Parse using the installed systemd verifier, without installing/starting any service.
   const file = path.join(f.home, 'verify.service');
   await fs.writeFile(file, renderLinuxUnit({ ...f.context, repoRoot: f.home }));
