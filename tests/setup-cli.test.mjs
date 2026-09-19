@@ -65,11 +65,14 @@ test('real NATS roundtrip needs valid peer signature AND local daemon persistenc
   for (let i = 0; i < 50 && !nc; i++) { try { nc = await connect({ servers: `nats://127.0.0.1:${port}`, reconnect: false }); } catch { await delay(20); } }
   assert.ok(nc, 'isolated broker starts'); t.after(() => nc.close());
   const db = new DatabaseSync(f.context.storePath); t.after(() => db.close());
+  const subscriptions = [], subscribe = nc.subscribe.bind(nc);
+  nc.subscribe = (subject, ...rest) => { subscriptions.push(subject); return subscribe(subject, ...rest); };
   let done = false;
   const pending = probeRoundtrip(f.context, f.config, 'agent-b', nc, 3000).then(result => { done = true; return result; });
   let request;
   for (let i = 0; i < 100 && !request; i++) { request = db.prepare('SELECT envelope_json FROM outbox LIMIT 1').get(); if (!request) await delay(10); }
   assert.ok(request, 'probe enters canonical outbox');
+  assert.deepEqual(subscriptions, ['msg.agent-a']);
   const sent = JSON.parse(request.envelope_json);
   const plain = await decryptPayload({ ciphertext: sent.payloadCiphertext, nonce: sent.payloadNonce, senderPublicKey: f.config.keys.encryption.publicKey }, peerKeys.encryption.privateKey);
   const replyText = /MURMUR-DOCTOR-REPLY [a-f0-9]+$/.exec(plain)[0];
