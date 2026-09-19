@@ -80,3 +80,19 @@ test('join output conflict does not create a half-imported identity', async t =>
   assert.equal(await fs.readFile(reply,'utf8'),'keep');
   await assert.rejects(f.config('agent-b'),{code:'ENOENT'});
 });
+for (const managed of ['agent-config.json','murmur.db','read-state.json']) test(`join rejects managed output ${managed} before profile mutation`, async t=>{
+  const f=await fixture(t);await f.init('agent-a');const invitation=path.join(f.root,'invite');
+  await f.command('agent-a',['invite','--out',invitation]);
+  const data=path.join(f.root,'agent-b');await fs.mkdir(data);
+  await assert.rejects(f.command('agent-b',['join','--agent-id','agent-b','--invite-file',invitation,'--reply-out',path.join(data,managed)]),/output-inside-profile/);
+  assert.deepEqual(await fs.readdir(data),[]);
+});
+test('invite and join reject symlink-parent aliases into a managed profile',async t=>{
+  const f=await fixture(t);await f.init('agent-a');
+  const data=path.join(f.root,'agent-b');await fs.mkdir(data);const alias=path.join(f.root,'alias');await fs.symlink(data,alias,'dir');
+  const invitation=path.join(f.root,'invite');await f.command('agent-a',['invite','--out',invitation]);
+  await assert.rejects(f.command('agent-b',['join','--agent-id','agent-b','--invite-file',invitation,'--reply-out',path.join(alias,'future-state.json')]),/output-inside-profile/);
+  await assert.rejects(f.command('agent-a',['invite','--out',path.join(f.root,'agent-a','murmur.db')]),/output-inside-profile/);
+  assert.deepEqual(await fs.readdir(data),[]);
+  await assert.rejects(fs.stat(path.join(f.root,'agent-a','murmur.db')),{code:'ENOENT'});
+});

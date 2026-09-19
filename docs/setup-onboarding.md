@@ -12,7 +12,9 @@ profile. This is a source-checkout workflow, not a published npm installation.
 2. `invite --out ABSOLUTE_FILE` writes a new private invitation file. It contains
    public peer keys and may contain the broker token; transfer it through a trusted
    channel. Credentials are not printed in the command result or passed as token
-   arguments. An existing output file is never overwritten.
+   arguments. An existing output file is never overwritten. Invitation and reply outputs must
+   be outside the managed data directory, including symlink aliases; a reply path
+   must never name a private config, database, cursor or future runtime state file.
 3. On the other machine, `join --agent-id ID --invite-file ABSOLUTE_FILE --reply-out
    ABSOLUTE_FILE` imports the invitation and creates a private public-key reply.
 4. On the first machine, `add-peer --reply-file ABSOLUTE_FILE` completes key import.

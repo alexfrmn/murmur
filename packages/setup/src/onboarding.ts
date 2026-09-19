@@ -1,7 +1,8 @@
 import { constants } from 'node:fs';
-import { mkdir, open, rmdir, lstat, unlink } from 'node:fs/promises';
+import { mkdir, open, rmdir, lstat, unlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { SQLiteDedupeOutboxStore } from '@murmurv2/core';
 import { createKeyPair, createSigningKeyPair } from '@murmurv2/security';
 import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerConfig } from './config.js';
@@ -16,6 +17,24 @@ async function privateText(file: string): Promise<string> {
     if (!info.isFile() || info.size > 16384) throw new Error('onboarding.file-invalid');
     return (await handle.readFile('utf8')).trim();
   } finally { await handle.close(); }
+}
+/** Resolve existing ancestors without erasing symlink/.. filesystem semantics. */
+async function canonicalPath(file: string): Promise<string> {
+  try { return await realpath(file); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const parent = path.dirname(file);
+    if (parent === file) throw error;
+    return path.join(await canonicalPath(parent), path.basename(file));
+  }
+}
+async function validateOutput(c: ServiceContext, file: string) {
+  if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
+  const target = await canonicalPath(file), profile = await canonicalPath(c.dataDir);
+  const relative = path.relative(profile, target);
+  if (!relative || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) {
+    throw new Error('onboarding.output-inside-profile');
+  }
 }
 async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
   if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
@@ -43,7 +62,7 @@ async function newConfig(agentId: string, url: string, token?: string): Promise<
 }
 async function saveChanged(c: ServiceContext, previous: AgentConfig | null, next: AgentConfig) {
   validateConfig(next);
-  if (previous && JSON.stringify(previous) === JSON.stringify(next)) return null;
+  if (previous && isDeepStrictEqual(previous, next)) return null;
   const backup = previous ? path.join(c.dataDir, `agent-config.backup-${randomUUID()}.json`) : null;
   if (backup) await writeState(c, backup, previous);
   await writeState(c, c.configPath, next);
@@ -89,12 +108,14 @@ export async function initialize(c: ServiceContext, options: { agentId: string; 
   });
 }
 export async function invite(c: ServiceContext, outFile: string) {
+  await validateOutput(c, outFile);
   const config = await loadConfig(c);
   await outputBlob(outFile, { v: 1, type: 'invite', ...publicPeer(config), natsUrl: config.natsUrl, ...(config.natsToken ? { natsToken: config.natsToken } : {}) }, 'MURMUR:');
   return { schema: 'murmur.invite/1', file: outFile, containsBrokerCredential: !!config.natsToken,
     instruction: 'Transfer this private invite file through a trusted channel; importing it does not prove pairing.' };
 }
 export async function join(c: ServiceContext, options: { agentId: string; inviteFile: string; replyOut: string }) {
+  await validateOutput(c, options.replyOut);
   const incoming = await readBlob(options.inviteFile, 'MURMUR:', 'invite');
   return locked(c, async () => {
     const previous = await existing(c);
