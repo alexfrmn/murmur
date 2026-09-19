@@ -85,11 +85,18 @@
     "unread": false,
     "code": "unmeasured",
     "missing": [
-      "peers.list (брокер не ответил)",
-      "inbox.unread (база занята записью)",
-      "outbox.queue.failed",
+      "inbox.unread",
+      "outbox.queue",
       "outbox.queue.dlq",
-      "очередь (база занята записью)"
-    ]
+      "outbox.queue.failed",
+      "peers.list"
+    ],
+    "missingWhy": {
+      "peers.list": "source-unreadable",
+      "inbox.unread": "source-unreadable",
+      "outbox.queue.failed": "unmeasured",
+      "outbox.queue.dlq": "unmeasured",
+      "outbox.queue": "source-unreadable"
+    }
   }
 }

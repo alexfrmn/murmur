@@ -56,11 +56,11 @@
     {
       "id": "wake",
       "title": "wake-режим и кто отвечает",
-      "state": "skip",
-      "detail": "",
-      "reason": "blocked-by:broker",
+      "state": "warn",
+      "detail": "режим monitor, пауза не honored",
+      "reason": "wake.pause-not-honored",
       "fixHint": null,
-      "elapsedMs": 0,
+      "elapsedMs": 5,
       "measuredAt": "1970-01-01T00:00:00Z"
     }
   ],
@@ -70,6 +70,7 @@
   },
   "$stamp": "now",
   "$expect": {
-    "valid": true
+    "valid": false,
+    "why": "этап после отказа обязан быть пропуском"
   }
 }

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -177,12 +178,16 @@ type Verdict struct {
 	// формулировок на разных платформах разойдётся неизбежно, и сравнивать его
 	// бессмысленно.
 	Code string
-	// Missing — поля, которых не хватило для вывода цвета, поимённо. Сравниваются между
-	// реализациями как множество: один код «не измерено» на разных платформах может
-	// означать разную нехватку, и тогда цвет сойдётся, а человек прочитает разное.
+	// Missing — поля, которых не хватило для вывода цвета: только пути в точечной
+	// записи, единым форматом. Сравниваются между реализациями как множество, поэтому
+	// человеческого текста и причин здесь нет — иначе контракт оказался бы завязан на
+	// язык интерфейса одной из реализаций, а смена формулировки красила бы сборку.
 	Missing []string
-	Unread  bool
-	Reason  string
+	// MissingWhy — путь поля к устойчивому коду причины. Текст для человека каждая
+	// реализация строит из кода сама.
+	MissingWhy map[string]string
+	Unread     bool
+	Reason     string
 	// History — то, что не поместилось в цвет и обязано остаться текстом в меню.
 	// Без этого честное «не знаю» серого превращается в сокрытие: человек видит серый
 	// и решает, что отказов не было вовсе.
@@ -204,7 +209,12 @@ func str(p *string) string {
 // известное.
 func resolve(s *Status, err error) Verdict {
 	if err != nil {
-		return Verdict{Level: LevelGrey, Code: "status.unavailable", Reason: "статус недоступен: " + err.Error()}
+		code := "status.unavailable"
+		var se *statusError
+		if errors.As(err, &se) {
+			code = se.code
+		}
+		return Verdict{Level: LevelGrey, Code: code, Reason: "статус недоступен: " + err.Error()}
 	}
 	if !schemaKnown(s.Schema, statusSchema) {
 		return Verdict{Level: LevelGrey, Code: "schema.unknown", Reason: "схема ответа незнакома: " + s.Schema}
@@ -213,8 +223,15 @@ func resolve(s *Status, err error) Verdict {
 	unread := s.Inbox.Unread != nil && *s.Inbox.Unread > 0
 	hist := history(s)
 	var missing []string
+	why := map[string]string{}
+	// note помечает поле недостающим: путь отдельно, причина кодом отдельно.
+	note := func(path, code string) {
+		missing = append(missing, path)
+		why[path] = code
+	}
 	out := func(l Level, code, reason string) Verdict {
-		return Verdict{Level: l, Code: code, Missing: missing, Unread: unread, Reason: reason, History: hist}
+		sort.Strings(missing)
+		return Verdict{Level: l, Code: code, Missing: missing, MissingWhy: why, Unread: unread, Reason: reason, History: hist}
 	}
 
 	// Возраст, который не удалось определить, — такой же повод для серого, как возраст
@@ -241,9 +258,9 @@ func resolve(s *Status, err error) Verdict {
 	// missing копит поля, без которых цвет не выводится. Разница между нулём и
 	// неизмеренным — это разница между «в очереди пусто» и «я не смог посмотреть в
 	// очередь»: первое успокаивает справедливо, второе ложно.
-	need := func(name string, p *int) (int, bool) {
+	need := func(path string, p *int) (int, bool) {
 		if p == nil {
-			missing = append(missing, name)
+			note(path, "unmeasured")
 			return 0, false
 		}
 		return *p, true
@@ -263,16 +280,18 @@ func resolve(s *Status, err error) Verdict {
 	// Журнал отказов — отдельный источник от очереди: null в поле последней ошибки
 	// означает «отказа не было», и отличить его от «не смотрел» можно только признаком
 	// на том подмножестве, которое читается этим источником.
-	for _, sec := range []struct{ name, reason string }{
-		{"журнал отказов отправки", str(s.Outbox.Faults.UnknownReason)},
-		{"журнал отказов пробуждения", str(s.Wake.Faults.UnknownReason)},
-		{"очередь", str(s.Outbox.Queue.UnknownReason)},
-		{"доставка wake", str(s.Wake.Delivery.UnknownReason)},
-		{"настройки wake", str(s.Wake.Config.UnknownReason)},
-		{"действующее состояние wake", str(s.Wake.Effective.UnknownReason)},
+	// Секция, которую не удалось прочитать целиком, отмечается путём самой секции.
+	// Человеческая причина от движка живёт в ответе и в сравнение не идёт.
+	for _, sec := range []struct{ path, reason string }{
+		{"outbox.faults", str(s.Outbox.Faults.UnknownReason)},
+		{"wake.faults", str(s.Wake.Faults.UnknownReason)},
+		{"outbox.queue", str(s.Outbox.Queue.UnknownReason)},
+		{"wake.delivery", str(s.Wake.Delivery.UnknownReason)},
+		{"wake.config", str(s.Wake.Config.UnknownReason)},
+		{"wake.effective", str(s.Wake.Effective.UnknownReason)},
 	} {
 		if sec.reason != "" {
-			missing = append(missing, sec.name+" ("+sec.reason+")")
+			note(sec.path, "source-unreadable")
 		}
 	}
 
@@ -291,11 +310,11 @@ func resolve(s *Status, err error) Verdict {
 	}
 
 	if s.Peers.List == nil {
-		label := "peers.list"
-		if r := str(s.Peers.UnknownReason); r != "" {
-			label += " (" + r + ")"
+		code := "unmeasured"
+		if str(s.Peers.UnknownReason) != "" {
+			code = "source-unreadable"
 		}
-		missing = append(missing, label)
+		note("peers.list", code)
 	} else {
 		if len(s.Peers.List) == 0 {
 			// Ноль пиров — это «ещё не настроено», а не «всё хорошо»: новому участнику
@@ -314,17 +333,17 @@ func resolve(s *Status, err error) Verdict {
 		if len(unpaired) > 0 {
 			return out(LevelYellow, "peers.unpaired", "пиры без пары: "+strings.Join(unpaired, ", "))
 		}
-		if len(unknownPair) > 0 {
-			missing = append(missing, "парность неизвестна: "+strings.Join(unknownPair, ", "))
+		for _, id := range unknownPair {
+			note("peers.list."+id+".paired", "unmeasured")
 		}
 	}
 
 	if s.Inbox.Unread == nil {
-		label := "inbox.unread"
-		if r := str(s.Inbox.UnknownReason); r != "" {
-			label += " (" + r + ")"
+		code := "unmeasured"
+		if str(s.Inbox.UnknownReason) != "" {
+			code = "source-unreadable"
 		}
-		missing = append(missing, label)
+		note("inbox.unread", code)
 	}
 
 	// Система работает в режиме, которого ей не задавали. Человек нажал паузу, она
@@ -451,6 +470,24 @@ func ageOf(ts string) (time.Duration, bool) {
 
 // runJSON: при ненулевом коде движок пишет причину в stderr по контракту. Выбросить её
 // значит показать человеку «exit status 1» вместо добытого объяснения.
+func runRaw(ctx context.Context, args ...string) ([]byte, error) {
+	bin := os.Getenv("MURMUR_BIN")
+	if bin == "" {
+		bin = "murmur"
+	}
+	buf, err := exec.CommandContext(ctx, bin, args...).Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
+				return nil, fmt.Errorf("%s %s: %s", bin, strings.Join(args, " "), firstLine([]byte(msg)))
+			}
+		}
+		return nil, err
+	}
+	return buf, nil
+}
+
 func runJSON(ctx context.Context, out any, args ...string) error {
 	bin := os.Getenv("MURMUR_BIN")
 	if bin == "" {
@@ -472,23 +509,18 @@ func runJSON(ctx context.Context, out any, args ...string) error {
 // fetchStatus: сначала CLI, при его отсутствии — файл той же формы. Файловый путь живёт
 // ровно до появления команды status --json и уходит вместе с этой строкой.
 func fetchStatus(ctx context.Context) (*Status, error) {
-	var s Status
-	cliErr := runJSON(ctx, &s, "status", "--json")
-	if cliErr == nil {
-		return &s, nil
+	buf, cliErr := runRaw(ctx, "status", "--json")
+	if cliErr != nil {
+		path := os.Getenv("MURMUR_STATUS_FILE")
+		if path == "" {
+			return nil, cliErr
+		}
+		var err error
+		if buf, err = os.ReadFile(path); err != nil {
+			return nil, fmt.Errorf("murmur status --json недоступен (%v) и файл не прочитан (%w)", cliErr, err)
+		}
 	}
-	path := os.Getenv("MURMUR_STATUS_FILE")
-	if path == "" {
-		return nil, cliErr
-	}
-	buf, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("murmur status --json недоступен (%v) и файл не прочитан (%w)", cliErr, err)
-	}
-	if err := json.Unmarshal(buf, &s); err != nil {
-		return nil, fmt.Errorf("файл статуса не разобран: %w", err)
-	}
-	return &s, nil
+	return parseStatus(buf)
 }
 
 func fetchDoctor(ctx context.Context) (*Doctor, error) {
@@ -511,6 +543,11 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 	// у doctor её не играет никто другой.
 	if !schemaKnown(d.Schema, doctorSchema) {
 		return nil, errors.New("схема doctor незнакома: " + d.Schema)
+	}
+	// Ответ, нарушающий собственное правило цепочки, показывать нельзя: человек прочтёт
+	// этапы после отказа как измеренные.
+	if err := validateDoctor(&d); err != nil {
+		return nil, fmt.Errorf("ответ doctor нарушает правило цепочки: %w", err)
 	}
 	return &d, nil
 }

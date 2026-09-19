@@ -16,10 +16,11 @@ import (
 )
 
 type expectation struct {
-	Level   string   `json:"level"`
-	Unread  bool     `json:"unread"`
-	Code    string   `json:"code"`
-	Missing []string `json:"missing"`
+	Level      string            `json:"level"`
+	Unread     bool              `json:"unread"`
+	Code       string            `json:"code"`
+	Missing    []string          `json:"missing"`
+	MissingWhy map[string]string `json:"missingWhy"`
 }
 
 type fixtureMeta struct {
@@ -31,19 +32,19 @@ var levelNames = map[Level]string{
 	LevelGrey: "grey", LevelRed: "red", LevelYellow: "yellow", LevelGreen: "green",
 }
 
-// applyStamp реализует политику даты снимка. Без неё образцы протухают, а с константой
+// stampValue реализует политику даты снимка. Без неё образцы протухают, а с константой
 // из будущего проверка свежести молча выключается — так и было в первой версии.
-func applyStamp(s *Status, policy string) {
+func stampValue(policy string, current any) any {
 	now := time.Now().UTC()
 	switch policy {
 	case "", "now":
-		s.GeneratedAt = now.Format(time.RFC3339)
+		return now.Format(time.RFC3339)
 	case "now-5m":
-		s.GeneratedAt = now.Add(-5 * time.Minute).Format(time.RFC3339)
+		return now.Add(-5 * time.Minute).Format(time.RFC3339)
 	case "now+1h":
-		s.GeneratedAt = now.Add(time.Hour).Format(time.RFC3339)
-	case "as-is":
-		// оставляем как в файле
+		return now.Add(time.Hour).Format(time.RFC3339)
+	default: // as-is
+		return current
 	}
 }
 
@@ -65,13 +66,19 @@ func TestConformance(t *testing.T) {
 			t.Errorf("%s: нет ожидаемого вердикта ($expect), образец непригоден для сверки реализаций", f)
 			continue
 		}
-		var s Status
-		if err := json.Unmarshal(buf, &s); err != nil {
-			t.Fatalf("%s: вход не разобран: %v", f, err)
+		// Штамп ставится в сыром документе: разбор с проверками — часть проверяемого
+		// поведения, обходить его в тесте нельзя.
+		var doc map[string]any
+		if err := json.Unmarshal(buf, &doc); err != nil {
+			t.Fatalf("%s: документ не разобран: %v", f, err)
 		}
-		applyStamp(&s, meta.Stamp)
-
-		v := resolve(&s, nil)
+		doc["generatedAt"] = stampValue(meta.Stamp, doc["generatedAt"])
+		stamped, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		s, perr := parseStatus(stamped)
+		v := resolve(s, perr)
 		if got := levelNames[v.Level]; got != meta.Expect.Level {
 			t.Errorf("%s: цвет %s, ожидался %s (%s)", filepath.Base(f), got, meta.Expect.Level, v.Reason)
 		}
@@ -84,6 +91,11 @@ func TestConformance(t *testing.T) {
 		if len(meta.Expect.Missing) > 0 || len(v.Missing) > 0 {
 			if !sameSet(v.Missing, meta.Expect.Missing) {
 				t.Errorf("%s: недостающие поля %v, ожидались %v", filepath.Base(f), v.Missing, meta.Expect.Missing)
+			}
+		}
+		for path, code := range meta.Expect.MissingWhy {
+			if v.MissingWhy[path] != code {
+				t.Errorf("%s: причина для %s — %q, ожидалась %q", filepath.Base(f), path, v.MissingWhy[path], code)
 			}
 		}
 		if v.Unread != meta.Expect.Unread {
@@ -107,4 +119,39 @@ func sameSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// Образцы доктора проверяются на само правило цепочки: отказ останавливает её, дальше
+// идут пропуски со ссылкой на остановивший этап. Отрицательный образец обязан быть
+// отвергнут — иначе проверка правила существует только в моей голове.
+func TestDoctorChainRule(t *testing.T) {
+	files, _ := filepath.Glob(filepath.Join("fixtures", "doctor-*.json"))
+	if len(files) == 0 {
+		t.Fatal("образцы доктора не найдены")
+	}
+	for _, f := range files {
+		buf, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		var meta struct {
+			Expect struct {
+				Valid bool `json:"valid"`
+			} `json:"$expect"`
+		}
+		if err := json.Unmarshal(buf, &meta); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		var d Doctor
+		if err := json.Unmarshal(buf, &d); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		err = validateDoctor(&d)
+		if meta.Expect.Valid && err != nil {
+			t.Errorf("%s: образец должен проходить правило, получено: %v", filepath.Base(f), err)
+		}
+		if !meta.Expect.Valid && err == nil {
+			t.Errorf("%s: образец нарушает правило цепочки и обязан быть отвергнут", filepath.Base(f))
+		}
+	}
 }

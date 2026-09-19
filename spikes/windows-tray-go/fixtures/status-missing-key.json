@@ -23,7 +23,7 @@
     "list": [
       {
         "agentId": "agent-jarvis",
-        "paired": null,
+        "paired": true,
         "lastInboundAt": "2026-09-19T12:40:17Z",
         "lastOutboundAt": "2026-09-19T12:26:00Z"
       },
@@ -59,7 +59,6 @@
       "inflight": 0,
       "delivered": 45,
       "failed": 0,
-      "dlq": 0,
       "oldestPendingAt": null,
       "unknownReason": null
     },
@@ -107,13 +106,7 @@
   "$stamp": "now",
   "$expect": {
     "level": "grey",
-    "unread": true,
-    "code": "unmeasured",
-    "missing": [
-      "peers.list.agent-jarvis.paired"
-    ],
-    "missingWhy": {
-      "peers.list.agent-jarvis.paired": "unmeasured"
-    }
+    "unread": false,
+    "code": "schema.missing-key"
   }
 }

@@ -158,11 +158,13 @@ func TestUnknownFollowsSource(t *testing.T) {
 	if v.Level != LevelGrey {
 		t.Errorf("непрочитанный журнал отказов должен гасить в серый, получен %v (%s)", v.Level, v.Reason)
 	}
-	if !strings.Contains(v.Reason, "журнал отказов отправки") {
-		t.Errorf("серый обязан назвать именно источник: %s", v.Reason)
+	// Назван путь секции, а не человеческая подпись: перечень сравнивается между
+	// реализациями, и русский текст в нём завязал бы контракт на язык интерфейса.
+	if len(v.Missing) != 1 || v.Missing[0] != "outbox.faults" {
+		t.Errorf("ожидался ровно outbox.faults, получено %v", v.Missing)
 	}
-	if strings.Contains(v.Reason, "очередь") {
-		t.Errorf("очередь измерена и в неизвестное попадать не должна: %s", v.Reason)
+	if v.MissingWhy["outbox.faults"] != "source-unreadable" {
+		t.Errorf("причина должна быть кодом source-unreadable, получено %q", v.MissingWhy["outbox.faults"])
 	}
 }
 

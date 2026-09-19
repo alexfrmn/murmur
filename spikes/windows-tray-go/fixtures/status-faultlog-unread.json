@@ -110,7 +110,10 @@
     "unread": true,
     "code": "unmeasured",
     "missing": [
-      "журнал отказов отправки (файл журнала занят)"
-    ]
+      "outbox.faults"
+    ],
+    "missingWhy": {
+      "outbox.faults": "source-unreadable"
+    }
   }
 }
