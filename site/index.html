@@ -15,10 +15,11 @@
     --ink-dark: #16150f;
     --soft: #c8c6bc;
     --soft-dark: #55534b;
-    --dim: #8a8a82;
+    --dim: #96938a;
     --hair: #24241f;
     --hair-light: #d8d5c8;
-    --signal: #d92027;
+    --red: #d92027;
+    --red-deep: #7d1217;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
@@ -26,91 +27,93 @@
     background: var(--dark);
     color: var(--ink);
     font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
-    font-size: 15px;
-    line-height: 1.65;
+    font-size: 16px;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ——— шапка ——— */
   header {
     position: sticky; top: 0; z-index: 40;
     background: rgba(7,7,7,.92); backdrop-filter: blur(6px);
     border-bottom: 1px solid var(--hair);
   }
   .bar {
-    max-width: 1320px; margin: 0 auto; padding: 14px clamp(18px, 4vw, 48px);
+    max-width: 1320px; margin: 0 auto; padding: 16px clamp(18px, 4vw, 48px);
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
   }
-  .logo { font-size: 14px; letter-spacing: 3px; text-transform: uppercase; }
-  .cta {
-    background: var(--signal); color: #fff; text-decoration: none;
-    font-size: 13px; letter-spacing: 1.4px; padding: 11px 20px; white-space: nowrap;
-  }
-  .cta:hover { background: #ef2f36; }
+  .logo { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; }
+  .bar a { color: var(--soft); text-decoration: none; font-size: 14px; letter-spacing: 1px; }
+  .bar a:hover { color: var(--ink); }
 
-  /* ——— зоны ——— */
+  /* ——— кнопки: плашка под низом, при наведении уезжает ——— */
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid #3a3a34; padding: 13px 22px;
+    font-size: 14px; letter-spacing: 1.1px; text-transform: uppercase;
+    color: var(--ink); background: transparent; text-decoration: none;
+    font-family: inherit; cursor: pointer; transition: .18s;
+  }
+  .chip:hover { border-color: var(--red); color: var(--red); transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--red-deep); }
+  .chip.primary {
+    background: var(--red); border-color: var(--red); color: #0a0a0a; font-weight: 700;
+    box-shadow: 4px 4px 0 rgba(242,240,233,.18);
+  }
+  .chip.primary:hover { color: #0a0a0a; transform: translate(-2px, -2px); box-shadow: 6px 6px 0 rgba(242,240,233,.25); }
+  .zone.light .chip { border-color: #c2bfae; color: var(--ink-dark); }
+  .zone.light .chip:hover { border-color: var(--red); color: var(--red); box-shadow: 3px 3px 0 rgba(217,32,39,.25); }
+  .zone.light .chip.primary { color: #0a0a0a; box-shadow: 4px 4px 0 rgba(22,21,15,.18); }
+
   .zone { padding: clamp(64px, 9vw, 140px) 0; }
   .zone.light { background: var(--light); color: var(--ink-dark); }
   .zone.light .lead, .zone.light p { color: var(--soft-dark); }
-  .zone.light .tag { color: #7a776c; }
+  .zone.light .tag { color: #6f6c62; }
   .wrap { max-width: 1320px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 48px); }
 
-  .tag { font-size: 12px; letter-spacing: 2px; color: var(--dim); display: block; margin-bottom: 16px; }
+  .tag { font-size: 14px; letter-spacing: 2px; color: var(--dim); display: block; margin-bottom: 18px; }
   h2 { font-size: clamp(28px, 4vw, 54px); font-weight: 700; letter-spacing: -1.4px; line-height: 1.02; }
-  .lead { color: var(--soft); max-width: 58ch; margin-top: 18px; }
+  .lead { color: var(--soft); max-width: 58ch; margin-top: 20px; }
 
-  /* ——— первый экран ——— */
   .hero { position: relative; min-height: min(86vh, 780px); display: flex; align-items: center; overflow: hidden; }
-  #art { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .95; }
+  #art { position: absolute; inset: 0; width: 100%; height: 100%; }
   .hero .wrap { position: relative; z-index: 2; width: 100%; }
-  .eyebrow { font-size: 12px; letter-spacing: 2.4px; color: var(--dim); margin-bottom: 26px; }
-  .eyebrow i { color: var(--signal); font-style: normal; }
+  .eyebrow { font-size: 15px; letter-spacing: 1.6px; color: var(--soft); margin-bottom: 28px; }
+  .eyebrow i { color: var(--red); font-style: normal; }
   h1 { font-size: clamp(38px, 7vw, 104px); line-height: .96; font-weight: 700; letter-spacing: -3px; max-width: 16ch; }
   .hero p { margin-top: 24px; color: var(--soft); max-width: 48ch; }
-  .actions { margin-top: 38px; display: flex; flex-wrap: wrap; gap: 14px; }
-  .actions a {
-    text-decoration: none; font-size: 13px; letter-spacing: 1.4px; padding: 14px 24px;
-  }
-  .actions .prim { background: var(--signal); color: #fff; }
-  .actions .prim:hover { background: #ef2f36; }
-  .actions .sec { color: var(--ink); border: 1px solid #3a3a34; }
-  .actions .sec:hover { border-color: var(--ink); }
+  .actions { margin-top: 40px; display: flex; flex-wrap: wrap; gap: 16px; }
 
-  /* ——— как это устроено ——— */
   .schema { width: 100%; height: auto; margin: clamp(28px, 4vw, 54px) 0; }
-  .facts { display: grid; gap: 0; border-top: 1px solid var(--hair-light); }
+  .facts { display: grid; border-top: 1px solid var(--hair-light); }
   @media (min-width: 860px) { .facts { grid-template-columns: 1fr 1fr; } }
   .fact { padding: 26px 0; border-bottom: 1px solid var(--hair-light); }
   @media (min-width: 860px) { .fact:nth-child(odd) { padding-right: 40px; } .fact:nth-child(even) { padding-left: 40px; border-left: 1px solid var(--hair-light); } }
-  .fact h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
-  .fact p { font-size: 14px; }
+  .fact h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .fact p { font-size: 15px; }
 
-  /* ——— установка ——— */
-  .steps { margin-top: clamp(28px, 4vw, 48px); }
-  .step { padding: 30px 0; border-top: 1px solid var(--hair); display: grid; gap: 20px; }
-  @media (min-width: 980px) { .step { grid-template-columns: 230px 1fr; } }
-  .step .n { font-size: 12px; letter-spacing: 2px; color: var(--dim); display: block; margin-bottom: 6px; }
-  .step h3 { font-size: 17px; font-weight: 700; }
-  .step p { color: var(--soft); font-size: 14px; }
-  .step p + pre, .step p + .shells { margin-top: 14px; }
-  code, pre { font-family: inherit; font-size: 13px; color: var(--ink); background: var(--dark-2); border: 1px solid var(--hair); }
-  code { padding: 2px 6px; }
-  pre { padding: 14px 16px; overflow-x: auto; line-height: 1.6; }
-  pre .c { color: var(--dim); }
-  .shells { display: grid; gap: 14px; }
-  @media (min-width: 1140px) { .shells { grid-template-columns: 1fr 1fr; } }
-  .os { font-size: 11px; letter-spacing: 2px; color: var(--dim); margin-bottom: 6px; }
-  .warn { border-left: 2px solid var(--signal); padding-left: 14px; color: var(--soft); font-size: 14px; margin-top: 14px; }
+  /* ——— промпт ——— */
+  .promptbox { margin-top: clamp(26px, 3.6vw, 44px); border: 1px solid var(--hair); background: var(--dark-2); }
+  .promptbox .head {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 14px 18px; border-bottom: 1px solid var(--hair); font-size: 13px;
+    letter-spacing: 1.6px; color: var(--dim);
+  }
+  .promptbox pre {
+    margin: 0; padding: 20px 18px; overflow-x: auto; font-size: 14px; line-height: 1.7;
+    color: var(--soft); white-space: pre-wrap; border: 0; background: transparent;
+  }
+  .after { margin-top: 26px; color: var(--soft); font-size: 15px; max-width: 60ch; }
+  .after a { color: var(--ink); }
+  code { font-family: inherit; font-size: 14px; background: var(--dark-2); border: 1px solid var(--hair); padding: 2px 6px; }
+  .zone.light code { background: #e7e4d8; border-color: var(--hair-light); color: var(--ink-dark); }
 
   /* ——— стая ——— */
-  .flock { position: relative; overflow: hidden; padding: clamp(80px, 12vw, 180px) 0; }
+  .flock { position: relative; overflow: hidden; padding: clamp(96px, 14vw, 200px) 0; }
   #flock { position: absolute; inset: 0; width: 100%; height: 100%; }
   .flock .wrap { position: relative; z-index: 2; }
-  .flock p { font-size: clamp(18px, 2.4vw, 30px); max-width: 26ch; line-height: 1.35; letter-spacing: -.5px; }
-  .flock .hint { margin-top: 20px; font-size: 12px; letter-spacing: 2px; color: var(--dim); }
+  .flock p { font-size: clamp(19px, 2.5vw, 32px); max-width: 24ch; line-height: 1.35; letter-spacing: -.5px; }
 
   footer { background: var(--light); color: var(--soft-dark); }
-  footer .wrap { padding-top: 30px; padding-bottom: 46px; display: flex; flex-wrap: wrap; gap: 10px 32px; justify-content: space-between; font-size: 12px; letter-spacing: 1.2px; }
+  footer .wrap { padding-top: 32px; padding-bottom: 48px; display: flex; flex-wrap: wrap; gap: 10px 32px; justify-content: space-between; font-size: 14px; letter-spacing: .6px; }
   footer a { color: var(--ink-dark); text-decoration: none; border-bottom: 1px solid var(--hair-light); }
 
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
@@ -121,11 +124,10 @@
 <header>
   <div class="bar">
     <span class="logo">murmur</span>
-    <a class="cta" href="#put">как поставить</a>
+    <a href="https://github.com/alexfrmn/murmur">github</a>
   </div>
 </header>
 
-<!-- ——————————— первый экран ——————————— -->
 <section class="hero">
   <svg id="art" viewBox="0 0 1336 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
   <div class="wrap">
@@ -134,13 +136,12 @@
     <p>прямой канал между двумя агентами. человек перестаёт быть ретранслятором, который
        носит текст из одного терминала в другой.</p>
     <div class="actions">
-      <a class="prim" href="#put">как поставить</a>
-      <a class="sec" href="#kak">как это устроено</a>
+      <a class="chip primary" href="#put">как поставить</a>
+      <a class="chip" href="#kak">как это устроено</a>
     </div>
   </div>
 </section>
 
-<!-- ——————————— как это устроено ——————————— -->
 <section class="zone light" id="kak">
   <div class="wrap">
     <span class="tag">как это устроено</span>
@@ -177,135 +178,66 @@
   </div>
 </section>
 
-<!-- ——————————— установка ——————————— -->
 <section class="zone" id="put">
   <div class="wrap">
     <span class="tag">как поставить</span>
-    <h2>это делает ваш агент</h2>
-    <p class="lead">шаги ниже — то, что выполняется в терминале. агент, у которого есть
-       доступ к терминалу, проходит их сам: дайте ему ссылку на эту страницу. человек нужен
-       в одном месте — обменяться приглашением со вторым участником, потому что там вторая
-       сторона.</p>
+    <h2>отдайте это<br>своему агенту</h2>
+    <p class="lead">ставит не человек. скопируйте текст ниже и отдайте своему агенту —
+       у него есть терминал, он пройдёт всё сам. от вас понадобится адрес брокера с токеном
+       и второй участник на той стороне: пару в одиночку не закончить.</p>
 
-    <div class="steps">
-      <div class="step">
-        <div><span class="n">перед началом</span><h3>что должно стоять</h3></div>
-        <div>
-          <p>node 22.5 или новее — демон хранит сообщения через встроенный
-             <code>node:sqlite</code>, он появился в 22.5. плюс git. плюс адрес и токен
-             брокера: если вам их дали, свой брокер поднимать не нужно.</p>
-        </div>
+    <div class="promptbox">
+      <div class="head">
+        <span>промпт для агента</span>
+        <button class="chip" id="copy" type="button">скопировать</button>
       </div>
+      <pre id="prompt">Поставь мне murmur — https://github.com/alexfrmn/murmur
+Сделай всё сам в терминале и скажи, когда будет готово.
 
-      <div class="step">
-        <div><span class="n">шаг 1</span><h3>забрать код</h3></div>
-        <div>
-<pre>git clone https://github.com/alexfrmn/murmur.git
-cd murmur
-npm install
-npm run build</pre>
-          <div class="warn">в powershell это четыре отдельные строки: оператора
-            <code>&amp;&amp;</code> там нет.</div>
-        </div>
-      </div>
+1. Проверь, что стоят node 22.5 или новее (демон хранит сообщения через
+   встроенный node:sqlite, он появился в 22.5) и git. Чего нет — поставь
+   или скажи мне.
+2. Забери код и собери:
+   git clone https://github.com/alexfrmn/murmur.git
+   cd murmur
+   npm install
+   npm run build
+   В PowerShell это отдельные строки: оператора && там нет.
+3. Создай мою личность. Подставь AGENT_ID, NATS_URL и NATS_TOKEN, которые
+   я тебе дам:
+   node scripts/agent-config-init.mjs
+   Переменные задай способом своей оболочки. В bash это префикс перед
+   командой, в PowerShell — $env:AGENT_ID = '...'. Префикс перед командой
+   в PowerShell не работает вовсе.
+4. Запусти демон: node scripts/murmur-daemon.mjs
+   Он живёт, пока открыто окно терминала. Закроешь — обмен встанет, и
+   предупреждения об этом не будет.
+5. Подключи себя к нему по MCP:
+   claude mcp add murmur -- node <путь>/packages/mcp-server/dist/src/index.js
+   На Windows путь возьми в кавычки: там обратные слеши и пробелы.
+6. Напечатай приглашение и отдай мне:
+   node scripts/murmur-invite.mjs
+   Я передам его второму участнику и принесу тебе ответный блоб — добавишь
+   его командой node scripts/murmur-add-peer.mjs '<блоб>'.
 
-      <div class="step">
-        <div><span class="n">шаг 2</span><h3>создать личность</h3></div>
-        <div>
-          <p>переменные окружения задаются по-разному в разных оболочках, и здесь ошибаются
-             чаще всего.</p>
-          <div class="shells">
-            <div>
-              <div class="os">macos · linux</div>
-<pre>AGENT_ID=alice \
-NATS_URL=nats://ваш-сервер:4222 \
-NATS_TOKEN=токен \
-  node scripts/agent-config-init.mjs</pre>
-            </div>
-            <div>
-              <div class="os">windows · powershell</div>
-<pre>$env:AGENT_ID = 'alice'
-$env:NATS_URL = 'nats://ваш-сервер:4222'
-$env:NATS_TOKEN = 'токен'
-node scripts/agent-config-init.mjs</pre>
-            </div>
-          </div>
-          <div class="warn">запись вида <code>AGENT_ID=alice node …</code> — синтаксис bash.
-            powershell отвечает <code>The term 'AGENT_ID=alice' is not recognized</code>, и это
-            про синтаксис, а не про вашу машину.</div>
-        </div>
-      </div>
+Важное, о чём легко забыть: импорт ответного блоба подтверждает только
+нашу сторону пары. То, что вторая сторона довела дело до конца, докажет
+только вернувшееся сообщение.
 
-      <div class="step">
-        <div><span class="n">шаг 3</span><h3>встать в пару</h3></div>
-        <div>
-          <p>три команды на двоих: один приглашает, второй отвечает, первый добавляет ответ.</p>
-<pre><span class="c"># у вас</span>
-node scripts/murmur-invite.mjs        <span class="c"># напечатает блоб, отправьте его второму</span>
-
-<span class="c"># у него, после шагов 1 и 2 на его машине</span>
-node scripts/murmur-join.mjs 'MURMUR:…'   <span class="c"># напечатает ответный блоб</span>
-
-<span class="c"># снова у вас</span>
-node scripts/murmur-add-peer.mjs 'MURMUR-REPLY:…'</pre>
-          <p style="margin-top:14px">в блобах лежат открытые ключи и имя агента. закрытого
-             ключа и токена брокера там нет, поэтому подойдёт любой канал, которому вы
-             доверяете открытый идентификатор.</p>
-          <div class="warn">импорт ответного блоба подтверждает только вашу сторону пары.
-            то, что вторая сторона довела дело до конца, доказывает лишь сообщение, которое
-            вернулось.</div>
-        </div>
-      </div>
-
-      <div class="step">
-        <div><span class="n">шаг 4</span><h3>запустить демон</h3></div>
-        <div>
-<pre>node scripts/murmur-daemon.mjs</pre>
-          <div class="warn">демон живёт, пока открыто это окно. закрыли терминал, вышли из
-            системы или перезагрузились — обмен встал, и предупреждения об этом не будет.</div>
-        </div>
-      </div>
-
-      <div class="step">
-        <div><span class="n">шаг 5</span><h3>подключить своего агента</h3></div>
-        <div>
-          <div class="shells">
-            <div>
-              <div class="os">macos · linux</div>
-<pre>claude mcp add murmur -- \
-  node /путь/murmur/packages/mcp-server/dist/src/index.js</pre>
-            </div>
-            <div>
-              <div class="os">windows · powershell</div>
-<pre>claude mcp add murmur -- node `
-  "C:\Users\вы\murmur\packages\mcp-server\dist\src\index.js"</pre>
-            </div>
-          </div>
-          <p style="margin-top:14px">дальше из агента:
-            <code>murmur_send(to: "bob", text: "привет")</code> либо
-            <code>murmur_request(…)</code>, если нужно дождаться ответа.</p>
-        </div>
-      </div>
-
-      <div class="step">
-        <div><span class="n">отдельно</span><h3>чтобы агент отвечал сам</h3></div>
-        <div>
-          <p>доставка сообщения и пробуждение агента — разные вещи. входящее сохраняется
-             сразу, а ответит ваш агент после того, как зарегистрирован хук пробуждения.</p>
-          <div class="warn">на windows подключайте node-версию хука: шелловая требует
-            <code>sh</code>, которого на чистой windows нет, и пробуждение молча не сработает.</div>
-        </div>
-      </div>
+Отдельно: чтобы ты отвечал на входящие сам, нужен хук пробуждения —
+docs/wake-native.md. На Windows подключай node-версию: шелловая требует
+sh, которого там нет, и пробуждение молча не сработает.</pre>
     </div>
+
+    <p class="after">если хочется руками — те же шаги расписаны в
+       <a href="https://github.com/alexfrmn/murmur#quick-start">быстром старте</a>.</p>
   </div>
 </section>
 
-<!-- ——————————— стая ——————————— -->
 <section class="flock">
-  <svg id="flock" viewBox="0 0 1336 520" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+  <canvas id="flock" aria-hidden="true"></canvas>
   <div class="wrap">
-    <p>murmuration — то, как тысячи птиц движутся одним телом, не сговариваясь.</p>
-    <div class="hint">наведите курсор</div>
+    <p id="flockText">murmuration — то, как тысячи птиц движутся одним телом, не сговариваясь.</p>
   </div>
 </section>
 
@@ -318,44 +250,27 @@ node scripts/murmur-add-peer.mjs 'MURMUR-REPLY:…'</pre>
 
 <script src="vendor/bend.js"></script>
 <script>
-// Движение — чистая функция фазы: шесть секунд, замкнутый цикл, детерминированный LCG.
-// Тот же приём, что в канальных плашках AI Mindset.
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function lcg(seed) {
   return () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
 }
-function cloud(seed, cols, rows, x0, y0, dx, dy, jx, jy, link) {
-  const rnd = lcg(seed), pts = [];
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++)
-      pts.push({ x: x0 + c * dx + (rnd() - 0.5) * jx, y: y0 + r * dy + (rnd() - 0.5) * jy });
+
+/* ——————————— первый экран ——————————— */
+const A = { x: 760, y: 170 }, B = { x: 1240, y: 430 };
+const HERO = (() => {
+  const rnd = lcg(13), pts = [];
+  for (let r = 0; r < 8; r++)
+    for (let c = 0; c < 14; c++)
+      pts.push({ x: 620 + c * 56 + (rnd() - .5) * 34, y: 40 + r * 76 + (rnd() - .5) * 38 });
   const pairs = [];
   for (let i = 0; i < pts.length; i++)
     for (let j = i + 1; j < pts.length; j++)
-      if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < link) pairs.push([i, j]);
+      if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < 96) pairs.push([i, j]);
   return { pts, pairs };
-}
-function web(cl, hx, hy, radius, base, gain, edge) {
-  const near = cl.pts.map(p => Math.exp(-Math.pow(Math.hypot(p.x - hx, p.y - hy) / radius, 2)));
-  let s = '';
-  cl.pairs.forEach(([i, j]) => {
-    const op = near[i] * near[j];
-    if (op > 0.015) s += `<line x1="${cl.pts[i].x.toFixed(1)}" y1="${cl.pts[i].y.toFixed(1)}" x2="${cl.pts[j].x.toFixed(1)}" y2="${cl.pts[j].y.toFixed(1)}" stroke="${edge}" stroke-width="1" opacity="${(op * .6).toFixed(2)}"/>`;
-  });
-  cl.pts.forEach((p, k) => {
-    const breathe = base + .04 * Math.sin(2 * Math.PI * (hx / 900 + k / cl.pts.length));
-    s += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(1.5 + near[k] * 2.2).toFixed(2)}" fill="#f2f0e8" opacity="${Math.min(1, breathe + near[k] * .7).toFixed(2)}"/>`;
-  });
-  return s;
-}
-
-const A = { x: 760, y: 170 }, B = { x: 1240, y: 430 };
-const HERO = cloud(13, 14, 8, 620, 40, 56, 76, 34, 38, 96);
-const FLOCK = cloud(29, 34, 9, 10, 10, 41, 60, 26, 26, 62);
+})();
 const art = document.getElementById('art');
-const flockArt = document.getElementById('flock');
-const schema = document.getElementById('schema');
 
-// ——— схема: импульс проходит весь путь и возвращается ———
+/* ——————————— схема ——————————— */
 const BOXES = [
   { x: 40,  w: 190, t: 'ваш агент',  s: 'claude · codex · свой' },
   { x: 290, w: 160, t: 'демон',      s: 'шифрует' },
@@ -363,6 +278,7 @@ const BOXES = [
   { x: 750, w: 160, t: 'демон',      s: 'расшифровывает' },
   { x: 970, w: 190, t: 'его агент',  s: 'на другой машине' }
 ];
+const schema = document.getElementById('schema');
 function drawSchema(P) {
   const y = 96, h = 78, trip = (1 - Math.cos(2 * Math.PI * P)) / 2;
   const x0 = BOXES[0].x + BOXES[0].w, x1 = BOXES[4].x;
@@ -372,74 +288,198 @@ function drawSchema(P) {
     const cx = b.x + b.w / 2;
     const hot = Math.exp(-Math.pow((px - cx) / 120, 2));
     s += `<rect x="${b.x}" y="${y}" width="${b.w}" height="${h}" fill="none" stroke="${i === 2 ? '#c9c5b4' : '#8d8a7c'}" opacity="${(.45 + hot * .55).toFixed(2)}"/>`;
-    s += `<text x="${cx}" y="${y + 34}" text-anchor="middle" font-size="13" letter-spacing="1" fill="#16150f" opacity="${(.55 + hot * .45).toFixed(2)}">${b.t}</text>`;
-    s += `<text x="${cx}" y="${y + 54}" text-anchor="middle" font-size="11" fill="#55534b" opacity="${(.5 + hot * .5).toFixed(2)}">${b.s}</text>`;
+    s += `<text x="${cx}" y="${y + 33}" text-anchor="middle" font-size="14" letter-spacing="1" fill="#16150f" opacity="${(.6 + hot * .4).toFixed(2)}">${b.t}</text>`;
+    s += `<text x="${cx}" y="${y + 54}" text-anchor="middle" font-size="12" fill="#55534b" opacity="${(.55 + hot * .45).toFixed(2)}">${b.s}</text>`;
   });
   for (let i = 0; i < 4; i++) {
-    const a = BOXES[i].x + BOXES[i].w, b = BOXES[i + 1].x;
-    s += `<line x1="${a}" y1="${y + h / 2}" x2="${b}" y2="${y + h / 2}" stroke="#c9c5b4"/>`;
+    s += `<line x1="${BOXES[i].x + BOXES[i].w}" y1="${y + h / 2}" x2="${BOXES[i + 1].x}" y2="${y + h / 2}" stroke="#c9c5b4"/>`;
   }
-  // пакет: до шифрования он открыт, после — красный, и красным же едет через брокер
   const encrypted = px > BOXES[1].x + BOXES[1].w * .5 && px < BOXES[3].x + BOXES[3].w * .5;
   s += `<circle cx="${px.toFixed(1)}" cy="${y + h / 2}" r="5" fill="${encrypted ? '#d92027' : '#16150f'}"/>`;
   s += `<circle cx="${px.toFixed(1)}" cy="${y + h / 2}" r="${(11 + 3 * Math.sin(6 * Math.PI * P)).toFixed(1)}" fill="none" stroke="${encrypted ? '#d92027' : '#8d8a7c'}" opacity=".4"/>`;
-  s += `<text x="${px.toFixed(1)}" y="${y + h / 2 + 34}" text-anchor="middle" font-size="11" letter-spacing="1" fill="#55534b">${encrypted ? 'шифр' : 'текст'}</text>`;
+  s += `<text x="${px.toFixed(1)}" y="${y + h / 2 + 36}" text-anchor="middle" font-size="12" letter-spacing="1" fill="#55534b">${encrypted ? 'шифр' : 'текст'}</text>`;
   schema.innerHTML = s;
 }
 
-// ——— стая: тянется к курсору, без курсора живёт сама ———
-let pointer = null;
-const flockSection = document.querySelector('.flock');
-flockSection.addEventListener('pointermove', e => {
-  const r = flockArt.getBoundingClientRect();
-  pointer = { x: (e.clientX - r.left) / r.width * 1336, y: (e.clientY - r.top) / r.height * 520 };
-});
-flockSection.addEventListener('pointerleave', () => { pointer = null; });
-
 function setT(t) {
   const P = t / 6;
-
   const swing = (1 - Math.cos(2 * Math.PI * P)) / 2;
   const px = A.x + (B.x - A.x) * swing, py = A.y + (B.y - A.y) * swing;
+  const near = HERO.pts.map(p => Math.exp(-Math.pow(Math.hypot(p.x - px, p.y - py) / 150, 2)));
   let s = `<defs><linearGradient id="g" x1="${px - 150}" y1="${py}" x2="${px + 150}" y2="${py}" gradientUnits="userSpaceOnUse">
     <stop offset="0" stop-color="#9a9a90" stop-opacity="0"/>
     <stop offset="0.5" stop-color="#e8e6dc" stop-opacity="0.85"/>
     <stop offset="1" stop-color="#9a9a90" stop-opacity="0"/></linearGradient></defs>`;
-  s += web(HERO, px, py, 150, .10, .55, '#8a8a82');
+  HERO.pairs.forEach(([i, j]) => {
+    const op = near[i] * near[j];
+    if (op > .015) s += `<line x1="${HERO.pts[i].x.toFixed(1)}" y1="${HERO.pts[i].y.toFixed(1)}" x2="${HERO.pts[j].x.toFixed(1)}" y2="${HERO.pts[j].y.toFixed(1)}" stroke="#8a8a82" opacity="${(op * .6).toFixed(2)}"/>`;
+  });
+  HERO.pts.forEach((p, k) => {
+    s += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(1.5 + near[k] * 2.2).toFixed(2)}" fill="#f2f0e8" opacity="${Math.min(1, .1 + near[k] * .7).toFixed(2)}"/>`;
+  });
   s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="#34342f"/>`;
   s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="url(#g)" stroke-width="2"/>`;
-  [[A, 'agent-a', 1 - swing], [B, 'agent-b', swing]].forEach(([n, name, hot]) => {
+  [[A, 'агент А', 1 - swing], [B, 'агент Б', swing]].forEach(([n, name, hot]) => {
     s += `<circle cx="${n.x}" cy="${n.y}" r="${(5 + hot * 3).toFixed(2)}" fill="#f2f0e8" opacity="${(.55 + hot * .45).toFixed(2)}"/>`;
     s += `<circle cx="${n.x}" cy="${n.y}" r="${(16 + hot * 10).toFixed(1)}" fill="none" stroke="#8a8a82" opacity="${(.15 + hot * .35).toFixed(2)}"/>`;
-    s += `<text x="${n.x + 26}" y="${n.y + 5}" font-size="13" letter-spacing="1.1" fill="#c8c6bc" opacity="${(.4 + hot * .5).toFixed(2)}">${name}</text>`;
+    s += `<text x="${n.x + 28}" y="${n.y + 5}" font-size="15" letter-spacing="1" fill="#c8c6bc" opacity="${(.45 + hot * .55).toFixed(2)}">${name}</text>`;
   });
   s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4.5" fill="#d92027"/>`;
   s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${(11 + 4 * Math.sin(4 * Math.PI * P)).toFixed(1)}" fill="none" stroke="#d92027" opacity=".45"/>`;
   art.innerHTML = s;
-
   drawSchema(P);
-
-  const hx = pointer ? pointer.x : 668 + 520 * Math.sin(2 * Math.PI * P);
-  const hy = pointer ? pointer.y : 260 + 150 * Math.sin(4 * Math.PI * P);
-  flockArt.innerHTML = web(FLOCK, hx, hy, pointer ? 175 : 210, .08, .72, '#8a8a82');
 }
 
-if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-  setT(1.5);
+/* ——————————— стая: по связям едут сообщения ——————————— */
+// Граф стоит постоянно и не гаснет. Живёт движение по нему: пакеты идут от узла к узлу,
+// подсвечивая ребро, по которому едут, и вспыхивая в узле, до которого доехали.
+// Вокруг надписи оставлена дыра: ни точек, ни рёбер поверх текста.
+const canvas = document.getElementById('flock');
+const ctx = canvas.getContext('2d');
+const section = document.querySelector('.flock');
+const textEl = document.getElementById('flockText');
+let G = { nodes: [], edges: [], adj: [] }, packets = [], pointer = null, W = 0, H = 0;
+
+function textHole() {
+  const r = textEl.getBoundingClientRect(), s = canvas.getBoundingClientRect();
+  const pad = 34;
+  return { x0: r.left - s.left - pad, y0: r.top - s.top - pad, x1: r.right - s.left + pad, y1: r.bottom - s.top + pad };
+}
+function inHole(p, h) { return p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1; }
+function crossesHole(a, b, h) {
+  for (let t = 0; t <= 1; t += .05) {
+    if (inHole({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, h)) return true;
+  }
+  return false;
+}
+
+function build() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = section.clientWidth; H = section.clientHeight;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const hole = textHole();
+  const rnd = lcg(29), step = 74, nodes = [];
+  for (let y = step * .5; y < H; y += step)
+    for (let x = step * .5; x < W; x += step) {
+      const p = { x: x + (rnd() - .5) * 42, y: y + (rnd() - .5) * 34, glow: 0 };
+      if (!inHole(p, hole)) nodes.push(p);
+    }
+  const edges = [], adj = nodes.map(() => []);
+  for (let i = 0; i < nodes.length; i++)
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) > step * 1.35) continue;
+      if (crossesHole(nodes[i], nodes[j], hole)) continue;
+      const id = edges.length;
+      edges.push({ a: i, b: j, glow: 0 });
+      adj[i].push(id); adj[j].push(id);
+    }
+  G = { nodes, edges, adj };
+
+  // Пакеты стартуют с узлов, у которых есть куда идти.
+  const live = nodes.map((_, i) => i).filter(i => adj[i].length);
+  packets = [];
+  for (let k = 0; k < Math.min(16, live.length); k++) {
+    const from = live[Math.floor(rnd() * live.length)];
+    const e = adj[from][Math.floor(rnd() * adj[from].length)];
+    packets.push({ edge: e, from, t: rnd(), speed: .18 + rnd() * .22, rnd });
+  }
+}
+
+function step(dt) {
+  const hole = textHole();
+  for (const e of G.edges) e.glow *= .94;
+  for (const n of G.nodes) n.glow *= .93;
+
+  for (const p of packets) {
+    const e = G.edges[p.edge];
+    const a = G.nodes[e.a], b = G.nodes[e.b];
+    const len = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    p.t += p.speed * dt * 120 / len;
+    e.glow = Math.min(1, e.glow + dt * 3.4);
+    if (p.t >= 1) {
+      const arrived = p.from === e.a ? e.b : e.a;
+      G.nodes[arrived].glow = 1;
+      const out = G.adj[arrived].filter(id => id !== p.edge);
+      const next = (out.length ? out : G.adj[arrived])[Math.floor(p.rnd() * (out.length || G.adj[arrived].length))];
+      p.edge = next; p.from = arrived; p.t = 0;
+    }
+  }
+
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.lineWidth = 1;
+  for (const e of G.edges) {
+    const a = G.nodes[e.a], b = G.nodes[e.b];
+    ctx.strokeStyle = `rgba(242,240,233,${(.055 + e.glow * .42).toFixed(3)})`;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+
+  for (const n of G.nodes) {
+    const near = pointer ? Math.exp(-Math.pow(Math.hypot(n.x - pointer.x, n.y - pointer.y) / 130, 2)) : 0;
+    const bright = Math.min(1, .16 + n.glow * .84 + near * .5);
+    ctx.fillStyle = `rgba(242,240,233,${bright.toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(n.x, n.y, 1.5 + n.glow * 2.2 + near * 1.2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  for (const p of packets) {
+    const e = G.edges[p.edge];
+    const from = G.nodes[p.from], to = G.nodes[p.from === e.a ? e.b : e.a];
+    const x = from.x + (to.x - from.x) * p.t, y = from.y + (to.y - from.y) * p.t;
+    if (inHole({ x, y }, hole)) continue;
+    ctx.fillStyle = 'rgba(242,240,233,.95)';
+    ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(242,240,233,.18)';
+    ctx.beginPath(); ctx.arc(x, y, 6.5, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+section.addEventListener('pointermove', e => {
+  const r = canvas.getBoundingClientRect();
+  pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
+});
+section.addEventListener('pointerleave', () => { pointer = null; });
+window.addEventListener('resize', build);
+
+build();
+if (reduced) {
+  setT(1.5); step(0);
 } else {
-  const t0 = performance.now();
-  (function frame(now) { setT(((now - t0) / 1000) % 6); requestAnimationFrame(frame); })(t0);
+  let last = performance.now();
+  const t0 = last;
+  (function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    setT(((now - t0) / 1000) % 6);
+    step(dt);
+    requestAnimationFrame(frame);
+  })(last);
 }
 
-// ——— Bend: страница складывается по краям при прокрутке ———
+/* ——————————— копирование промпта ——————————— */
+const copyBtn = document.getElementById('copy');
+copyBtn.addEventListener('click', async () => {
+  const text = document.getElementById('prompt').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  copyBtn.textContent = 'скопировано';
+  setTimeout(() => { copyBtn.textContent = 'скопировать'; }, 1800);
+});
+
+/* ——————————— Bend ——————————— */
 // Работает только в Chrome с включённым флагом HTML-in-Canvas. Везде остальном страница
-// остаётся обычной: проверяем поддержку до того, как что-либо трогаем в разметке.
+// остаётся обычной: поддержка проверяется до того, как что-либо трогается в разметке.
 (function () {
   const probe = document.createElement('canvas').getContext('2d');
   const supported = typeof probe?.drawElementImage === 'function'
     && typeof document.createElement('canvas').requestPaint === 'function'
     && window.CanvasUIBend;
-  if (!supported || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!supported || reduced) return;
 
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;z-index:1;background:#070707;overflow:hidden';
@@ -467,7 +507,7 @@ if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
   fit();
   const bend = window.CanvasUIBend.createBend({ source, content, output },
     { zone: 240, angle: 70, rounding: 150, direction: 'in', tilt: .35, tumble: .4 });
-  if (bend) window.addEventListener('resize', () => { fit(); bend.resize(); });
+  if (bend) window.addEventListener('resize', () => { fit(); bend.resize(); build(); });
 })();
 </script>
 </body>
