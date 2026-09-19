@@ -3,11 +3,12 @@ import { open } from "node:fs/promises";
 import type { ServiceContext } from "./types.js";
 
 export interface PeerConfig { subject: string; encryption: { publicKey: string }; signing: { publicKey: string };
-  channelId?: string; memberId?: string }
+  channelId?: string; memberId?: string; subjectScoping?: boolean }
 export interface AgentConfig {
   agentId: string; subject: string; natsUrl: string; natsToken?: string;
   keys: { encryption: { publicKey: string; privateKey: string }; signing: { publicKey: string; privateKey: string } };
   peers: Record<string, PeerConfig>; memberId?: string;
+  subjectScoping?: { enabled?: boolean; channelIds?: string[] };
   onReceive?: string; wake?: { enabled?: boolean; mode?: string; peers?: Record<string, { mode?: string }> };
 }
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);

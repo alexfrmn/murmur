@@ -2,8 +2,9 @@ import { connect, StringCodec, type NatsConnection } from 'nats';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { buildNatsConnectionOptions } from '@murmurv2/broker-nats';
-import { SQLiteDedupeOutboxStore, stableEnvelopePayload, isEnvelopeV1, type EnvelopeV1 } from '@murmurv2/core';
+import { channelSubjectRoutes, resolveMessageSubject, SQLiteDedupeOutboxStore, stableEnvelopePayload, isEnvelopeV1, type EnvelopeV1 } from '@murmurv2/core';
 import { encryptPayload, signEnvelope, verifyEnvelopeSignature, decryptPayload } from '@murmurv2/security';
 import { loadConfig, readJson, safeError, type AgentConfig } from './config.js';
 import { pairFingerprint, readStatus } from './status.js';
@@ -22,10 +23,12 @@ export async function probeRoundtrip(c: ServiceContext, config: AgentConfig, pee
     recipients: [peerId], createdAt: new Date().toISOString(), payloadCiphertext: payload.ciphertext, payloadNonce: payload.nonce, signature: '',
     ...(peer.channelId ? { channelId: peer.channelId } : {}), ...(config.memberId ? { senderMemberId: config.memberId } : {}), ...(peer.memberId ? { addresseeMemberId: peer.memberId } : {}) };
   envelope.signature = await signEnvelope(stableEnvelopePayload(envelope), config.keys.signing.privateKey);
-  const codec = StringCodec(), sub = connection.subscribe('msg.>'); // Observer: never ACK, persist, or create consumers.
+  const codec = StringCodec();
+  // Subscribe only to this profile's receiver routes; restricted broker ACLs reject mesh-wide taps.
+  const subs = channelSubjectRoutes(config.subject, config.agentId, config.subjectScoping).map(route => connection.subscribe(route.subject));
   const started = Date.now(), deadline = started + timeoutMs;
   let verified: { msgId: string; text: string } | null = null;
-  const listener = (async () => {
+  const listener = Promise.all(subs.map(async sub => {
     for await (const message of sub) {
       try {
         const reply = JSON.parse(codec.decode(message.data));
@@ -37,13 +40,13 @@ export async function probeRoundtrip(c: ServiceContext, config: AgentConfig, pee
         if (plain.trim() === `MURMUR-DOCTOR-REPLY ${nonce}`) verified = { msgId: reply.msgId, text: plain };
       } catch { /* Unrelated or untrusted frames are not probe evidence. */ }
     }
-  })();
+  }));
   let db: DatabaseSync | undefined;
   try {
     await connection.flush();
     // Reuse the real daemon outbox path. A publisher-only probe could hide a broken daemon.
     const outbox = new SQLiteDedupeOutboxStore(c.storePath);
-    try { await outbox.enqueue(peer.subject, envelope); } finally { outbox.close(); }
+    try { await outbox.enqueue(resolveMessageSubject(peer, peer.channelId), envelope); } finally { outbox.close(); }
     db = new DatabaseSync(c.storePath, { readOnly: true });
     while (Date.now() < deadline) {
       const candidate = verified as { msgId: string; text: string } | null;
@@ -61,7 +64,7 @@ export async function probeRoundtrip(c: ServiceContext, config: AgentConfig, pee
       await delay(Math.min(50, Math.max(0, deadline - Date.now())));
     }
     throw new Error('roundtrip.timeout');
-  } finally { db?.close(); sub.unsubscribe(); await listener; }
+  } finally { db?.close(); for (const sub of subs) sub.unsubscribe(); await listener; }
 }
 
 export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: DoctorOptions) {
@@ -89,7 +92,7 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
     await stage('daemon', 'Daemon and store', async () => {
       snapshot = await readStatus({ context, adapter });
       if (snapshot.service.state !== 'running') throw new Error('daemon.not-running');
-      if (!snapshot.service.observedStorePath) throw new Error('daemon.store-unverified');
+      if (!snapshot.service.observedStorePath || await realpath(snapshot.service.observedStorePath) !== await realpath(context.storePath)) throw new Error('daemon.store-unverified');
       return { detail: 'Service PID holds the selected database open' };
     });
     await stage('broker', 'Broker authentication and RTT', async () => {
