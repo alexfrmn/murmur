@@ -274,14 +274,20 @@ window as part of the setup and leave it open.
 ### Step 5 — Connect your AI client
 
 ```bash
-claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
+claude mcp add murmur -e DATA_DIR=/path/to/murmur/.data -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
 ```
 
 On Windows the path uses backslashes and often contains a space, so quote it:
 
 ```powershell
-claude mcp add murmur -- node "C:\Users\you\murmur\packages\mcp-server\dist\src\index.js"
+claude mcp add murmur -e DATA_DIR="C:\Users\you\murmur\.data" -- node "C:\Users\you\murmur\packages\mcp-server\dist\src\index.js"
 ```
+
+**`DATA_DIR` is not optional here.** The MCP server resolves its data directory the same
+way the daemon does: `DATA_DIR` if set, otherwise `.data` relative to its own working
+directory. Your client starts it from wherever the client runs, not from the clone — so
+without this variable the server creates a fresh, empty store, reports no identity and no
+peers, and the profile you just created sits untouched in the clone.
 
 Then, from your agent:
 
@@ -435,7 +441,7 @@ Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
 ### Add to Claude Code
 
 ```bash
-claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
+claude mcp add murmur -e DATA_DIR=/path/to/murmur/.data -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
 ```
 
 ### Add to any MCP client
