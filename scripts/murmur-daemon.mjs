@@ -14,7 +14,7 @@ import {
   stableEnvelopePayload,
 } from "@murmurv2/core";
 import { decryptPayload, signEnvelope, verifyEnvelopeSignature } from "@murmurv2/security";
-import { NotifyQueue, flushNotifyQueue, normalizeNotifyTargets, targetsForSender } from "./notify-router.mjs";
+import { NotifyQueue, flushNotifyQueue, normalizeNotifyTargets, enqueuePeerNotification } from "./notify-router.mjs";
 import { createChannelThreadStartBindingResolver, createCodexAppServerInjector } from "./codex-app-server-wake.mjs";
 import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.mjs";
 import { WakeMonitor, createAuditShellHook, createShellHook, normalizeWakeConfig } from "./wake-monitor.mjs";
@@ -182,13 +182,7 @@ const inboundCursor = () => {
 
 const enqueueWakeNotification = async (payload, reason) => {
   log("warn", "WakeMonitor fallback notify", { reason, msgId: payload.msgId, from: payload.from });
-  if (effectiveNotifyTargets.length === 0) return;
-  const targets = targetsForSender(effectiveNotifyTargets, payload.from);
-  if (targets.length === 0) return;
-  notifyQueue.enqueueMessage({
-    ...payload,
-    text: `[WakeMonitor ${reason}] ${payload.text}`,
-  }, targets);
+  enqueuePeerNotification({ queue: notifyQueue, targets: effectiveNotifyTargets, payload, log, reason });
 };
 
 // #105 — the message store is the wake queue. Backlog, retries and the cursor all come
@@ -332,24 +326,7 @@ const onMessage = async (envelope) => {
   };
 
   if (effectiveNotifyTargets.length > 0 && wakeEligible) {
-    // A target may declare `peers`; one without it keeps taking everything
-    const targets = targetsForSender(effectiveNotifyTargets, payload.from);
-    if (targets.length > 0) {
-      notifyQueue.enqueueMessage(payload, targets);
-      log("info", "Notifications queued", {
-        msgId: envelope.msgId,
-        targetCount: targets.length,
-        channels: targets.map((t) => t.channel).join(","),
-      });
-    } else {
-      // Every target is filtered to other senders: say so, a silent drop here
-      // would look exactly like a broken bridge from the outside
-      log("warn", "No notify target accepts this sender", {
-        msgId: envelope.msgId,
-        from: payload.from,
-        targetCount: effectiveNotifyTargets.length,
-      });
-    }
+    enqueuePeerNotification({ queue: notifyQueue, targets: effectiveNotifyTargets, payload, log });
   }
 
   // The wake runs off the durable queue, not on the broker's clock. Awaiting it here

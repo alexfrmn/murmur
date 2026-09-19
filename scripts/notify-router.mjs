@@ -9,10 +9,12 @@ const ensureArray = (value) => (Array.isArray(value) ? value : value ? [value] :
 // A target without it stays a catch-all, so existing configs keep receiving
 // everything. Agent ids are compared case-insensitively.
 const normalizePeers = (value) => {
+  if (value === undefined) return undefined;
   const list = ensureArray(value)
-    .map((peer) => String(peer || "").trim().toLowerCase())
+    .filter((peer) => typeof peer === "string")
+    .map((peer) => peer.trim().toLowerCase())
     .filter(Boolean);
-  return list.length > 0 ? list : undefined;
+  return list;
 };
 
 const normalizeTelegram = (value, channelName = "telegram") => {
@@ -24,7 +26,7 @@ const normalizeTelegram = (value, channelName = "telegram") => {
       botToken: entry?.botToken,
       chatId: entry?.chatId,
       topicId: entry?.topicId,
-      peers: normalizePeers(entry?.peers ?? entry?.from),
+      peers: normalizePeers(entry?.peers),
       fallback: entry?.fallback === true || undefined,
     }))
     .filter((entry) => entry.botToken && entry.chatId);
@@ -38,7 +40,7 @@ const normalizeWebhook = (value, channelName = "webhook") => {
       channel: entry?.channel || entry?.name || `${channelName}${list.length > 1 ? `-${i + 1}` : ""}`,
       url: entry?.url,
       headers: entry?.headers && typeof entry.headers === "object" ? entry.headers : {},
-      peers: normalizePeers(entry?.peers ?? entry?.from),
+      peers: normalizePeers(entry?.peers),
       fallback: entry?.fallback === true || undefined,
     }))
     .filter((entry) => entry.url);
@@ -63,12 +65,12 @@ export const normalizeNotifyTargets = (notifyConfig) => {
 
   // Backward compatibility: notify: { botToken, chatId, topicId }
   if (!notifyConfig.telegram && notifyConfig.botToken && notifyConfig.chatId) {
-    targets.push(...normalizeTelegram({ botToken: notifyConfig.botToken, chatId: notifyConfig.chatId, topicId: notifyConfig.topicId }, "telegram"));
+    targets.push(...normalizeTelegram(notifyConfig, "telegram"));
   }
 
   // Backward compatibility: notify: { url, headers }
   if (!notifyConfig.webhook && notifyConfig.url) {
-    targets.push(...normalizeWebhook({ url: notifyConfig.url, headers: notifyConfig.headers }, "webhook"));
+    targets.push(...normalizeWebhook(notifyConfig, "webhook"));
   }
 
   return targets;
@@ -90,6 +92,27 @@ export const targetsForSender = (targets, sender) => {
   const always = targets.filter((target) => !target.peers && !target.fallback);
   if (matched.length > 0) return [...matched, ...always];
   return [...always, ...targets.filter((target) => target.fallback && !target.peers)];
+};
+
+// Both normal delivery and failed-wake notifications use this path, so routing
+// and the diagnostic for an unmatched peer cannot diverge between them.
+export const enqueuePeerNotification = ({ queue, targets, payload, log, reason }) => {
+  if (targets.length === 0 || payload.wakeEligible === false) return 0;
+  const selected = targetsForSender(targets, payload.from);
+  if (selected.length === 0) {
+    log("warn", "No notify target accepts this sender", {
+      msgId: payload.msgId, from: payload.from, targetCount: targets.length,
+      ...(reason ? { reason } : {}),
+    });
+    return 0;
+  }
+  queue.enqueueMessage(reason ? { ...payload, text: `[WakeMonitor ${reason}] ${payload.text}` } : payload, selected);
+  log("info", "Notifications queued", {
+    msgId: payload.msgId, targetCount: selected.length,
+    channels: selected.map((target) => target.channel).join(","),
+    ...(reason ? { reason } : {}),
+  });
+  return selected.length;
 };
 
 export class NotifyQueue {
