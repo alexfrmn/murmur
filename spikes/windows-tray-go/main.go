@@ -155,8 +155,8 @@ func (a *app) render(v Verdict) {
 	if v.Unread {
 		a.mu.Lock()
 		n := 0
-		if a.status != nil {
-			n = a.status.Inbox.Unread
+		if a.status != nil && a.status.Inbox.Unread != nil {
+			n = *a.status.Inbox.Unread
 		}
 		a.mu.Unlock()
 		tip += fmt.Sprintf("; непрочитанных: %d", n)
@@ -179,7 +179,7 @@ func (a *app) render(v Verdict) {
 	}
 
 	a.mu.Lock()
-	paused := a.status != nil && !a.status.Wake.Enabled
+	paused := a.status != nil && a.status.Wake.Enabled != nil && !*a.status.Wake.Enabled
 	a.mu.Unlock()
 	if paused {
 		a.mPause.SetTitle("Возобновить")
@@ -238,7 +238,7 @@ func (a *app) handleClicks() {
 			// Кнопка живёт, но в приёмку не идёт: drain() в wake-monitor не смотрит на
 			// enabled, поэтому отложенное доезжает и на паузе.
 			a.mu.Lock()
-			paused := a.status != nil && !a.status.Wake.Enabled
+			paused := a.status != nil && a.status.Wake.Enabled != nil && !*a.status.Wake.Enabled
 			a.mu.Unlock()
 			verb := "pause"
 			if paused {

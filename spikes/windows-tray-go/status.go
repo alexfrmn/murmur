@@ -3,6 +3,10 @@ package main
 // Единственный источник данных значка — murmur status --json и murmur doctor --json.
 // Схема описана в CONTRACT.md; здесь она же структурами и правило цвета, выведенное из
 // полей без догадок на стороне UI.
+//
+// Правило схемы, которому подчинены все типы ниже: неизвестное значение приходит как
+// null, никогда как ноль и никогда как пустой список. Поэтому счётчики и флаги здесь
+// указатели: ноль означает измеренный ноль, nil означает «не смог посмотреть».
 
 import (
 	"context"
@@ -23,26 +27,16 @@ const (
 	// неотличим от значка, который врёт.
 	maxStatusAge = 2 * time.Minute
 	// Допуск на расхождение часов. Снимок из будущего дальше допуска — такой же
-	// неизвестный возраст, как и непарсимая дата: часы разъехались, и верить снимку
-	// нельзя ни в одну сторону.
+	// неизвестный возраст, как и непарсимая дата.
 	clockSkewTolerance = 5 * time.Second
 )
 
-// known — признак «секцию удалось прочитать». Пустой список пиров означает «пиров нет»,
-// и это не то же самое, что «не смог узнать»: секция с нулями не равна секции, которую
-// не прочитали. Отдельным полем, потому что по значениям эти два случая неразличимы.
-type known struct {
-	Known         *bool  `json:"known"`
-	UnknownReason string `json:"unknownReason"`
-}
-
-// ok: отсутствие поля known читается как «прочитано». Движок, который поле не заполняет,
-// не должен из-за этого гасить значок целиком.
-func (k known) ok() bool { return k.Known == nil || *k.Known }
-
 type Peer struct {
-	AgentID       string `json:"agentId"`
-	Paired        bool   `json:"paired"`
+	AgentID string `json:"agentId"`
+	// Paired — null, когда парность неизвестна: наличие локальных ключей само по себе
+	// не доказывает, что пара установлена с обеих сторон, а человек читает из слова
+	// «спарен» именно это.
+	Paired        *bool  `json:"paired"`
 	LastInboundAt string `json:"lastInboundAt"`
 	LastOutbound  string `json:"lastOutboundAt"`
 }
@@ -63,57 +57,60 @@ type Status struct {
 	AgentID     string `json:"agentId"`
 
 	Service struct {
-		State         string `json:"state"`
-		Manager       string `json:"manager"`
-		Since         string `json:"since"`
-		PID           int    `json:"pid"`
-		LastExitCode  *int   `json:"lastExitCode"`
-		LastFailureAt string `json:"lastFailureAt"`
+		State            string  `json:"state"`
+		Manager          string  `json:"manager"`
+		Since            *string `json:"since"`
+		PID              int     `json:"pid"`
+		LastExitCode     *int    `json:"lastExitCode"`
+		LastFailureAt    *string `json:"lastFailureAt"`
+		RestartsLastHour *int    `json:"restartsLastHour"`
 	} `json:"service"`
 
 	Broker struct {
-		URL         string `json:"url"`
-		State       string `json:"state"`
-		ConnectedAt string `json:"connectedAt"`
-		LastError   string `json:"lastError"`
-		LastErrorAt string `json:"lastErrorAt"`
+		URL         string  `json:"url"`
+		State       string  `json:"state"`
+		ConnectedAt *string `json:"connectedAt"`
+		LastError   *string `json:"lastError"`
+		LastErrorAt *string `json:"lastErrorAt"`
 	} `json:"broker"`
 
 	Peers struct {
-		known
-		List []Peer `json:"list"`
+		// List — nil, когда список получить не удалось; пустой непустой срез означает
+		// «пиров действительно нет». encoding/json различает null и [] сам.
+		List          []Peer  `json:"list"`
+		UnknownReason *string `json:"unknownReason"`
 	} `json:"peers"`
 
 	Inbox struct {
-		known
-		Unread int    `json:"unread"`
-		Total  int    `json:"total"`
-		LastAt string `json:"lastAt"`
+		Unread        *int    `json:"unread"`
+		Total         *int    `json:"total"`
+		LastAt        *string `json:"lastAt"`
+		UnknownReason *string `json:"unknownReason"`
 	} `json:"inbox"`
 
 	Outbox struct {
-		known
-		Pending         int    `json:"pending"`
-		Inflight        int    `json:"inflight"`
-		Delivered       int    `json:"delivered"`
-		Failed          int    `json:"failed"`
-		DLQ             int    `json:"dlq"`
-		OldestPendingAt string `json:"oldestPendingAt"`
-		LastError       string `json:"lastError"`
-		LastErrorAt     string `json:"lastErrorAt"`
+		Pending         *int    `json:"pending"`
+		Inflight        *int    `json:"inflight"`
+		Delivered       *int    `json:"delivered"`
+		Failed          *int    `json:"failed"`
+		DLQ             *int    `json:"dlq"`
+		OldestPendingAt *string `json:"oldestPendingAt"`
+		LastError       *string `json:"lastError"`
+		LastErrorAt     *string `json:"lastErrorAt"`
+		UnknownReason   *string `json:"unknownReason"`
 	} `json:"outbox"`
 
 	Deliveries []Delivery `json:"deliveries"`
 
 	Wake struct {
-		known
-		Enabled            bool   `json:"enabled"`
-		Mode               string `json:"mode"`
-		Responder          string `json:"responder"`
-		LastDeliveredAt    string `json:"lastDeliveredAt"`
-		LastFault          string `json:"lastFault"`
-		LastFaultAt        string `json:"lastFaultAt"`
-		PendingUndelivered int    `json:"pendingUndelivered"`
+		Enabled            *bool   `json:"enabled"`
+		Mode               string  `json:"mode"`
+		Responder          string  `json:"responder"`
+		LastDeliveredAt    *string `json:"lastDeliveredAt"`
+		LastFault          *string `json:"lastFault"`
+		LastFaultAt        *string `json:"lastFaultAt"`
+		PendingUndelivered *int    `json:"pendingUndelivered"`
+		UnknownReason      *string `json:"unknownReason"`
 	} `json:"wake"`
 }
 
@@ -158,11 +155,19 @@ type Verdict struct {
 	History []string
 }
 
+func str(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 // resolve выводит цвет из полей схемы. Каждая ветка названа полем, из которого следует.
 //
-// Порядок: серый по состоянию наблюдателя → красный → жёлтый → серый по незнанию →
-// зелёный. Известный отказ кричит и тогда, когда часть секций прочитать не удалось;
-// непрочитанная секция не даёт объявить зелёное и не затыкает уже известное.
+// Порядок: серый по состоянию наблюдателя → известный красный → известный жёлтый →
+// серый по незнанию → зелёный. Известный отказ кричит и тогда, когда часть полей
+// измерить не удалось; неизмеренное поле не даёт объявить зелёное и не затыкает уже
+// известное.
 func resolve(s *Status, err error) Verdict {
 	if err != nil {
 		return Verdict{Level: LevelGrey, Reason: "статус недоступен: " + err.Error()}
@@ -171,7 +176,7 @@ func resolve(s *Status, err error) Verdict {
 		return Verdict{Level: LevelGrey, Reason: "схема ответа незнакома: " + s.Schema}
 	}
 
-	unread := s.Inbox.ok() && s.Inbox.Unread > 0
+	unread := s.Inbox.Unread != nil && *s.Inbox.Unread > 0
 	hist := history(s)
 	out := func(l Level, reason string) Verdict {
 		return Verdict{Level: l, Unread: unread, Reason: reason, History: hist}
@@ -198,47 +203,103 @@ func resolve(s *Status, err error) Verdict {
 		return out(LevelRed, "служба в состоянии failed")
 	}
 
-	if s.Outbox.ok() && (s.Outbox.DLQ > 0 || s.Outbox.Failed > 0) {
-		return out(LevelRed, fmt.Sprintf("недоставленные: failed %d, DLQ %d", s.Outbox.Failed, s.Outbox.DLQ))
+	// missing копит поля, без которых цвет не выводится. Разница между нулём и
+	// неизмеренным — это разница между «в очереди пусто» и «я не смог посмотреть в
+	// очередь»: первое успокаивает справедливо, второе ложно.
+	var missing []string
+	need := func(name string, p *int) (int, bool) {
+		if p == nil {
+			missing = append(missing, name)
+			return 0, false
+		}
+		return *p, true
 	}
-	if s.Wake.ok() {
-		if s.Wake.LastFault != "" {
-			return out(LevelRed, "wake не сработал: "+s.Wake.LastFault)
-		}
-		if s.Wake.PendingUndelivered > 0 {
-			return out(LevelRed, "wake не доставил "+plural(s.Wake.PendingUndelivered, "сообщение", "сообщения", "сообщений"))
-		}
+
+	failed, okFailed := need("outbox.failed", s.Outbox.Failed)
+	dlq, okDLQ := need("outbox.dlq", s.Outbox.DLQ)
+	if (okFailed && failed > 0) || (okDLQ && dlq > 0) {
+		return out(LevelRed, fmt.Sprintf("недоставленные: failed %s, DLQ %s", num(s.Outbox.Failed), num(s.Outbox.DLQ)))
+	}
+	if fault := str(s.Wake.LastFault); fault != "" {
+		return out(LevelRed, "wake не сработал: "+fault)
+	}
+	if pending, okPending := need("wake.pendingUndelivered", s.Wake.PendingUndelivered); okPending && pending > 0 {
+		return out(LevelRed, "wake не доставил "+plural(pending, "сообщение", "сообщения", "сообщений"))
+	}
+	// Секция, которую не удалось прочитать целиком, отдельным признаком: null в поле
+	// последней ошибки означает «отказа не было», и отличить его от «не смотрел» можно
+	// только так.
+	if r := str(s.Wake.UnknownReason); r != "" {
+		missing = append(missing, "wake ("+r+")")
+	}
+	if r := str(s.Outbox.UnknownReason); r != "" {
+		missing = append(missing, "исходящие ("+r+")")
 	}
 
 	switch s.Broker.State {
 	case "unauthorized":
 		return out(LevelYellow, "брокер отверг токен")
 	case "connected":
+	case "", "unknown":
+		missing = append(missing, "broker.state")
 	default:
 		reason := "брокер недоступен"
-		if s.Broker.LastError != "" {
-			reason += ": " + s.Broker.LastError
+		if e := str(s.Broker.LastError); e != "" {
+			reason += ": " + e
 		}
 		return out(LevelYellow, reason)
 	}
 
-	if s.Peers.ok() {
-		// Ноль пиров — это «ещё не настроено», а не «всё хорошо»: новому участнику
-		// писать некому, и зелёный значок сказал бы ему прямую неправду.
+	if s.Peers.List == nil {
+		label := "peers.list"
+		if r := str(s.Peers.UnknownReason); r != "" {
+			label += " (" + r + ")"
+		}
+		missing = append(missing, label)
+	} else {
 		if len(s.Peers.List) == 0 {
+			// Ноль пиров — это «ещё не настроено», а не «всё хорошо»: новому участнику
+			// писать некому, и зелёный значок сказал бы ему прямую неправду.
 			return out(LevelYellow, "пиров нет, обмен ещё не настроен")
 		}
-		if unpaired := unpairedPeers(s.Peers.List); len(unpaired) > 0 {
+		var unpaired, unknownPair []string
+		for _, p := range s.Peers.List {
+			switch {
+			case p.Paired == nil:
+				unknownPair = append(unknownPair, p.AgentID)
+			case !*p.Paired:
+				unpaired = append(unpaired, p.AgentID)
+			}
+		}
+		if len(unpaired) > 0 {
 			return out(LevelYellow, "пиры без пары: "+strings.Join(unpaired, ", "))
+		}
+		if len(unknownPair) > 0 {
+			missing = append(missing, "парность неизвестна: "+strings.Join(unknownPair, ", "))
 		}
 	}
 
-	// Ни один известный отказ не сработал. Если часть секций прочитать не удалось,
-	// зелёное объявлять нечем: это «не знаю», а не «всё хорошо».
-	if unknown := unknownSections(s); len(unknown) > 0 {
-		return out(LevelGrey, "не удалось прочитать: "+strings.Join(unknown, ", "))
+	if s.Inbox.Unread == nil {
+		label := "inbox.unread"
+		if r := str(s.Inbox.UnknownReason); r != "" {
+			label += " (" + r + ")"
+		}
+		missing = append(missing, label)
+	}
+
+	if len(missing) > 0 {
+		return out(LevelGrey, "не измерено: "+strings.Join(missing, ", "))
 	}
 	return out(LevelGreen, "демон, брокер и "+plural(len(s.Peers.List), "пир", "пира", "пиров")+" в порядке")
+}
+
+// num печатает число либо «не измерено»: подставлять ноль вместо неизвестного значит
+// успокаивать ложно.
+func num(p *int) string {
+	if p == nil {
+		return "не измерено"
+	}
+	return strconv.Itoa(*p)
 }
 
 // plural — русские формы числительных. Конкатенация «0 пира» выдаёт машину там, где
@@ -254,29 +315,6 @@ func plural(n int, one, few, many string) string {
 		}
 	}
 	return strconv.Itoa(n) + " " + form
-}
-
-func unknownSections(s *Status) []string {
-	var out []string
-	for _, sec := range []struct {
-		name string
-		k    known
-	}{
-		{"пиры", s.Peers.known},
-		{"входящие", s.Inbox.known},
-		{"исходящие", s.Outbox.known},
-		{"wake", s.Wake.known},
-	} {
-		if sec.k.ok() {
-			continue
-		}
-		label := sec.name
-		if sec.k.UnknownReason != "" {
-			label += " (" + sec.k.UnknownReason + ")"
-		}
-		out = append(out, label)
-	}
-	return out
 }
 
 // history собирает то, чего цвет сказать не может: последние отказы с временем. В сером
@@ -298,31 +336,20 @@ func history(s *Status) []string {
 		}
 		out = append(out, line)
 	}
-	if s.Outbox.ok() {
-		add("последняя ошибка отправки", s.Outbox.LastError, s.Outbox.LastErrorAt)
+	add("последняя ошибка отправки", str(s.Outbox.LastError), str(s.Outbox.LastErrorAt))
+	add("последний сбой пробуждения", str(s.Wake.LastFault), str(s.Wake.LastFaultAt))
+	add("последняя ошибка брокера", str(s.Broker.LastError), str(s.Broker.LastErrorAt))
+	if at := str(s.Service.LastFailureAt); at != "" {
+		add("служба падала", "", at)
 	}
-	if s.Wake.ok() {
-		add("последний сбой пробуждения", s.Wake.LastFault, s.Wake.LastFaultAt)
-	}
-	add("последняя ошибка брокера", s.Broker.LastError, s.Broker.LastErrorAt)
-	if s.Service.LastFailureAt != "" {
-		add("служба падала", "", s.Service.LastFailureAt)
-	}
-	return out
-}
-
-func unpairedPeers(peers []Peer) []string {
-	var out []string
-	for _, p := range peers {
-		if !p.Paired {
-			out = append(out, p.AgentID)
-		}
+	if n := s.Service.RestartsLastHour; n != nil && *n > 0 {
+		out = append(out, "подъёмов демона за час: "+strconv.Itoa(*n))
 	}
 	return out
 }
 
-// schemaKnown сравнивает имя и мажорную версию: движок должен иметь право добавить поле,
-// не гася значок. Мажор меняется только при несовместимом изменении формы.
+// schemaKnown сравнивает имя и мажорную версию: движок вправе добавить поле, не гася
+// значок. Мажор меняется только при несовместимом изменении формы.
 func schemaKnown(got, want string) bool {
 	gotName, gotMajor, gotOK := splitSchema(got)
 	wantName, wantMajor, wantOK := splitSchema(want)
@@ -411,8 +438,8 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 			return nil, err
 		}
 	}
-	// Проверка версии стоит после обоих путей: у status эту роль играет resolve, у
-	// doctor её не играл никто, и незнакомая версия от движка проходила целиком.
+	// Проверка версии стоит после обоих путей: у status эту роль играет правило цвета,
+	// у doctor её не играет никто другой.
 	if !schemaKnown(d.Schema, doctorSchema) {
 		return nil, errors.New("схема doctor незнакома: " + d.Schema)
 	}
@@ -423,7 +450,7 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 // только под Windows — тесты на другой ОС иначе не собрались бы.
 func firstLine(b []byte) string {
 	s := strings.TrimSpace(string(b))
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
+	if i := strings.IndexByte(s, 10); i >= 0 {
 		s = s[:i]
 	}
 	if r := []rune(s); len(r) > 80 {

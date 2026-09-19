@@ -13,17 +13,17 @@
   },
   "broker": {
     "url": "nats://nats.server-pilot.ru:4222",
-    "state": "unauthorized",
+    "state": "connected",
     "connectedAt": "2026-09-19T11:03:45Z",
-    "lastError": "authorization violation",
-    "lastErrorAt": "2026-09-19T12:20:00Z"
+    "lastError": null,
+    "lastErrorAt": null
   },
   "peers": {
     "unknownReason": null,
     "list": [
       {
         "agentId": "agent-jarvis",
-        "paired": true,
+        "paired": null,
         "lastInboundAt": "2026-09-19T12:40:17Z",
         "lastOutboundAt": "2026-09-19T12:26:00Z"
       },

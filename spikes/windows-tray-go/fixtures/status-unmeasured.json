@@ -8,7 +8,8 @@
     "since": "2026-09-19T11:03:45Z",
     "pid": 18232,
     "lastExitCode": null,
-    "lastFailureAt": null
+    "lastFailureAt": null,
+    "restartsLastHour": 0
   },
   "broker": {
     "url": "nats://nats.server-pilot.ru:4222",
@@ -18,28 +19,25 @@
     "lastErrorAt": null
   },
   "peers": {
-    "known": false,
-    "unknownReason": "брокер не ответил",
-    "list": []
+    "list": null,
+    "unknownReason": "брокер не ответил"
   },
   "inbox": {
-    "known": true,
-    "unknownReason": null,
-    "unread": 2,
-    "total": 154,
-    "lastAt": "2026-09-19T12:28:26Z"
+    "unread": null,
+    "total": null,
+    "lastAt": "2026-09-19T12:40:17Z",
+    "unknownReason": "база занята записью"
   },
   "outbox": {
-    "known": false,
-    "unknownReason": "база занята записью",
-    "pending": 0,
-    "inflight": 0,
-    "delivered": 43,
-    "failed": 0,
-    "dlq": 0,
+    "pending": null,
+    "inflight": null,
+    "delivered": null,
+    "failed": null,
+    "dlq": null,
     "oldestPendingAt": null,
     "lastError": null,
-    "lastErrorAt": null
+    "lastErrorAt": null,
+    "unknownReason": "база занята записью"
   },
   "deliveries": [
     {
@@ -53,14 +51,13 @@
     }
   ],
   "wake": {
-    "known": true,
-    "unknownReason": null,
     "enabled": true,
     "mode": "monitor",
     "responder": "claude-code",
-    "lastDeliveredAt": "2026-09-19T12:28:27Z",
+    "lastDeliveredAt": "2026-09-19T12:40:18Z",
     "lastFault": null,
     "lastFaultAt": null,
-    "pendingUndelivered": 0
+    "pendingUndelivered": 0,
+    "unknownReason": null
   }
 }

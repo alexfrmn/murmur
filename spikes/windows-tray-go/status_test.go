@@ -41,7 +41,8 @@ func TestResolveLevels(t *testing.T) {
 		{"status-red.json", LevelRed, true},
 		{"status-grey.json", LevelGrey, true},
 		{"status-no-peers.json", LevelYellow, false},
-		{"status-unknown-sections.json", LevelGrey, true},
+		{"status-unmeasured.json", LevelGrey, false},
+		{"status-pairing-unknown.json", LevelGrey, true},
 	}
 	for _, c := range cases {
 		v := resolve(load(t, c.fixture), nil)
@@ -100,30 +101,64 @@ func TestSchemaVersioning(t *testing.T) {
 	}
 }
 
-// Пустая секция и непрочитанная секция — разные вещи. Ноль пиров означает «ещё не
-// настроено» и светит жёлтым; непрочитанные пиры означают «не знаю» и гасят в серый.
+// Пустой список и неизмеренный список — разные вещи. Ноль пиров означает «ещё не
+// настроено» и светит жёлтым; null означает «не смог узнать» и гасит в серый.
 func TestEmptyIsNotUnknown(t *testing.T) {
 	empty := resolve(load(t, "status-no-peers.json"), nil)
 	if empty.Level != LevelYellow {
-		t.Errorf("ноль пиров должен быть жёлтым, получен %v (%s)", empty.Level, empty.Reason)
+		t.Errorf("пустой список пиров должен быть жёлтым, получен %v (%s)", empty.Level, empty.Reason)
 	}
-	unknown := resolve(load(t, "status-unknown-sections.json"), nil)
+	unknown := resolve(load(t, "status-unmeasured.json"), nil)
 	if unknown.Level != LevelGrey {
-		t.Errorf("непрочитанные секции должны быть серыми, получен %v (%s)", unknown.Level, unknown.Reason)
+		t.Errorf("неизмеренные поля должны быть серыми, получен %v (%s)", unknown.Level, unknown.Reason)
+	}
+	if !strings.Contains(unknown.Reason, "не измерено") {
+		t.Errorf("серый обязан назвать, чего он не измерил: %s", unknown.Reason)
 	}
 }
 
-// Известный отказ кричит даже тогда, когда часть секций прочитать не удалось.
-func TestKnownFailureBeatsUnknownSection(t *testing.T) {
-	s := load(t, "status-unknown-sections.json")
+// Ноль в счётчике и неизмеренный счётчик дают разный цвет: «в очереди пусто» против
+// «я не смог посмотреть в очередь».
+func TestZeroIsNotNull(t *testing.T) {
+	zero := resolve(load(t, "status-green.json"), nil)
+	if zero.Level != LevelGreen {
+		t.Errorf("измеренные нули должны давать зелёное, получено %v (%s)", zero.Level, zero.Reason)
+	}
+	s := load(t, "status-green.json")
+	s.Outbox.Failed = nil
+	v := resolve(s, nil)
+	if v.Level != LevelGrey {
+		t.Errorf("неизмеренный счётчик отказов должен гасить в серый, получен %v (%s)", v.Level, v.Reason)
+	}
+	if !strings.Contains(v.Reason, "outbox.failed") {
+		t.Errorf("в причине должно быть названо поле: %s", v.Reason)
+	}
+}
+
+// Парность, о которой не знаем, не равна парности подтверждённой: локальные ключи сами
+// по себе не доказывают, что пара установлена с обеих сторон.
+func TestPairingUnknownIsNotPaired(t *testing.T) {
+	v := resolve(load(t, "status-pairing-unknown.json"), nil)
+	if v.Level != LevelGrey {
+		t.Errorf("неизвестная парность должна гасить в серый, получен %v (%s)", v.Level, v.Reason)
+	}
+	no := false
+	s := load(t, "status-pairing-unknown.json")
+	s.Peers.List[0].Paired = &no
+	if v := resolve(s, nil); v.Level != LevelYellow {
+		t.Errorf("подтверждённое отсутствие пары — жёлтый, получен %v (%s)", v.Level, v.Reason)
+	}
+}
+
+// Известный отказ кричит и тогда, когда часть полей измерить не удалось.
+func TestKnownFailureBeatsUnmeasured(t *testing.T) {
+	s := load(t, "status-unmeasured.json")
 	s.Broker.State = "unauthorized"
 	if v := resolve(s, nil); v.Level != LevelYellow {
 		t.Errorf("известный отказ брокера должен перебивать незнание, получен %v (%s)", v.Level, v.Reason)
 	}
 }
 
-// То, что не поместилось в цвет, остаётся текстом: серый без истории читается как
-// «отказов не было».
 func TestGreyKeepsHistory(t *testing.T) {
 	v := resolve(load(t, "status-grey.json"), nil)
 	if len(v.History) == 0 {
