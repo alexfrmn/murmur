@@ -1,0 +1,36 @@
+(node:65008) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/packages/setup/src/platform/darwin.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "result": "PASS",
+  "fakeDaemon": true,
+  "serviceName": "org.murmur.adapter-smoke.65008.1789823210861",
+  "events": [
+    {
+      "step": "install",
+      "fileMode": 384
+    },
+    {
+      "step": "start",
+      "durationMs": 146,
+      "state": "running",
+      "manager": "launchd",
+      "since": "2026-09-19T13:06:50.000Z",
+      "pid": 65014,
+      "lastExitCode": null,
+      "observedStorePath": "/private/var/folders/57/scsyd80n67q8h2bb0wzgr13c0000gn/T/murmur-launchd-smoke-W0ltaa/data/murmur.db",
+      "restartCount": null,
+      "restartWindowMs": null
+    },
+    {
+      "step": "start-again",
+      "samePid": true
+    },
+    {
+      "step": "stop-again",
+      "state": "stopped"
+    }
+  ],
+  "rebootTested": false
+}

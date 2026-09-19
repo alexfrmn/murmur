@@ -563,6 +563,8 @@ export function isRecoverableRejection(reason: string): boolean {
 export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckReceiptStore {
   private readonly db: DatabaseSync;
 
+  close(): void { this.db.close(); }
+
   constructor(dbPath = ".data/murmur.db") {
     ensureDir(dbPath);
     this.db = new DatabaseSync(dbPath);
@@ -1005,6 +1007,7 @@ export interface MessageEventRecord {
 }
 
 export class SQLiteMessageStore {
+  close(): void { this.db.close(); }
   private readonly db: DatabaseSync;
 
   constructor(dbPath = ".data/murmur.db") {
