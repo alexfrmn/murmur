@@ -12,7 +12,9 @@ if (!["--plan", "--prepare", "--check-rollback"].includes(mode) || process.argv.
 }
 const config = await readPrivateJson(path.join(process.env.DATA_DIR || ".data", "agent-config.json"));
 if (config.subjectScoping?.enabled !== true) throw new Error("subject-scoping-config-required");
-const nc = await connect(buildNatsConnectionOptions({ url: config.natsUrl, token: config.natsToken, waitOnFirstConnect: false, maxReconnectAttempts: 0 }));
+const nc = await connect(buildNatsConnectionOptions({ url: config.natsUrl, token: config.natsToken,
+  user: config.natsUser, password: config.natsPassword, tls: config.natsTls,
+  waitOnFirstConnect: false, maxReconnectAttempts: 0 }));
 try {
   const jsm = await nc.jetstreamManager();
   const input = { stream: config.jetstream?.stream || "MURMUR", subject: config.subject, consumerId: config.agentId, channelIds: config.subjectScoping.channelIds };

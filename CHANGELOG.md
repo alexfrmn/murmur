@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Prepared TLS cutover hardening** (#103): remote plaintext is rejected; runtime
+  JetStream roles use pre-provisioned consumers and isolated reply inboxes. The
+  dashboard and migration client support distinct TLS credentials. Certificate
+  checks cannot be disabled through arbitrary TLS options. This breaking change
+  requires the coordinated operator window in `docs/nats-transport-security.md`.
 - **Outbox retries now reach JetStream inside its duplicate window** (#141): each
   durable row version has its own transport dedupe ID; the signed envelope and
   receiver's message ID remain unchanged. This also covers a fast NACK that wins
