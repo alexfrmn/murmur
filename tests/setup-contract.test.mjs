@@ -54,3 +54,8 @@ test("presence is distinct from null and additive extension keys stay allowed", 
   delete input.inbox.unread;
   assert.equal(statusVerdict(input, now).code, "schema.missing-key");
 });
+test("nullable broker state is unmeasured, not an observed connection failure", () => {
+  const input = materialize(JSON.parse(readFileSync(new URL("status-green.json", fixtures), "utf8")));
+  input.broker.state = null;
+  assert.deepEqual(statusVerdict(input, now), { level: "grey", code: "unmeasured", unread: true, missing: ["broker.state"], missingWhy: {} });
+});

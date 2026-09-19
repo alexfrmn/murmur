@@ -76,7 +76,7 @@ export function statusVerdict(input: unknown, now = Date.now()): StatusVerdict {
   switch (s.broker?.state) {
     case "unauthorized": return out("yellow", "broker.unauthorized");
     case "connected": break;
-    case undefined: case "": case "unknown": missing.push("broker.state"); break;
+    case null: case undefined: case "": case "unknown": missing.push("broker.state"); break;
     default: return out("yellow", "broker.unreachable");
   }
   if (!Array.isArray(s.peers?.list)) note("peers.list", s.peers?.unknownReason ? "source-unreadable" : "unmeasured");
