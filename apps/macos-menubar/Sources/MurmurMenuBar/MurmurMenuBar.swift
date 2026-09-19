@@ -3,32 +3,140 @@ import SwiftUI
 import ServiceManagement
 import MurmurTrayCore
 
-private struct StatusRead: Sendable { let value: StatusSnapshot?; let error: Verdict? }
 private struct DoctorRead: Sendable { let value: DoctorSnapshot?; let error: String? }
 
 @MainActor
 final class TrayModel: ObservableObject {
     @Published var status: StatusSnapshot?
-    @Published var statusError = Verdict(.unknown, reason: "Состояние ещё не получено")
+    @Published var statusError = Verdict(.unknown, reason: "Выберите папку профиля Murmur")
     @Published var doctor: DoctorSnapshot?
     @Published var doctorError: String?
     @Published var operationError: String?
+    @Published var operationMessage: String?
+    @Published var operating = false
+    @Published var profile: ProfileBinding?
+    @Published var profileError: String? = "Выберите папку профиля Murmur"
+    @Published var agentID: String?
     @Published var checkingStatus = false
     @Published var checkingDoctor = false
+    @Published var updates: UpdateSnapshot?
+    @Published var updateError: String?
+    @Published var checkingUpdates = false
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published var demoState: Indicator = .unknown
     let isDemo: Bool
     private var timer: Timer?
+    private var updateTimer: Timer?
+    private var client: ProfileClient?
+    private var updatesClient: UpdatesClient?
+    private var selectionID = UUID()
 
     init() {
         isDemo = ProcessInfo.processInfo.arguments.contains("--demo")
         if !isDemo {
-            refreshStatus()
-            refreshDoctor()
+            let env = ProcessInfo.processInfo.environment
+            let stored = UserDefaults.standard
+            let directory = env["MURMUR_DATA_DIR"] ?? stored.string(forKey: "profileDirectory")
+            let serviceName = env["MURMUR_DATA_DIR"] != nil ? env["MURMUR_SERVICE_NAME"] : stored.string(forKey: "profileServiceName")
+            if let directory {
+                do { bind(try ProfileBinding(dataDirectory: directory, serviceName: serviceName)) }
+                catch { profileError = error.localizedDescription }
+            }
             timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.refreshStatus() }
             }
+            if let executable = CLIProbe.locate(environment: env) {
+                updatesClient = UpdatesClient(executable: executable, environment: env)
+                refreshUpdates()
+            } else { updateError = ProbeError.missingCLI.localizedDescription }
         }
+    }
+
+    var busy: Bool { operating || checkingStatus || checkingDoctor }
+    // Update I/O never participates in profile/status/service command readiness.
+    var canChangeUpdates: Bool { !isDemo && updatesClient != nil && !checkingUpdates }
+    var updatesForcedOff: Bool { updatesClient?.forcedOff == true }
+    var updateAvailable: Bool { updates?.releasePage() != nil }
+    var accessibleStatus: String { "Murmur: " + verdict.reason + (updateAvailable ? "; доступно обновление" : "") }
+
+    func refreshUpdates(enabled: Bool? = nil) {
+        guard !isDemo, !checkingUpdates, let updatesClient else { return }
+        checkingUpdates = true; updateError = nil
+        Task { [self] in
+            let result = await Task.detached { () -> Result<UpdateSnapshot, Error> in
+                Result {
+                    if let enabled { try updatesClient.setEnabled(enabled) }
+                    // A disabled check is local-only in the CLI contract. Read back
+                    // the effective preference, including a process opt-out.
+                    return try updatesClient.check()
+                }
+            }.value
+            switch result {
+            case .success(let snapshot): updates = snapshot
+            case .failure(let error): updates = nil; updateError = error.localizedDescription
+            }
+            checkingUpdates = false
+            // Schedule from completion so a slow startup cannot make the next
+            // invocation fall just before the CLI's six-hour cache deadline.
+            updateTimer?.invalidate()
+            updateTimer = Timer.scheduledTimer(withTimeInterval: 21_600, repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.refreshUpdates() }
+            }
+        }
+    }
+
+    func openUpdateRelease() {
+        guard !isDemo, let page = updates?.releasePage() else { return }
+        // No download, installer or shell: an explicit click opens an allowed page.
+        if !NSWorkspace.shared.open(page) { updateError = "Не удалось открыть страницу релиза" }
+    }
+
+    var controlBlockReason: String? {
+        if isDemo { return "Демонстрационный режим" }
+        if let profileError { return profileError }
+        guard let client, let status, let agentID else { return "Профиль ещё не подтверждён" }
+        do {
+            guard try client.verifiedAgent(in: status) == agentID else { return ProfileError.identityChanged.localizedDescription }
+        } catch { return error.localizedDescription }
+        return busy ? "Дождитесь завершения текущей команды" : nil
+    }
+
+    var canControl: Bool { controlBlockReason == nil }
+    var wakeAction: ControlAction { status?.wake.config.enabled == false ? .resume : .pause }
+
+    func chooseProfile() {
+        guard !busy, !isDemo else { return }
+        let picker = NSOpenPanel()
+        picker.title = "Папка профиля Murmur"
+        picker.message = "Выберите папку профиля, созданного через Murmur CLI"
+        picker.prompt = "Выбрать профиль"
+        picker.canChooseFiles = false; picker.canChooseDirectories = true
+        picker.canCreateDirectories = false; picker.allowsMultipleSelection = false
+        picker.showsHiddenFiles = true
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        guard picker.runModal() == .OK, let url = picker.url else { return }
+        do {
+            let chosen = try ProfileBinding(dataDirectory: url.path)
+            UserDefaults.standard.set(chosen.dataDirectory, forKey: "profileDirectory")
+            UserDefaults.standard.removeObject(forKey: "profileServiceName")
+            bind(chosen)
+        } catch { profileError = error.localizedDescription }
+    }
+
+    private func bind(_ chosen: ProfileBinding) {
+        selectionID = UUID()
+        profile = chosen; agentID = nil; status = nil; doctor = nil
+        operationMessage = nil; operationError = nil
+        profileError = "Проверяем выбранный профиль…"
+        statusError = Verdict(.unknown, reason: "Проверяем выбранный профиль…")
+        guard let executable = CLIProbe.locate() else {
+            client = nil; profileError = ProbeError.missingCLI.localizedDescription
+            statusError = .unavailable(ProbeError.missingCLI)
+            return
+        }
+        client = ProfileClient(executable: executable, profile: chosen)
+        refreshStatus()
+        refreshDoctor()
     }
 
     var verdict: Verdict {
@@ -40,41 +148,85 @@ final class TrayModel: ObservableObject {
     }
 
     func refreshStatus() {
-        guard !checkingStatus, !isDemo else { return }
+        guard !checkingStatus, !operating, !isDemo, let client else { return }
+        let selected = selectionID
+        let expectedAgent = agentID
         checkingStatus = true
         Task {
-            let result = await Task.detached { () -> StatusRead in
-                guard let path = CLIProbe.locate() else {
-                    return StatusRead(value: nil, error: .unavailable(ProbeError.missingCLI))
-                }
-                do {
-                    let data = try CLIProbe(executable: path).run("status").data
-                    return StatusRead(value: try StatusSnapshot.decode(data), error: nil)
-                } catch { return StatusRead(value: nil, error: .unavailable(error)) }
+            let result = await Task.detached {
+                client.readProfileStatus(expectedAgent: expectedAgent)
             }.value
-            status = result.value
+            guard selected == selectionID else { return }
+            // Publish only a validated observation. A rejected identity supplies
+            // no snapshot/counters and keeps the previous binding until reselect.
+            status = result.status
+            agentID = result.agentID
             statusError = result.error ?? Verdict(.unknown, reason: "Состояние ещё не получено")
+            profileError = result.error?.reason
             checkingStatus = false
         }
     }
 
     // A doctor roundtrip is active traffic: startup or explicit button only.
     func refreshDoctor() {
-        guard !checkingDoctor, !isDemo else { return }
+        guard !checkingDoctor, !operating, !isDemo, let client else { return }
+        let selected = selectionID
         checkingDoctor = true
         Task {
             let result = await Task.detached { () -> DoctorRead in
-                guard let path = CLIProbe.locate() else {
-                    return DoctorRead(value: nil, error: ProbeError.missingCLI.localizedDescription)
-                }
                 do {
-                    let data = try CLIProbe(executable: path, timeout: 30).run("doctor").data
-                    return DoctorRead(value: try DoctorSnapshot.decode(data), error: nil)
+                    return DoctorRead(value: try client.readDoctor(), error: nil)
                 } catch { return DoctorRead(value: nil, error: error.localizedDescription) }
             }.value
+            guard selected == selectionID else { return }
             doctor = result.value
             doctorError = result.error
             checkingDoctor = false
+        }
+    }
+
+    func perform(_ action: ControlAction) {
+        guard canControl, let client, let agentID else { return }
+        operating = true; operationError = nil; operationMessage = nil
+        doctor = nil; doctorError = "После изменения запустите проверку заново"
+        let selected = selectionID
+        Task {
+            let result = await Task.detached { () -> Result<ControlReceipt, Error> in
+                Result { try client.perform(action, expectedAgent: agentID) }
+            }.value
+            guard selected == selectionID else { return }
+            switch result {
+            case .success(let receipt): operationMessage = receipt.message
+            case .failure(let error): operationError = error.localizedDescription
+            }
+            // Do not turn configuration acknowledgement into effective runtime state.
+            // Refresh after errors too: a timed-out mutation may already have applied.
+            status = nil
+            statusError = Verdict(.unknown, reason: "Проверяем статус после команды…")
+            operating = false
+            refreshStatus()
+        }
+    }
+
+    func wakeState(_ value: Bool?) -> String {
+        value.map { $0 ? "передача агенту включена" : "передача агенту на паузе" } ?? "не измерено"
+    }
+
+    func openLogs() {
+        guard canControl, let client, let agentID else { return }
+        operating = true; operationError = nil; operationMessage = nil
+        let selected = selectionID
+        Task {
+            let result = await Task.detached { () -> Result<URL, Error> in
+                Result { try client.logDirectory(expectedAgent: agentID) }
+            }.value
+            guard selected == selectionID else { return }
+            operating = false
+            switch result {
+            case .success(let directory):
+                if !NSWorkspace.shared.open(directory) { operationError = "Не удалось открыть папку логов" }
+            case .failure(let error): operationError = error.localizedDescription
+            }
         }
     }
 
@@ -112,6 +264,7 @@ final class TrayModel: ObservableObject {
         case .failed: .systemRed
         }
         let unread = current.unread
+        let hasUpdate = updateAvailable
         let image = NSImage(size: NSSize(width: 20, height: 20), flipped: false) { _ in
             color.setFill()
             NSBezierPath(ovalIn: NSRect(x: 3, y: 3, width: 14, height: 14)).fill()
@@ -119,10 +272,19 @@ final class TrayModel: ObservableObject {
                 NSColor.systemBlue.setFill()
                 NSBezierPath(ovalIn: NSRect(x: 13, y: 12, width: 7, height: 7)).fill()
             }
+            if hasUpdate {
+                NSColor.systemPurple.setFill()
+                NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: 8, height: 8)).fill()
+                NSColor.white.setStroke()
+                let arrow = NSBezierPath(); arrow.lineWidth = 1.2
+                arrow.move(to: NSPoint(x: 4, y: 1.5)); arrow.line(to: NSPoint(x: 4, y: 6))
+                arrow.move(to: NSPoint(x: 2, y: 4)); arrow.line(to: NSPoint(x: 4, y: 6)); arrow.line(to: NSPoint(x: 6, y: 4))
+                arrow.stroke()
+            }
             return true
         }
         image.isTemplate = false
-        image.accessibilityDescription = current.reason
+        image.accessibilityDescription = accessibleStatus
         return image
     }
 }
@@ -134,12 +296,22 @@ struct MurmurMenuBarApp: App {
     var body: some Scene {
         MenuBarExtra {
             Text(model.isDemo ? "Murmur — демо" : "Murmur — прототип")
+            if let profile = model.profile {
+                Text("Профиль: \(model.agentID ?? "не подтверждён")")
+                Text(profile.dataDirectory)
+                if let service = profile.serviceName { Text("Служба: \(service)") }
+            }
+            Button("Выбрать папку профиля…") { model.chooseProfile() }.disabled(model.busy || model.isDemo)
+            if let reason = model.controlBlockReason { Text(reason) }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
             Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
             if let operationError = model.operationError { Text(operationError) }
-            if let count = model.status?.inbox.unread, count > 0 {
-                Text("Непрочитанных: \(count)")
-            }
+            if let message = model.operationMessage { Text(message) }
+            Text("Непрочитанных: \(model.status?.inbox.unread.map(String.init) ?? "не измерено")")
+            Text("Ожидают передачи агенту: \(model.status?.wake.delivery.pendingUndelivered.map(String.init) ?? "не измерено")")
+            Text("В настройках: \(model.wakeState(model.status?.wake.config.enabled))")
+            Text("Сейчас: \(model.wakeState(model.status?.wake.effective.enabled))")
+            if model.status?.wake.effective.needsRestart == true { Text("Для применения настройки нужен перезапуск службы") }
             if let status = model.status {
                 ForEach(status.diagnosticNotes.filter { $0 != status.modeMismatch }, id: \.self) { note in Text(note) }
             }
@@ -165,26 +337,51 @@ struct MurmurMenuBarApp: App {
                 }
                 Button(model.checkingDoctor ? "Проверяется…" : "Проверить сейчас") {
                     model.refreshDoctor(); model.refreshStatus()
-                }.disabled(model.checkingDoctor || model.isDemo)
+                }.disabled(model.busy || model.isDemo || model.profile == nil)
             }
-            Button(model.status?.wake.effective.enabled == false ? "Возобновить" : "Пауза") {}.disabled(true)
+            Button(model.operating ? "Выполняется…" : model.wakeAction.title) { model.perform(model.wakeAction) }
+                .disabled(!model.canControl || model.status?.wake.config.enabled == nil)
             Button("Открыть inbox") {}.disabled(true)
+            Text("Просмотр inbox ещё не поддерживается Murmur CLI")
             Button("Скопировать диагностику") { model.copyDiagnostics() }
             Menu("Служба") {
-                Button("Запустить") {}.disabled(true)
-                Button("Остановить") {}.disabled(true)
-                Button("Открыть логи") {}.disabled(true)
-                Text("Управление службой ещё не подключено")
+                Button("Запустить") { model.perform(.start) }.disabled(!model.canControl)
+                Button("Остановить") { model.perform(.stop) }.disabled(!model.canControl)
+                Button("Открыть настроенный каталог журналов") { model.openLogs() }.disabled(!model.canControl)
+            }
+            Menu(model.updateAvailable ? "Доступно обновление Murmur" : "Обновления Murmur") {
+                if let updates = model.updates {
+                    Text(updates.title())
+                    Text("Версия продукта: \(updates.currentVersion ?? "неизвестна")")
+                    Text(updates.reasonText)
+                    Text("Последняя попытка: \(updates.checkedAt ?? "не измерена")")
+                    Text(updates.ageText())
+                    Text("Последняя успешная проверка: \(updates.lastSuccessAt ?? "не измерена")")
+                    if let next = updates.nextCheckAt { Text("Следующая проверка не раньше: \(next)") }
+                    if updates.stale { Text("Прежний успешный результат устарел") }
+                } else { Text("Обновления: результат неизвестен") }
+                if model.checkingUpdates { Text("Проверка обновлений…") }
+                if let error = model.updateError { Text(error) }
+                Button("Открыть страницу релиза") { model.openUpdateRelease() }
+                    .disabled(!model.updateAvailable || model.isDemo)
+                Divider()
+                Text("Проверка — раз в 6 часов, общий кеш для пользователя")
+                Text("GitHub узнаёт ваш IP и факт использования Murmur")
+                if model.updatesForcedOff { Text("Проверка запрещена через MURMUR_UPDATE_CHECK=0") }
+                Button("Включить проверку обновлений") { model.refreshUpdates(enabled: true) }
+                    .disabled(!model.canChangeUpdates || model.updatesForcedOff)
+                Button("Отключить проверку обновлений") { model.refreshUpdates(enabled: false) }
+                    .disabled(!model.canChangeUpdates)
             }
             Divider()
             Toggle("Запускать при входе", isOn: Binding(
                 get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }
             )).disabled(model.isDemo)
             Button(model.checkingStatus ? "Обновляется…" : "Обновить статус") { model.refreshStatus() }
-                .disabled(model.checkingStatus || model.isDemo)
+                .disabled(model.busy || model.isDemo || model.profile == nil)
             Button("Выход") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         } label: {
-            Image(nsImage: model.icon).accessibilityLabel("Murmur: \(model.verdict.reason)")
+            Image(nsImage: model.icon).accessibilityLabel(model.accessibleStatus)
         }
         .menuBarExtraStyle(.menu)
     }

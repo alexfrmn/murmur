@@ -8,6 +8,7 @@ import { createDarwinAdapter } from './platform/darwin.js';
 import { readStatus } from './status.js';
 import { setWakeEnabled, markInboxRead, readLogPath } from './commands.js';
 import type { PlatformAdapter } from './types.js';
+import { readVersion, checkUpdates, setUpdateChecks } from './updates.js';
 
 export function platformAdapter(): PlatformAdapter {
   if (process.platform === 'linux') return createLinuxAdapter();
@@ -26,11 +27,14 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
     'agent-id': { type: 'string' }, 'broker-url': { type: 'string' }, 'token-file': { type: 'string' }, 'invite-file': { type: 'string' }, 'reply-file': { type: 'string' }, 'reply-out': { type: 'string' }, out: { type: 'string' },
     client: { type: 'string' }, replace: { type: 'boolean' }, json: { type: 'boolean' }, peer: { type: 'string' }, timeout: { type: 'string' }, 'data-dir': { type: 'string' }, 'service-name': { type: 'string' }, apply: { type: 'boolean' }, help: { type: 'boolean' },
   } });
-  if (values.help || !positionals.length) return { commands: ['init --agent-id ID --broker-url URL [--token-file FILE]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE', 'add-peer --reply-file FILE', 'status --json', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop', 'clients detect', 'clients configure --client ID [--replace]', 'wake pause|resume [--apply]', 'inbox mark-read'],
+  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE', 'add-peer --reply-file FILE', 'status --json', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop', 'clients detect', 'clients configure --client ID [--replace]', 'wake pause|resume [--apply]', 'inbox mark-read'],
     options: ['--data-dir ABSOLUTE', '--service-name NAME'], note: 'Source checkout build. Native Windows adapter integration pending.' };
-  const context = resolveContext({ dataDir: values['data-dir'], serviceName: values['service-name'] });
   const [command, action, extra] = positionals;
   if (extra) throw new Error('cli.unexpected-argument');
+  if (command === 'version' && !action) return readVersion();
+  if (command === 'updates' && action === 'check') return checkUpdates();
+  if (command === 'updates' && ['enable', 'disable'].includes(action)) return setUpdateChecks(action === 'enable');
+  const context = resolveContext({ dataDir: values['data-dir'], serviceName: values['service-name'] });
   const required = (name: string) => { const value = values[name as keyof typeof values]; if (typeof value !== 'string' || !value) throw new Error('cli.required-option:' + name); return value; };
   if (command === 'init' && !action) return initialize(context, { agentId: required('agent-id'), brokerUrl: required('broker-url'), tokenFile: values['token-file'] });
   if (command === 'invite' && !action) return invite(context, required('out'));
