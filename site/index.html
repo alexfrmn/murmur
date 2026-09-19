@@ -106,11 +106,13 @@
   code { font-family: inherit; font-size: 14px; background: var(--dark-2); border: 1px solid var(--hair); padding: 2px 6px; }
   .zone.light code { background: #e7e4d8; border-color: var(--hair-light); color: var(--ink-dark); }
 
-  /* ——— стая ——— */
-  .flock { position: relative; overflow: hidden; padding: clamp(96px, 14vw, 200px) 0; }
-  #flock { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .flock .wrap { position: relative; z-index: 2; }
-  .flock p { font-size: clamp(19px, 2.5vw, 32px); max-width: 24ch; line-height: 1.35; letter-spacing: -.5px; }
+  /* ——— строка про стаю: одна строка, не блок ——— */
+  .murmur-line { padding: clamp(30px, 4vw, 54px) 0; border-top: 1px solid var(--hair); }
+  .murmur-line p { font-size: 15px; color: var(--dim); letter-spacing: .4px; }
+
+  /* ——— дым на всю страницу ——— */
+  #smoke { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+  header, section, footer { position: relative; z-index: 1; }
 
   footer { background: var(--light); color: var(--soft-dark); }
   footer .wrap { padding-top: 32px; padding-bottom: 48px; display: flex; flex-wrap: wrap; gap: 10px 32px; justify-content: space-between; font-size: 14px; letter-spacing: .6px; }
@@ -120,6 +122,7 @@
 </style>
 </head>
 <body>
+<canvas id="smoke" aria-hidden="true"></canvas>
 
 <header>
   <div class="bar">
@@ -244,10 +247,9 @@ sh, которого там нет, и пробуждение молча не с
   </div>
 </section>
 
-<section class="flock">
-  <canvas id="flock" aria-hidden="true"></canvas>
+<section class="murmur-line">
   <div class="wrap">
-    <p id="flockText">murmuration — то, как тысячи птиц движутся одним телом, не сговариваясь.</p>
+    <p>murmuration — то, как тысячи птиц движутся одним телом, не сговариваясь.</p>
   </div>
 </section>
 
@@ -339,150 +341,103 @@ function setT(t) {
   drawSchema(P);
 }
 
-/* ——————————— стая: по связям едут сообщения ——————————— */
-// Граф стоит постоянно и не гаснет. Живёт движение по нему: пакеты идут от узла к узлу,
-// подсвечивая ребро, по которому едут, и вспыхивая в узле, до которого доехали.
-// Вокруг надписи оставлена дыра: ни точек, ни рёбер поверх текста.
-const canvas = document.getElementById('flock');
-const ctx = canvas.getContext('2d');
-const section = document.querySelector('.flock');
-const textEl = document.getElementById('flockText');
-let G = { nodes: [], edges: [], adj: [] }, packets = [], pointer = null, W = 0, H = 0;
+/* ——————————— дым на всю страницу ——————————— */
+// Сотни коротких следов идут по медленно меняющемуся полю направлений. Кадр за кадром
+// поверх кладётся полупрозрачная тёмная вуаль, поэтому след не стирается сразу, а
+// расплывается — так получается дым. Курсор подмешивает вихрь вокруг себя.
+const smoke = document.getElementById('smoke');
+const sctx = smoke.getContext('2d', { alpha: false });
+let SW = 0, SH = 0, grains = [], smokePointer = null, smokeT = 0;
 
-function textHole() {
-  const r = textEl.getBoundingClientRect(), s = canvas.getBoundingClientRect();
-  const pad = 34;
-  return { x0: r.left - s.left - pad, y0: r.top - s.top - pad, x1: r.right - s.left + pad, y1: r.bottom - s.top + pad };
-}
-function inHole(p, h) { return p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1; }
-function crossesHole(a, b, h) {
-  for (let t = 0; t <= 1; t += .05) {
-    if (inHole({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, h)) return true;
-  }
-  return false;
-}
+// Дешёвый детерминированный шум: решётка случайных углов, между узлами — сглаженная
+// интерполяция. Полноценный перлин здесь не нужен, а зависимостей не хочется.
+const NOISE = (() => {
+  const rnd = lcg(7), N = 24, g = [];
+  for (let i = 0; i < N * N; i++) g.push(rnd() * Math.PI * 2);
+  const smooth = u => u * u * (3 - 2 * u);
+  return (x, y, t) => {
+    const fx = x * (N - 1), fy = y * (N - 1);
+    const x0 = Math.floor(fx) % N, y0 = Math.floor(fy) % N;
+    const x1 = (x0 + 1) % N, y1 = (y0 + 1) % N;
+    const sx = smooth(fx - Math.floor(fx)), sy = smooth(fy - Math.floor(fy));
+    const a = g[y0 * N + x0], b = g[y0 * N + x1], c = g[y1 * N + x0], d = g[y1 * N + x1];
+    const top = a + (b - a) * sx, bot = c + (d - c) * sx;
+    return top + (bot - top) * sy + t * .25;
+  };
+})();
 
-function build() {
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  W = section.clientWidth; H = section.clientHeight;
-  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+function seedSmoke() {
+  const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+  SW = window.innerWidth; SH = window.innerHeight;
+  smoke.width = Math.round(SW * dpr); smoke.height = Math.round(SH * dpr);
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  sctx.fillStyle = '#070707';
+  sctx.fillRect(0, 0, SW, SH);
 
-  const hole = textHole();
-  const rnd = lcg(29), step = 74, nodes = [];
-  for (let y = step * .5; y < H; y += step)
-    for (let x = step * .5; x < W; x += step) {
-      const p = { x: x + (rnd() - .5) * 42, y: y + (rnd() - .5) * 34, glow: 0 };
-      if (!inHole(p, hole)) nodes.push(p);
-    }
-  const edges = [], adj = nodes.map(() => []);
-  for (let i = 0; i < nodes.length; i++)
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) > step * 1.35) continue;
-      if (crossesHole(nodes[i], nodes[j], hole)) continue;
-      const id = edges.length;
-      edges.push({ a: i, b: j, glow: 0 });
-      adj[i].push(id); adj[j].push(id);
-    }
-  G = { nodes, edges, adj };
-
-  // Пакеты стартуют с узлов, у которых есть куда идти.
-  const live = nodes.map((_, i) => i).filter(i => adj[i].length);
-  packets = [];
-  for (let k = 0; k < Math.min(80, live.length * 2); k++) {
-    const from = live[Math.floor(rnd() * live.length)];
-    const e = adj[from][Math.floor(rnd() * adj[from].length)];
-    packets.push({ edge: e, from, t: rnd(), speed: .18 + rnd() * .22, rnd });
+  const rnd = lcg(41);
+  // Плотность от площади: на телефоне следов должно быть меньше, а не мельче.
+  const count = Math.round(Math.min(900, Math.max(260, (SW * SH) / 2600)));
+  grains = [];
+  for (let i = 0; i < count; i++) {
+    grains.push({ x: rnd() * SW, y: rnd() * SH, life: rnd() * 220 | 0, rnd });
   }
 }
 
-function step(dt) {
-  const hole = textHole();
-  for (const e of G.edges) e.glow *= .94;
-  for (const n of G.nodes) n.glow *= .93;
+function drawSmoke(dt) {
+  smokeT += dt * .05;
+  // Вуаль: старое не стирается, а тускнеет — из этого и получается размазанный след.
+  // Доля подобрана так, чтобы след жил около трёх секунд: гуще — и он превращается в
+  // мельтешение, реже — и поле зарастает.
+  sctx.fillStyle = 'rgba(7,7,7,0.030)';
+  sctx.fillRect(0, 0, SW, SH);
 
-  for (const p of packets) {
-    const e = G.edges[p.edge];
-    const a = G.nodes[e.a], b = G.nodes[e.b];
-    const len = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-    p.t += p.speed * dt * 120 / len;
-    e.glow = Math.min(1, e.glow + dt * 3.4);
-    if (p.t >= 1) {
-      const arrived = p.from === e.a ? e.b : e.a;
-      G.nodes[arrived].glow = 1;
-      const out = G.adj[arrived].filter(id => id !== p.edge);
-      const choices = out.length ? out : G.adj[arrived];
-      let next = choices[Math.floor(p.rnd() * choices.length)];
-      // Рядом с курсором сообщение выбирает ту ветку, что уводит от него.
-      if (pointer && choices.length > 1) {
-        const here = G.nodes[arrived];
-        if (Math.hypot(here.x - pointer.x, here.y - pointer.y) < 220) {
-          let best = -Infinity;
-          for (const id of choices) {
-            const far = G.nodes[G.edges[id].a === arrived ? G.edges[id].b : G.edges[id].a];
-            const d = Math.hypot(far.x - pointer.x, far.y - pointer.y);
-            if (d > best) { best = d; next = id; }
-          }
-        }
-      }
-      p.edge = next; p.from = arrived; p.t = 0;
-    }
-  }
+  sctx.lineWidth = 1;
+  sctx.lineCap = 'round';
+  sctx.strokeStyle = 'rgba(242,240,233,0.22)';
+  sctx.beginPath();
+  for (const g of grains) {
+    let a = NOISE(g.x / SW, g.y / SH, smokeT);
+    // Скорость в пикселях за секунду: при меньшей отрезок за кадр короче пикселя и
+    // след не набирается вовсе — он гаснет под вуалью быстрее, чем накопится.
+    let vx = Math.cos(a) * 110, vy = Math.sin(a) * 110;
 
-  ctx.clearRect(0, 0, W, H);
-
-  // Сетка стоит постоянно и тускло: она задаёт, по чему идут сообщения. Яркость
-  // добавляет только то, где сообщение сейчас.
-  ctx.lineWidth = 1;
-  for (const e of G.edges) {
-    const a = G.nodes[e.a], b = G.nodes[e.b];
-    ctx.strokeStyle = `rgba(242,240,233,${(.055 + e.glow * .4).toFixed(3)})`;
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-  }
-
-  for (const n of G.nodes) {
-    const bright = Math.min(1, .16 + n.glow * .84);
-    ctx.fillStyle = `rgba(242,240,233,${bright.toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(n.x, n.y, 1.5 + n.glow * 2.2, 0, Math.PI * 2); ctx.fill();
-  }
-
-  for (const p of packets) {
-    const e = G.edges[p.edge];
-    const from = G.nodes[p.from], to = G.nodes[p.from === e.a ? e.b : e.a];
-    let x = from.x + (to.x - from.x) * p.t, y = from.y + (to.y - from.y) * p.t;
-    // Само сообщение тоже шарахается: чем ближе курсор, тем сильнее его сносит в сторону.
-    if (pointer) {
-      const dx = x - pointer.x, dy = y - pointer.y;
+    if (smokePointer) {
+      const dx = g.x - smokePointer.x, dy = g.y - smokePointer.y;
       const d = Math.hypot(dx, dy) || 1;
-      const push = Math.max(0, 1 - d / 190);
-      x += (dx / d) * push * push * 46;
-      y += (dy / d) * push * push * 46;
+      if (d < 260) {
+        // Вихрь: скорость поперёк радиуса, тем сильнее, чем ближе к курсору.
+        const k = (1 - d / 260) * 260;
+        vx += (-dy / d) * k; vy += (dx / d) * k;
+      }
     }
-    if (inHole({ x, y }, hole)) continue;
-    ctx.fillStyle = 'rgba(242,240,233,.95)';
-    ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(242,240,233,.18)';
-    ctx.beginPath(); ctx.arc(x, y, 6.5, 0, Math.PI * 2); ctx.fill();
+
+    const nx = g.x + vx * dt, ny = g.y + vy * dt;
+    sctx.moveTo(g.x, g.y); sctx.lineTo(nx, ny);
+    g.x = nx; g.y = ny;
+
+    // След живёт ограниченное время и перерождается в другом месте, иначе поле
+    // вычёсывается в несколько полос и движение умирает.
+    if (++g.life > 240 || g.x < -40 || g.x > SW + 40 || g.y < -40 || g.y > SH + 40) {
+      g.x = g.rnd() * SW; g.y = g.rnd() * SH; g.life = 0;
+    }
   }
+  sctx.stroke();
 }
 
-section.addEventListener('pointermove', e => {
-  const r = canvas.getBoundingClientRect();
-  pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
-});
-section.addEventListener('pointerleave', () => { pointer = null; });
-window.addEventListener('resize', build);
+window.addEventListener('pointermove', e => { smokePointer = { x: e.clientX, y: e.clientY }; });
+window.addEventListener('pointerleave', () => { smokePointer = null; });
+window.addEventListener('resize', seedSmoke);
+seedSmoke();
 
-build();
 if (reduced) {
-  setT(1.5); step(0);
+  setT(1.5);                       // один осмысленный кадр вместо движения
 } else {
   let last = performance.now();
   const t0 = last;
   (function frame(now) {
     const dt = Math.min(.05, (now - last) / 1000); last = now;
     setT(((now - t0) / 1000) % 6);
-    step(dt);
+    drawSmoke(dt);
     requestAnimationFrame(frame);
   })(last);
 }
