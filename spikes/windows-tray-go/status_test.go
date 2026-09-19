@@ -1,13 +1,19 @@
 package main
 
 // Правило цвета — то, ради чего схема существует, поэтому оно проверяется на файлах,
-// а не на собранных в тесте структурах: так тест ловит и расхождение схемы с образцами.
+// а не на структурах, собранных в тесте: так тест ловит и расхождение схемы с образцами.
+//
+// Образцы лежат с датой из эпохи, и тест сам ставит свежую: константа из будущего в
+// файле отключала бы проверку свежести во всех остальных случаях — ровно так первая
+// версия этих тестов и проверяла зелёное, никогда не проверяя возраст.
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func load(t *testing.T, name string) *Status {
@@ -20,6 +26,7 @@ func load(t *testing.T, name string) *Status {
 	if err := json.Unmarshal(buf, &s); err != nil {
 		t.Fatalf("образец %s не разобран: %v", name, err)
 	}
+	s.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 	return &s
 }
 
@@ -33,7 +40,8 @@ func TestResolveLevels(t *testing.T) {
 		{"status-yellow.json", LevelYellow, true},
 		{"status-red.json", LevelRed, true},
 		{"status-grey.json", LevelGrey, true},
-		{"status-stale.json", LevelGrey, true},
+		{"status-no-peers.json", LevelYellow, false},
+		{"status-unknown-sections.json", LevelGrey, true},
 	}
 	for _, c := range cases {
 		v := resolve(load(t, c.fixture), nil)
@@ -46,8 +54,28 @@ func TestResolveLevels(t *testing.T) {
 	}
 }
 
-// Отсутствие статуса — тоже состояние, и оно обязано быть серым, а не зелёным по
-// умолчанию: именно так значок отличается от украшения.
+// Возраст снимка: устаревший, из будущего и неразобранный — все три серые. Средний
+// случай раньше проходил насквозь, потому что отрицательный возраст не больше порога.
+func TestSnapshotAge(t *testing.T) {
+	cases := []struct {
+		name  string
+		stamp string
+	}{
+		{"устаревший", time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339)},
+		{"из будущего", time.Now().Add(time.Hour).UTC().Format(time.RFC3339)},
+		{"неразобранный", "вчера вечером"},
+		{"пустой", ""},
+	}
+	for _, c := range cases {
+		s := load(t, "status-green.json")
+		s.GeneratedAt = c.stamp
+		if v := resolve(s, nil); v.Level != LevelGrey {
+			t.Errorf("%s снимок должен давать серый, получен %v (%s)", c.name, v.Level, v.Reason)
+		}
+	}
+}
+
+// Отсутствие статуса — тоже состояние, и оно серое, а не зелёное по умолчанию.
 func TestResolveWithoutData(t *testing.T) {
 	if v := resolve(nil, os.ErrNotExist); v.Level != LevelGrey {
 		t.Errorf("при ошибке ожидался серый, получен %v", v.Level)
@@ -58,43 +86,63 @@ func TestResolveWithoutData(t *testing.T) {
 	}
 }
 
-// Незнакомая версия схемы гаснет в серый: движок и значок обновляются врозь.
-func TestUnknownSchemaIsGrey(t *testing.T) {
+func TestSchemaVersioning(t *testing.T) {
 	s := load(t, "status-green.json")
 	s.Schema = "murmur.status/2"
-	v := resolve(s, nil)
-	if v.Level != LevelGrey {
-		t.Errorf("незнакомая схема должна давать серый, получен %v", v.Level)
+	if v := resolve(s, nil); v.Level != LevelGrey {
+		t.Errorf("чужой мажор должен гасить в серый, получен %v", v.Level)
+	}
+	// Минорная добавка не ломает значок: движок обязан иметь право добавить поле.
+	s = load(t, "status-green.json")
+	s.Schema = "murmur.status/1.3"
+	if v := resolve(s, nil); v.Level != LevelGreen {
+		t.Errorf("минорная версия должна приниматься, получен %v (%s)", v.Level, v.Reason)
 	}
 }
 
-// Каждый цвет обязан следовать из поля. Тест фиксирует соответствие «цвет → поле»,
-// чтобы схему нельзя было ужать, не сломав проверку.
-func TestEveryLevelHasField(t *testing.T) {
-	base := load(t, "status-green.json")
-
-	grey := *base
-	grey.Service.State = "stopped"
-	if resolve(&grey, nil).Level != LevelGrey {
-		t.Error("серый должен следовать из service.state")
+// Пустая секция и непрочитанная секция — разные вещи. Ноль пиров означает «ещё не
+// настроено» и светит жёлтым; непрочитанные пиры означают «не знаю» и гасят в серый.
+func TestEmptyIsNotUnknown(t *testing.T) {
+	empty := resolve(load(t, "status-no-peers.json"), nil)
+	if empty.Level != LevelYellow {
+		t.Errorf("ноль пиров должен быть жёлтым, получен %v (%s)", empty.Level, empty.Reason)
 	}
-
-	yellow := *base
-	yellow.Broker.State = "disconnected"
-	if resolve(&yellow, nil).Level != LevelYellow {
-		t.Error("жёлтый должен следовать из broker.state")
+	unknown := resolve(load(t, "status-unknown-sections.json"), nil)
+	if unknown.Level != LevelGrey {
+		t.Errorf("непрочитанные секции должны быть серыми, получен %v (%s)", unknown.Level, unknown.Reason)
 	}
+}
 
-	red := *base
-	red.Wake.LastFault = "хук не ответил"
-	if resolve(&red, nil).Level != LevelRed {
-		t.Error("красный должен следовать из wake.lastFault")
+// Известный отказ кричит даже тогда, когда часть секций прочитать не удалось.
+func TestKnownFailureBeatsUnknownSection(t *testing.T) {
+	s := load(t, "status-unknown-sections.json")
+	s.Broker.State = "unauthorized"
+	if v := resolve(s, nil); v.Level != LevelYellow {
+		t.Errorf("известный отказ брокера должен перебивать незнание, получен %v (%s)", v.Level, v.Reason)
 	}
+}
 
-	clean := *base
-	clean.Inbox.Unread = 0
-	if resolve(&clean, nil).Unread {
-		t.Error("синяя точка должна следовать из inbox.unread")
+// То, что не поместилось в цвет, остаётся текстом: серый без истории читается как
+// «отказов не было».
+func TestGreyKeepsHistory(t *testing.T) {
+	v := resolve(load(t, "status-grey.json"), nil)
+	if len(v.History) == 0 {
+		t.Fatal("в сером состоянии история отказов обязана остаться")
+	}
+	joined := strings.Join(v.History, " | ")
+	for _, want := range []string{"ошибка отправки", "сбой пробуждения"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("в истории нет %q: %s", want, joined)
+		}
+	}
+}
+
+func TestPlural(t *testing.T) {
+	cases := map[int]string{0: "0 пиров", 1: "1 пир", 2: "2 пира", 5: "5 пиров", 11: "11 пиров", 21: "21 пир", 104: "104 пира"}
+	for n, want := range cases {
+		if got := plural(n, "пир", "пира", "пиров"); got != want {
+			t.Errorf("plural(%d) = %q, ожидалось %q", n, got, want)
+		}
 	}
 }
 
@@ -104,7 +152,6 @@ func TestIconsBuild(t *testing.T) {
 		if len(ico) < 64 {
 			t.Fatalf("иконка не собралась, длина %d", len(ico))
 		}
-		// ICO: reserved 0, type 1, count 1 — если заголовок поедет, Windows покажет пустое место.
 		if ico[0] != 0 || ico[1] != 0 || ico[2] != 1 || ico[3] != 0 || ico[4] != 1 || ico[5] != 0 {
 			t.Errorf("заголовок ICO испорчен: % x", ico[:6])
 		}

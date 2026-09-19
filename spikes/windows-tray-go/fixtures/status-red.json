@@ -1,76 +1,91 @@
 {
   "schema": "murmur.status/1",
-  "generatedAt": "2099-01-01T00:00:00Z",
+  "generatedAt": "1970-01-01T00:00:00Z",
   "agentId": "agent-misha",
   "service": {
     "state": "running",
     "manager": "windows-service",
     "since": "2026-09-19T11:03:45Z",
     "pid": 18232,
-    "lastExitCode": null
+    "lastExitCode": null,
+    "lastFailureAt": null
   },
   "broker": {
     "url": "nats://nats.server-pilot.ru:4222",
     "state": "connected",
     "connectedAt": "2026-09-19T11:03:45Z",
-    "lastError": null
+    "lastError": null,
+    "lastErrorAt": null
   },
-  "peers": [
-    {
-      "agentId": "agent-jarvis",
-      "paired": true,
-      "lastInboundAt": "2026-09-19T12:00:50Z",
-      "lastOutboundAt": "2026-09-19T12:05:11Z"
-    },
-    {
-      "agentId": "agent-sasha",
-      "paired": true,
-      "lastInboundAt": "2026-09-11T09:12:00Z",
-      "lastOutboundAt": "2026-09-11T09:20:00Z"
-    },
-    {
-      "agentId": "agent-viola",
-      "paired": true,
-      "lastInboundAt": "2026-09-11T14:00:00Z",
-      "lastOutboundAt": "2026-09-11T14:05:00Z"
-    },
-    {
-      "agentId": "agent-danik",
-      "paired": true,
-      "lastInboundAt": "2026-09-18T09:51:09Z",
-      "lastOutboundAt": "2026-09-18T10:02:00Z"
-    }
-  ],
+  "peers": {
+    "known": true,
+    "unknownReason": null,
+    "list": [
+      {
+        "agentId": "agent-jarvis",
+        "paired": true,
+        "lastInboundAt": "2026-09-19T12:28:26Z",
+        "lastOutboundAt": "2026-09-19T12:26:00Z"
+      },
+      {
+        "agentId": "agent-sasha",
+        "paired": true,
+        "lastInboundAt": "2026-09-11T09:12:00Z",
+        "lastOutboundAt": "2026-09-11T09:20:00Z"
+      },
+      {
+        "agentId": "agent-viola",
+        "paired": true,
+        "lastInboundAt": "2026-09-11T14:00:00Z",
+        "lastOutboundAt": "2026-09-11T14:05:00Z"
+      },
+      {
+        "agentId": "agent-danik",
+        "paired": true,
+        "lastInboundAt": "2026-09-18T09:51:09Z",
+        "lastOutboundAt": "2026-09-18T10:02:00Z"
+      }
+    ]
+  },
   "inbox": {
+    "known": true,
+    "unknownReason": null,
     "unread": 2,
-    "total": 149,
-    "lastAt": "2026-09-19T12:00:50Z"
+    "total": 154,
+    "lastAt": "2026-09-19T12:28:26Z"
   },
   "outbox": {
+    "known": true,
+    "unknownReason": null,
     "pending": 0,
     "inflight": 0,
-    "delivered": 41,
+    "delivered": 43,
     "failed": 2,
     "dlq": 1,
-    "oldestPendingAt": null
+    "oldestPendingAt": null,
+    "lastError": "authorization violation",
+    "lastErrorAt": "2026-09-19T12:20:00Z"
   },
   "deliveries": [
     {
-      "msgId": "2aece01c-c307-48eb-8303-7c4a73c912b0",
+      "msgId": "4fba10c3",
       "peer": "agent-jarvis",
       "direction": "outbound",
       "state": "delivered",
-      "at": "2026-09-19T12:05:11Z",
+      "at": "2026-09-19T12:26:00Z",
       "attempts": 1,
       "error": null
     }
   ],
   "wake": {
+    "known": true,
+    "unknownReason": null,
     "enabled": true,
     "mode": "monitor",
     "responder": "claude-code",
-    "lastDeliveredAt": "2026-09-19T12:00:51Z",
+    "lastDeliveredAt": "2026-09-19T12:28:27Z",
     "lastFault": null,
+    "lastFaultAt": null,
     "pendingUndelivered": 0
   }
 }

@@ -12,40 +12,15 @@
   },
   "broker": {
     "url": "nats://nats.server-pilot.ru:4222",
-    "state": "unauthorized",
+    "state": "connected",
     "connectedAt": "2026-09-19T11:03:45Z",
-    "lastError": "authorization violation",
-    "lastErrorAt": "2026-09-19T12:20:00Z"
+    "lastError": null,
+    "lastErrorAt": null
   },
   "peers": {
-    "known": true,
-    "unknownReason": null,
-    "list": [
-      {
-        "agentId": "agent-jarvis",
-        "paired": true,
-        "lastInboundAt": "2026-09-19T12:28:26Z",
-        "lastOutboundAt": "2026-09-19T12:26:00Z"
-      },
-      {
-        "agentId": "agent-sasha",
-        "paired": true,
-        "lastInboundAt": "2026-09-11T09:12:00Z",
-        "lastOutboundAt": "2026-09-11T09:20:00Z"
-      },
-      {
-        "agentId": "agent-viola",
-        "paired": true,
-        "lastInboundAt": "2026-09-11T14:00:00Z",
-        "lastOutboundAt": "2026-09-11T14:05:00Z"
-      },
-      {
-        "agentId": "agent-danik",
-        "paired": true,
-        "lastInboundAt": "2026-09-18T09:51:09Z",
-        "lastOutboundAt": "2026-09-18T10:02:00Z"
-      }
-    ]
+    "known": false,
+    "unknownReason": "брокер не ответил",
+    "list": []
   },
   "inbox": {
     "known": true,
@@ -55,8 +30,8 @@
     "lastAt": "2026-09-19T12:28:26Z"
   },
   "outbox": {
-    "known": true,
-    "unknownReason": null,
+    "known": false,
+    "unknownReason": "база занята записью",
     "pending": 0,
     "inflight": 0,
     "delivered": 43,

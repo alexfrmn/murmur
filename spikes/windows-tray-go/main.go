@@ -25,6 +25,8 @@ const (
 	// doctor гоняет тестовое сообщение по кругу, поэтому по таймеру он не крутится:
 	// проверка, которая шлёт трафик каждые тридцать секунд, меняет то, что измеряет.
 	doctorTimeout = 30 * time.Second
+	// Сколько строк истории держать в меню. Пункты создаются один раз при старте.
+	historyLines = 4
 )
 
 // Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
@@ -46,6 +48,7 @@ type app struct {
 	doctorErr error
 
 	mHeader  *systray.MenuItem
+	mHistory []*systray.MenuItem
 	mStages  map[string]*systray.MenuItem
 	mRecheck *systray.MenuItem
 	mPause   *systray.MenuItem
@@ -60,6 +63,15 @@ type app struct {
 func main() {
 	// --dump-icons кладёт пять состояний значка файлами: иконки собираются кодом, и это
 	// единственный способ посмотреть на них в ревью, не заводя бинарников в репозитории.
+	// --stamp-now ставит свежую дату в файл статуса. Живёт ровно столько же, сколько
+	// файловый источник: образец с датой из будущего отключил бы проверку свежести.
+	if len(os.Args) == 3 && os.Args[1] == "--stamp-now" {
+		if err := stampNow(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "--dump-icons" {
 		if err := dumpIcons(os.Args[2]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -78,6 +90,14 @@ func (a *app) onReady() {
 
 	a.mHeader = systray.AddMenuItem("статус не снят", "")
 	a.mHeader.Disable()
+	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
+	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
+	for i := 0; i < historyLines; i++ {
+		item := systray.AddMenuItem("", "")
+		item.Disable()
+		item.Hide()
+		a.mHistory = append(a.mHistory, item)
+	}
 	systray.AddSeparator()
 
 	doctorRoot := systray.AddMenuItem("Проверка (doctor)", "этапы последней проверки")
@@ -148,6 +168,15 @@ func (a *app) render(v Verdict) {
 	}
 	systray.SetTooltip(tip)
 	a.mHeader.SetTitle(v.Reason)
+
+	for i, item := range a.mHistory {
+		if i < len(v.History) {
+			item.SetTitle(v.History[i])
+			item.Show()
+			continue
+		}
+		item.Hide()
+	}
 
 	a.mu.Lock()
 	paused := a.status != nil && !a.status.Wake.Enabled
@@ -248,17 +277,6 @@ func (a *app) runCLI(args ...string) {
 	}
 }
 
-func firstLine(b []byte) string {
-	s := strings.TrimSpace(string(b))
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	if r := []rune(s); len(r) > 80 {
-		s = string(r[:80])
-	}
-	return s
-}
-
 func (a *app) openInbox() {
 	bin := os.Getenv("MURMUR_BIN")
 	if bin == "" {
@@ -344,4 +362,21 @@ func logDir() string {
 func openPath(path string) {
 	_ = os.MkdirAll(path, 0o755)
 	_ = exec.Command("explorer", path).Start()
+}
+
+func stampNow(path string) error {
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(buf, &raw); err != nil {
+		return err
+	}
+	raw["generatedAt"] = time.Now().UTC().Format(time.RFC3339)
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o644)
 }
