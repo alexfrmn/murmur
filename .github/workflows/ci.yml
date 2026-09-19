@@ -7,6 +7,49 @@ on:
     branches: [main]
 
 jobs:
+  runtime-bundle:
+    name: Build runtime ZIP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Build only from selected Git commit
+        run: node scripts/build-runtime-bundle.mjs --ref HEAD --out "$RUNNER_TEMP/runtime-output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-bundle
+          path: ${{ runner.temp }}/runtime-output/*
+
+  runtime-windows:
+    name: Runtime ZIP (Windows)
+    needs: runtime-bundle
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-bundle
+          path: runtime-download
+      - name: Extract without installing dependencies and probe CLI and MCP
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem runtime-download/murmur-runtime-*.zip
+          if ($archive.Count -ne 1) { throw 'Expected exactly one runtime archive' }
+          $sum = (Get-Content runtime-download/SHA256SUMS.txt).Split(' ')[0]
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLower() -ne $sum) { throw 'Archive checksum mismatch' }
+          Expand-Archive $archive.FullName -DestinationPath 'runtime with spaces'
+          node scripts/check-runtime-bundle.mjs 'runtime with spaces/runtime'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
+
   updates-windows:
     name: Update CLI (Windows)
     runs-on: windows-latest
