@@ -36,6 +36,38 @@ The omitted key blocks are unchanged. Do not commit private keys, broker credent
 production-specific member names. Populate the same roster on every receiver before
 enabling structured sends.
 
+## Chat-session presence (N4)
+
+Presence is an **advisory, local-host view** of sessions participating in a typed
+channel, distinct from NATS peer discovery and from the session-ownership lease.
+It never grants roster membership, changes addressing, claims a lease, or proves
+that a UI has received a wake. Hosts do not replicate these rows across the mesh.
+
+The MCP server exposes:
+
+- `channel_presence({channelId})`: live local sessions, their member, conversation,
+  status (`active`, `idle`, `busy`), join/heartbeat/expiry timestamps in epoch ms.
+- `channel_presence_heartbeat({channelId, memberId?, status?, ttlMs?})`: join or
+  refresh this session. `memberId` defaults to the local config; it must belong to
+  that configured agent in an open channel. TTL defaults to 30 seconds and is
+  bounded to 5–300 seconds. The client integration must repeat before expiry.
+- `channel_presence_leave({channelId, memberId?})`: remove only this session's row.
+  Roster membership and lease ownership are unchanged.
+
+Agent identity comes from the private local config. Session identity is fixed for
+the stdio server lifetime: `MURMUR_SESSION_ID`, then `CODEX_THREAD_ID`, then
+`CLAUDE_CODE_SESSION_ID`, otherwise a process-generated UUID. Use a distinct session
+ID per chat; two local sessions can report the same member independently. Tool
+arguments cannot override the agent/session identity. Presence is opt-in through
+these calls; there is no automatic timer claiming that an idle client is active.
+
+Rows live in the existing roster DB (`MURMUR_CHANNEL_ROSTER_PATH`), not the lease
+DB. Expired rows are filtered at read time and reclaimed on later heartbeats.
+Channel closure, member departure or agent reassignment hides old rows immediately.
+A crashed client ages out after TTL without shutdown cleanup. Stop heartbeats to
+roll back; the additive table is inert on older versions. This reports recently
+observed participation, not distributed or instantaneous online status.
+
 ## Receive hooks
 
 Alongside the existing message variables, `onReceive` and `wake.auditHook` receive:
@@ -56,6 +88,61 @@ the subject before any proxy wake effect runs. Proxy subscriptions are wake brid
 they emit no delivery ACK/NACK on behalf of the addressee, including for fieldless
 traffic. The addressed agent must acknowledge delivery itself; see
 [`protocol-v1.md`](protocol-v1.md#signed-ack-migration).
+
+## Optional channel subjects (N5)
+
+Default routing remains `msg.<agent>`. Receivers can opt into additional channel
+subjects while keeping their existing durable consumer and cursor:
+
+```json
+{
+  "subject": "msg.receiver",
+  "jetstream": { "enabled": true, "stream": "MURMUR" },
+  "channelRoster": { "enabled": true },
+  "subjectScoping": { "enabled": true, "channelIds": ["channel-example"] }
+}
+```
+
+The daemon requires an open local roster membership for every configured channel.
+Each channel uses `msg.<agent>.c_<base64url(UTF8 channelId)>`: reversible encoding
+keeps dots, wildcard characters and Unicode inside one literal NATS token. Channel
+IDs are limited to 512 UTF-8 bytes; configure at most 256 channels per receiver.
+Signed envelope metadata must match the receiving channel subject. A wrong-subject
+copy is rejected without poisoning delivery of the same letter on its correct route.
+
+All consumers use the **same existing stream**, normally covering `msg.>` and
+`ack.>`. NATS prohibits overlapping stream subjects within an account: do not create
+a new stream per channel under an existing `msg.>` stream. Channel durables use a
+stable hash of base subject, receiver and channel; their exact `filter_subject` never
+overlaps the legacy exact mailbox subject. Application dedupe/ACK identity remains
+the agent ID across every route. Concurrent legacy/scoped copies serialize by
+message ID inside the daemon before the shared durable dedupe check.
+
+Migration, with the receiver's private configuration selected by `DATA_DIR`:
+
+1. Upgrade receiver code, populate its roster and add the receiver config above.
+2. Run `node scripts/murmur-subject-migration.mjs --plan`. This reads existing
+   stream coverage and durable filters without modifying them. Permission errors,
+   uncovered subjects and incompatible consumers abort the plan.
+3. Run `--prepare` to add channel consumers idempotently. It neither creates nor
+   edits a stream, deletes consumers, nor resets the legacy cursor. Partial prepare
+   is safe to rerun. Start the receiver; verify all expected subscriptions.
+4. On each sender, add `subjectScoping: true` to that peer's existing config entry.
+   MCP send/request and the shell sender (including native reply relay) then use
+   scoped subjects only for messages with `channelId`. Fieldless messages keep the
+   legacy subject. Existing queued outbox rows retain their original subject.
+5. Verify both legacy and scoped delivery. The MCP channel bridge subscribes to
+   both forms and applies signature, addressing and lease checks before a session
+   notification. It emits no delivery ACK on behalf of the persistent daemon.
+
+Rollback: disable `peers.<peer>.subjectScoping` on **all senders first**, drain their
+already queued scoped rows, then run `--check-rollback` at the receiver. A nonzero
+exit / `safeToDisableReceivers: false` means pending or unacknowledged channel
+messages remain. Repeat after they drain; only then disable receiver subject
+scoping. Keep the dormant channel consumers and stream data for resumption; this
+workflow performs no destructive cleanup. A zero count is a point-in-time check,
+not a fence against a publisher that is still enabled. Existing legacy consumers
+continue throughout rollout and rollback. No shared broker restart is required.
 
 ## Coordinated rollout
 

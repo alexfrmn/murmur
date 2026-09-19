@@ -39,6 +39,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SELECT`, and the cursor only ever passes a row that was reported or recorded.
 
 ### Added
+- **Optional per-channel NATS subjects** (#90): explicit channel consumers share the
+  existing stream, legacy durable cursor and application dedupe identity. Includes
+  additive migration/rollback checks, sender opt-in, MCP bridge routing and an
+  isolated JetStream proof. Default mailbox routing remains unchanged.
+- **Channel chat-session presence** (#89): explicit MCP heartbeat/leave/list tools
+  report local sessions with bounded TTL, validated roster identities and immediate
+  hiding of closed/departed memberships. This advisory state is separate from peer
+  discovery and never grants wake/lease authority; see `docs/phase-n-routing.md`.
+- **Opt-in coalescing of Codex wake messages** (#124) — per-peer quiet windows and
+  turn caps combine queued messages into a subsequent `turn/start`. FIFO overflow
+  stays queued, channel/member boundaries and per-message policy gates stay intact,
+  and persisted batch identity plus atomic outcome writes preserve recovery across
+  session/daemon failure. The default remains one message per turn; see
+  `docs/wake-native.md` for configuration and rollback.
 - **A notify target can take one peer** — `peers: ["agent-jarvis"]` on a Telegram or webhook
   target limits it to those senders, and `fallback: true` marks the target that takes whatever
   no `peers` target took. One forum chat can now hold a thread per peer; before this, splitting

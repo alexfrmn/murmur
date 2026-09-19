@@ -8,6 +8,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { NatsBroker } from "@murmurv2/broker-nats";
 import {
   ChannelRosterStore,
+  channelSubjectRoutes,
   SQLiteDedupeOutboxStore,
   SQLiteMessageStore,
   stableAckPayload,
@@ -146,6 +147,16 @@ const channelRosterConfig = config.channelRoster || {};
 const channelRosterEnabled = channelRosterConfig.enabled ?? process.env.MURMUR_CHANNEL_ROSTER === "1";
 const channelRosterPath = channelRosterConfig.path || process.env.MURMUR_CHANNEL_ROSTER_PATH || path.join(dataDir, "channel-roster.db");
 const channelRosterStore = channelRosterEnabled ? new ChannelRosterStore(channelRosterPath) : null;
+const subjectRoutes = channelSubjectRoutes(subject, agentId, config.subjectScoping);
+if (subjectRoutes.length > 1) {
+  if (!jetstreamEnabled || !channelRosterStore) throw new Error("subject-scoping-requires-jetstream-and-roster");
+  for (const route of subjectRoutes.slice(1)) {
+    const channel = channelRosterStore.getChannel(route.channelId);
+    if (!channel || channel.closedAt || !channelRosterStore.findActiveMembersForAgent(agentId).some((m) => m.channelId === route.channelId)) {
+      throw new Error(`subject-scoping-inactive-local-channel:${route.channelId}`);
+    }
+  }
+}
 const threadStartBindingResolver = channelRosterStore
   ? createChannelThreadStartBindingResolver({ rosterStore: channelRosterStore, agentId, log })
   : null;
@@ -392,14 +403,16 @@ try {
   await broker.connect();
   log("info", "NATS connected", { url: natsUrl });
 
-  await broker.subscribeWithAck({
-    subject,
-    consumerId: agentId,
-    dedupe: store,
-    onMessage,
-    ...(emitSignedAcks ? { signAck } : {}),
-  });
-  log("info", "Subscribed", { subject });
+  for (const route of subjectRoutes) {
+    await broker.subscribeWithAck({
+      ...route,
+      consumerId: agentId,
+      dedupe: store,
+      onMessage,
+      ...(emitSignedAcks ? { signAck } : {}),
+    });
+    log("info", "Subscribed", route);
+  }
 
   // Proxy wake bridges cannot confirm delivery on behalf of another agent.
   const proxySubjects = (config.proxySubjects || []);

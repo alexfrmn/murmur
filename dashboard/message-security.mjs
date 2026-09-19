@@ -1,4 +1,4 @@
-import { isEnvelopeV1, stableEnvelopePayload } from "../packages/core/dist/src/index.js";
+import { isEnvelopeV1, stableEnvelopePayload, channelScopedSubject } from "../packages/core/dist/src/index.js";
 import { decryptPayload, verifyEnvelopeSignature } from "../packages/security/dist/src/index.js";
 import { validAgentId } from "./render.mjs";
 
@@ -16,9 +16,14 @@ export async function authenticateEnvelope(raw, subject, config) {
   if (!validAgentId(envelope.senderAgentId)) return rejected("invalid-sender-id");
   if (typeof subject !== "string" || !subject.startsWith("msg.")) return rejected("invalid-subject");
 
-  const subjectRecipient = subject.slice(4);
+  const subjectRecipient = subject.split(".")[1];
   if (!validAgentId(subjectRecipient) || !envelope.recipients.includes(subjectRecipient)) {
     return rejected("recipient-subject-mismatch");
+  }
+  if (subject !== `msg.${subjectRecipient}`) {
+    try {
+      if (!envelope.channelId || subject !== channelScopedSubject(`msg.${subjectRecipient}`, envelope.channelId)) return rejected("channel-subject-mismatch");
+    } catch { return rejected("channel-subject-mismatch"); }
   }
 
   const outbound = envelope.senderAgentId === config.agentId;

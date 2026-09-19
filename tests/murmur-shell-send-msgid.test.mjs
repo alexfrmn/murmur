@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { createKeyPair, createSigningKeyPair } from "../packages/security/dist/src/index.js";
+import { channelScopedSubject } from "../packages/core/dist/src/index.js";
 
 // #105 — the relay reply must be re-sendable under the same id. `--msg-id` lets the
 // Codex wake path mint the reply id from the inbound msgId, and a second run with that
@@ -15,7 +16,7 @@ import { createKeyPair, createSigningKeyPair } from "../packages/security/dist/s
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const script = path.join(root, "scripts", "murmur-shell-send.mjs");
 
-const setup = async () => {
+const setup = async (subjectScoping) => {
   const dir = mkdtempSync(path.join(tmpdir(), "murmur-shell-send-"));
   const dataDir = path.join(dir, ".data");
   mkdirSync(dataDir, { mode: 0o700 });
@@ -30,6 +31,7 @@ const setup = async () => {
     peers: {
       "agent-jarvis": {
         subject: "msg.agent-jarvis",
+        ...(subjectScoping === undefined ? {} : { subjectScoping }),
         encryption: { publicKey: peerEncryption.publicKey },
         signing: { publicKey: peerSigning.publicKey },
       },
@@ -79,5 +81,20 @@ test("murmur-shell-send rejects a --msg-id that is not a UUID", async () => {
     );
   } finally {
     cleanup();
+  }
+});
+
+test("shell sender scopes structured traffic only after peer opt-in", async () => {
+  for (const enabled of [undefined, true]) {
+    const { dataDir, dbPath, cleanup } = await setup(enabled);
+    try {
+      const result = send(dataDir, ["--to", "agent-jarvis", "--text", "scoped", "--channel", "c.with.dots", "--sender-member", "sender"]);
+      const db = new DatabaseSync(dbPath);
+      try {
+        const row = db.prepare("SELECT subject,envelope_json FROM outbox WHERE msg_id=?").get(result.msgId);
+        assert.equal(row.subject, enabled ? channelScopedSubject("msg.agent-jarvis", "c.with.dots") : "msg.agent-jarvis");
+        assert.equal(JSON.parse(row.envelope_json).channelId, "c.with.dots");
+      } finally { db.close(); }
+    } finally { cleanup(); }
   }
 });

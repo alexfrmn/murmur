@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
-import { SQLiteDedupeOutboxStore } from "../packages/core/dist/src/index.js";
+import { SQLiteDedupeOutboxStore, ChannelRosterStore, channelSubjectRoutes, stableEnvelopePayload } from "../packages/core/dist/src/index.js";
 import {
   decryptPayload,
   verifyEnvelopeSignature,
@@ -55,18 +55,6 @@ const envNum = (name, defaultValue) => {
   return Number.isFinite(value) && value > 0 ? value : defaultValue;
 };
 
-const stableEnvelopePayload = (envelope) =>
-  JSON.stringify({
-    schemaVersion: envelope.schemaVersion,
-    msgId: envelope.msgId,
-    conversationId: envelope.conversationId,
-    senderAgentId: envelope.senderAgentId,
-    recipients: [...envelope.recipients],
-    createdAt: envelope.createdAt,
-    payloadCiphertext: envelope.payloadCiphertext,
-    payloadNonce: envelope.payloadNonce,
-  });
-
 const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
 const config = await readPrivateJson(configPath);
@@ -95,6 +83,10 @@ const broker = new NatsBroker({
 });
 const dedupe = new SQLiteDedupeOutboxStore(dbPath);
 const lease = new SessionLeaseStore(leaseDbPath);
+const roster = config.channelRoster?.enabled
+  ? new ChannelRosterStore(config.channelRoster.path || process.env.MURMUR_CHANNEL_ROSTER_PATH || path.join(dataDir, "channel-roster.db")) : null;
+const subjectRoutes = channelSubjectRoutes(config.subject, consumerId, config.subjectScoping);
+if (subjectRoutes.length > 1 && !roster) throw new Error("subject-scoping-requires-roster");
 
 const registerThisSession = () => {
   lease.registerSession({
@@ -162,9 +154,6 @@ const onMessage = async (envelope) => {
     return;
   }
 
-  const claim = claimDelivery(envelope);
-  if (!claim) return;
-
   const peer = config.peers[envelope.senderAgentId];
   if (!peer) {
     throw new Error(`unknown-sender:${envelope.senderAgentId}`);
@@ -187,6 +176,17 @@ const onMessage = async (envelope) => {
     },
     config.keys.encryption.privateKey,
   );
+
+  const addressing = roster?.evaluateAddressing({ channelId: envelope.channelId,
+    selfAgentId: config.agentId, senderAgentId: envelope.senderAgentId,
+    senderMemberId: envelope.senderMemberId, addresseeMemberId: envelope.addresseeMemberId });
+  if (addressing && !addressing.allowWake) {
+    log("info", "MCP channel notification suppressed by addressing", { msgId: envelope.msgId, reason: addressing.reason });
+    return;
+  }
+  // Authenticate and authorize first; an invalid frame cannot seize session ownership.
+  const claim = claimDelivery(envelope);
+  if (!claim) return;
 
   if (!lease.isCurrentToken(envelope.conversationId, memberSlot, claim.token)) {
     log("info", "MCP channel notification suppressed by stale token", {
@@ -228,15 +228,13 @@ heartbeatTimer.unref?.();
 
 const startSubscriber = async () => {
   await broker.connect();
-  await broker.subscribeWithAck({
-    subject: config.subject,
-    consumerId,
-    dedupe,
-    onMessage,
-  });
+  for (const route of subjectRoutes) {
+    await broker.subscribeWithAck({ ...route, consumerId, dedupe, onMessage, emitDeliveryAcks: false });
+  }
   log("info", "Murmur MCP channel server subscribed", {
     agentId: config.agentId,
     subject: config.subject,
+    subjects: subjectRoutes.map((route) => route.subject),
     consumerId,
     dbPath,
     leaseDbPath,
@@ -261,6 +259,7 @@ const shutdown = async (signal) => {
   try {
     await broker.close();
     lease.close();
+    roster?.close();
   } catch (err) {
     log("error", "Broker close error", { error: err instanceof Error ? err.message : String(err) });
   } finally {

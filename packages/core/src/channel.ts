@@ -7,6 +7,32 @@ import { DatabaseSync } from "node:sqlite";
 
 export type ChannelType = "dm" | "group" | "consult";
 
+/** Advisory chat presence, independent from transport liveness and lease ownership. */
+export interface ChannelSessionPresence {
+  channelId: string;
+  conversationId: string;
+  memberId: string;
+  agentId: string;
+  sessionId: string;
+  status: "active" | "idle" | "busy";
+  joinedAt: number;
+  heartbeatAt: number;
+  expiresAt: number;
+}
+
+export interface ChannelSessionIdentity {
+  channelId: string;
+  memberId: string;
+  agentId: string;
+  sessionId: string;
+}
+
+export interface ChannelSessionHeartbeat extends ChannelSessionIdentity {
+  status?: ChannelSessionPresence["status"];
+  ttlMs?: number;
+  now?: number;
+}
+
 export interface ChannelRecord {
   channelId: string;
   conversationId: string;
@@ -156,9 +182,33 @@ const DDL = `
   CREATE INDEX IF NOT EXISTS idx_channel_members_agent ON channel_members(agent_id);
   CREATE INDEX IF NOT EXISTS idx_channel_members_slot ON channel_members(channel_id, member_slot);
   CREATE INDEX IF NOT EXISTS idx_channel_members_persona ON channel_members(persona_id);
+
+  CREATE TABLE IF NOT EXISTS channel_session_presence (
+    channel_id TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active', 'idle', 'busy')),
+    joined_at INTEGER NOT NULL,
+    heartbeat_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (channel_id, member_id, session_id),
+    FOREIGN KEY (channel_id, member_id) REFERENCES channel_members(channel_id, member_id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_channel_presence_expiry ON channel_session_presence(expires_at);
 `;
 
 const jsonObject = (value?: Record<string, unknown>): string => JSON.stringify(value ?? {});
+
+const validatePresenceIdentity = (input: ChannelSessionIdentity): void => {
+  for (const value of [input.channelId, input.memberId, input.agentId, input.sessionId]) {
+    if (typeof value !== "string" || !value.trim() || value !== value.trim() || value.length > 256) throw new Error("presence-identity-invalid");
+  }
+};
+
+const validatePresenceClock = (now: number): void => {
+  if (!Number.isSafeInteger(now) || now < 0) throw new Error("presence-clock-invalid");
+};
 
 const parseJsonObject = (raw: unknown): Record<string, unknown> => {
   if (typeof raw !== "string" || raw.length === 0) return {};
@@ -464,6 +514,61 @@ export class ChannelRosterStore {
       .prepare(`UPDATE channels SET closed_at = ? WHERE channel_id = ? AND closed_at IS NULL`)
       .run(closedAt, channelId);
     return result.changes > 0;
+  }
+
+  heartbeatChannelSession(input: ChannelSessionHeartbeat): ChannelSessionPresence {
+    validatePresenceIdentity(input);
+    const now = input.now ?? Date.now();
+    validatePresenceClock(now);
+    const ttlMs = input.ttlMs ?? 30000;
+    if (!Number.isInteger(ttlMs) || ttlMs < 5000 || ttlMs > 300000) throw new Error("presence-ttl-invalid");
+    const status = input.status ?? "active";
+    if (!["active", "idle", "busy"].includes(status)) throw new Error("presence-status-invalid");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const channel = this.getChannel(input.channelId);
+      if (!channel || channel.closedAt) throw new Error("presence-channel-inactive");
+      const member = this.getChannelMember(input.channelId, input.memberId);
+      if (!member || member.leftAt || member.agentId !== input.agentId) throw new Error("presence-member-inactive-or-mismatched");
+      this.db.prepare("DELETE FROM channel_session_presence WHERE expires_at <= ?").run(now);
+      this.db.prepare(`INSERT INTO channel_session_presence
+        (channel_id, member_id, agent_id, session_id, status, joined_at, heartbeat_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(channel_id, member_id, session_id) DO UPDATE SET
+          agent_id = excluded.agent_id,
+          status = excluded.status,
+          joined_at = CASE WHEN agent_id = excluded.agent_id THEN joined_at ELSE excluded.joined_at END,
+          heartbeat_at = excluded.heartbeat_at, expires_at = excluded.expires_at`)
+        .run(input.channelId, input.memberId, input.agentId, input.sessionId, status, now, now, now + ttlMs);
+      const row = this.listChannelPresence(input.channelId, { now }).find((p) => p.memberId === input.memberId && p.sessionId === input.sessionId);
+      if (!row) throw new Error("presence-write-failed");
+      this.db.exec("COMMIT");
+      return row;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /** A live row is descriptive only: never consult this table to authorize a wake. */
+  listChannelPresence(channelId: string, { now = Date.now() }: { now?: number } = {}): ChannelSessionPresence[] {
+    validatePresenceClock(now);
+    return this.db.prepare(`SELECT p.channel_id AS channelId, c.conversation_id AS conversationId,
+        p.member_id AS memberId, p.agent_id AS agentId, p.session_id AS sessionId,
+        p.status, p.joined_at AS joinedAt, p.heartbeat_at AS heartbeatAt, p.expires_at AS expiresAt
+      FROM channel_session_presence p
+      JOIN channels c ON c.channel_id = p.channel_id AND c.closed_at IS NULL
+      JOIN channel_members m ON m.channel_id = p.channel_id AND m.member_id = p.member_id
+        AND m.agent_id = p.agent_id AND m.left_at IS NULL
+      WHERE p.channel_id = ? AND p.expires_at > ?
+      ORDER BY p.member_id, p.session_id`).all(channelId, now) as unknown as ChannelSessionPresence[];
+  }
+
+  leaveChannelSession(input: ChannelSessionIdentity): boolean {
+    validatePresenceIdentity(input);
+    return Number(this.db.prepare(`DELETE FROM channel_session_presence
+      WHERE channel_id = ? AND member_id = ? AND agent_id = ? AND session_id = ?`)
+      .run(input.channelId, input.memberId, input.agentId, input.sessionId).changes) > 0;
   }
 
   close(): void {
