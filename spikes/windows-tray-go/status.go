@@ -172,7 +172,11 @@ const (
 )
 
 type Verdict struct {
-	Level  Level
+	Level Level
+	// Code — устойчивый код причины. Именно он сверяется между реализациями: текст
+	// формулировок на разных платформах разойдётся неизбежно, и сравнивать его
+	// бессмысленно.
+	Code   string
 	Unread bool
 	Reason string
 	// History — то, что не поместилось в цвет и обязано остаться текстом в меню.
@@ -196,16 +200,16 @@ func str(p *string) string {
 // известное.
 func resolve(s *Status, err error) Verdict {
 	if err != nil {
-		return Verdict{Level: LevelGrey, Reason: "статус недоступен: " + err.Error()}
+		return Verdict{Level: LevelGrey, Code: "status.unavailable", Reason: "статус недоступен: " + err.Error()}
 	}
 	if !schemaKnown(s.Schema, statusSchema) {
-		return Verdict{Level: LevelGrey, Reason: "схема ответа незнакома: " + s.Schema}
+		return Verdict{Level: LevelGrey, Code: "schema.unknown", Reason: "схема ответа незнакома: " + s.Schema}
 	}
 
 	unread := s.Inbox.Unread != nil && *s.Inbox.Unread > 0
 	hist := history(s)
-	out := func(l Level, reason string) Verdict {
-		return Verdict{Level: l, Unread: unread, Reason: reason, History: hist}
+	out := func(l Level, code, reason string) Verdict {
+		return Verdict{Level: l, Code: code, Unread: unread, Reason: reason, History: hist}
 	}
 
 	// Возраст, который не удалось определить, — такой же повод для серого, как возраст
@@ -213,20 +217,20 @@ func resolve(s *Status, err error) Verdict {
 	age, ok := ageOf(s.GeneratedAt)
 	switch {
 	case !ok:
-		return out(LevelGrey, "дата снимка не разобрана: "+s.GeneratedAt)
+		return out(LevelGrey, "snapshot.unparsable", "дата снимка не разобрана: "+s.GeneratedAt)
 	case age > maxStatusAge:
-		return out(LevelGrey, fmt.Sprintf("снимок устарел на %s", age.Round(time.Second)))
+		return out(LevelGrey, "snapshot.stale", fmt.Sprintf("снимок устарел на %s", age.Round(time.Second)))
 	case age < -clockSkewTolerance:
-		return out(LevelGrey, fmt.Sprintf("снимок из будущего на %s, часы разъехались", (-age).Round(time.Second)))
+		return out(LevelGrey, "snapshot.future", fmt.Sprintf("снимок из будущего на %s, часы разъехались", (-age).Round(time.Second)))
 	}
 
 	switch s.Service.State {
 	case "stopped":
-		return out(LevelGrey, "служба остановлена")
+		return out(LevelGrey, "service.stopped", "служба остановлена")
 	case "unknown", "":
-		return out(LevelGrey, "состояние службы неизвестно")
+		return out(LevelGrey, "service.unknown", "состояние службы неизвестно")
 	case "failed":
-		return out(LevelRed, "служба в состоянии failed")
+		return out(LevelRed, "service.failed", "служба в состоянии failed")
 	}
 
 	// missing копит поля, без которых цвет не выводится. Разница между нулём и
@@ -244,13 +248,13 @@ func resolve(s *Status, err error) Verdict {
 	failed, okFailed := need("outbox.queue.failed", s.Outbox.Queue.Failed)
 	dlq, okDLQ := need("outbox.queue.dlq", s.Outbox.Queue.DLQ)
 	if (okFailed && failed > 0) || (okDLQ && dlq > 0) {
-		return out(LevelRed, fmt.Sprintf("недоставленные: failed %s, DLQ %s", num(s.Outbox.Queue.Failed), num(s.Outbox.Queue.DLQ)))
+		return out(LevelRed, "outbox.undelivered", fmt.Sprintf("недоставленные: failed %s, DLQ %s", num(s.Outbox.Queue.Failed), num(s.Outbox.Queue.DLQ)))
 	}
 	if fault := str(s.Wake.Faults.LastFault); fault != "" {
-		return out(LevelRed, "wake не сработал: "+fault)
+		return out(LevelRed, "wake.fault", "wake не сработал: "+fault)
 	}
 	if pending, okPending := need("wake.delivery.pendingUndelivered", s.Wake.Delivery.PendingUndelivered); okPending && pending > 0 {
-		return out(LevelRed, "wake не доставил "+plural(pending, "сообщение", "сообщения", "сообщений"))
+		return out(LevelRed, "wake.pending", "wake не доставил "+plural(pending, "сообщение", "сообщения", "сообщений"))
 	}
 	// Журнал отказов — отдельный источник от очереди: null в поле последней ошибки
 	// означает «отказа не было», и отличить его от «не смотрел» можно только признаком
@@ -270,7 +274,7 @@ func resolve(s *Status, err error) Verdict {
 
 	switch s.Broker.State {
 	case "unauthorized":
-		return out(LevelYellow, "брокер отверг токен")
+		return out(LevelYellow, "broker.unauthorized", "брокер отверг токен")
 	case "connected":
 	case "", "unknown":
 		missing = append(missing, "broker.state")
@@ -279,7 +283,7 @@ func resolve(s *Status, err error) Verdict {
 		if e := str(s.Broker.LastError); e != "" {
 			reason += ": " + e
 		}
-		return out(LevelYellow, reason)
+		return out(LevelYellow, "broker.unreachable", reason)
 	}
 
 	if s.Peers.List == nil {
@@ -292,7 +296,7 @@ func resolve(s *Status, err error) Verdict {
 		if len(s.Peers.List) == 0 {
 			// Ноль пиров — это «ещё не настроено», а не «всё хорошо»: новому участнику
 			// писать некому, и зелёный значок сказал бы ему прямую неправду.
-			return out(LevelYellow, "пиров нет, обмен ещё не настроен")
+			return out(LevelYellow, "peers.none", "пиров нет, обмен ещё не настроен")
 		}
 		var unpaired, unknownPair []string
 		for _, p := range s.Peers.List {
@@ -304,7 +308,7 @@ func resolve(s *Status, err error) Verdict {
 			}
 		}
 		if len(unpaired) > 0 {
-			return out(LevelYellow, "пиры без пары: "+strings.Join(unpaired, ", "))
+			return out(LevelYellow, "peers.unpaired", "пиры без пары: "+strings.Join(unpaired, ", "))
 		}
 		if len(unknownPair) > 0 {
 			missing = append(missing, "парность неизвестна: "+strings.Join(unknownPair, ", "))
@@ -320,9 +324,9 @@ func resolve(s *Status, err error) Verdict {
 	}
 
 	if len(missing) > 0 {
-		return out(LevelGrey, "не измерено: "+strings.Join(missing, ", "))
+		return out(LevelGrey, "unmeasured", "не измерено: "+strings.Join(missing, ", "))
 	}
-	return out(LevelGreen, "демон, брокер и "+plural(len(s.Peers.List), "пир", "пира", "пиров")+" в порядке")
+	return out(LevelGreen, "ok", "демон, брокер и "+plural(len(s.Peers.List), "пир", "пира", "пиров")+" в порядке")
 }
 
 // num печатает число либо «не измерено»: подставлять ноль вместо неизвестного значит

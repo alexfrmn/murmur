@@ -103,5 +103,11 @@
       "observedAt": "2026-09-19T12:55:00Z",
       "unknownReason": null
     }
+  },
+  "$stamp": "now",
+  "$expect": {
+    "level": "green",
+    "unread": true,
+    "code": "ok"
   }
 }

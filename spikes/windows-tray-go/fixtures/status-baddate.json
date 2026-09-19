@@ -1,6 +1,6 @@
 {
   "schema": "murmur.status/1",
-  "generatedAt": "1970-01-01T00:00:00Z",
+  "generatedAt": "вчера вечером",
   "agentId": "agent-misha",
   "service": {
     "state": "running",
@@ -58,14 +58,14 @@
       "pending": 0,
       "inflight": 0,
       "delivered": 45,
-      "failed": 2,
-      "dlq": 1,
+      "failed": 0,
+      "dlq": 0,
       "oldestPendingAt": null,
       "unknownReason": null
     },
     "faults": {
-      "lastError": "authorization violation",
-      "lastErrorAt": "2026-09-19T12:20:00Z",
+      "lastError": null,
+      "lastErrorAt": null,
       "unknownReason": null
     }
   },
@@ -104,10 +104,10 @@
       "unknownReason": null
     }
   },
-  "$stamp": "now",
+  "$stamp": "as-is",
   "$expect": {
-    "level": "red",
+    "level": "grey",
     "unread": true,
-    "code": "outbox.undelivered"
+    "code": "snapshot.unparsable"
   }
 }

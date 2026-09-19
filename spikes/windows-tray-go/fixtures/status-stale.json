@@ -58,14 +58,14 @@
       "pending": 0,
       "inflight": 0,
       "delivered": 45,
-      "failed": 2,
-      "dlq": 1,
+      "failed": 0,
+      "dlq": 0,
       "oldestPendingAt": null,
       "unknownReason": null
     },
     "faults": {
-      "lastError": "authorization violation",
-      "lastErrorAt": "2026-09-19T12:20:00Z",
+      "lastError": null,
+      "lastErrorAt": null,
       "unknownReason": null
     }
   },
@@ -104,10 +104,10 @@
       "unknownReason": null
     }
   },
-  "$stamp": "now",
+  "$stamp": "now-5m",
   "$expect": {
-    "level": "red",
+    "level": "grey",
     "unread": true,
-    "code": "outbox.undelivered"
+    "code": "snapshot.stale"
   }
 }
