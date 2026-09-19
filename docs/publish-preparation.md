@@ -2,7 +2,9 @@
 
 Run `node scripts/prep-publish.mjs --check` to detect manifest drift without writing.
 Exit 0 means the selected public manifests already match the preparation rules;
-exit 1 reports manifests needing preparation. Other errors abort before writes.
+exit 1 reports manifests needing preparation. Graph-validation errors abort before
+manifest writes; filesystem write failures are reported and are not transactionally
+rolled back.
 
 `node scripts/prep-publish.mjs` prepares public workspace manifests locally. It
 resolves each internal dependency to that dependency's version, including optional
