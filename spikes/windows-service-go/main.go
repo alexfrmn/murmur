@@ -24,6 +24,9 @@ import (
 	"sync"
 	"time"
 
+	"syscall"
+	"unsafe"
+
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -162,23 +165,82 @@ func secureDir(path string) error {
 		nil, nil, dacl, nil)
 }
 
-// trustedOwner отвечает на вопрос, кем создан файл, который служба собирается исполнить.
-// Владелец из непривилегированных означает подмену, и читать такой файл нельзя.
-func trustedOwner(path string) (bool, string, error) {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+// Раскладка заголовка ACL и разрешающей записи ACE по документации Windows.
+type aclHeader struct {
+	AclRevision uint8
+	Sbz1        uint8
+	AclSize     uint16
+	AceCount    uint16
+	Sbz2        uint16
+}
+
+type allowedAce struct {
+	Type     uint8
+	Flags    uint8
+	Size     uint16
+	Mask     uint32
+	SidStart uint32
+}
+
+const accessAllowedAceType = 0
+
+var (
+	advapi32   = syscall.NewLazyDLL("advapi32.dll")
+	procGetAce = advapi32.NewProc("GetAce")
+)
+
+// trustedFile отвечает на вопрос, может ли непривилегированный пользователь подменить
+// файл, который служба исполнит под учётной записью SYSTEM.
+//
+// Проверяется список доступа, а не владелец. Владелец здесь ничего не доказывает: файл,
+// созданный администратором из-под своей учётной записи, принадлежит этой учётной
+// записи, а не группе, — моя прежняя проверка по владельцу отвергала обычную установку.
+// Значение имеет ровно одно: есть ли у кого-то вне системы и администраторов право
+// писать в этот файл.
+func trustedFile(path string) (bool, string, error) {
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return false, "", err
 	}
-	owner, _, err := sd.Owner()
+	dacl, _, err := sd.DACL()
 	if err != nil {
 		return false, "", err
 	}
-	for _, wk := range []windows.WELL_KNOWN_SID_TYPE{windows.WinLocalSystemSid, windows.WinBuiltinAdministratorsSid} {
-		if sid, err := windows.CreateWellKnownSid(wk); err == nil && owner.Equals(sid) {
-			return true, owner.String(), nil
+	if dacl == nil {
+		return false, "у файла нет списка доступа", nil
+	}
+
+	system, _ := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	admins, _ := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	const writeMask = uint32(windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA |
+		windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE | windows.GENERIC_WRITE | windows.GENERIC_ALL)
+
+	// x/sys/windows этой версии не отдаёт ACE наружу, поэтому список обходится вручную:
+	// заголовок ACL и запись ACE имеют фиксированную раскладку.
+	hdr := (*aclHeader)(unsafe.Pointer(dacl))
+	for i := uint32(0); i < uint32(hdr.AceCount); i++ {
+		var acePtr uintptr
+		r, _, err := procGetAce.Call(uintptr(unsafe.Pointer(dacl)), uintptr(i), uintptr(unsafe.Pointer(&acePtr)))
+		if r == 0 {
+			return false, "", err
 		}
+		ace := (*allowedAce)(unsafe.Pointer(acePtr))
+		if ace.Type != accessAllowedAceType {
+			continue
+		}
+		if ace.Mask&writeMask == 0 {
+			continue
+		}
+		sid := (*windows.SID)(unsafe.Pointer(uintptr(unsafe.Pointer(ace)) + unsafe.Offsetof(ace.SidStart)))
+		if sid.Equals(system) || sid.Equals(admins) {
+			continue
+		}
+		// Владелец файла получает права по ACE CREATOR OWNER; он администратор, раз
+		// файл лежит в закрытом каталоге, но назвать его поимённо честнее.
+		return false, "право записи есть у " + sid.String(), nil
 	}
-	return false, owner.String(), nil
+	return true, "", nil
 }
 
 // ---------- установка ----------
@@ -246,19 +308,41 @@ func resolveSpec() (*launchSpec, error) {
 // создана, служба не стартует, три команды подряд вернули ноль. Поэтому здесь есть
 // откат: не подтвердилось — служба удаляется, и в системе не остаётся половины.
 func install() error {
+	// Решение о том, состоится ли установка, принимается ДО единого изменения на диске.
+	// Прежний порядок отказывал «служба уже установлена» уже после того, как перезаписал
+	// её описание запуска и снёс состояние: команда возвращала верный код и портила
+	// работающую службу. Наличие проверки и её своевременность — разные вещи.
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("диспетчер служб недоступен (нужны права администратора): %w", err)
+	}
+	defer m.Disconnect()
+
+	if existing, err := m.OpenService(svcName()); err == nil {
+		defer existing.Close()
+		if ownErr := ownService(existing); ownErr != nil {
+			return fmt.Errorf("%v; ничего не тронуто", ownErr)
+		}
+		return fmt.Errorf("служба %s уже установлена; ничего не тронуто, снимите её командой uninstall", svcName())
+	}
+
 	spec, err := resolveSpec()
 	if err != nil {
 		return err
 	}
+	exePath, err := os.Executable()
+	if err != nil {
+		return err
+	}
 	say("проверка путей: node %s, точка входа %s", spec.Node, spec.Entry)
+	say("каталог данных: %s", spec.DataDir)
 
+	// Дальше начинаются изменения на диске.
 	if err := secureDir(dataDir()); err != nil {
 		return fmt.Errorf("каталог данных %s: %w", dataDir(), err)
 	}
 	say("каталог данных закрыт от записи обычным пользователем: %s", dataDir())
 
-	// Файл мог быть создан кем угодно до нас — каталог до этой установки был открыт
-	// на создание. Убираем и пишем заново уже под защищённым DACL.
 	_ = os.Remove(specPath())
 	buf, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
@@ -269,20 +353,6 @@ func install() error {
 	}
 	_ = os.Remove(statePath())
 
-	exePath, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	m, err := mgr.Connect()
-	if err != nil {
-		return fmt.Errorf("диспетчер служб недоступен (нужны права администратора): %w", err)
-	}
-	defer m.Disconnect()
-
-	if s, err := m.OpenService(svcName()); err == nil {
-		s.Close()
-		return fmt.Errorf("служба %s уже установлена", svcName())
-	}
 	s, err := m.CreateService(svcName(), exePath, mgr.Config{
 		DisplayName:  svcName(),
 		Description:  serviceDesc,
@@ -301,17 +371,12 @@ func install() error {
 		if derr := s.Delete(); derr != nil {
 			return fmt.Errorf("%v; откат не удался, служба осталась в SCM: %v", err, derr)
 		}
-		// Точный перечень того, что осталось. Прежняя формулировка «в системе ничего не
-		// осталось» была шире факта: каталог данных и файл запуска пишутся до создания
-		// службы и переживают откат. Журнал лежит там же, и он нужен для разбора.
 		return fmt.Errorf("%v. Служба удалена из диспетчера. Намеренно остались: файл запуска %s, состояние %s и журнал %s, они нужны для разбора. Убрать целиком: murmur-svc uninstall", err, specPath(), statePath(), logDir())
 	}
 	say("демон живёт дольше %s, установка подтверждена", settleTime)
 	return nil
 }
 
-// verifyStart: запустить, дождаться устойчивого Running, убедиться, что демон поднялся
-// и прожил settleTime. Запрос диспетчеру — это не факт запуска.
 func verifyStart(s *mgr.Service) error {
 	_ = os.Remove(daemonPIDPath())
 	if err := s.Start(); err != nil {
@@ -541,7 +606,10 @@ type ServiceStatus struct {
 	State   string  `json:"state"`
 	Manager string  `json:"manager"`
 	Since   *string `json:"since"`
-	PID     int     `json:"pid"`
+	// PID — процесс хоста службы. DaemonPID — процесс самого демона: это разные вещи,
+	// и вопрос «жив ли демон» относится ко второму.
+	PID       int  `json:"pid"`
+	DaemonPID *int `json:"daemonPid"`
 	// ObservedStorePath заполняется только фактическим свидетельством: процесс держит
 	// этот файл открытым. Описание запуска и окружение говорят, чего мы просили.
 	ObservedStorePath   *string `json:"observedStorePath"`
@@ -612,6 +680,9 @@ func printStatus() error {
 
 	if out.Manager != "foreign" {
 		daemonPID, _ := readDaemonPID()
+		if daemonPID > 0 && processAlive(daemonPID) {
+			out.DaemonPID = &daemonPID
+		}
 		dataDir := ""
 		if specErr == nil {
 			dataDir = spec.DataDir
@@ -623,7 +694,7 @@ func printStatus() error {
 		}
 	}
 
-	if out.State == "running" && out.RestartsLastHour != nil && *out.RestartsLastHour > limitOf(spec) {
+	if out.State == "running" && out.RestartsLastHour != nil && *out.RestartsLastHour >= limitOf(spec) {
 		out.State = "failed"
 	}
 
@@ -773,12 +844,12 @@ func recordFailure(code uint32) {
 func resolveSpecFromFile() (*launchSpec, error) {
 	// Владельца проверяем до чтения: файл задаёт, что служба исполнит под учётной
 	// записью SYSTEM, и созданный кем-то ещё он означает подмену.
-	ok, owner, err := trustedOwner(specPath())
+	ok, why, err := trustedFile(specPath())
 	if err != nil {
-		return nil, fmt.Errorf("владелец файла службы не определён (%s): %w", specPath(), err)
+		return nil, fmt.Errorf("права файла службы не прочитаны (%s): %w", specPath(), err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("файл службы принадлежит %s, а не системе или администраторам — читать его нельзя", owner)
+		return nil, fmt.Errorf("файл службы доступен на запись не только системе и администраторам (%s) — исполнять его нельзя", why)
 	}
 	buf, err := os.ReadFile(specPath())
 	if err != nil {
@@ -857,7 +928,7 @@ func (h *daemonHost) supervise(spec *launchSpec, fatal chan<- uint32, done chan<
 		st.LastFailureAt = time.Now().UTC().Format(time.RFC3339)
 		writeState(st)
 
-		if n := st.restartsLastHour(); n > limitOf(spec) {
+		if n := st.restartsLastHour(); n >= limitOf(spec) {
 			logLine("демон поднимался %d раз за час — это падение по кругу, не работа", n)
 			fatal <- ecRestartStorm
 			return
