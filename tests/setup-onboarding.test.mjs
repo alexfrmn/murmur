@@ -96,3 +96,20 @@ test('invite and join reject symlink-parent aliases into a managed profile',asyn
   assert.deepEqual(await fs.readdir(data),[]);
   await assert.rejects(fs.stat(path.join(f.root,'agent-a','murmur.db')),{code:'ENOENT'});
 });
+test('join requires an existing output parent before creating the profile',async t=>{
+  const f=await fixture(t);await f.init('agent-a');const invitation=path.join(f.root,'invite');await f.command('agent-a',['invite','--out',invitation]);
+  await assert.rejects(f.command('agent-b',['join','--agent-id','agent-b','--invite-file',invitation,'--reply-out',path.join(f.root,'missing-parent','reply')]),/output-parent-required/);
+  await assert.rejects(fs.stat(path.join(f.root,'agent-b')),{code:'ENOENT'});
+});
+test('case-insensitive volumes reject fresh and existing mixed-case profile output aliases',async t=>{
+  const f=await fixture(t);const check=path.join(f.root,'case-probe');await fs.mkdir(check);
+  const actual=await fs.stat(check), alias=await fs.stat(path.join(f.root,'CASE-PROBE')).catch(()=>null);
+  if(!alias || actual.ino!==alias.ino){t.skip('volume is case-sensitive');return;}
+  await f.init('agent-a');const invitation=path.join(f.root,'invite');await f.command('agent-a',['invite','--out',invitation]);
+  const output=path.join(f.root,'CASEFOLD','agent-config.json');
+  await assert.rejects(f.command('casefold',['join','--agent-id','casefold','--invite-file',invitation,'--reply-out',output]),/output-parent-required/);
+  await assert.rejects(fs.stat(path.join(f.root,'casefold')),{code:'ENOENT'});
+  await fs.mkdir(path.join(f.root,'casefold'));
+  await assert.rejects(f.command('casefold',['join','--agent-id','casefold','--invite-file',invitation,'--reply-out',output]),/output-inside-profile/);
+  assert.deepEqual(await fs.readdir(path.join(f.root,'casefold')),[]);
+});

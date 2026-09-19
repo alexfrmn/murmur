@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { mkdir, open, rmdir, lstat, unlink, realpath } from 'node:fs/promises';
+import { mkdir, open, rmdir, lstat, unlink, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -30,10 +30,29 @@ async function canonicalPath(file: string): Promise<string> {
 }
 async function validateOutput(c: ServiceContext, file: string) {
   if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
-  const target = await canonicalPath(file), profile = await canonicalPath(c.dataDir);
+  let parent: string;
+  try { parent = await realpath(path.dirname(file)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('onboarding.output-parent-required');
+    throw error;
+  }
+  if (!(await stat(parent)).isDirectory()) throw new Error('onboarding.output-parent-required');
+  // A nonexistent output parent must not become valid as a side effect of profile creation.
+  // On case-insensitive APFS, differently spelled missing paths can name that same directory.
+  const target = path.join(parent, path.basename(file)), profile = await canonicalPath(c.dataDir);
   const relative = path.relative(profile, target);
   if (!relative || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) {
     throw new Error('onboarding.output-inside-profile');
+  }
+  const profileInfo = await stat(c.dataDir).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  });
+  // Existing path aliases are compared by filesystem identity, not by lowercasing names.
+  if (profileInfo) for (let ancestor = parent; ; ancestor = path.dirname(ancestor)) {
+    const info = await stat(ancestor);
+    if (info.dev === profileInfo.dev && info.ino === profileInfo.ino) throw new Error('onboarding.output-inside-profile');
+    if (path.dirname(ancestor) === ancestor) break;
   }
 }
 async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
