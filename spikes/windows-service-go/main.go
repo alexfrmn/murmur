@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,9 +40,9 @@ const (
 	restartDelayMax = 60 * time.Second
 	// Прожил дольше — запуск считается удачным и пауза сбрасывается.
 	healthyRun = 30 * time.Second
-	// Больше стольких подъёмов за час — это не работа, а падение по кругу. Служба
-	// обязана уйти в failed: бесконечная попытка выглядит как жизнь и ей не является.
-	restartsPerHourLimit = 8
+	// Подъёмов за час, после которых это падение по кругу, а не работа. Значение по
+	// умолчанию; настоящее приходит из описания запуска, то есть из ответа движка.
+	restartsPerHourDefault = 5
 
 	// Сколько ждать устойчивого Running при установке и старте.
 	startTimeout = 20 * time.Second
@@ -186,6 +187,13 @@ type launchSpec struct {
 	Node    string `json:"node"`
 	Entry   string `json:"entry"`
 	WorkDir string `json:"workDir"`
+	// DataDir — абсолютный путь канонического каталога данных. Без него демон возьмёт
+	// каталог по умолчанию относительно своего рабочего каталога: установка положит
+	// данные в одно место, демон будет писать в другое, и человек посмотрит не туда.
+	DataDir string `json:"dataDir"`
+	// RestartsPerHourLimit приходит из ответа движка, а не из константы: иначе при
+	// изменении порога значок и движок разъедутся.
+	RestartsPerHourLimit int `json:"restartsPerHourLimit"`
 }
 
 func resolveSpec() (*launchSpec, error) {
@@ -205,17 +213,30 @@ func resolveSpec() (*launchSpec, error) {
 	if workDir == "" {
 		workDir = filepath.Dir(filepath.Dir(entry))
 	}
+	data := os.Getenv("MURMUR_DATA_DIR")
+	if data == "" {
+		data = filepath.Join(workDir, ".data")
+	}
+	limit := restartsPerHourDefault
+	if v := os.Getenv("MURMUR_RESTARTS_PER_HOUR_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
 	// Абсолютные пути обязательны: служба стартует с рабочим каталогом System32, и
 	// относительный путь там означает совсем другой файл.
-	for name, p := range map[string]string{"MURMUR_NODE": node, "MURMUR_ENTRY": entry, "MURMUR_WORKDIR": workDir} {
+	for name, p := range map[string]string{"MURMUR_NODE": node, "MURMUR_ENTRY": entry, "MURMUR_WORKDIR": workDir, "MURMUR_DATA_DIR": data} {
 		if !filepath.IsAbs(p) {
 			return nil, fmt.Errorf("%s должен быть абсолютным путём, получено %q", name, p)
 		}
-		if _, err := os.Stat(p); err != nil {
+		if _, err := os.Stat(p); err != nil && name != "MURMUR_DATA_DIR" {
 			return nil, fmt.Errorf("%s: %v", name, err)
 		}
 	}
-	return &launchSpec{Node: node, Entry: entry, WorkDir: workDir}, nil
+	if err := os.MkdirAll(data, 0o755); err != nil {
+		return nil, fmt.Errorf("каталог данных %s: %w", data, err)
+	}
+	return &launchSpec{Node: node, Entry: entry, WorkDir: workDir, DataDir: data, RestartsPerHourLimit: limit}, nil
 }
 
 // install ставит службу и заканчивается проверкой, что она работает.
@@ -401,6 +422,9 @@ func uninstall() error {
 		return nil
 	}
 	defer s.Close()
+	if err := ownService(s); err != nil {
+		return err
+	}
 	_ = stopService(s)
 	if err := s.Delete(); err != nil {
 		return err
@@ -437,6 +461,9 @@ func startAndVerify() error {
 		return fmt.Errorf("служба %s не установлена", svcName())
 	}
 	defer s.Close()
+	if err := ownService(s); err != nil {
+		return err
+	}
 	if err := verifyStart(s); err != nil {
 		return err
 	}
@@ -455,6 +482,9 @@ func stop() error {
 		return fmt.Errorf("служба %s не установлена", svcName())
 	}
 	defer s.Close()
+	if err := ownService(s); err != nil {
+		return err
+	}
 	if err := stopService(s); err != nil {
 		return err
 	}
@@ -512,11 +542,26 @@ type ServiceStatus struct {
 	Manager string  `json:"manager"`
 	Since   *string `json:"since"`
 	PID     int     `json:"pid"`
+	// ObservedStorePath заполняется только фактическим свидетельством: процесс держит
+	// этот файл открытым. Описание запуска и окружение говорят, чего мы просили.
+	ObservedStorePath   *string `json:"observedStorePath"`
+	ObservedStoreReason *string `json:"observedStoreUnknownReason"`
 	// Неизвестное приходит как null, никогда как пустая строка и никогда как ноль:
 	// пустая строка неотличима от измеренного отсутствия.
-	LastExitCode     *int    `json:"lastExitCode"`
-	LastFailureAt    *string `json:"lastFailureAt"`
-	RestartsLastHour int     `json:"restartsLastHour"`
+	LastExitCode  *int    `json:"lastExitCode"`
+	LastFailureAt *string `json:"lastFailureAt"`
+	// RestartsLastHour обнуляем: ноль означает «подъёмов не было», а состояние, которое
+	// не удалось прочитать, означает «не знаю». Разные вещи.
+	RestartsLastHour      *int    `json:"restartsLastHour"`
+	RestartsUnknownReason *string `json:"restartsUnknownReason"`
+	RestartsPerHourLimit  int     `json:"restartsPerHourLimit"`
+}
+
+func limitOf(spec *launchSpec) int {
+	if spec != nil && spec.RestartsPerHourLimit > 0 {
+		return spec.RestartsPerHourLimit
+	}
+	return restartsPerHourDefault
 }
 
 func orNil(s string) *string {
@@ -527,14 +572,22 @@ func orNil(s string) *string {
 }
 
 func printStatus() error {
-	st := readState()
+	spec, specErr := resolveSpecFromFile()
+	st, stateErr := readStateChecked()
+
 	out := ServiceStatus{
-		State:            "unknown",
-		Manager:          "windows-service",
-		Since:            orNil(st.StartedAt),
-		LastExitCode:     st.LastExitCode,
-		LastFailureAt:    orNil(st.LastFailureAt),
-		RestartsLastHour: st.restartsLastHour(),
+		State:                "unknown",
+		Manager:              "windows-service",
+		RestartsPerHourLimit: limitOf(spec),
+	}
+	if stateErr == nil {
+		n := st.restartsLastHour()
+		out.RestartsLastHour = &n
+		out.Since = orNil(st.StartedAt)
+		out.LastExitCode = st.LastExitCode
+		out.LastFailureAt = orNil(st.LastFailureAt)
+	} else {
+		out.RestartsUnknownReason = orNil(stateErr.Error())
 	}
 
 	m, err := mgr.Connect()
@@ -542,19 +595,35 @@ func printStatus() error {
 		defer m.Disconnect()
 		s, oerr := m.OpenService(svcName())
 		if oerr != nil {
-			// Служба не установлена — это не «неизвестно», это «не запущена».
 			out.State, out.Manager = "stopped", "none"
 		} else {
 			defer s.Close()
-			if q, qerr := s.Query(); qerr == nil {
+			if ownErr := ownService(s); ownErr != nil {
+				// Имя службы задаётся снаружи, значит совпадение с чужой возможно.
+				// Отвечать за чужой профиль мы не вправе — и молчать об этом тоже.
+				out.State, out.Manager = "unknown", "foreign"
+				out.ObservedStoreReason = orNil(ownErr.Error())
+			} else if q, qerr := s.Query(); qerr == nil {
 				out.State = stateName(q)
 				out.PID = int(q.ProcessId)
 			}
 		}
 	}
-	// Падение по кругу с точки зрения диспетчера выглядит работой: служба жива, демон
-	// умирает. Счётчик — единственное место, где это видно.
-	if out.State == "running" && out.RestartsLastHour > restartsPerHourLimit {
+
+	if out.Manager != "foreign" {
+		daemonPID, _ := readDaemonPID()
+		dataDir := ""
+		if specErr == nil {
+			dataDir = spec.DataDir
+		}
+		if path, why := observedStore(dataDir, daemonPID); path != "" {
+			out.ObservedStorePath = &path
+		} else {
+			out.ObservedStoreReason = orNil(why)
+		}
+	}
+
+	if out.State == "running" && out.RestartsLastHour != nil && *out.RestartsLastHour > limitOf(spec) {
 		out.State = "failed"
 	}
 
@@ -563,6 +632,50 @@ func printStatus() error {
 		return err
 	}
 	fmt.Println(string(buf))
+	return nil
+}
+
+// readStateChecked отличает «состояния ещё нет» от «прочитать не удалось»: первое даёт
+// честный ноль подъёмов, второе — неизвестность.
+func readStateChecked() (runState, error) {
+	var st runState
+	buf, err := os.ReadFile(statePath())
+	if os.IsNotExist(err) {
+		return st, nil
+	}
+	if err != nil {
+		return st, fmt.Errorf("файл состояния не прочитан: %w", err)
+	}
+	if err := json.Unmarshal(buf, &st); err != nil {
+		return st, fmt.Errorf("файл состояния не разобран: %w", err)
+	}
+	return st, nil
+}
+
+// ownService проверяет, что именованная служба — действительно наша: её программа это
+// наш бинарь. Тот же класс, что нашли на маковской стороне, где адаптер мог остановить
+// чужой профиль с совпавшим именем.
+func ownService(s *mgr.Service) error {
+	cfg, err := s.Config()
+	if err != nil {
+		return fmt.Errorf("конфигурацию службы %s прочитать не удалось: %w", svcName(), err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	bin := strings.Trim(strings.Fields(cfg.BinaryPathName)[0], `"`)
+	a, _ := filepath.EvalSymlinks(bin)
+	b, _ := filepath.EvalSymlinks(self)
+	if a == "" {
+		a = bin
+	}
+	if b == "" {
+		b = self
+	}
+	if !strings.EqualFold(filepath.Clean(a), filepath.Clean(b)) {
+		return fmt.Errorf("служба %s принадлежит другой программе (%s) — не трогаю её", svcName(), bin)
+	}
 	return nil
 }
 
@@ -693,6 +806,17 @@ func (h *daemonHost) supervise(spec *launchSpec, fatal chan<- uint32, done chan<
 		}
 		cmd := exec.Command(spec.Node, spec.Entry)
 		cmd.Dir = spec.WorkDir
+		// Каталог данных уезжает в окружение дочернего процесса тем же значением, что
+		// записано в описании запуска: служба и командная строка обязаны приходить к
+		// одному месту по одному правилу.
+		//
+		// Имя переменной проверено по исходнику демона: scripts/murmur-daemon.mjs читает
+		// DATA_DIR и при её отсутствии берёт «.data» относительно рабочего каталога.
+		// MURMUR_DATA_DIR передаётся рядом как имя, предложенное движком, — когда демон
+		// начнёт читать его, здесь ничего менять не придётся.
+		cmd.Env = append(os.Environ(),
+			"DATA_DIR="+spec.DataDir,
+			"MURMUR_DATA_DIR="+spec.DataDir)
 		out, ferr := os.OpenFile(filepath.Join(logDir(), "daemon.log"),
 			os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if ferr == nil {
@@ -733,7 +857,7 @@ func (h *daemonHost) supervise(spec *launchSpec, fatal chan<- uint32, done chan<
 		st.LastFailureAt = time.Now().UTC().Format(time.RFC3339)
 		writeState(st)
 
-		if n := st.restartsLastHour(); n > restartsPerHourLimit {
+		if n := st.restartsLastHour(); n > limitOf(spec) {
 			logLine("демон поднимался %d раз за час — это падение по кругу, не работа", n)
 			fatal <- ecRestartStorm
 			return
