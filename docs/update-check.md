@@ -53,6 +53,13 @@ Unknown reasons: `updates.disabled`, `updates.current-version-invalid`,
 `updates.network-error`, `updates.timeout`, `updates.rate-limited`,
 `updates.http-error`, `updates.release-invalid`.
 
+`updates.release-invalid` groups responses unusable for the stable channel:
+malformed metadata, an unexpected release URL, and unexpected draft/prerelease
+responses. It does not diagnose which validation failed or claim a security
+incident. A prerelease from this stable endpoint cannot establish whether a newer
+stable release exists, so the result remains `unknown`. No prerelease channel is
+implemented; adding one requires its own eligibility and reason-code contract.
+
 Both local and release versions must be stable three-component SemVer (optional
 build metadata is ignored for comparison). Prerelease and draft responses are
 rejected, even if the API returns one unexpectedly. Unrecognized versions produce
