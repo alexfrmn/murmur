@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check public workspace dependency versions
+        run: node scripts/prep-publish.mjs --check
+
       - name: Build
         run: npm run build
 
