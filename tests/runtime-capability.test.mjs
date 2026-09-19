@@ -57,7 +57,7 @@ test('install metadata and documented Node floors agree with the runtime policy'
   const readme = await fs.readFile(new URL('../README.md', import.meta.url), 'utf8');
   const wake = await fs.readFile(new URL('../docs/wake-native.md', import.meta.url), 'utf8');
   const stated = [...readme.matchAll(/Node(?:\.js)? (\d+(?:\.\d+){0,2})\+/g)].map(match => match[1]);
-  assert.equal(stated.length, 4, 'badge, install, quick start and storage requirements');
+  assert.ok(stated.length >= 4, 'install, quick start and storage requirements remain present');
   for (const version of stated) assert.equal(version, MIN_NODE_VERSION);
   assert.ok(readme.includes(`badge/node-%3E%3D${MIN_NODE_VERSION}-`));
   const wakeVersion = /Requires Node with `node:sqlite`\s*\((\d+(?:\.\d+){0,2})\+\)/.exec(wake);

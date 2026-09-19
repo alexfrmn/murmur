@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,8 +9,7 @@ import { spawnSync } from 'node:child_process';
 const installer = fileURLToPath(new URL('../spikes/windows-onboarding/Install-Murmur.ps1', import.meta.url));
 const windows = process.platform === 'win32';
 function fixture(scenario) {
-  // PowerShell expands Windows 8.3 aliases; use the same physical parent.
-  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'murmur installer ')));
+  const dir = mkdtempSync(path.join(tmpdir(), 'murmur installer '));
   const runtime = path.join(dir, 'runtime'), profile = path.join(dir, 'private profile');
   mkdirSync(path.join(runtime, 'packages/setup/bin'), { recursive: true });
   mkdirSync(path.join(runtime, 'bin')); writeFileSync(path.join(runtime, 'bin/murmur-svc.exe'), 'not executed');
@@ -43,7 +42,13 @@ for (const scenario of ['ok', 'wrong-agent', 'wrong-action', 'no-store']) test(`
     assert.ok(calls.every(c => c.args[0] !== 'init'), 'installer must not initialize keys before native checks');
     assert.equal(calls.filter(c => c.args[0] === 'service').length, scenario === 'wrong-agent' ? 0 : 1);
     for (const c of calls) {
-      assert.equal(c.env.DATA_DIR, f.profile); assert.equal(c.env.MURMUR_DATA_DIR, f.profile);
+      // GetFullPath expands Windows 8.3 aliases; compare the existing parent's
+      // identity and missing leaf, not two spellings of the same path.
+      assert.equal(path.basename(c.env.DATA_DIR), path.basename(f.profile));
+      const actual = statSync(path.dirname(c.env.DATA_DIR)), expected = statSync(path.dirname(f.profile));
+      assert.equal(actual.dev, expected.dev); assert.equal(actual.ino, expected.ino);
+      assert.equal(c.env.MURMUR_DATA_DIR, c.env.DATA_DIR);
+      assert.equal(c.args[c.args.indexOf('--data-dir') + 1], c.env.DATA_DIR);
       assert.equal(c.env.NODE_OPTIONS, undefined); assert.equal(c.env.MURMUR_STORE_PATH, undefined);
     }
     assert.equal(existsSync(f.profile), false, 'stand-in engine never creates a profile; installer must not either');
