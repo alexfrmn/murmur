@@ -280,7 +280,10 @@ func install() error {
 		if derr := s.Delete(); derr != nil {
 			return fmt.Errorf("%v; откат не удался, служба осталась в SCM: %v", err, derr)
 		}
-		return fmt.Errorf("%v; служба удалена, в системе ничего не осталось. Журнал: %s", err, logDir())
+		// Точный перечень того, что осталось. Прежняя формулировка «в системе ничего не
+		// осталось» была шире факта: каталог данных и файл запуска пишутся до создания
+		// службы и переживают откат. Журнал лежит там же, и он нужен для разбора.
+		return fmt.Errorf("%v. Служба удалена из диспетчера. Намеренно остались: файл запуска %s, состояние %s и журнал %s, они нужны для разбора. Убрать целиком: murmur-svc uninstall", err, specPath(), statePath(), logDir())
 	}
 	say("демон живёт дольше %s, установка подтверждена", settleTime)
 	return nil
@@ -390,7 +393,12 @@ func uninstall() error {
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
-		return fmt.Errorf("служба %s не установлена", svcName())
+		// Службы в диспетчере нет — но файлы после отката установки есть, и это ровно
+		// та команда, на которую откат сослался. Отказаться здесь значит не выполнить
+		// собственное обещание.
+		say("службы %s в диспетчере нет, убираю оставшиеся файлы", svcName())
+		removeLeftovers()
+		return nil
 	}
 	defer s.Close()
 	_ = stopService(s)
@@ -398,7 +406,24 @@ func uninstall() error {
 		return err
 	}
 	say("служба %s удалена", svcName())
+	removeLeftovers()
 	return nil
+}
+
+// removeLeftovers убирает то, что создала установка, кроме журнала: журнал переживает
+// удаление намеренно, разбирать отказ по нему будут уже после.
+func removeLeftovers() {
+	removed := 0
+	for _, p := range []string{specPath(), statePath(), daemonPIDPath()} {
+		if err := os.Remove(p); err == nil {
+			say("убран %s", p)
+			removed++
+		}
+	}
+	if removed == 0 {
+		say("убирать нечего")
+	}
+	say("журнал оставлен: %s", logDir())
 }
 
 func startAndVerify() error {
