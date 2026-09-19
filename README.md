@@ -152,12 +152,14 @@ promise that the selected release has executable assets.
 Continue with [Quick Start](#quick-start) in the same checkout or extracted runtime.
 Do not clone a second copy.
 
-Installation and build run a local runtime check before the application starts.
-You can also run `npm run check:runtime`: it checks the supported Node version
-and opens an in-memory `node:sqlite` database. A disabled or unavailable SQLite
-module produces an actionable error; the source CLI checks it before loading the
-engine or opening a profile. `engines` advertises the version requirement to npm,
-while this capability check enforces it for these entry points.
+Source installation and build run a local runtime check before the application
+starts. In a **source checkout only**, `npm run check:runtime` (`npm.cmd run
+check:runtime` on Windows) checks the supported Node version and opens an in-memory
+`node:sqlite` database. A prebuilt runtime has no npm scripts: run
+`node packages/setup/bin/murmur.mjs version --json` from its runtime directory.
+Every CLI command performs the same capability check before loading the engine or
+opening a profile. A disabled or unavailable SQLite module produces an actionable
+error. `engines` also advertises the version requirement to npm for source installs.
 
 Maintainer-only [npm deprecation commands](docs/npm-deprecation-commands.md) are
 prepared for after account recovery. **They have not been executed:** npm clients
@@ -297,22 +299,22 @@ explicitly after importing keys. No onboarding command silently restarts it.
 ```bash
 node "$CLI" clients detect --data-dir "$PROFILE"
 node "$CLI" clients configure --data-dir "$PROFILE" --client claude-code
-node "$CLI" doctor --data-dir "$PROFILE" --peer bob --json
 ```
 
 ```powershell
 node $Cli clients detect --data-dir $Profile
 node $Cli clients configure --data-dir $Profile --client claude-code
-node $Cli doctor --data-dir $Profile --peer bob --json
 ```
 
-Use the installed client ID returned by detection. Reload that client after
-configuration. The shared writer binds an absolute Node executable, MCP entry and
+Do this on **both machines**, using the installed client ID returned by detection.
+Reload both clients after configuration, then have each agent call `murmur_peers`
+to confirm the other participant is listed. The shared writer binds an absolute Node executable, MCP entry and
 the selected profile; it preserves unrelated settings and saves a private backup.
 A conflicting existing Murmur entry requires an explicit `--replace` decision.
 
-Doctor's signed roundtrip proves the daemon-to-daemon path. Then ask the peer to
-read their inbox and answer an actual request from your agent:
+Keep Bob's client active and ask Bob's agent to read `murmur_inbox` and reply using
+`murmur_send` to Alice in the incoming request's same `conversationId`. From
+**Alice's** client, ask her agent to make this request (Bob would target `alice`):
 
 ```text
 murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 300000)
@@ -322,6 +324,16 @@ Only a returned answer completes the two-person exchange. Automatic AI wake is
 separate: see [wake-native.md](docs/wake-native.md). Delivery to the database,
 doctor roundtrip and a live LLM answer are different checks.
 
+For an optional signed diagnostic after the clients are ready, prepare Bob's
+agent to watch its inbox and reply with **exactly** the `MURMUR-DOCTOR-REPLY <nonce>`
+line supplied in the incoming diagnostic, to Alice in that same conversation.
+Then Alice runs `node "$CLI" doctor --data-dir "$PROFILE" --peer bob --timeout 60000 --json`
+(PowerShell: `node $Cli doctor --data-dir $Profile --peer bob --timeout 60000 --json`).
+For the reverse direction, prepare Alice's responder and use `--peer alice` on
+Bob's machine. The daemon does not automatically echo this challenge; without
+an active responder, the probe times out. Its signed, persisted reply proves the
+roundtrip, not automatic wake of a particular AI client.
+
 ### Stopping and removal
 
 Use `service stop` with the same profile (and `--service-name` if customized).
@@ -330,8 +342,9 @@ it retains private keys, message data and logs. Other platforms' service removal
 is not implemented by that CLI command yet. Closing a tray app does not stop the
 service. GUI, login and reboot behavior require their own platform acceptance.
 
-For a missing Node SQLite module, check Node.js 22.13.0+ and run `npm.cmd run
-check:runtime` on Windows source checkouts (`npm run check:runtime` elsewhere).
+For a missing Node SQLite module, check Node.js 22.13.0+. In a source checkout only,
+run `npm.cmd run check:runtime` on Windows or `npm run check:runtime` on macOS/Linux.
+In a prebuilt runtime, use the `version --json` command from step 1 instead.
 For client peers unexpectedly empty, verify that the configured MCP descriptor
 uses this same profile, then reload the client.
 
@@ -453,20 +466,29 @@ Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
 
 ### Add to Claude Code
 
-```bash
-claude mcp add murmur -e DATA_DIR=/path/to/murmur/.data -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
-```
+Use `clients configure --client claude-code` with the selected profile as shown in
+[Quick Start step 4](#4-connect-the-ai-client-and-require-a-returned-message), then
+reload Claude Code. Do not add a second Murmur registration over the shared writer.
 
 ### Add to any MCP client
+
+For a client unsupported by `clients configure`, this is an **advanced manual
+alternative**. Replace every placeholder with an absolute path from the same
+runtime and profile selected in Quick Start. `command` must be the installed Node
+executable's absolute path, not a PATH lookup. `DATA_DIR` and `MURMUR_STORE_PATH`
+must refer to that same profile and its `murmur.db`. Do not apply this over an
+existing shared-writer registration. Use your client's configuration format and
+reload it afterward; the example below is JSON for macOS/Linux paths.
 
 ```json
 {
   "mcpServers": {
     "murmur": {
-      "command": "node",
-      "args": ["/path/to/murmur/packages/mcp-server/dist/src/index.js"],
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/runtime/packages/mcp-server/dist/src/index.js"],
       "env": {
-        "DATA_DIR": "/path/to/murmur/.data"
+        "DATA_DIR": "/absolute/path/to/selected-profile",
+        "MURMUR_STORE_PATH": "/absolute/path/to/selected-profile/murmur.db"
       }
     }
   }
