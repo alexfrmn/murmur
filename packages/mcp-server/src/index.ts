@@ -61,6 +61,9 @@ const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
 const dbPath = process.env.MURMUR_STORE_PATH ?? path.join(dataDir, "murmur.db");
 const channelRosterPath = process.env.MURMUR_CHANNEL_ROSTER_PATH ?? path.join(dataDir, "channel-roster.db");
+// One stdio connection is one chat session. Callers cannot impersonate another
+// session/agent through tool arguments; hosts may supply their stable session ID.
+const presenceSessionId = (process.env.MURMUR_SESSION_ID || process.env.CODEX_THREAD_ID || process.env.CLAUDE_CODE_SESSION_ID || `mcp:${randomUUID()}`).trim();
 const requestWaitDir = path.resolve(dataDir, ".codex-request-waits");
 const taskBindingDir = path.resolve(dataDir, ".codex-task-bindings");
 
@@ -360,6 +363,29 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     const channelId = String(args.channelId ?? "").trim();
     if (!channelId) throw new Error("channelId is required");
     return { members: channelRoster.listChannelMembers(channelId) };
+  }
+
+  if (name === "channel_presence") {
+    const channelId = String(args.channelId ?? "").trim();
+    if (!channelId) throw new Error("channelId is required");
+    return { scope: "local", sessions: channelRoster.listChannelPresence(channelId) };
+  }
+
+  if (name === "channel_presence_heartbeat" || name === "channel_presence_leave") {
+    if (!agentConfig) throw new Error("agent config not loaded — presence requires a local agent identity");
+    if (args.agentId !== undefined || args.sessionId !== undefined) throw new Error("presence identity is bound to this MCP server");
+    const identity = {
+      channelId: String(args.channelId ?? "").trim(),
+      memberId: String(args.memberId ?? agentConfig.memberId ?? "").trim(),
+      agentId: agentConfig.agentId,
+      sessionId: presenceSessionId,
+    };
+    if (name === "channel_presence_leave") return { left: channelRoster.leaveChannelSession(identity) };
+    return { scope: "local", presence: channelRoster.heartbeatChannelSession({
+      ...identity,
+      status: args.status as "active" | "idle" | "busy" | undefined,
+      ttlMs: args.ttlMs as number | undefined,
+    }) };
   }
 
   if (name === "channel_evaluate_addressing") {
@@ -751,6 +777,34 @@ const tools = [
         addresseeAgentId: { type: "string" },
       },
       required: ["selfAgentId"],
+    },
+  },
+  {
+    name: "channel_presence",
+    description: "List unexpired local chat-session presence for a channel. Advisory only; not peer liveness or lease ownership.",
+    inputSchema: {
+      type: "object", properties: { channelId: { type: "string" } }, required: ["channelId"],
+    },
+  },
+  {
+    name: "channel_presence_heartbeat",
+    description: "Report this local chat session in an existing channel. Repeat before TTL expires; does not claim a lease or grant membership.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        channelId: { type: "string" },
+        memberId: { type: "string", description: "Existing local agent member; defaults to configured memberId" },
+        status: { type: "string", enum: ["active", "idle", "busy"] },
+        ttlMs: { type: "integer", minimum: 5000, maximum: 300000, default: 30000 },
+      }, required: ["channelId"],
+    },
+  },
+  {
+    name: "channel_presence_leave",
+    description: "Remove this local chat session from the channel presence list without changing roster membership or leases.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { channelId: { type: "string" }, memberId: { type: "string" } }, required: ["channelId"],
     },
   },
   {
