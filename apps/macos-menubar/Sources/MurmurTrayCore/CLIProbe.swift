@@ -61,6 +61,8 @@ public struct CLIProbe: Sendable {
         // No shell; GUI launches must not depend on an interactive shell PATH.
         let inherited = ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]
         var childEnvironment = environment.filter { inherited.contains($0.key) }
+        // Preserve only the documented opt-out, never an opt-in or arbitrary value.
+        if environment["MURMUR_UPDATE_CHECK"] == "0" { childEnvironment["MURMUR_UPDATE_CHECK"] = "0" }
         childEnvironment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         process.environment = childEnvironment
         try process.run()

@@ -19,11 +19,16 @@ final class TrayModel: ObservableObject {
     @Published var agentID: String?
     @Published var checkingStatus = false
     @Published var checkingDoctor = false
+    @Published var updates: UpdateSnapshot?
+    @Published var updateError: String?
+    @Published var checkingUpdates = false
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published var demoState: Indicator = .unknown
     let isDemo: Bool
     private var timer: Timer?
+    private var updateTimer: Timer?
     private var client: ProfileClient?
+    private var updatesClient: UpdatesClient?
     private var selectionID = UUID()
 
     init() {
@@ -40,10 +45,51 @@ final class TrayModel: ObservableObject {
             timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.refreshStatus() }
             }
+            if let executable = CLIProbe.locate(environment: env) {
+                updatesClient = UpdatesClient(executable: executable, environment: env)
+                refreshUpdates()
+            } else { updateError = ProbeError.missingCLI.localizedDescription }
         }
     }
 
     var busy: Bool { operating || checkingStatus || checkingDoctor }
+    // Update I/O never participates in profile/status/service command readiness.
+    var canChangeUpdates: Bool { !isDemo && updatesClient != nil && !checkingUpdates }
+    var updatesForcedOff: Bool { updatesClient?.forcedOff == true }
+    var updateAvailable: Bool { updates?.releasePage() != nil }
+    var accessibleStatus: String { "Murmur: " + verdict.reason + (updateAvailable ? "; доступно обновление" : "") }
+
+    func refreshUpdates(enabled: Bool? = nil) {
+        guard !isDemo, !checkingUpdates, let updatesClient else { return }
+        checkingUpdates = true; updateError = nil
+        Task { [self] in
+            let result = await Task.detached { () -> Result<UpdateSnapshot, Error> in
+                Result {
+                    if let enabled { try updatesClient.setEnabled(enabled) }
+                    // A disabled check is local-only in the CLI contract. Read back
+                    // the effective preference, including a process opt-out.
+                    return try updatesClient.check()
+                }
+            }.value
+            switch result {
+            case .success(let snapshot): updates = snapshot
+            case .failure(let error): updates = nil; updateError = error.localizedDescription
+            }
+            checkingUpdates = false
+            // Schedule from completion so a slow startup cannot make the next
+            // invocation fall just before the CLI's six-hour cache deadline.
+            updateTimer?.invalidate()
+            updateTimer = Timer.scheduledTimer(withTimeInterval: 21_600, repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.refreshUpdates() }
+            }
+        }
+    }
+
+    func openUpdateRelease() {
+        guard !isDemo, let page = updates?.releasePage() else { return }
+        // No download, installer or shell: an explicit click opens an allowed page.
+        if !NSWorkspace.shared.open(page) { updateError = "Не удалось открыть страницу релиза" }
+    }
 
     var controlBlockReason: String? {
         if isDemo { return "Демонстрационный режим" }
@@ -218,6 +264,7 @@ final class TrayModel: ObservableObject {
         case .failed: .systemRed
         }
         let unread = current.unread
+        let hasUpdate = updateAvailable
         let image = NSImage(size: NSSize(width: 20, height: 20), flipped: false) { _ in
             color.setFill()
             NSBezierPath(ovalIn: NSRect(x: 3, y: 3, width: 14, height: 14)).fill()
@@ -225,10 +272,19 @@ final class TrayModel: ObservableObject {
                 NSColor.systemBlue.setFill()
                 NSBezierPath(ovalIn: NSRect(x: 13, y: 12, width: 7, height: 7)).fill()
             }
+            if hasUpdate {
+                NSColor.systemPurple.setFill()
+                NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: 8, height: 8)).fill()
+                NSColor.white.setStroke()
+                let arrow = NSBezierPath(); arrow.lineWidth = 1.2
+                arrow.move(to: NSPoint(x: 4, y: 1.5)); arrow.line(to: NSPoint(x: 4, y: 6))
+                arrow.move(to: NSPoint(x: 2, y: 4)); arrow.line(to: NSPoint(x: 4, y: 6)); arrow.line(to: NSPoint(x: 6, y: 4))
+                arrow.stroke()
+            }
             return true
         }
         image.isTemplate = false
-        image.accessibilityDescription = current.reason
+        image.accessibilityDescription = accessibleStatus
         return image
     }
 }
@@ -293,6 +349,30 @@ struct MurmurMenuBarApp: App {
                 Button("Остановить") { model.perform(.stop) }.disabled(!model.canControl)
                 Button("Открыть настроенный каталог журналов") { model.openLogs() }.disabled(!model.canControl)
             }
+            Menu(model.updateAvailable ? "Доступно обновление Murmur" : "Обновления Murmur") {
+                if let updates = model.updates {
+                    Text(updates.title())
+                    Text("Версия продукта: \(updates.currentVersion ?? "неизвестна")")
+                    Text(updates.reasonText)
+                    Text("Последняя попытка: \(updates.checkedAt ?? "не измерена")")
+                    Text(updates.ageText())
+                    Text("Последняя успешная проверка: \(updates.lastSuccessAt ?? "не измерена")")
+                    if let next = updates.nextCheckAt { Text("Следующая проверка не раньше: \(next)") }
+                    if updates.stale { Text("Прежний успешный результат устарел") }
+                } else { Text("Обновления: результат неизвестен") }
+                if model.checkingUpdates { Text("Проверка обновлений…") }
+                if let error = model.updateError { Text(error) }
+                Button("Открыть страницу релиза") { model.openUpdateRelease() }
+                    .disabled(!model.updateAvailable || model.isDemo)
+                Divider()
+                Text("Проверка — раз в 6 часов, общий кеш для пользователя")
+                Text("GitHub узнаёт ваш IP и факт использования Murmur")
+                if model.updatesForcedOff { Text("Проверка запрещена через MURMUR_UPDATE_CHECK=0") }
+                Button("Включить проверку обновлений") { model.refreshUpdates(enabled: true) }
+                    .disabled(!model.canChangeUpdates || model.updatesForcedOff)
+                Button("Отключить проверку обновлений") { model.refreshUpdates(enabled: false) }
+                    .disabled(!model.canChangeUpdates)
+            }
             Divider()
             Toggle("Запускать при входе", isOn: Binding(
                 get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }
@@ -301,7 +381,7 @@ struct MurmurMenuBarApp: App {
                 .disabled(model.busy || model.isDemo || model.profile == nil)
             Button("Выход") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         } label: {
-            Image(nsImage: model.icon).accessibilityLabel("Murmur: \(model.verdict.reason)")
+            Image(nsImage: model.icon).accessibilityLabel(model.accessibleStatus)
         }
         .menuBarExtraStyle(.menu)
     }
