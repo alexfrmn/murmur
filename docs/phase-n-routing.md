@@ -52,8 +52,10 @@ channel history but stay muted when processed later through the durable backlog.
 rows without that local decision retain legacy wake behavior.
 
 Configured proxy subjects apply the same roster decision for the proxy agent derived from
-the subject before any proxy wake effect runs. Fieldless proxy traffic retains its legacy
-behavior.
+the subject before any proxy wake effect runs. Proxy subscriptions are wake bridges:
+they emit no delivery ACK/NACK on behalf of the addressee, including for fieldless
+traffic. The addressed agent must acknowledge delivery itself; see
+[`protocol-v1.md`](protocol-v1.md#signed-ack-migration).
 
 ## Coordinated rollout
 

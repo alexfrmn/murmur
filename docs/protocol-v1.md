@@ -45,6 +45,24 @@ timestamps, wrong peers, wrong conversations or recipients, digest mismatches, i
 and repeated/non-in-flight transitions. Rejections increment reason-tagged counters and emit
 metadata-only security events; ACK bodies and message contents are never logged.
 
+Retryable `failed` rows remain eligible for verified ACK/NACK transitions, alongside
+`pending` and `sent`. A signed `poison-message:*` NACK settles them atomically as
+`dlq`; neither `acked` nor `dlq` accepts another transition. ACK timeouts preserve
+an existing failure reason so exhaustion reports the peer's diagnosis.
+
+Outbox retries use `msgId:v<row-version>` as the JetStream transport dedupe ID.
+The signed envelope is unchanged. The row version advances on NACK/timeout even
+if a fast NACK prevented `markSent` from incrementing attempts, so the new send
+reaches the receiver inside the server's duplicate window. Direct `publish()`
+calls retain message-ID deduplication unless given an explicit transport ID.
+
+`config.proxySubjects` creates wake bridges, not delivery to another agent's inbox.
+Proxy subscriptions suppress delivery ACK/NACKs, including errors and duplicate
+receipts; their own JetStream consumer acknowledgements are independent. The
+addressed agent must run a daemon and acknowledge with its own key. Without it,
+the sender retries and eventually moves the unconfirmed message to DLQ; startup
+logs warn about this condition. No proxy delegation or alternate signer is trusted.
+
 An optional `authToken` (bearer `MURMUR-AUTH:…`) authorizes the sender. When present it
 is part of the signed payload (cannot be stripped/swapped) and can be verified with
 `@murmurv2/federation` `verifyAuthToken`; ingress enforcement (an `authorizeInbound`
