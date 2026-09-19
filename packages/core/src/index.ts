@@ -66,6 +66,22 @@ export interface SignedAckV1 {
 
 export type UnsignedAckV1 = Omit<SignedAckV1, "signature">;
 
+/** Missing key material is not evidence of an invalid cryptographic signature. */
+export type AckVerificationResult = boolean | "key-unavailable";
+
+/** Shared by every transport. New typed outcomes must be handled explicitly. */
+export function ackVerificationFailure(result: AckVerificationResult): string | null {
+  switch (result) {
+    case true: return null;
+    case false: return "signature-invalid";
+    case "key-unavailable": return "signature-key-unavailable";
+  }
+  const exhaustive: never = result;
+  void exhaustive;
+  // JavaScript callers can violate the type. Never treat unknown truthy values as proof.
+  return "signature-verifier-result-invalid";
+}
+
 export const envelopeDigest = (envelope: EnvelopeV1): string =>
   `sha256:${createHash("sha256").update(stableEnvelopePayload(envelope)).digest("hex")}`;
 

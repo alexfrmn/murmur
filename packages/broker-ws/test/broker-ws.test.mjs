@@ -1,9 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { WebSocket } from "ws";
-import { InMemoryDedupeStore } from "../../core/dist/src/index.js";
+import { InMemoryDedupeStore, stableAckPayload } from "../../core/dist/src/index.js";
 import { WebSocketBroker, WebSocketRelay, wsSubjectMatches } from "../dist/src/index.js";
 
+import { createSigningKeyPair, signEnvelope, verifyEnvelopeSignature } from "../../security/dist/src/index.js";
+async function ackCrypto() {
+  const keys = await createSigningKeyPair();
+  return { signAck: async ack => ({...ack, signature:await signEnvelope(stableAckPayload(ack),keys.privateKey)}),
+    verifyAck: ack => verifyEnvelopeSignature(stableAckPayload(ack),ack.signature,keys.publicKey) };
+}
 function envelope(overrides = {}) {
   return {
     schemaVersion: "1.0",
@@ -46,6 +52,14 @@ async function withRelay(fn) {
 class MemoryOutbox {
   acked = [];
   failed = [];
+  status = "sent";
+  async getOutboxRecord(msgId) { return msgId === "msg-1" ? { envelope:envelope(), status:this.status } : undefined; }
+  async applyAckTransition(msgId, status, reason) {
+    if (this.status === "acked") return "ignored-terminal";
+    if (status === "ack") { this.status="acked"; this.acked.push(msgId); }
+    else this.failed.push({msgId,error:reason});
+    return "applied";
+  }
 
   async markAcked(msgId) {
     this.acked.push(msgId);
@@ -71,8 +85,10 @@ test("WebSocketBroker publishes envelopes through a relay and correlates ACKs", 
     const seen = [];
     const outbox = new MemoryOutbox();
 
-    await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox });
+    const crypto = await ackCrypto();
+    await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox, verifyAck:crypto.verifyAck });
     await bob.subscribeWithAck({
+      signAck:crypto.signAck,
       subject: "msg.bob",
       consumerId: "bob",
       dedupe: new InMemoryDedupeStore(),
@@ -91,15 +107,17 @@ test("WebSocketBroker publishes envelopes through a relay and correlates ACKs", 
   });
 });
 
-test("WebSocketBroker dedupes duplicate envelope delivery and still ACKs the duplicate", async () => {
+test("WebSocketBroker dedupes delivery and emits a signed duplicate ACK without settling twice", async () => {
   await withRelay(async (url) => {
     const alice = new WebSocketBroker({ url });
     const bob = new WebSocketBroker({ url });
     const seen = [];
     const outbox = new MemoryOutbox();
 
-    await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox });
+    const crypto = await ackCrypto();
+    await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox, verifyAck:crypto.verifyAck });
     await bob.subscribeWithAck({
+      signAck:crypto.signAck,
       subject: "msg.bob",
       consumerId: "bob",
       dedupe: new InMemoryDedupeStore(),
@@ -108,24 +126,30 @@ test("WebSocketBroker dedupes duplicate envelope delivery and still ACKs the dup
       },
     });
 
+    const published = [], publishAck = bob.publishAck.bind(bob);
+    bob.publishAck = async (subject, ack) => { published.push(ack); await publishAck(subject, ack); };
     await alice.publish("msg.bob", envelope());
     await alice.publish("msg.bob", envelope());
 
     await eventually(() => assert.deepEqual(seen, ["msg-1"]));
-    await eventually(() => assert.deepEqual(outbox.acked, ["msg-1", "msg-1"]));
+    await eventually(() => assert.equal(published.length, 2));
+    assert.equal(published[1].reason, "duplicate-ignored");
+    assert.equal(await crypto.verifyAck(published[1]), true);
+    await eventually(() => assert.deepEqual(outbox.acked, ["msg-1"]));
 
     await alice.close();
     await bob.close();
   });
 });
 
-test("WebSocketBroker NACKs invalid envelope frames", async () => {
+test("WebSocketBroker rejects unbound invalid-envelope NACKs without failing any outbox row", async () => {
   await withRelay(async (url) => {
     const alice = new WebSocketBroker({ url });
     const bob = new WebSocketBroker({ url });
     const outbox = new MemoryOutbox();
 
-    await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox });
+    const rejected = [];
+    await alice.startAckCorrelation({ ackSubject: "ack.alice", outbox, onInvalidAck:e=>rejected.push(e.reason) });
     await bob.subscribeWithAck({
       subject: "msg.bob",
       consumerId: "bob",
@@ -139,7 +163,8 @@ test("WebSocketBroker NACKs invalid envelope frames", async () => {
     await new Promise((resolve) => raw.once("open", resolve));
     raw.send(JSON.stringify({ type: "message", subject: "msg.bob", envelope: { msgId: "bad", senderAgentId: "alice" } }));
 
-    await eventually(() => assert.deepEqual(outbox.failed, [{ msgId: "unknown", error: "invalid-envelope" }]));
+    await eventually(() => assert.deepEqual(rejected, ["unsigned-or-malformed"]));
+    assert.deepEqual(outbox.failed, []);
     raw.close();
     await alice.close();
     await bob.close();

@@ -12,6 +12,8 @@ import {
 } from "nats";
 import {
   applyJitter,
+  ackVerificationFailure,
+  type AckVerificationResult,
   computeBackoffMs,
   createAck,
   createBoundAck,
@@ -79,7 +81,8 @@ export interface AckWindowConfig {
 }
 
 export type AckSigner = (ack: UnsignedAckV1) => Promise<SignedAckV1>;
-export type AckVerifier = (ack: SignedAckV1) => Promise<boolean>;
+export type { AckVerificationResult } from "@murmurv2/core";
+export type AckVerifier = (ack: SignedAckV1) => Promise<AckVerificationResult>;
 
 export interface InvalidAckEvent {
   reason: string;
@@ -783,8 +786,13 @@ export class NatsBroker {
         this.invalidAck(params, "timestamp-out-of-window", decoded);
         return;
       }
-      if (!params.verifyAck || !(await params.verifyAck(decoded))) {
-        this.invalidAck(params, "signature-invalid", decoded);
+      if (!params.verifyAck) {
+        this.invalidAck(params, "signature-verifier-unavailable", decoded);
+        return;
+      }
+      const verificationFailure = ackVerificationFailure(await params.verifyAck(decoded));
+      if (verificationFailure !== null) {
+        this.invalidAck(params, verificationFailure, decoded);
         return;
       }
       if (!(await this.claimAckNonce(params.ackReceipts, decoded.senderAgentId, decoded.nonce))) {
