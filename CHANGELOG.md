@@ -39,6 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SELECT`, and the cursor only ever passes a row that was reported or recorded.
 
 ### Added
+- **A notify target can take one peer** — `peers: ["agent-jarvis"]` on a Telegram or webhook
+  target limits it to those senders, and `fallback: true` marks the target that takes whatever
+  no `peers` target took. One forum chat can now hold a thread per peer; before this, splitting
+  peers meant a second process reading the store and posting by sender. A target with neither
+  field keeps taking everything, so existing configs are untouched. A sender that matches no
+  target at all is logged as a warning rather than dropped in silence, including
+  failed-wake fallback notifications. An explicit empty `peers` list accepts nobody;
+  only an omitted filter accepts every agent. Bare Telegram/webhook config forms
+  preserve the same filters. Routing uses transport agent IDs, not `senderMemberId`.
 - **Supported filters for the wake drain, with a ledger instead of a silent drop** (#146) —
   `MURMUR_WAKE_SKIP_SENDERS`, `MURMUR_WAKE_SKIP_CONVERSATIONS` and
   `MURMUR_WAKE_SKIP_INELIGIBLE` (the last one honours the daemon's `wake_eligible=0` mute).
