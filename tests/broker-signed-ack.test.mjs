@@ -188,3 +188,26 @@ test("replaying a signed ACK cannot create another outbox transition", async () 
   assert.equal(afterReplay.version, afterFirst.version);
   assert.equal(events[0].reason, "message-not-in-flight");
 });
+
+test('signed ACK with unavailable peer key is distinct and cannot settle or consume its nonce', async () => {
+  const outbox = await createSentOutbox();
+  const signing = await createSigningKeyPair();
+  const ack = await signAck(createBoundAck(envelope, 'agent-receiver', 'ack'), signing.privateKey);
+  const broker = new NatsBroker({ url: 'nats://example.invalid' });
+  const events = await processAck(broker, outbox, ack, async () => 'key-unavailable');
+  assert.equal((await outbox.getOutboxRecord(envelope.msgId)).status, 'sent');
+  assert.equal(events[0].reason, 'signature-key-unavailable');
+  assert.equal(broker.getAckSecurityMetrics()['signature-key-unavailable'], 1);
+  await processAck(broker, outbox, ack, candidate => verifyEnvelopeSignature(stableAckPayload(candidate), candidate.signature, signing.publicKey));
+  assert.equal((await outbox.getOutboxRecord(envelope.msgId)).status, 'acked');
+});
+
+test('a missing ACK verifier is not described as a cryptographically invalid signature', async () => {
+  const outbox = await createSentOutbox();
+  const signing = await createSigningKeyPair();
+  const ack = await signAck(createBoundAck(envelope, 'agent-receiver', 'ack'), signing.privateKey);
+  const broker = new NatsBroker({ url: 'nats://example.invalid' });
+  const events = await processAck(broker, outbox, ack, undefined);
+  assert.equal((await outbox.getOutboxRecord(envelope.msgId)).status, 'sent');
+  assert.equal(events[0].reason, 'signature-verifier-unavailable');
+});

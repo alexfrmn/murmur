@@ -29,10 +29,9 @@
 
 <p align="center">
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
-  <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
+  <img src="https://img.shields.io/badge/node-%3E%3D22.13.0-brightgreen" alt="Node 22.13.0+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="version 2.8.0" />
-  <a href="https://www.npmjs.com/org/murmurv2"><img src="https://img.shields.io/npm/v/@murmurv2/core" alt="npm @murmurv2/core" /></a>
+  <a href="#install"><img src="https://img.shields.io/badge/npm-installation_paused-orange" alt="npm installation paused — build from source" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
   <img src="https://img.shields.io/badge/crypto-XChaCha20--Poly1305-orange" alt="E2E Encrypted" />
@@ -88,7 +87,7 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 
 ## What's New in v2.5
 
-- **Signed and bound delivery acknowledgements.** ACK correlation used to trust attacker-controlled JSON carrying only `{msgId, status}` — anyone able to publish to an ACK subject could mark another peer's pending outbox row `acked` or `failed`. ACKs are now `SignedAckV1`: Ed25519 over the message digest, conversation, sender, intended recipient, status, timestamp and nonce, with wrong-recipient, stale, replayed and unsigned ACKs rejected. Migration is two-stage — legacy peers still parse the new shape, and strict rejection waits behind `ackSecurity.requireSigned`.
+- **Signed and bound delivery acknowledgements.** ACK correlation rejects unsigned frames in every mode. `SignedAckV1` binds Ed25519 to the message digest, conversation, sender, intended recipient, status, timestamp and nonce; wrong-recipient, stale, replayed and invalid signatures are rejected. Legacy `ackSecurity.requireSigned: false` requests cannot downgrade verification and produce a startup warning. A success ACK proves durable receiver persistence; observer taps never issue delivery ACKs. See [rollout requirements](docs/protocol-v1.md#signed-ack-enforcement-and-rollout-157).
 - **Local state is no longer world-readable.** umask `0077` for the daemon, state directories `0700`, secret JSON atomically written `0600`, SQLite database/WAL/shm forced `0600`, symlinked and wrong-owner config paths rejected, `O_NOFOLLOW` on config reads. Agent configs hold long-term private keys; they used to drift back to `0664` on rewrite.
 - **Dashboard hardening.** Untrusted fields render through `textContent` only, strict CSP and the usual header set, Basic auth from a private token file for HTTP and WebSocket alike, and live messages verified for schema, signature, subject binding and known-peer identity before reaching the UI. Fails closed without a token file.
 - **Codex wake fixes.** Seeded threads keep `thread.path` and carry `peer.cwd` instead of starting at `cwd: null`; per-peer `baseInstructions` are no longer dropped by config normalisation.
@@ -111,30 +110,47 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 - **Validated: real cross-host A2A.** A fresh agent on a remote host (over the published `@murmurv2/*` packages) exchanged bidirectional encrypt/verify/ACK traffic with the mesh over the live broker — agent-to-agent across real hosts and network.
 - **Single canonical signing payload.** `stableEnvelopePayload` is now one export in `@murmurv2/core` (was copy-pasted across 7 sites), golden-locked by test.
 
-> npm: `@murmurv2/core`, `@murmurv2/federation`, and `@murmurv2/broker-nats` are published at `0.2.0` (the new API surface — `stableEnvelopePayload`, `EnvelopeV1.authToken`, stream guards, `authorizeInbound`); `security`/`observability` @ `0.1.1`, the rest @ `0.1.0`.
+> Historical npm releases are frozen and do not contain the current fixes. Use the [source installation path](#install) below.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, WebSocket adapter, roster auth tokens, JetStream durability, federation, A2A bridge, native wake).
 
 ## Install
 
-All packages are published on npm under the [`@murmurv2`](https://www.npmjs.com/org/murmurv2) scope (MIT):
+**npm installation and updates are paused. Do not install or update Murmur from
+npm while this notice is present.** The registry still serves older code, including
+`@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 from the 2.6.x era, without
+subsequent ACK-storm and delivery fixes. Publishing is blocked by account-security
+restrictions; there is no confirmed resume date. Follow [GitHub releases](https://github.com/alexfrmn/murmur/releases)
+for an explicit announcement after the account is unblocked and packages are verified.
 
-> **Registry lag (as of 2026-09-12).** npm currently serves `@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 — the code of 2.6.x. Everything from 2.7.0 to 2.9.0 (ACK-storm fixes, exactly-once wake delivery, Phase N routing) is in the repo and tagged but not yet published: publishing is paused by an npm account-security hold, expected to lift around 2026-09-14. To run the current release today, clone the `v2.9.0` tag and build from source (`npm ci && npm run build`), as in [Quick Start](#quick-start).
+**Current path: build the reviewed source snapshot.** You need Git and Node.js 22.13.0+;
+a running NATS broker is required to use the mesh. The latest release tag is
+`v2.9.0`, but it predates the ACK hardening merged on September 19. The pinned
+commit below includes those fixes; it is a source snapshot, not a new tagged
+release or a ready-made desktop installer.
 
-```bash
-# core types + SQLite stores, crypto, MCP server
-npm install @murmurv2/core @murmurv2/security @murmurv2/mcp-server
-
-# transports
-npm install @murmurv2/broker-nats   # NATS core + optional JetStream durability
-npm install @murmurv2/broker-ws     # WebSocket relay/client
-
-# federation + bridges
-npm install @murmurv2/federation @murmurv2/federation-nats
-npm install @murmurv2/bridge-a2a @murmurv2/bridge-telegram
+```text
+git clone https://github.com/alexfrmn/murmur.git
+cd murmur
+git checkout --detach 234b03ec59ec66649abcea5a206d011c86958c5a
+npm ci
+npm run build
 ```
 
-Prefer to run the full mesh from source? See [Quick Start](#quick-start).
+Then use [Quick Start](#quick-start) for configuration, keeping this reviewed
+checkout. `npm ci` here installs this checkout's locked dependencies and local
+workspaces; it does not install the obsolete published Murmur packages.
+
+Installation and build run a local runtime check before the application starts.
+You can also run `npm run check:runtime`: it checks the supported Node version
+and opens an in-memory `node:sqlite` database. A disabled or unavailable SQLite
+module produces an actionable error; the source CLI checks it before loading the
+engine or opening a profile. `engines` advertises the version requirement to npm,
+while this capability check enforces it for these entry points.
+
+Maintainer-only [npm deprecation commands](docs/npm-deprecation-commands.md) are
+prepared for after account recovery. **They have not been executed:** npm clients
+will not display that warning until a maintainer applies the registry deprecations.
 
 ## The Problem
 
@@ -171,7 +187,7 @@ syntax that PowerShell does not have. Every command below is given for both shel
 
 | you need | why | check |
 |---|---|---|
-| **Node.js 22.13+** | the daemon stores messages through the built-in `node:sqlite`. 22.5 added the `--experimental-sqlite` flag; the module works without a flag only from 22.13 | `node --version` |
+| **Node.js 22.13.0+** | the daemon stores messages through the built-in `node:sqlite`. 22.5.0 added the `--experimental-sqlite` flag; the module works without a flag only from 22.13.0 | `node --version` |
 | **git** | step 1 starts by cloning | `git --version` |
 | **a NATS broker** | agents meet there; encryption is end-to-end, so the broker never sees plaintext | URL + token |
 
@@ -500,7 +516,7 @@ murmur/
 | Transport | core NATS + SQLite outbox | Low-latency pub/sub, app-level at-least-once delivery, ACK correlation, DLQ, unbounded dedupe |
 | Encryption | X25519 + XChaCha20-Poly1305 | Modern AEAD, NaCl standard, ~30% faster than AES-GCM |
 | Signatures | Ed25519 | Fast verification, small keys, deterministic |
-| Storage | SQLite (node:sqlite) | Zero dependencies, WAL mode, built into Node 22+ |
+| Storage | SQLite (node:sqlite) | Zero dependencies, WAL mode, built into Node 22.13.0+ |
 | Group Crypto | MLS (scaffold) | RFC 9420, forward secrecy for groups — deferred to v1.0 |
 
 See [ADR-001](docs/ADR-001-core-bus-nats.md) and [ADR-002](docs/ADR-002-envelope-crypto.md) for full rationale.
@@ -710,7 +726,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 *Security first — the shared broker still runs on one token*
 - [ ] **TLS + per-peer NATS authentication** (#103) — reviewed, CI-green, held for a coordinated cutover: every peer today shares one broker token, which is why a 2.6.0 client storming the broker could not be cut off and why a leaked invite blob (10.09) meant rotating everyone. Ships with a maintenance window (broker config + re-invite of all peers), not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client speaks token only (no user/password, no CA).
 - [ ] **Auth/authz end-to-end** — the mechanism is shipped (`@murmurv2/federation`: roster-backed signed tokens, `authorizeInbound`; broker ingress hook `authorize`). Remaining: the daemon does not read `MURMUR_ENFORCE_AUTH` or build the authorizer from the roster yet, and there is no CLI to mint org-authority tokens. Two small pieces: `murmur-daemon.mjs` wiring (default OFF) and `murmur-auth-token.mjs` (mint / verify), then provision tokens to the peers.
-- [ ] **`ackSecurity.requireSigned` rollout** — a rollout step, not a code step: unsigned ACKs are accepted until every peer runs 2.5.0+ and the flag is on. Blocked by the last 2.6.0 peer on the reference mesh.
+- [ ] **Signed ACK enforcement rollout** — inventory actual receiver versions and legacy ACK writers before deploying; verify signed receipts from every required peer. Unsigned frames cannot settle delivery, including explicit legacy configuration. Production rollout remains separate from this code fix.
 
 *Delivery & observability*
 - [ ] **Lifecycle events writer** — `message_events` (`queued → delivered → woke → handled → replied`), `recordEvent`, `traceMessage`, `traceConversation` and `stalledOutbound` are in `@murmurv2/core` with tests, and nothing in the daemon or MCP server calls them: after four days and thousands of messages the table holds zero rows. Since v2.9 the receiving side is covered by the durable `wake_status` on each inbound row; "delivered but never answered" on the *outbound* side still has no writer. Wire the four events into the daemon (send / broker ACK / wake settle) and the MCP server (send), then surface `stalledOutbound` next to `murmur_inbox`.
@@ -718,7 +734,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [ ] **Phase N tail** — N4 chat-session presence (#89), N5 subject scoping (#90).
 
 *Distribution*
-- [ ] **npm publish of 2.7.0 → 2.9.0** — the registry is three releases behind the repo (`@murmurv2/core` 0.5.0 published vs 0.6.3 in the tree; `mcp-server` 0.2.0 vs 0.2.2). Publishing is paused by an npm account-security hold on the maintainer's account, expected to lift around **2026-09-14**; until then run from the `v2.9.0` tag (see [Install](#install)).
+- [ ] **npm publication remains paused** — the registry lacks the current delivery fixes. Account recovery has no confirmed deadline; deprecation commands are prepared but not executed. Use the reviewed source snapshot in [Install](#install) until a verified release announcement.
 
 ### Needs a real external counterpart (mechanism done, gated on a partner)
 - [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**. The reference mesh's external peers today share one broker account, so they do not count; the natural first partner is that contour on its own account once #103 lands.

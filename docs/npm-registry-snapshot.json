@@ -1,0 +1,107 @@
+{
+  "observedAt": "2026-09-19T14:06:25.049517+00:00",
+  "registry": "https://registry.npmjs.org",
+  "executionStatus": "not-executed",
+  "packages": [
+    {
+      "name": "@murmurv2/broker-ws",
+      "latest": "0.2.0",
+      "versions": [
+        "0.1.0",
+        "0.2.0"
+      ]
+    },
+    {
+      "name": "@murmurv2/security",
+      "latest": "0.1.1",
+      "versions": [
+        "0.1.0",
+        "0.1.1"
+      ]
+    },
+    {
+      "name": "@murmurv2/bridge-murmur",
+      "latest": "0.1.1",
+      "versions": [
+        "0.1.0",
+        "0.1.1"
+      ]
+    },
+    {
+      "name": "@murmurv2/broker-nats",
+      "latest": "0.3.1",
+      "versions": [
+        "0.1.0",
+        "0.2.0",
+        "0.3.0",
+        "0.3.1"
+      ]
+    },
+    {
+      "name": "@murmurv2/bridge-openclaw",
+      "latest": "0.1.0",
+      "versions": [
+        "0.1.0"
+      ]
+    },
+    {
+      "name": "@murmurv2/federation",
+      "latest": "0.2.0",
+      "versions": [
+        "0.1.0",
+        "0.2.0"
+      ]
+    },
+    {
+      "name": "@murmurv2/core",
+      "latest": "0.5.0",
+      "versions": [
+        "0.1.0",
+        "0.2.0",
+        "0.3.0",
+        "0.3.1",
+        "0.4.0",
+        "0.5.0"
+      ]
+    },
+    {
+      "name": "@murmurv2/federation-nats",
+      "latest": "0.1.0",
+      "versions": [
+        "0.1.0"
+      ]
+    },
+    {
+      "name": "@murmurv2/observability",
+      "latest": "0.1.2",
+      "versions": [
+        "0.1.0",
+        "0.1.1",
+        "0.1.2"
+      ]
+    },
+    {
+      "name": "@murmurv2/bridge-telegram",
+      "latest": "0.1.0",
+      "versions": [
+        "0.1.0"
+      ]
+    },
+    {
+      "name": "@murmurv2/mcp-server",
+      "latest": "0.2.0",
+      "versions": [
+        "0.1.0",
+        "0.2.0"
+      ]
+    },
+    {
+      "name": "@murmurv2/bridge-a2a",
+      "latest": "0.2.0",
+      "versions": [
+        "0.1.0",
+        "0.2.0"
+      ]
+    }
+  ]
+}

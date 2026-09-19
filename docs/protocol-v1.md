@@ -35,15 +35,42 @@ Envelope message payloads are encrypted on the wire; presence frames are intenti
    only while the outbox row is in flight. Replays and mismatched bindings are rejected.
 8. Retry policy moves failed messages; terminal failures go to DLQ.
 
-### Signed ACK migration
+### Signed ACK enforcement and rollout (#157)
 
-The daemon emits `SignedAckV1` by default. During a rolling upgrade,
-`ackSecurity.requireSigned` (or `MURMUR_REQUIRE_SIGNED_ACKS=1`) remains disabled until every peer
-emits signed ACKs; old consumers ignore the additional signed fields. Once peers are upgraded,
-enable strict mode on every endpoint. Strict correlation rejects legacy ACKs, stale/future
+The daemon emits `SignedAckV1` by default. Unsigned or malformed ACK/NACK frames
+never change the outbox, including when a caller passes `requireSignedAcks: false`.
+The old `ackSecurity.requireSigned: false` / `MURMUR_REQUIRE_SIGNED_ACKS=0`
+configuration is deprecated: startup warns that the downgrade was ignored and
+reports both the requested setting and the effective `requireSigned: true`,
+`unsignedAction: "ignore"` policy. New configurations enable signatures explicitly.
+An operator can still explicitly disable signed **emission** for an old receiver,
+but startup warns that upgraded senders will ignore those receipts; it never
+weakens incoming verification. Invalid boolean settings fail startup.
+
+Before deploying this breaking enforcement change, inventory actual receiver
+versions and remove/upgrade old observer ACK writers. Verify a signed positive
+receipt after durable persistence and a signed NACK after a controlled storage
+failure on an isolated broker. Legacy-only receivers will leave sender messages
+pending/retrying instead of falsely acknowledged. No production restart or flag
+change is implicit in this code change. Do not bulk requeue previously acknowledged
+rows; reconcile each disputed delivery against the receiver's durable inbox first.
+
+Correlation rejects legacy ACKs, stale/future
 timestamps, wrong peers, wrong conversations or recipients, digest mismatches, invalid signatures,
 and repeated/non-in-flight transitions. Rejections increment reason-tagged counters and emit
 metadata-only security events; ACK bodies and message contents are never logged.
+
+The receiver's success ACK means its durable inbox transaction committed. A handler
+returning normally is therefore an assertion of persistence, not simply receipt
+of a network frame. MCP/session observers and proxy taps must use
+`emitDeliveryAcks: false` on every outcome, including lease skips and duplicates;
+giving such a tap a signing key cannot make it a persistence authority. Only the
+canonical receiver writes the inbox and then signs its receipt.
+
+An authenticated positive receipt remains terminal. A later NACK from a failed
+duplicate attempt does not undo the earlier committed copy; reopening it could
+repeat downstream effects. The signed binding and durable inbox evidence must
+be investigated if a receiver reports contradictory outcomes.
 
 Retryable `failed` rows remain eligible for verified ACK/NACK transitions, alongside
 `pending` and `sent`. A signed `poison-message:*` NACK settles them atomically as
@@ -131,3 +158,40 @@ Large payloads are sent as an ordered sequence of stream frames sharing a `strea
 - Murmur message -> EnvelopeV1
 - OpenClaw session event -> EnvelopeV1
 - Human channel events (Telegram etc.) -> EnvelopeV1
+
+### ACK verification diagnostics
+
+A signed frame whose sender key is unavailable is rejected with
+`signature-key-unavailable`. A missing verifier is separately reported as
+`signature-verifier-unavailable`. Neither means a cryptographic verification
+failed: `signature-invalid` is reserved for an attempted check that did not
+verify. Unsigned/malformed frames remain `unsigned-or-malformed`. Every rejection
+leaves the outbox and replay nonce unchanged; after the correct public key is
+installed, the same signed frame can be verified normally within its time window.
+Only the literal successful verification result `true` can settle a record.
+
+Observers and status consumers must distinguish signed-and-verified,
+signed-but-unverifiable, and unsigned. An explicitly invalid signature is a
+verification failure, not a missing-key condition. Invalid-ACK reason counters
+are diagnostics, not a count of delivered messages or authenticated identities.
+
+Both NATS and WebSocket use the core `AckVerificationResult` decoder. Its cases
+are exhaustive at compile time; unexpected JavaScript values fail closed as
+`signature-verifier-result-invalid`. WebSocket callers must supply `signAck` on
+the receiver and `verifyAck` on the sender for delivery settlement. An unsigned
+invalid-envelope NACK is diagnostic only and cannot fail a queue row.
+
+WebSocket correlation checks the same default ACK age (five minutes), future
+skew (30 seconds), and nonce replay rules. Supply a durable `ackReceipts` store
+for replay protection across restarts; the default memory cache covers only the
+current process. A failure publishing/signing an outcome after committed delivery
+does not convert that delivery into a NACK.
+
+Coverage correction: #159 originally removed unsigned settlement in NATS only.
+The remaining WebSocket path was found during #162 review; #157 was reopened
+until that transport was fixed and tested as well. Code merge is not runtime
+rollout, and compatibility flags cannot re-enable unsigned queue mutation.
+
+ACK subject binding is equivalent across transports: WebSocket explicitly checks
+`ack-subject-mismatch`, while NATS combines its filtered ACK subscription with
+`recipientAgentId` validation against the original envelope sender.

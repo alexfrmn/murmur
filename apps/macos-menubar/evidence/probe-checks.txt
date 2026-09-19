@@ -1,0 +1,32 @@
+PASS exact argv and executable with spaces
+PASS nonzero exit rejects JSON per shared contract
+PASS invalid JSON is rejected
+PASS unstructured failure is not success; stderr is not disclosed
+PASS bounded actionable stderr reason is retained
+PASS timeout terminates the CLI
+PASS oversized output is rejected
+PASS canonical status-baddate.json: grey, snapshot.unparsable, missing set
+PASS canonical status-faultlog-unread.json: grey, unmeasured, missing set
+PASS canonical status-future.json: grey, snapshot.future, missing set
+PASS canonical status-green.json: green, ok, missing set
+PASS canonical status-grey.json: grey, service.stopped, missing set
+PASS canonical status-no-peers.json: yellow, peers.none, missing set
+PASS canonical status-pairing-unknown.json: grey, unmeasured, missing set
+PASS canonical status-pause-not-applied.json: yellow, wake.mode-mismatch, missing set
+PASS canonical status-red.json: red, outbox.undelivered, missing set
+PASS canonical status-stale.json: grey, snapshot.stale, missing set
+PASS canonical status-unmeasured.json: grey, unmeasured, missing set
+PASS canonical status-yellow.json: yellow, broker.unauthorized, missing set
+PASS fail closed: missing timestamp
+PASS fail closed: missing wake
+PASS fail closed: unknown schema
+PASS fail closed: unknown service state
+PASS fail closed: missing required nullable key
+PASS fail closed: negative count
+PASS unknown measurement: outbox.queue.failed
+PASS unknown measurement: wake.config.enabled
+PASS unknown measurement: wake.effective.enabled
+PASS additive schema minor
+PASS known failure retains missing measurement
+PASS doctor inconsistent fixture is marked unknown
+31 checks passed; canonical 12, transport 7, boundary 12

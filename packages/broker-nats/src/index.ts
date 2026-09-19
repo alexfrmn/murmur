@@ -12,6 +12,8 @@ import {
 } from "nats";
 import {
   applyJitter,
+  ackVerificationFailure,
+  type AckVerificationResult,
   computeBackoffMs,
   createAck,
   createBoundAck,
@@ -79,7 +81,8 @@ export interface AckWindowConfig {
 }
 
 export type AckSigner = (ack: UnsignedAckV1) => Promise<SignedAckV1>;
-export type AckVerifier = (ack: SignedAckV1) => Promise<boolean>;
+export type { AckVerificationResult } from "@murmurv2/core";
+export type AckVerifier = (ack: SignedAckV1) => Promise<AckVerificationResult>;
 
 export interface InvalidAckEvent {
   reason: string;
@@ -651,6 +654,7 @@ export class NatsBroker {
     ackSubject: string;
     consumerId?: string;
     verifyAck?: AckVerifier;
+    /** @deprecated Signed acknowledgements are always required; false cannot downgrade verification. */
     requireSignedAcks?: boolean;
     maxAckAgeMs?: number;
     maxFutureSkewMs?: number;
@@ -725,6 +729,7 @@ export class NatsBroker {
       outbox: OutboxStore;
       ackReceipts?: AckReceiptStore;
       verifyAck?: AckVerifier;
+      /** @deprecated Signed acknowledgements are always required; false cannot downgrade verification. */
       requireSignedAcks?: boolean;
       maxAckAgeMs?: number;
       maxFutureSkewMs?: number;
@@ -736,22 +741,12 @@ export class NatsBroker {
 
       if (!isSignedAckV1(decoded)) {
         const legacy = decoded as Partial<AckV1>;
-        if (params.requireSignedAcks === true) {
-          this.invalidAck(params, "unsigned-or-malformed", {
-            msgId: typeof legacy?.msgId === "string" ? legacy.msgId : undefined,
-          });
-          return;
-        }
-        if (typeof legacy?.msgId !== "string" || legacy.msgId.length === 0) return;
-        if (legacy.status === "ack") {
-          await params.outbox.markAcked(legacy.msgId);
-        } else if (legacy.status === "nack") {
-          await params.outbox.markFailed(
-            legacy.msgId,
-            legacy.reason ?? "nack",
-            new Date().toISOString(),
-          );
-        }
+        // A legacy observer can receive a frame without persisting the message.
+        // Its unsigned ACK is never evidence of delivery, even if a caller kept
+        // the old requireSignedAcks=false option during an upgrade.
+        this.invalidAck(params, "unsigned-or-malformed", {
+          msgId: typeof legacy?.msgId === "string" ? legacy.msgId : undefined,
+        });
         return;
       }
 
@@ -791,8 +786,13 @@ export class NatsBroker {
         this.invalidAck(params, "timestamp-out-of-window", decoded);
         return;
       }
-      if (!params.verifyAck || !(await params.verifyAck(decoded))) {
-        this.invalidAck(params, "signature-invalid", decoded);
+      if (!params.verifyAck) {
+        this.invalidAck(params, "signature-verifier-unavailable", decoded);
+        return;
+      }
+      const verificationFailure = ackVerificationFailure(await params.verifyAck(decoded));
+      if (verificationFailure !== null) {
+        this.invalidAck(params, verificationFailure, decoded);
         return;
       }
       if (!(await this.claimAckNonce(params.ackReceipts, decoded.senderAgentId, decoded.nonce))) {

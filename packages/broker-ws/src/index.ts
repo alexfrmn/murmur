@@ -1,7 +1,12 @@
 import { createRequire } from "node:module";
 import {
   type AckReceiptStore,
+  InMemoryAckReceiptStore,
   applyJitter,
+  ackVerificationFailure,
+  type AckVerificationResult,
+  createBoundAck,
+  type UnsignedAckV1,
   computeBackoffMs,
   createAck,
   type AckV1,
@@ -18,7 +23,8 @@ import {
 } from "@murmurv2/core";
 
 /** Verifies a SignedAckV1 against the pinned signing key of its claimed sender. */
-export type WsAckVerifier = (ack: SignedAckV1) => Promise<boolean>;
+export type WsAckVerifier = (ack: SignedAckV1) => Promise<AckVerificationResult>;
+export type WsAckSigner = (ack: UnsignedAckV1) => Promise<SignedAckV1>;
 
 export interface WsInvalidAckEvent {
   reason: string;
@@ -173,6 +179,7 @@ interface MessageSubscription {
   dedupe: DedupeStore;
   onMessage: WebSocketMessageHandler;
   maxPoisonAttempts?: number;
+  signAck?: WsAckSigner;
   active: boolean;
   queue: Promise<void>;
 }
@@ -183,6 +190,8 @@ interface AckSubscription {
   active: boolean;
   verifyAck?: WsAckVerifier;
   requireSignedAcks?: boolean;
+  maxAckAgeMs?: number;
+  maxFutureSkewMs?: number;
   ackReceipts?: AckReceiptStore;
   onInvalidAck?: (event: WsInvalidAckEvent) => void;
 }
@@ -193,6 +202,7 @@ export class WebSocketBroker {
   private readonly messageSubscriptions = new Set<MessageSubscription>();
   private readonly ackSubscriptions = new Set<AckSubscription>();
   private readonly failedDeliveries = new Map<string, number>();
+  private readonly ackReceipts = new InMemoryAckReceiptStore();
 
   constructor(private readonly config: WebSocketBrokerConfig) {}
 
@@ -238,7 +248,7 @@ export class WebSocketBroker {
     await this.send({ type: "message", subject, envelope });
   }
 
-  async publishAck(subject: string, ack: AckV1): Promise<void> {
+  async publishAck(subject: string, ack: AckV1 | SignedAckV1): Promise<void> {
     await this.send({ type: "ack", subject, ack });
   }
 
@@ -248,6 +258,8 @@ export class WebSocketBroker {
     dedupe: DedupeStore;
     onMessage: WebSocketMessageHandler;
     maxPoisonAttempts?: number;
+    /** Sign delivery outcomes with the receiving agent key; unsigned outcomes cannot settle an outbox. */
+    signAck?: WsAckSigner;
   }): Promise<WebSocketBrokerSubscription> {
     await this.connect();
     const sub: MessageSubscription = { ...params, active: true, queue: Promise.resolve() };
@@ -266,8 +278,10 @@ export class WebSocketBroker {
     ackSubject: string;
     /** Required to accept signed ACKs. Without it every signed frame is rejected. */
     verifyAck?: WsAckVerifier;
-    /** When true, unsigned legacy frames are rejected outright (two-stage rollout). */
+    /** @deprecated Signed acknowledgements are always required; false cannot downgrade verification. */
     requireSignedAcks?: boolean;
+    maxAckAgeMs?: number;
+    maxFutureSkewMs?: number;
     /** Durable replay protection; see AckReceiptStore in @murmurv2/core. */
     ackReceipts?: AckReceiptStore;
     onInvalidAck?: (event: WsInvalidAckEvent) => void;
@@ -279,6 +293,8 @@ export class WebSocketBroker {
       active: true,
       verifyAck: params.verifyAck,
       requireSignedAcks: params.requireSignedAcks,
+      maxAckAgeMs: params.maxAckAgeMs,
+      maxFutureSkewMs: params.maxFutureSkewMs,
       ackReceipts: params.ackReceipts,
       onInvalidAck: params.onInvalidAck,
     };
@@ -336,9 +352,16 @@ export class WebSocketBroker {
 
     const envelope = raw as EnvelopeV1;
     const ackSubject = `ack.${envelope.senderAgentId}`;
+    const deliveryAck = async (status: "ack" | "nack", reason?: string): Promise<AckV1 | SignedAckV1> =>
+      params.signAck ? params.signAck(createBoundAck(envelope, params.consumerId, status, reason))
+        : createAck(envelope.msgId, params.consumerId, status, reason);
+    const publishOutcome = async (status: "ack" | "nack", reason?: string): Promise<void> => {
+      try { await this.publishAck(ackSubject, await deliveryAck(status, reason)); }
+      catch { console.warn("[WebSocketBroker.publishAck] failed, delivery outcome kept", { msgId: envelope.msgId, status }); }
+    };
     const isDup = await params.dedupe.seen(envelope.msgId, params.consumerId);
     if (isDup) {
-      await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "ack", "duplicate-ignored"));
+      await publishOutcome("ack", "duplicate-ignored");
       return;
     }
 
@@ -348,14 +371,14 @@ export class WebSocketBroker {
         senderAgentId: envelope.senderAgentId,
       });
       this.failedDeliveries.delete(`${params.consumerId}:${envelope.msgId}`);
-      await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "ack"));
+      await publishOutcome("ack");
     } catch (err) {
       const reason = err instanceof Error ? err.message : "handler-failed";
       const maxPoisonAttempts = params.maxPoisonAttempts ?? 3;
       const key = `${params.consumerId}:${envelope.msgId}`;
       // Симметрично NATS-брокеру: «нет пира» — состояние настройки, а не отравленное письмо.
       if (isRecoverableRejection(reason)) {
-        await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", reason));
+        await publishOutcome("nack", reason);
         return;
       }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
@@ -367,10 +390,10 @@ export class WebSocketBroker {
           poisonReason: reason,
         });
         this.failedDeliveries.delete(key);
-        await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", `poison-message:${reason}`));
+        await publishOutcome("nack", `poison-message:${reason}`);
         return;
       }
-      await this.publishAck(ackSubject, createAck(envelope.msgId, params.consumerId, "nack", reason));
+      await publishOutcome("nack", reason);
     }
   }
 
@@ -380,8 +403,7 @@ export class WebSocketBroker {
    * This path previously trusted the frame outright and called markAcked/markFailed from
    * whatever JSON arrived, so anyone able to reach the relay could settle another peer's
    * pending row. A SignedAckV1 is now verified, bound to the outbox record and claimed
-   * once; unsigned frames survive only while `requireSignedAcks` is off, mirroring the
-   * two-stage rollout of the NATS broker.
+   * once. Unsigned frames never settle an outbox, matching the NATS transport.
    */
   private async processAckFrame(
     ack: AckV1 | SignedAckV1,
@@ -398,16 +420,7 @@ export class WebSocketBroker {
     }
 
     if (!isSignedAckV1(ack)) {
-      if (sub.requireSignedAcks) {
-        reject("unsigned-ack-rejected", undefined, ack.msgId);
-        return;
-      }
-      const legacy = ack as AckV1;
-      if (legacy.status === "ack") {
-        await sub.outbox.markAcked(legacy.msgId);
-      } else if (legacy.status === "nack") {
-        await sub.outbox.markFailed(legacy.msgId, legacy.reason ?? "nack", new Date().toISOString());
-      }
+      reject("unsigned-or-malformed", undefined, ack.msgId);
       return;
     }
 
@@ -416,7 +429,7 @@ export class WebSocketBroker {
       reject("unknown-message", ack.senderAgentId, ack.msgId);
       return;
     }
-    if (record.status !== "sent" && record.status !== "pending") {
+    if (record.status !== "sent" && record.status !== "pending" && record.status !== "failed") {
       reject("message-not-in-flight", ack.senderAgentId, ack.msgId);
       return;
     }
@@ -442,11 +455,21 @@ export class WebSocketBroker {
       reject("ack-subject-mismatch", ack.senderAgentId, ack.msgId);
       return;
     }
-    if (!sub.verifyAck || !(await sub.verifyAck(ack))) {
-      reject("signature-invalid", ack.senderAgentId, ack.msgId);
+    const atMs = Date.parse(ack.at), now = Date.now();
+    if (atMs < now - (sub.maxAckAgeMs ?? 5 * 60_000) || atMs > now + (sub.maxFutureSkewMs ?? 30_000)) {
+      reject("timestamp-out-of-window", ack.senderAgentId, ack.msgId);
       return;
     }
-    if (sub.ackReceipts && !(await sub.ackReceipts.claimAckNonce(ack.senderAgentId, ack.nonce))) {
+    if (!sub.verifyAck) {
+      reject("signature-verifier-unavailable", ack.senderAgentId, ack.msgId);
+      return;
+    }
+    const verificationFailure = ackVerificationFailure(await sub.verifyAck(ack));
+    if (verificationFailure !== null) {
+      reject(verificationFailure, ack.senderAgentId, ack.msgId);
+      return;
+    }
+    if (!(await (sub.ackReceipts ?? this.ackReceipts).claimAckNonce(ack.senderAgentId, ack.nonce))) {
       reject("nonce-replay", ack.senderAgentId, ack.msgId);
       return;
     }

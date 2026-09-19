@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { StringCodec } from "nats";
 import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
-import { createAck } from "../packages/core/dist/src/index.js";
+import { createBoundAck, stableAckPayload } from "../packages/core/dist/src/index.js";
+import { createSigningKeyPair, signEnvelope, verifyEnvelopeSignature } from "../packages/security/dist/src/index.js";
 
 const sc = StringCodec();
 
@@ -311,17 +312,18 @@ test("JetStream poison-message terminal failure is acked", async () => {
 });
 
 test("JetStream ACK correlation consumes durable ack subject and updates outbox", async () => {
-  const ack = createAck(envelope.msgId, "agent-receiver", "ack");
+  const keys = await createSigningKeyPair();
+  const bound = createBoundAck(envelope, "agent-receiver", "ack");
+  const ack = { ...bound, signature: await signEnvelope(stableAckPayload(bound), keys.privateKey) };
   const { broker, consumersAdded, acked } = makeJetStreamBroker({
     messages: [sc.encode(JSON.stringify(ack))],
   });
   const marked = [];
   const outbox = {
-    async markAcked(msgId) {
-      marked.push(["acked", msgId]);
-    },
-    async markFailed(msgId, reason) {
-      marked.push(["failed", msgId, reason]);
+    async getOutboxRecord() { return { status: "sent", envelope }; },
+    async applyAckTransition(msgId, status) {
+      marked.push([status, msgId]);
+      return "applied";
     },
   };
 
@@ -329,13 +331,14 @@ test("JetStream ACK correlation consumes durable ack subject and updates outbox"
     outbox,
     ackSubject: "ack.agent-sender",
     consumerId: "agent-sender-ack",
+    verifyAck: (candidate) => verifyEnvelopeSignature(stableAckPayload(candidate), candidate.signature, keys.publicKey),
   });
 
   await new Promise((resolve) => setTimeout(resolve, 20));
 
   assert.equal(consumersAdded[0].config.durable_name, "agent-sender-ack");
   assert.equal(consumersAdded[0].config.filter_subject, "ack.agent-sender");
-  assert.deepEqual(marked, [["acked", envelope.msgId]]);
+  assert.deepEqual(marked, [["ack", envelope.msgId]]);
   assert.equal(acked.length, 1);
 });
 

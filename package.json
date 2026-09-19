@@ -28,7 +28,10 @@
     "test:broker-ws": "npm --workspace @murmurv2/broker-ws test",
     "test:federation": "npm --workspace @murmurv2/federation test",
     "test:federation-nats": "npm --workspace @murmurv2/federation-nats test",
-    "test": "npm run build && npm run test:unit && npm run test:core && npm run test:notify-smoke && npm run test:ws4-acp && npm run test:ws5-boundary && npm run test:coldstart && npm run test:a2a && npm run test:broker-ws && npm run test:federation && npm run test:federation-nats"
+    "test": "npm run build && npm run test:unit && npm run test:core && npm run test:notify-smoke && npm run test:ws4-acp && npm run test:ws5-boundary && npm run test:coldstart && npm run test:a2a && npm run test:broker-ws && npm run test:federation && npm run test:federation-nats",
+    "check:runtime": "node scripts/check-runtime.mjs",
+    "preinstall": "node scripts/check-runtime.mjs",
+    "prebuild": "node scripts/check-runtime.mjs"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -68,5 +71,8 @@
     "nats",
     "e2e-encryption",
     "federation"
-  ]
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  }
 }
