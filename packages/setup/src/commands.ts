@@ -1,10 +1,37 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rmdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, realpath, rmdir, stat } from 'node:fs/promises';
 import { loadConfig, readJson } from './config.js';
 import { readStatus } from './status.js';
 import { writeState } from './state.js';
 import type { PlatformAdapter, ServiceContext } from './types.js';
+
+/** Observe the configured directory only; this does not prove a live daemon's log destination. */
+export async function readLogPath(context: ServiceContext) {
+  const config = await loadConfig(context);
+  try {
+    const dataDir = await realpath(context.dataDir);
+    const logDir = await realpath(context.logDir);
+    const relative = path.relative(dataDir, logDir);
+    // Resolve aliases before containment checks; never open an unrelated directory as this profile's logs.
+    if (!relative || path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)) {
+      throw new Error('logs.path-outside-profile');
+    }
+    if (!(await stat(logDir)).isDirectory()) throw new Error('logs.not-directory');
+    await access(logDir, constants.R_OK | constants.X_OK);
+    return { schema: 'murmur.logs/1', agentId: config.agentId, dataDir,
+      serviceName: context.serviceName, logDir, source: 'configured' };
+  } catch (error) {
+    if (error instanceof Error && ['logs.path-outside-profile', 'logs.not-directory'].includes(error.message)) throw error;
+    switch ((error as NodeJS.ErrnoException).code) {
+      case 'ENOENT': throw new Error('logs.directory-missing');
+      case 'ENOTDIR': throw new Error('logs.not-directory');
+      case 'EACCES': case 'EPERM': throw new Error('logs.directory-unreadable');
+      default: throw new Error('logs.path-unavailable');
+    }
+  }
+}
 
 /** Explicit local configuration mutation, serialized against other setup writers. */
 export async function setWakeEnabled(context: ServiceContext, adapter: PlatformAdapter, enabled: boolean, apply = false) {
