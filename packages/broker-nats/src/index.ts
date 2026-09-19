@@ -12,6 +12,8 @@ import {
 } from "nats";
 import {
   applyJitter,
+  ackVerificationFailure,
+  type AckVerificationResult,
   computeBackoffMs,
   createAck,
   createBoundAck,
@@ -79,8 +81,7 @@ export interface AckWindowConfig {
 }
 
 export type AckSigner = (ack: UnsignedAckV1) => Promise<SignedAckV1>;
-/** A missing peer key is not evidence of an invalid cryptographic signature. */
-export type AckVerificationResult = boolean | "key-unavailable";
+export type { AckVerificationResult } from "@murmurv2/core";
 export type AckVerifier = (ack: SignedAckV1) => Promise<AckVerificationResult>;
 
 export interface InvalidAckEvent {
@@ -789,13 +790,9 @@ export class NatsBroker {
         this.invalidAck(params, "signature-verifier-unavailable", decoded);
         return;
       }
-      const verified = await params.verifyAck(decoded);
-      if (verified === "key-unavailable") {
-        this.invalidAck(params, "signature-key-unavailable", decoded);
-        return;
-      }
-      if (verified !== true) {
-        this.invalidAck(params, "signature-invalid", decoded);
+      const verificationFailure = ackVerificationFailure(await params.verifyAck(decoded));
+      if (verificationFailure !== null) {
+        this.invalidAck(params, verificationFailure, decoded);
         return;
       }
       if (!(await this.claimAckNonce(params.ackReceipts, decoded.senderAgentId, decoded.nonce))) {

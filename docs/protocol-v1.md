@@ -174,3 +174,20 @@ Observers and status consumers must distinguish signed-and-verified,
 signed-but-unverifiable, and unsigned. An explicitly invalid signature is a
 verification failure, not a missing-key condition. Invalid-ACK reason counters
 are diagnostics, not a count of delivered messages or authenticated identities.
+
+Both NATS and WebSocket use the core `AckVerificationResult` decoder. Its cases
+are exhaustive at compile time; unexpected JavaScript values fail closed as
+`signature-verifier-result-invalid`. WebSocket callers must supply `signAck` on
+the receiver and `verifyAck` on the sender for delivery settlement. An unsigned
+invalid-envelope NACK is diagnostic only and cannot fail a queue row.
+
+WebSocket correlation checks the same default ACK age (five minutes), future
+skew (30 seconds), and nonce replay rules. Supply a durable `ackReceipts` store
+for replay protection across restarts; the default memory cache covers only the
+current process. A failure publishing/signing an outcome after committed delivery
+does not convert that delivery into a NACK.
+
+Coverage correction: #159 originally removed unsigned settlement in NATS only.
+The remaining WebSocket path was found during #162 review; #157 was reopened
+until that transport was fixed and tested as well. Code merge is not runtime
+rollout, and compatibility flags cannot re-enable unsigned queue mutation.
