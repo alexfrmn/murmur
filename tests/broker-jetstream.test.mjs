@@ -254,6 +254,21 @@ test("JetStream existing durable consumer is repaired when delivery limits drift
   }]);
 });
 
+test("restricted runtime uses pre-provisioned consumers without management writes", async () => {
+  const valid = { config: { filter_subject: "msg.agent-receiver", max_deliver: 5, ack_wait: 30_000_000_000 } };
+  const runtime = makeJetStreamBroker({ streamInfoThrows: false, consumerInfo: valid, brokerConfig: { jetstreamProvisioning: "client" } });
+  await runtime.broker.subscribeWithAck({ subject: "msg.agent-receiver", consumerId: "agent-receiver", dedupe: { seen: async () => false, markSeen: async () => {} }, onMessage: async () => {} });
+  assert.deepEqual(runtime.streamsAdded, []);
+  assert.deepEqual(runtime.consumersAdded, []);
+  assert.deepEqual(runtime.consumersUpdated, []);
+  for (const consumerInfo of [undefined, { config: { ...valid.config, max_deliver: 99 } }]) {
+    const invalid = makeJetStreamBroker({ streamInfoThrows: false, consumerInfo, brokerConfig: { jetstreamProvisioning: "client" } });
+    await assert.rejects(invalid.broker.subscribeWithAck({ subject: "msg.agent-receiver", consumerId: "agent-receiver", dedupe: {}, onMessage: async () => {} }), /consumer-missing|policy-mismatch/);
+    assert.deepEqual(invalid.consumersAdded, []);
+    assert.deepEqual(invalid.consumersUpdated, []);
+  }
+});
+
 test("JetStream retryable handler failures are nacked for redelivery", async () => {
   const { broker, published, acked, nacked } = makeJetStreamBroker({
     messages: [sc.encode(JSON.stringify(envelope))],

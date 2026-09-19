@@ -28,35 +28,7 @@ trap cleanup EXIT
   -out "$TEST_DIR/server.crt" >/dev/null 2>&1
 chmod 600 "$TEST_DIR/server.key"
 
-cat >"$TEST_DIR/nats.conf" <<EOF
-host: "127.0.0.1"
-port: ${SECURE_NATS_PORT}
-tls {
-  cert_file: "${TEST_DIR}/server.crt"
-  key_file: "${TEST_DIR}/server.key"
-  timeout: 2
-}
-authorization {
-  users: [
-    {
-      user: "agent-a"
-      password: "test-password-a"
-      permissions: {
-        publish: ["msg.agent-b", "ack.agent-b"]
-        subscribe: ["msg.agent-a", "ack.agent-a"]
-      }
-    },
-    {
-      user: "agent-b"
-      password: "test-password-b"
-      permissions: {
-        publish: ["msg.agent-a", "ack.agent-a"]
-        subscribe: ["msg.agent-b", "ack.agent-b"]
-      }
-    }
-  ]
-}
-EOF
+node packages/broker-nats/integration/write-secure-config.mjs "$TEST_DIR" "$SECURE_NATS_PORT"
 
 "$NATS_SERVER_BIN" -t -c "$TEST_DIR/nats.conf"
 "$NATS_SERVER_BIN" -c "$TEST_DIR/nats.conf" >"$TEST_DIR/nats.log" 2>&1 &
@@ -84,4 +56,5 @@ fi
 
 SECURE_NATS_PORT="$SECURE_NATS_PORT" \
 SECURE_NATS_CA_FILE="$TEST_DIR/server.crt" \
+SECURE_NATS_STATE_DIR="$TEST_DIR" \
   node packages/broker-nats/integration/secure-transport.live.mjs

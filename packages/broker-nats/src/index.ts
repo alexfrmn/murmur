@@ -38,6 +38,8 @@ import {
 
 export interface BrokerConfig extends SecureNatsClientConfig {
   jetstream?: boolean;
+  /** Restricted runtime role: stream and consumers must be provisioned by an operator. */
+  jetstreamProvisioning?: "managed" | "client";
   stream?: string;
   streamSubjects?: string[];
   jetstreamMaxDeliver?: number;
@@ -212,6 +214,12 @@ export class NatsBroker {
     this.jsm = await this.nc.jetstreamManager();
     const stream = this.streamName();
     const subjects = this.streamSubjects();
+
+    if (this.config.jetstreamProvisioning === "client") {
+      await this.jsm.streams.info(stream);
+      this.js = this.nc.jetstream();
+      return;
+    }
 
     try {
       const info = await this.jsm.streams.info(stream);
@@ -436,6 +444,7 @@ export class NatsBroker {
     try {
       info = await this.jsm.consumers.info(stream, durableName);
     } catch (err) {
+      if (this.config.jetstreamProvisioning === "client") throw err;
       if (err instanceof Error && err.message.startsWith("jetstream-consumer-filter-mismatch:")) {
         throw err;
       }
@@ -448,6 +457,7 @@ export class NatsBroker {
       throw new Error(`jetstream-consumer-filter-mismatch:${durableName}:${filterSubject}:${subject}`);
     }
     if (info.config.max_deliver !== config.max_deliver || info.config.ack_wait !== config.ack_wait) {
+      if (this.config.jetstreamProvisioning === "client") throw new Error(`jetstream-consumer-policy-mismatch:${durableName}`);
       await this.jsm.consumers.update(stream, durableName, {
         max_deliver: config.max_deliver,
         ack_wait: config.ack_wait,

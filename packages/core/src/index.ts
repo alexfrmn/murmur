@@ -14,6 +14,7 @@ export * from "./channel.js";
 
 // NATS endpoint/auth policy shared by every production NATS client.
 export * from "./nats-security.js";
+export * from "./nats-acl.js";
 
 export type DeliveryMode = "at-least-once";
 

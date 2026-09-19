@@ -22,8 +22,12 @@ export interface SecureNatsConnectionOptions {
   token?: string;
   user?: string;
   pass?: string;
+  inboxPrefix?: string;
   tls?: Omit<NatsTlsOptions, "serverName"> & { servername?: string };
 }
+
+/** Distinct reply-inbox namespace lets ACLs prevent cross-user response snooping. */
+export const natsUserInboxPrefix = (user: string): string => `_INBOX.${Buffer.from(user, "utf8").toString("base64url")}`;
 
 const isLoopbackHost = (host: string): boolean => {
   const normalized = host.toLowerCase().replace(/^\[|\]$/g, "");
@@ -78,19 +82,36 @@ export const buildSecureNatsConnectionOptions = (
   }
 
   const serverName = config.tls?.serverName?.trim();
-  if (endpoint.protocol === "tls:" && isIP(endpoint.hostname) !== 0 && !serverName) {
+  if (endpoint.protocol === "tls:" && isIP(endpoint.hostname.replace(/^\[|\]$/g, "")) !== 0 && !serverName) {
     throw new Error("nats-tls-server-name-required-for-ip");
   }
   if (serverName && (isIP(serverName) !== 0 || !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(serverName))) {
     throw new Error("nats-tls-server-name-invalid");
   }
 
-  const { serverName: _configuredServerName, ...tlsOptions } = config.tls ?? {};
+  const tlsOptions: Omit<NatsTlsOptions, "serverName"> = {};
+  if (config.tls) {
+    for (const key of Object.keys(config.tls)) {
+      if (!["serverName", "handshakeFirst", "caFile", "certFile", "keyFile"].includes(key)) throw new Error("nats-tls-option-unsupported");
+    }
+    for (const key of ["caFile", "certFile", "keyFile"] as const) {
+      const value = config.tls[key];
+      if (value !== undefined) {
+        if (typeof value !== "string" || !value.trim()) throw new Error("nats-tls-file-invalid");
+        tlsOptions[key] = value;
+      }
+    }
+    if (Boolean(tlsOptions.certFile) !== Boolean(tlsOptions.keyFile)) throw new Error("nats-tls-cert-key-pair-required");
+    if (config.tls.handshakeFirst !== undefined) {
+      if (typeof config.tls.handshakeFirst !== "boolean") throw new Error("nats-tls-handshake-first-invalid");
+      tlsOptions.handshakeFirst = config.tls.handshakeFirst;
+    }
+  }
 
   return {
     servers: config.url,
     ...(token ? { token } : {}),
-    ...(user && password ? { user, pass: password } : {}),
+    ...(user && password ? { user, pass: password, inboxPrefix: natsUserInboxPrefix(user) } : {}),
     ...(endpoint.protocol === "tls:"
       ? { tls: { ...tlsOptions, ...(serverName ? { servername: serverName } : {}) } }
       : {}),

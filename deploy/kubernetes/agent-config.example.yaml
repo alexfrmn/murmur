@@ -12,6 +12,7 @@ stringData:
       "natsPassword": "CHANGE_ME_DISTINCT_CLIENT_PASSWORD",
       "natsTls": { "caFile": "/etc/murmur/nats/ca.crt" },
       "subject": "msg.agent-k8s-demo",
+      "jetstream": { "enabled": true, "stream": "MURMUR", "provisioning": "client", "advisoryDlq": false },
       "streaming": {
         "ackTimeoutMs": 15000,
         "ackWindow": {

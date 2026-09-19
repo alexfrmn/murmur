@@ -18,6 +18,7 @@ test("requires TLS and preserves CA/client certificate files for remote NATS", (
       servers: "tls://broker.example:4222",
       user: "peer-a",
       pass: "secret-a",
+      inboxPrefix: "_INBOX.cGVlci1h",
       tls: {
         caFile: "/run/secrets/nats-ca.pem",
         certFile: "/run/secrets/nats-client.pem",
@@ -56,6 +57,14 @@ test("literal IP TLS endpoints require an explicit DNS certificate identity", ()
     }),
     /nats-tls-server-name-invalid/,
   );
+});
+
+test("IPv6 endpoints cannot omit certificate DNS identity or disable TLS verification", () => {
+  assert.throws(() => buildSecureNatsConnectionOptions({ url: "tls://[::1]:4222" }), /server-name-required/);
+  for (const tls of [{ rejectUnauthorized: false }, { servername: "attacker" }, { checkServerIdentity: () => undefined }]) {
+    assert.throws(() => buildSecureNatsConnectionOptions({ url: "tls://broker.example:4222", tls }), /option-unsupported/);
+  }
+  assert.throws(() => buildSecureNatsConnectionOptions({ url: "tls://broker.example:4222", tls: { certFile: "/client.pem" } }), /cert-key-pair/);
 });
 
 test("allows plaintext only on loopback", () => {

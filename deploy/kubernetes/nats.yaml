@@ -37,8 +37,19 @@ data:
           user: $NATS_USER
           password: $NATS_PASSWORD_BCRYPT
           permissions: {
-            publish: ["msg.agent-peer", "ack.agent-peer"]
-            subscribe: ["msg.agent-k8s-demo", "ack.agent-k8s-demo"]
+            # Restricted runtime role; provision MURMUR + its consumers separately.
+            # Keep this user fixed or regenerate its encoded inbox prefix below.
+            publish: [
+              "msg.agent-peer", "msg.agent-peer.>", "ack.agent-peer",
+              "$JS.API.INFO", "$JS.API.STREAM.INFO.MURMUR",
+              "$JS.API.CONSUMER.INFO.MURMUR.agent-k8s-demo",
+              "$JS.API.CONSUMER.MSG.NEXT.MURMUR.agent-k8s-demo",
+              "$JS.ACK.MURMUR.agent-k8s-demo.>",
+              "$JS.API.CONSUMER.INFO.MURMUR.agent-k8s-demo-ack",
+              "$JS.API.CONSUMER.MSG.NEXT.MURMUR.agent-k8s-demo-ack",
+              "$JS.ACK.MURMUR.agent-k8s-demo-ack.>"
+            ]
+            subscribe: ["msg.agent-k8s-demo", "msg.agent-k8s-demo.>", "ack.agent-k8s-demo", "_INBOX.YWdlbnQtazhzLWRlbW8.>"]
           }
         }
       ]

@@ -159,6 +159,7 @@ const broker = new NatsBroker({
   password: natsPassword,
   tls: natsTls,
   jetstream: jetstreamEnabled,
+  jetstreamProvisioning: jetstreamConfig.provisioning,
   stream: jetstreamEnabled ? jetstreamStream : undefined,
   streamSubjects: jetstreamSubjects,
   jetstreamMaxDeliver,
@@ -477,6 +478,7 @@ try {
     broker,
     outbox: store,
     jetstreamEnabled,
+    advisoryDlqEnabled: jetstreamConfig.advisoryDlq !== false,
     log,
   });
 
