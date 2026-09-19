@@ -120,11 +120,25 @@ def test_send_service_validation() -> None:
         assert_eq(got, expected, f"sender {label}")
 
 
+def test_sender_explicit_profile() -> None:
+    assert_eq(sender.resolve_data_dir({"DATA_DIR": "/tmp/murmur-a"}), str(Path("/tmp/murmur-a").resolve()), "canonical")
+    assert_eq(sender.resolve_data_dir({"MURMUR_DATA_DIR": "/tmp/murmur-b"}), str(Path("/tmp/murmur-b").resolve()), "legacy")
+    assert_eq(sender.resolve_data_dir({"DATA_DIR": "/tmp/murmur-a", "MURMUR_DATA_DIR": "/tmp/murmur-a/"}), str(Path("/tmp/murmur-a").resolve()), "same profile")
+    for env in [{}, {"DATA_DIR": ""}, {"DATA_DIR": "relative"}, {"DATA_DIR": "/tmp/a", "MURMUR_DATA_DIR": "/tmp/b"}]:
+        try:
+            sender.resolve_data_dir(env)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid sender profile accepted")
+
+
 def main() -> int:
     test_producer_filter()
     test_task_packet_contract()
     test_marker_removed_when_acp_create_fails()
     test_send_service_validation()
+    test_sender_explicit_profile()
     print("WS4 ACP boundary tests passed")
     return 0
 
