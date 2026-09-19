@@ -4,6 +4,50 @@ Murmur wakes agents on new messages using each CLI's **native** mechanism: no
 `tmux send-keys`, no OpenClaw bridge, no polling daemon. Human notification stays
 on the Telegram bot (`notify_queue`).
 
+## Optional Codex wake batching (#124)
+
+The daemon uses `turn/start`, never `turn/steer`. By default every message keeps its
+own turn in the existing serial lane. Opt in for an individual native peer:
+
+```json
+{
+  "wake": {
+    "peers": {
+      "agent-example": {
+        "mode": "codex_app_server",
+        "steer_batch_window_ms": 250,
+        "steer_max_per_turn": 10
+      }
+    }
+  }
+}
+```
+
+The option names come from the original issue's steer terminology. The window is
+a quiet period (0–60000 ms); the limit is 1–100 messages (20 if only the window is
+configured). While a turn runs, later messages stay queued. At the turn boundary,
+up to the limit are sent in one subsequent turn; excess messages remain FIFO for
+later turns and the dispatch log includes the remaining count. Quiet windows do
+not block other lanes. Only the same peer, conversation, channel, sender member
+and addressee can share a batch, even when a peer pins one thread for all channels.
+
+Batching requires the durable message store. Every message passes the existing
+receive eligibility, audit and ownership gates before its text can enter the batch.
+The loop breaker counts actual wake effects, so one batch counts once. Rows remain
+pending during the quiet window; a crash there loses no messages. Before dispatch,
+membership is persisted in the same SQLite database under a deterministic batch ID.
+Retries and daemon restarts keep that ID (including the relay's deduplication key),
+and new arrivals cannot join an already attempted batch. Individual outcomes are
+committed in one transaction, so a restart cannot observe half of a batch handled.
+If a member of a saved batch no longer passes its gates, the remaining members are
+muted with `batch-member-ineligible`; its content is never replayed using another
+member's permission. The batch and original message IDs appear in dispatch logs.
+
+Rollout: upgrade and test with batching omitted, enable it for one peer, verify
+normal/overflow/failure behavior, then expand. Rollback: drain pending batches,
+remove both peer options, and retain the additive `wake_batch_id` column. Existing
+saved batches retain their grouping while the upgraded daemon drains them.
+
 ## Claude Code - `asyncRewake` Hook
 
 `scripts/wake-drain-claude.sh` reads new inbound messages from the daemon's

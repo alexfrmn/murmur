@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 
 const ensureObject = (value) => (value && typeof value === "object" ? value : {});
 const DEFAULT_WAKE_MAX_ATTEMPTS = 5;
@@ -37,6 +38,11 @@ export const normalizeWakeConfig = (config = {}) => {
         normalized.baseInstructions = value.baseInstructions;
       }
       if (Number.isFinite(Number(value.replyTimeoutMs))) normalized.replyTimeoutMs = Number(value.replyTimeoutMs);
+      for (const [key, min, max] of [["steer_batch_window_ms", 0, 60000], ["steer_max_per_turn", 1, 100]]) {
+        if (value[key] === undefined) continue;
+        if (!Number.isInteger(value[key]) || value[key] < min || value[key] > max) throw new Error(`wake-batch-invalid:${key}`);
+        normalized[key] = value[key];
+      }
       return [agentId, normalized];
     }),
   );
@@ -152,6 +158,10 @@ export class WakeMonitor {
     // wake is retried under the same delivery id, and a restart resumes from where the
     // rows say it stopped. Without it the monitor behaves exactly as before.
     this.deliveries = options.deliveries || null;
+    if (Object.entries(this.peers).some(([from]) => this.batchOptions({ from })) &&
+        (!this.deliveries?.assignWakeBatch || !this.deliveries?.settleWakeBatch || !this.deliveries?.getWakeBatch)) {
+      throw new Error("wake-batching-requires-durable-store");
+    }
     this.maxAttempts = Number.isFinite(Number(options.maxAttempts)) ? Number(options.maxAttempts) : wakeConfig.retry.maxAttempts;
     this.retryBackoffMs = Number.isFinite(Number(options.retryBackoffMs)) ? Number(options.retryBackoffMs) : wakeConfig.retry.backoffMs;
     this.retryBackoffMaxMs = Number.isFinite(Number(options.retryBackoffMaxMs)) ? Number(options.retryBackoffMaxMs) : wakeConfig.retry.backoffMaxMs;
@@ -167,6 +177,7 @@ export class WakeMonitor {
     this.suspendedSenders = new Map();
     this.queue = [];
     this.queuedKeys = new Set();
+    this.enqueuedAt = new Map();
     this.processing = false;
     this.cursor = Number.isFinite(Number(options.initialCursor)) ? Number(options.initialCursor) : 0;
   }
@@ -182,6 +193,7 @@ export class WakeMonitor {
     const key = this.keyFor(payload);
     if (this.queuedKeys.has(key)) return;
     this.queuedKeys.add(key);
+    this.enqueuedAt.set(key, Date.now());
     this.queue.push(payload);
     this.kickDispatcher();
   }
@@ -212,7 +224,11 @@ export class WakeMonitor {
           const [payload] = this.queue.splice(index, 1);
           this.queuedKeys.delete(this.keyFor(payload));
           const lane = this.laneKeyFor(payload);
-          const run = this.processPayload(payload)
+          const previousBatch = await this.deliveries?.getWakeBatch?.(payload.msgId);
+          if (!previousBatch && !this.batchOptions(payload)) this.enqueuedAt.delete(payload.msgId);
+          const run = (previousBatch || this.batchOptions(payload)
+            ? this.processLaneBatch(payload, previousBatch)
+            : this.processPayload(payload))
             .catch((err) => {
               const e = err instanceof Error ? err : new Error(String(err));
               this.log("error", "WakeMonitor lane crashed", { error: e.message, msgId: payload.msgId, lane });
@@ -264,7 +280,7 @@ export class WakeMonitor {
     }
   }
 
-  async processPayload(payload) {
+  async processPayload(payload, { prepareOnly = false } = {}) {
     const durable = Boolean(this.deliveries);
     let claim = null;
     if (durable) {
@@ -314,7 +330,7 @@ export class WakeMonitor {
     }
 
     this.seen.set(key, now);
-    if (await this.isLoopBreakerBlocked(payload, now)) {
+    if (!prepareOnly && await this.isLoopBreakerBlocked(payload, now)) {
       await settle("muted", { error: "loop-breaker" });
       return;
     }
@@ -356,57 +372,157 @@ export class WakeMonitor {
       payload.leaseToken = decision.token ?? null;
     }
 
-    let result;
-    try {
-      const peer = this.peerFor(payload);
-      if (peer.mode === "codex_app_server") {
-        if (!this.injector) throw new Error(`wake-native-injector-missing:${payload.from}`);
-        result = await this.injector(payload, peer);
-        this.log("info", "WakeMonitor native wake completed", { msgId: payload.msgId, conversationId: payload.conversationId, mode: peer.mode });
-      } else if (this.hook) {
-        result = await this.hook(payload);
-        this.log("info", "WakeMonitor hook completed", { msgId: payload.msgId, conversationId: payload.conversationId });
-      } else {
-        // Nothing was woken. There is no native injector for this peer and no onReceive
-        // hook, so the message reached the store and stopped there.
-        //
-        // This branch used to log "WakeMonitor hook completed" as well, which read as a
-        // delivered wake. On 2026-09-15 three messages landed on an agent whose config had
-        // neither `wake` nor `onReceive`; the log said "hook completed" four milliseconds
-        // after "Message received" for each of them, and an operator spent an hour looking
-        // for a broken responder that had never been configured. A log line that cannot
-        // distinguish "woke somebody" from "nobody to wake" is worse than no line at all.
-        this.log("warn", "WakeMonitor: hook not configured, message stored only", {
-          msgId: payload.msgId,
-          conversationId: payload.conversationId,
-          from: payload.from,
-        });
-      }
-    } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      this.log("warn", "WakeMonitor hook error", { error: e.message, msgId: payload.msgId, attempt: claim?.attempts ?? null });
-      if (!durable) {
-        // Legacy behaviour: the failure is logged and the cursor moves on.
-        await this.advanceCursor(payload);
+    const execute = async (effect, settleEffect = settle) => {
+      let result;
+      try {
+        const peer = this.peerFor(payload);
+        if (effect) {
+          result = await effect();
+        } else if (peer.mode === "codex_app_server") {
+          if (!this.injector) throw new Error(`wake-native-injector-missing:${payload.from}`);
+          result = await this.injector(payload, peer);
+          this.log("info", "WakeMonitor native wake completed", { msgId: payload.msgId, conversationId: payload.conversationId, mode: peer.mode });
+        } else if (this.hook) {
+          result = await this.hook(payload);
+          this.log("info", "WakeMonitor hook completed", { msgId: payload.msgId, conversationId: payload.conversationId });
+        } else {
+          // Nothing was woken. There is no native injector for this peer and no onReceive
+          // hook, so the message reached the store and stopped there.
+          //
+          // This branch used to log "WakeMonitor hook completed" as well, which read as a
+          // delivered wake. On 2026-09-15 three messages landed on an agent whose config had
+          // neither `wake` nor `onReceive`; the log said "hook completed" four milliseconds
+          // after "Message received" for each of them, and an operator spent an hour looking
+          // for a broken responder that had never been configured. A log line that cannot
+          // distinguish "woke somebody" from "nobody to wake" is worse than no line at all.
+          this.log("warn", "WakeMonitor: hook not configured, message stored only", {
+            msgId: payload.msgId,
+            conversationId: payload.conversationId,
+            from: payload.from,
+          });
+        }
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        this.log("warn", "WakeMonitor hook error", { error: e.message, msgId: payload.msgId, attempt: claim?.attempts ?? null });
+        if (!durable) {
+          // Legacy behaviour: the failure is logged and the cursor moves on.
+          await this.advanceCursor(payload);
+          return;
+        }
+        const attempts = claim.attempts;
+        const retryable = e.retryable !== false && attempts < this.maxAttempts;
+        if (retryable) {
+          const delayMs = wakeRetryBackoffMs(attempts, this.retryBackoffMs, this.retryBackoffMaxMs);
+          await settleEffect("failed", { error: e.message, nextAttemptAt: new Date(this.now() + delayMs).toISOString() });
+          this.log("warn", "WakeMonitor wake scheduled for retry", { msgId: payload.msgId, attempt: attempts, retryInMs: delayMs });
+          return;
+        }
+        // Out of attempts, or the error says a retry cannot help: settle visibly. The
+        // delivery is done with — the cursor may pass it — but somebody gets told.
+        await settleEffect("dlq", { error: e.message });
+        await this.notify?.(payload, "wake-dlq");
+        this.log("error", "WakeMonitor wake dead-lettered", { msgId: payload.msgId, attempts, error: e.message, retryable: e.retryable !== false });
         return;
       }
-      const attempts = claim.attempts;
-      const retryable = e.retryable !== false && attempts < this.maxAttempts;
-      if (retryable) {
-        const delayMs = wakeRetryBackoffMs(attempts, this.retryBackoffMs, this.retryBackoffMaxMs);
-        await settle("failed", { error: e.message, nextAttemptAt: new Date(this.now() + delayMs).toISOString() });
-        this.log("warn", "WakeMonitor wake scheduled for retry", { msgId: payload.msgId, attempt: attempts, retryInMs: delayMs });
-        return;
+      const replyMsgId = result?.replyMsgId ?? result?.relay?.msgId ?? undefined;
+      await settleEffect("handled", replyMsgId ? { replyMsgId } : {});
+    };
+    if (prepareOnly) return execute;
+    await execute();
+  }
+
+  batchOptions(payload) {
+    const peer = this.peerFor(payload);
+    if (peer.mode !== "codex_app_server") return null;
+    if (peer.steer_batch_window_ms === undefined && peer.steer_max_per_turn === undefined) return null;
+    return { windowMs: peer.steer_batch_window_ms ?? 0, limit: peer.steer_max_per_turn ?? 20 };
+  }
+
+  batchKeyFor(payload) {
+    return JSON.stringify([payload.from, payload.conversationId, payload.channelId, payload.senderMemberId, payload.addresseeMemberId]);
+  }
+
+  async processLaneBatch(first, previousBatch) {
+    if (!this.deliveries?.assignWakeBatch || !this.deliveries?.settleWakeBatch) throw new Error("wake-batching-requires-durable-store");
+    const options = this.batchOptions(first) ?? { windowMs: 0, limit: 100 };
+    const key = this.batchKeyFor(first);
+    const lane = this.laneKeyFor(first);
+    let payloads;
+    if (previousBatch) {
+      payloads = previousBatch.messages.map(payloadFromDeliveryRow);
+      const ids = new Set(payloads.map((p) => p.msgId));
+      this.queue = this.queue.filter((p) => !ids.has(p.msgId));
+    } else {
+      // Messages remain pending in SQLite throughout the quiet window. A stopped
+      // session therefore leaves a recoverable queue, never an in-memory-only batch.
+      while (options.windowMs > 0) {
+        const same = this.queue.filter((p) => this.batchKeyFor(p) === key);
+        if (same.length + 1 >= options.limit) break;
+        const latest = Math.max(this.enqueuedAt.get(first.msgId) ?? 0, ...same.map((p) => this.enqueuedAt.get(p.msgId) ?? 0));
+        const remaining = latest + options.windowMs - Date.now();
+        if (remaining <= 0) break;
+        await delay(remaining);
       }
-      // Out of attempts, or the error says a retry cannot help: settle visibly. The
-      // delivery is done with — the cursor may pass it — but somebody gets told.
-      await settle("dlq", { error: e.message });
-      await this.notify?.(payload, "wake-dlq");
-      this.log("error", "WakeMonitor wake dead-lettered", { msgId: payload.msgId, attempts, error: e.message, retryable: e.retryable !== false });
+      payloads = [first];
+      for (let i = 0; i < this.queue.length && payloads.length < options.limit;) {
+        const candidate = this.queue[i];
+        if (this.laneKeyFor(candidate) !== lane) { i += 1; continue; }
+        // Never step over another conversation/member in the same static thread.
+        if (this.batchKeyFor(candidate) !== key || await this.deliveries.getWakeBatch(candidate.msgId)) break;
+        payloads.push(...this.queue.splice(i, 1));
+      }
+    }
+    for (const payload of payloads) {
+      this.queuedKeys.delete(this.keyFor(payload));
+      this.enqueuedAt.delete(this.keyFor(payload));
+    }
+    const ready = [];
+    for (const payload of payloads) {
+      const run = await this.processPayload(payload, { prepareOnly: true });
+      if (run) ready.push({ payload, run });
+    }
+    if (ready.length === 0) return;
+    if (previousBatch && ready.length !== payloads.length) {
+      // A previously grouped member is now muted/not claimable. Do not replay its
+      // content by borrowing another member's permission or silently regroup IDs.
+      await this.deliveries.settleWakeBatch(ready.map(({ payload }) => ({ msgId: payload.msgId, input: { status: "muted", error: "batch-member-ineligible", now: this.nowIso() } })));
+      await this.advanceCursor(first);
+      this.log("warn", "WakeMonitor batch blocked by member eligibility", { batchId: previousBatch.batchId });
       return;
     }
-    const replyMsgId = result?.replyMsgId ?? result?.relay?.msgId ?? undefined;
-    await settle("handled", replyMsgId ? { replyMsgId } : {});
+    // The breaker limits wake effects, so a batch counts once, not once per letter.
+    if (await this.isLoopBreakerBlocked(ready[0].payload, this.now())) {
+      await this.deliveries.settleWakeBatch(ready.map(({ payload }) => ({ msgId: payload.msgId, input: { status: "muted", error: "loop-breaker", now: this.nowIso() } })));
+      await this.advanceCursor(first);
+      return;
+    }
+    if (ready.length === 1 && !previousBatch) { await ready[0].run(); return; }
+    let batch;
+    try {
+      batch = previousBatch ?? await this.deliveries.assignWakeBatch(ready.map(({ payload }) => payload.msgId));
+    } catch (error) {
+      await this.deliveries.settleWakeBatch(ready.map(({ payload }) => ({ msgId: payload.msgId, input: { status: "failed", error: String(error), nextAttemptAt: new Date(this.now() + this.retryBackoffMs).toISOString(), now: this.nowIso() } })));
+      throw error;
+    }
+    const combined = {
+      ...ready[0].payload,
+      leaseToken: ready.at(-1).payload.leaseToken,
+      msgId: batch.batchId,
+      batchMsgIds: ready.map(({ payload }) => payload.msgId),
+      text: ready.map(({ payload }) => `[Murmur message ${payload.msgId}]\n${payload.text}`).join("\n\n"),
+    };
+    this.log("info", "WakeMonitor batch dispatch", { msgId: batch.batchId, msgIds: combined.batchMsgIds, count: ready.length, remaining: this.queue.filter((p) => this.laneKeyFor(p) === lane).length });
+    // All pre-effect audit/eligibility/lease gates ran for every individual member.
+    const effect = Promise.resolve().then(() => {
+      if (!this.injector) throw new Error(`wake-native-injector-missing:${first.from}`);
+      return this.injector(combined, this.peerFor(first));
+    });
+    const outcomes = [];
+    await Promise.all(ready.map(({ payload, run }) => run(() => effect, async (status, extra = {}) => {
+      outcomes.push({ msgId: payload.msgId, input: { status, ...extra, now: this.nowIso() } });
+    })));
+    await this.deliveries.settleWakeBatch(outcomes);
+    await this.advanceCursor(first);
   }
 
   pruneSeen(now = this.now()) {

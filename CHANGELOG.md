@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SELECT`, and the cursor only ever passes a row that was reported or recorded.
 
 ### Added
+- **Opt-in coalescing of Codex wake messages** (#124) — per-peer quiet windows and
+  turn caps combine queued messages into a subsequent `turn/start`. FIFO overflow
+  stays queued, channel/member boundaries and per-message policy gates stay intact,
+  and persisted batch identity plus atomic outcome writes preserve recovery across
+  session/daemon failure. The default remains one message per turn; see
+  `docs/wake-native.md` for configuration and rollback.
 - **Supported filters for the wake drain, with a ledger instead of a silent drop** (#146) —
   `MURMUR_WAKE_SKIP_SENDERS`, `MURMUR_WAKE_SKIP_CONVERSATIONS` and
   `MURMUR_WAKE_SKIP_INELIGIBLE` (the last one honours the daemon's `wake_eligible=0` mute).
