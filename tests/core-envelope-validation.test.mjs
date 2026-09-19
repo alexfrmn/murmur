@@ -38,3 +38,15 @@ test("isEnvelopeV1 rejects missing payloadCiphertext", () => {
 test("isEnvelopeV1 accepts optional ttlSeconds and traceId", () => {
   assert.equal(isEnvelopeV1({ ...baseEnvelope, ttlSeconds: 60, traceId: "trace-1" }), true);
 });
+
+test("isEnvelopeV1 accepts complete Phase N identity and rejects incomplete identity", () => {
+  assert.equal(isEnvelopeV1({
+    ...baseEnvelope,
+    channelId: "channel-1",
+    senderMemberId: "member-a",
+    addresseeMemberId: "member-b",
+  }), true);
+  assert.equal(isEnvelopeV1({ ...baseEnvelope, channelId: "channel-1" }), false);
+  assert.equal(isEnvelopeV1({ ...baseEnvelope, senderMemberId: "member-a" }), false);
+  assert.equal(isEnvelopeV1({ ...baseEnvelope, addresseeMemberId: "member-b" }), false);
+});

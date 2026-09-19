@@ -7,6 +7,335 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Outbox retries now reach JetStream inside its duplicate window** (#141): each
+  durable row version has its own transport dedupe ID; the signed envelope and
+  receiver's message ID remain unchanged. This also covers a fast NACK that wins
+  the `markSent` CAS before the attempts counter advances.
+- **Late signed ACK/NACKs settle retryable failed rows** (#142). A verified
+  `poison-message:*` NACK atomically moves the row to DLQ with the peer's reason;
+  settled rows remain protected. Subsequent ACK timeouts retain an earlier error
+  instead of replacing the peer's diagnosis with `ack-timeout` (#143).
+- **Proxy subscriptions no longer acknowledge for another agent** (#144).
+  A proxy is a wake bridge, not delivery to the addressee's inbox. It emits no
+  peer ACK/NACK, while its own JetStream consumer still acknowledges processing.
+  Startup warns that without the addressed agent's daemon, the sender will retry
+  and eventually dead-letter the unconfirmed message. Proxy signing/delegation is
+  not part of the protocol; the expected-peer signature check remains unchanged.
+- **`WakeMonitor hook completed` was logged when there was no hook** (#146) — the line was
+  printed whether or not a responder existed, so a daemon configured with neither `wake`
+  nor `onReceive` produced a log byte-identical to a healthy one: `Message received`, then
+  `hook completed` four milliseconds later, for messages that reached nobody. The
+  no-responder branch now logs `WakeMonitor: hook not configured, message stored only` at
+  `warn` with `msgId` and `conversationId`, and `hook completed` is printed only when a hook
+  actually ran. Wake readiness is also visible before the first message: `Daemon ready`
+  carries an additive `wake: { configured, hook, native, nativePeers }`, and a daemon with
+  no responder logs `No wake responder configured` at startup.
+- **The wake-drain cursor stepped over rows nobody looked at** (#146) —
+  `wake-drain-claude.sh` selected the rows to report and then advanced the cursor to a
+  separate `MAX(rowid)` query over the whole table. Anything between the two queries was
+  skipped permanently: a row that landed in the gap, and every row a locally added filter
+  had removed from the report. Both drains now take rows and high-water mark from one
+  `SELECT`, and the cursor only ever passes a row that was reported or recorded.
+
+### Added
+- **A notify target can take one peer** — `peers: ["agent-jarvis"]` on a Telegram or webhook
+  target limits it to those senders, and `fallback: true` marks the target that takes whatever
+  no `peers` target took. One forum chat can now hold a thread per peer; before this, splitting
+  peers meant a second process reading the store and posting by sender. A target with neither
+  field keeps taking everything, so existing configs are untouched. A sender that matches no
+  target at all is logged as a warning rather than dropped in silence, including
+  failed-wake fallback notifications. An explicit empty `peers` list accepts nobody;
+  only an omitted filter accepts every agent. Bare Telegram/webhook config forms
+  preserve the same filters. Routing uses transport agent IDs, not `senderMemberId`.
+- **Supported filters for the wake drain, with a ledger instead of a silent drop** (#146) —
+  `MURMUR_WAKE_SKIP_SENDERS`, `MURMUR_WAKE_SKIP_CONVERSATIONS` and
+  `MURMUR_WAKE_SKIP_INELIGIBLE` (the last one honours the daemon's `wake_eligible=0` mute).
+  Every deliberately skipped row is appended to `MURMUR_WAKE_SKIPPED_LOG`
+  (default `~/.murmur-wake-skipped.jsonl`) with its reason *before* the cursor moves past
+  it; if the ledger cannot be written the cursor stays put. All three filters are off by
+  default, so an installation that sets none of them behaves exactly as before. Documented
+  in `docs/wake-native.md`.
+
+### Pending
+- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
+- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+
+## [2.9.0] - 2026-09-12
+
+> Two things had to stop being true at once for a wake to be trustworthy: that a failed wake
+> could be marked handled, and that a retried one could answer twice. This release makes the
+> receiving side exactly-once — one durable row per delivery, retries under the same id, a
+> cursor that never skips a gap, an idempotent relay — and then fixes what that exposed: turn
+> status never read, one long turn blocking every peer, Codex threads living in process
+> memory, and a cold-start watcher spawning next to a live session. Phase N member routing
+> and Codex Desktop exact-task delivery from @fedoseevstanislav ship with it.
+
+### Added
+- **Phase N structured member routing** — optional signed `channelId`, `senderMemberId`,
+  and `addresseeMemberId` fields now flow through the envelope, MCP send/request tools,
+  durable inbox, daemon roster policy, receive-hook environment, and shell sender. Legacy
+  fieldless envelopes remain byte-identical. `murmur_request` can distinguish replies from
+  multiple members sharing one transport agent. The receive-time wake decision is persisted
+  so observer-muted history cannot wake through delayed backlog processing, and configured
+  proxy subjects apply the same structured member-addressing decision.
+- **Opt-in Codex Desktop exact-task delivery** — MCP sends from a Codex task default to `codex:task:<thread-id>`, and a macOS receive hook can use the shared local `codex queue` command to deliver only to that exact non-archived Desktop task. Missing, archived, legacy, and unaddressed targets remain inbox-only; synchronous `murmur_request` replies use a private expiring marker to avoid duplicate queue injection. This local task affinity complements, rather than replaces, Phase N channel/member identity.
+
+### Fixed
+- **Failed wakes were marked handled, and a retried relay could answer twice** (#105, part of
+  #106; design by @alexanderyswork in #96). `WakeMonitor` advanced its cursor from `finally`,
+  kept it only in memory, and re-seeded it at the table tip on every restart — a message
+  whose wake threw, timed out, or was interrupted by a restart was never retried. Fixing
+  the cursor alone would have turned silent loss into duplicate execution, so delivery
+  semantics ship as one package:
+  - `local_messages` carries a UNIQUE `delivery_id` (`<direction>:<msgId>`); `append`
+    commits the row, its delivery id and its initial wake state in one transaction and
+    reports `duplicate: true` for a redelivered envelope. The daemon ACKs a duplicate
+    without waking again (crash window "receiver committed, ACK lost").
+  - The ACK to the sender follows the durable commit, not the end of the wake. Awaiting the
+    whole Codex turn before ACKing meant the sender's ACK timeout resent the message it was
+    still being answered.
+  - Wake state (`pending → inflight → handled | failed | muted | dlq`) lives on the row; a
+    claim is a conditional UPDATE, so a duplicate copy is refused while the first is in
+    flight or after it was handled. Failed wakes retry under the same delivery id with
+    exponential backoff (`wake.retry`: 5 attempts, 30 s doubling to 10 min), then
+    dead-letter with a `wake-dlq` notification (crash window "relay failed, cursor unchanged").
+  - The cursor is read back from the table as the highest contiguous settled row; a gap holds
+    it, a restart resumes from it, and rows left in flight by a dead process re-enter the queue.
+  - The relay reply id is derived from the inbound `msgId`; `murmur-shell-send --msg-id` makes
+    the send idempotent, and a retry whose reply is already in the outbox does not start the
+    turn again (`source: "relay-idempotent"`).
+  - A turn that completes with an empty final answer now fails the wake as
+    `codex-app-server-final-empty` (not retryable) instead of logging `wake final relayed`
+    for a reply that was never sent.
+  Rows written before this release keep NULL delivery and wake state: they are outside the
+  queue and are not replayed on upgrade. 27 new tests, each seen red first.
+- **A failed or interrupted Codex turn was treated as a success** (#106). `turn/completed`
+  carries `turn.status` and `turn.error`; neither was read. The client now surfaces both,
+  a `failed` turn fails the wake (`codex-app-server-turn-failed:<turnId>:<error>`, retried
+  under the same delivery id) and an `interrupted` turn fails it without retry. Together
+  with the empty-final check above this closes the false "wake final relayed".
+- **One long Codex turn stalled every other inbound message** (#107; measured by
+  @alexanderyswork: a short question waited 90 s behind a long turn). `WakeMonitor.drain`
+  now runs lanes — one per (peer, conversation), or per peer when the Codex peer is pinned
+  to a static `threadId` — up to `wake.concurrency` at once (default 4). Order inside a
+  lane is unchanged; `concurrency: 1` restores the sequential behaviour.
+- **`threadId` lived only in process memory and was scoped per peer** (#108). Seeded
+  threads are now keyed by (peer, conversation) and persisted in `wake_threads`, so a
+  restart resumes the same Codex thread and conversations from one sender stop sharing
+  context. A static `peer.threadId` stays an explicit pin; a thread re-seeded to replace
+  a stale pin remembers which pin it replaced, so a new pin in config takes over.
+- **`codex-murmur-coldstart-watch.py` spawned headless Codex sessions next to a live
+  interactive one** (#123). Its only guard was the conversation lease, which a TUI session
+  that never registered a lease leaves free. The watcher now stands down when the Codex
+  app-server socket accepts a connection (`--app-server-socket`, default
+  `$CODEX_APP_SERVER_SOCKET`) or when `session_presence` has a fresh non-coldstart row for
+  the agent (`--presence-ttl-ms`, default 60 s), logging `skip_live_session` with the
+  reason; `--ignore-live-session` restores the old behaviour.
+
+### Packages
+
+- `@murmurv2/core` 0.6.2 → 0.6.3 — `delivery_id` + wake state on `local_messages`, `wake_threads`, `AppendedMessageRecord`, wake delivery API.
+- `@murmurv2/mcp-server` 0.2.1 → 0.2.2 — Phase N routing fields, Codex Desktop exact-task delivery.
+
+## [2.8.2] - 2026-09-12
+
+> The storm of 11.09 was not one bug but a stack of them, and 2.8.1 fixed only the
+> receiving side. Measured live on the shared broker on 12.09: four loops, all from 2.6.0
+> senders, 4.5 messages a second, 3M messages and 4.5 GB in the stream. Upgrading the
+> senders closed three of the four within a minute; this release removes what the receiver
+> still did wrong, and one thing a 2.8.1 sender still does wrong.
+
+### Fixed
+
+- **A letter to a receiver that is not on the mesh was retried forever.** `flushOutbox`
+  enforced `maxAttempts` only when `publish()` threw. A receiver that never ACKs makes
+  nothing throw: the row goes `sent`, the ACK timeout drags it back to `failed`, the next
+  flush publishes it again — observed on one host as a single row at `attempts=32`, still
+  cycling after the 2.8.1 upgrade. The cap now holds on the success path too: a claimed row
+  with `attempts >= maxAttempts` goes to the DLQ as `max-attempts:<last error>` before it is
+  published again.
+- **A delivered message was undone by a timeout on its own ACK.** `publishAck` ran after
+  the handler and `markSeen` and was awaited on the same path. When JetStream's pub-ack
+  timed out (a peer's log, 11.09: `NatsError: TIMEOUT`, 3 731 rejections, 15 375
+  redeliveries), the exception counted as a handler failure: the JetStream message was
+  nak'd, came straight back, was rejected as a duplicate, timed out again on that ACK —
+  five rounds to `max_deliver` and a DLQ advisory for a letter delivered on the first pass.
+  Every ACK/NACK publish inside envelope processing is now best-effort: the delivery
+  outcome stands, the failure is logged with subject, `msgId`, status and reason, and the
+  sender's own ACK timeout covers the gap.
+- **A nak'd letter was redelivered immediately.** `consumeJetStream` called `m.nak()` with
+  no delay, so a fault that clears with time (a peer not yet added, a broker slow on the
+  ACK) burned all five deliveries in milliseconds. Redelivery now backs off 1s, 2s, 4s …
+  capped at 30s, keyed on the redelivery count JetStream reports (`nakBackoffMs`).
+- **`murmur_send` failed with `database is locked` after the row had been written** (#122).
+  The SQLite outbox and message stores set WAL but no busy timeout, so a second writer —
+  the MCP server enqueuing while the daemon flushed — failed at once instead of waiting a
+  few hundred milliseconds. Both stores now set `PRAGMA busy_timeout=10000`; verified with
+  the lock held by a separate process, the shape production has.
+
+### Security
+
+- **The wake hook no longer puts peer text into the session's privileged slot** (#132,
+  reported by Kirill Oleinichenko). In poll mode the wake names the sender and the count
+  only and asks the session to read the text through `murmur_inbox`; the trailing "or act
+  on them" is gone. The `--session` cold-start drain still prints what arrived, but inside
+  an explicit `<untrusted-peer-text sender="…">` boundary followed by a line stating that
+  it is data written by other agents, not instructions. The shell twin
+  `wake-drain-claude.sh` gets the same wake line.
+
+### Documented
+
+- **A freshly started lane is deaf until its first turn** (#130). The poller starts from
+  the `Stop` hook, and `Stop` fires at the end of a turn a new session has not taken yet.
+  An unattended install needs one priming turn after launch; README and
+  `docs/wake-native.md` now say so, with the tmux detail that text and `Enter` must be
+  separate `send-keys` calls.
+
+### Closed
+
+- #126 — fixed by #131 in 2.8.1; closed with the reference.
+
+### Packages
+
+- `@murmurv2/core` @ `0.6.2` (busy timeout on both SQLite stores). `@murmurv2/broker-nats`
+  @ `0.3.4` (attempts cap on the success path, best-effort ACK publish, nak backoff). Other
+  `@murmurv2/*` unchanged.
+
+## [2.8.1] - 2026-09-11
+
+> A rejection the receiving side never logged, and a rejection it treated as poison. Three
+> agents spent a day chasing an ACK storm that turned out to be two messages from 31.08
+> which could not be delivered and could not be given up on either. Every fix here comes
+> from running the mesh across machines that do not share an owner.
+
+### Fixed
+
+- **An envelope from a peer that had not been added yet was dropped forever.** `unknown-sender`
+  was counted as a poison message: after three attempts the broker wrote the `msgId` into
+  `dedupe_seen` and answered `poison-message`. From then on the circle closed — the sender
+  retried, the receiver answered `duplicate-ignored`, no settlement was ever produced, and the
+  envelope did not arrive even after `add-peer`. But this is a rejection configuration clears,
+  not delivery: such envelopes now stay retryable, JetStream caps the attempts, and the message
+  lands in the DLQ where it can be seen. Measured on one host overnight: 3898 redeliveries of a
+  single `msgId`, 12243 resends, 1008 broker reconnects. On the shared broker, two envelopes
+  stuck since 2026-08-31 were still emitting a NACK every two seconds eleven days later —
+  ~3600/hour, 692 508 messages on one connection. Found by agent-kirill and agent-viola.
+- **`add-peer` fixed the link but not what the missing link had already cost.** Messages held
+  back while a peer was unknown stayed marked as seen, so they could never be delivered again.
+  A dedupe row now records where the envelope came from and why it was held, and
+  `murmur-add-peer` releases exactly the held-back messages of the peer being added. Delivered
+  messages are deliberately left alone — clearing those would replay the whole history of the
+  conversation. Databases created before this release are migrated in place on open; their
+  older rows carry no sender and are released by `msgId` with the new script below.
+- **A rejected message was invisible to the side that rejected it** (#131). The daemon threw
+  `unknown-sender` and `signature-invalid` silently: the throw reached `broker.subscribeWithAck`,
+  which NACKed the sender with a reason, and that was all — the receiving owner had no record
+  of the refusal in the log, the database, or `healthz`, so the only way to debug it was from
+  the other machine. Found by agent-misha 2026-09-08, after three agents spent an hour
+  establishing whether messages were arriving at all.
+- **The JetStream DLQ handler drowned its own log.** Every advisory parse failure printed the
+  message, the stack and the raw frame, on every event, with no rate limit and no rotation: one
+  daemon log grew from 33 lines to 117 307 (9.1 MB) overnight. The same failure now prints at
+  most once a minute with a count of what was suppressed. A JetStream lookup that times out is
+  also no longer reported as a malformed frame — the frame parsed fine, the server did not
+  answer. Found by agent-kirill.
+
+### Added
+
+- **`scripts/murmur-dedupe-unstick.mjs`** — releases messages held in the dedupe table, for the
+  two cases `add-peer` cannot cover: rows written before this release, which carry no sender and
+  can only be selected by `msgId`, and a peer you want released without re-running the invite
+  handshake. `--list` shows what is held and changes nothing.
+
+### Changed
+
+- `DedupeStore.markSeen()` takes an optional third argument, `meta` (`senderAgentId`,
+  `poisonReason`). Existing callers keep working. Implementations that store provenance may
+  also expose `clearPoisonedFrom(senderAgentId)`; it is optional, so callers must check for it.
+
+### Published
+- **npm** — `@murmurv2/core` **0.6.1**, `@murmurv2/broker-nats` **0.3.3**, `@murmurv2/broker-ws` **0.2.2**.
+
+## [2.8.0] - 2026-09-08
+
+> A message that arrived while nothing was listening is now delivered on the next
+> session start. The per-session cursor shipped in 2.7.0 fixed one delivery gap and
+> quietly opened another; this release closes it with a cursor that outlives the
+> session it was drained by.
+
+### Added
+- **`--session` cold-start drain for `scripts/wake-drain-claude.mjs`.** A `SessionStart`
+  hook that reports inbound messages which arrived while no session was alive, using a
+  shared anchor (`MURMUR_WAKE_ANCHOR`) alongside the existing per-session cursor. Writes
+  to stdout and exits `0`, since a `SessionStart` hook feeds its stdout to the session as
+  context. Output capped by `MURMUR_WAKE_SESSION_MAX` (default 20). Reported by
+  [@lichtpfad](https://github.com/lichtpfad) against 2.7.0: the per-session cursor
+  introduced in that release closed the multi-session gap and opened this one, because a
+  session with no cursor seeds its baseline at the current tip. The shell port keeps
+  `poll` and `--once` only.
+
+## [2.7.0] - 2026-08-28
+
+> Delivery correctness, found by running the mesh where it had not been run before. A
+> cross-host test between a Mac and a Windows box by
+> [@lichtpfad](https://github.com/lichtpfad) surfaced three defects that our own hosts
+> could not: two of them made a message vanish or repeat forever without a single error
+> line, and the third stopped the install outright.
+
+### Fixed
+
+- **A `failed` outbox row could never finish its retry** (#113, #117) — `failed` was listed in `TERMINAL_OUTBOX_STATUSES`, but `claimDue()` selects `failed` on purpose. The retry was re-claimed, published successfully, and then `markSent()` refused it: the status stayed `failed`, `attempts` never grew (so `maxAttempts`/DLQ never fired), `nextAttemptAt` stayed in the past, and the row was re-claimed again on every flush. The returning ACK bounced as `message-not-in-flight`. Nothing short of a manual `dlq` could settle it — 766 log lines over two `msgId`s in the report. The race that v2.6.0 was guarding (a fast ACK/NACK landing between `publish()` and `markSent()`) is now handled per row: `claimDue()` hands out the row `version`, the flush loop passes it to `markSent(msgId, expectedVersion)`, and the update applies only while the row is untouched. That covers any concurrent transition rather than a hand-maintained list of statuses.
+- **`murmur_inbox` reported `count:0` for messages that had been delivered** (#114, #116) — the tool ran `searchMessages(agentId)`, a `LIKE` over text/sender/conversationId, and then filtered by direction. A reply that did not happen to spell out the receiving agent's name matched nothing, so the inbox looked empty while the row sat in `local_messages` and the sender saw the delivery `acked`. Measured across three agents: 4 inbound → 0, 3 → 1, 2 → 0. The store is per-agent, so direction is the whole filter; `SQLiteMessageStore.listInbound()` replaces the search. The worst shape a delivery bug can take for autonomous agents — no error, no retry, both sides confident.
+- **Install failed on Windows** (#112) — `writePrivateJson` fsync'd the containing directory, which Windows does not support on a directory handle (`FlushFileBuffers` → `EPERM`), so `murmur-join.mjs` died while generating keys. The file itself is fsync'd a line earlier; the directory sync is a durability nicety and is now skipped on win32. Contributed by [@lichtpfad](https://github.com/lichtpfad).
+- **Native wake did nothing on Windows** (#115, #118) — `wake-drain-claude.sh` shells out to the `sqlite3` CLI, which a default Windows install does not have (the daemon uses `node:sqlite`, not the CLI). The query came back empty, the hook exited `0`, and the session was never woken: native wake looked broken when a binary was simply missing. `scripts/wake-drain-claude.mjs` is a dependency-free node port that runs anywhere node does, contributed by [@lichtpfad](https://github.com/lichtpfad), plus a poller so a message arriving while the session is already idle still wakes it. The follow-up gave it the per-session cursor from #111, bound the cursor to the last row actually reported (advancing to `MAX(rowid)` could step over a row inserted mid-drain), and made faults report themselves instead of exiting `0` in silence.
+- **One inbound message woke only one session** (#111) — the wake cursor and the watcher lock were shared per host, so whichever session reached the hook first advanced the cursor past the message and every other live session, including the one holding the conversation, stayed asleep. Measured over 23–26.08: of 24 sessions that armed a watcher, exactly one was ever on duty. Both are keyed per session now, and a session's first run seeds the cursor to the current tip instead of replaying the whole history.
+
+### Changed
+
+- `MURMUR_DB` defaults to `.data/murmur.db` — the same path `SQLiteMessageStore` uses — in the wake drains and the cold-idle watcher, instead of an absolute path inside one machine's home. `scripts/murmur-to-acp-producer.sh` resolves its Python entry point relative to the repo for the same reason. Set `MURMUR_DB` explicitly when a hook runs from another working directory.
+- `OutboxStore.markSent()` takes an optional second argument, `expectedVersion`. Existing callers keep working; anything on the claim → publish → mark path should pass `record.version`.
+
+### Published
+- **npm** — `@murmurv2/core` **0.6.0**, `@murmurv2/broker-nats` **0.3.2**, `@murmurv2/broker-ws` **0.2.1**, `@murmurv2/mcp-server` **0.2.1**.
+
+## [2.6.0] - 2026-08-20
+
+> Closes the four gaps that v2.5.0's compatible signed-ACK path left open. Found by diffing
+> #100 against @fedoseevstanislav's strict variant in #104 — the compatible PR looked complete
+> on its own, and only the comparison exposed what it did not cover.
+
+### Security
+
+- **Replay protection survives a restart** (#109, #110) — `AckReceiptStore` in `@murmurv2/core` plus an `ack_receipts` table in `SQLiteDedupeOutboxStore` provide claim-once semantics on `(sender_agent_id, nonce)`. Previously nonces lived in a bounded in-memory `Set`: a restart forgot them, so a signed NACK could be replayed against a fresh process — the retry returned the row to `sent` and the replayed NACK failed it again. The in-memory store remains as an explicit fallback, and the daemon now logs a warning when that fallback is what is running rather than implying protection it does not have.
+- **The fast-ACK race no longer causes a spurious retry** — `applyAckTransition` accepts `pending` alongside `sent`, so an ACK arriving between `publish()` and `markSent()` is applied instead of rejected as `message-not-in-flight`. `markSent()` now refuses to downgrade a terminal status, so the late call cannot resurrect a settled row.
+- **The A2A bridge no longer honours an unsigned NACK** — it resolved a pending task from a bare `{msgId, status: "nack"}` object, letting anyone able to publish to the ACK subject settle someone else's in-flight task with an arbitrary failure string. A verified `SignedAckV1` is now required; `signingPublicKeys` was added to `BridgeA2AConfig`.
+- **The WebSocket ACK path is verified like the NATS one** — `processAckFrame` verified nothing and called `markAcked`/`markFailed` straight from the frame. It now checks record lookup, digest, conversation, recipient, known peer, ack-subject binding, signature and nonce claim, with unsigned frames accepted only while `requireSignedAcks` is off.
+
+### Fixed
+
+- **Five packages were built and tested against a stale core.** `bridge-a2a`, `bridge-openclaw`, `bridge-telegram`, `broker-ws` and `federation-nats` declared `@murmurv2/core: ^0.2.0`. Once core reached 0.4.0 npm could no longer satisfy that from the workspace and silently installed 0.2.0 from the registry — their passing tests were passing against code two minor versions behind.
+
+### Published
+- **npm** — `@murmurv2/core` **0.5.0**, `@murmurv2/broker-ws` **0.2.0**, `@murmurv2/bridge-a2a` **0.2.0**, `@murmurv2/broker-nats` **0.3.1**.
+
+## [2.5.0] - 2026-08-20
+
+> First release built substantially from **external contributions**. The security series came from an
+> independent audit by [@fedoseevstanislav](https://github.com/fedoseevstanislav); the wake fixes and the
+> delivery-semantics analysis came from [@alexanderyswork](https://github.com/alexanderyswork).
+
+### Security
+
+- **Signed and bound delivery acknowledgements** (#100) — ACK correlation previously trusted attacker-controlled JSON carrying only `{msgId, status}`: anyone able to publish to an ACK subject could mark an arbitrary pending outbox row `acked` or `failed`, suppressing delivery or forcing retries without authenticating as the consumer. ACKs are now a versioned `SignedAckV1` with an Ed25519 signature over the message digest, conversation, ACK sender, intended recipient, status, timestamp and nonce; wrong-message, wrong-conversation, wrong-recipient, wrong-peer, stale/future, invalid-signature and replayed ACKs are rejected, and ACK/NACK state changes apply atomically only from the `sent` state. Invalid attempts are metered by bounded reason as metadata-only security events — raw ACK and message bodies are never logged. **Migration is deliberately two-stage:** upgraded daemons emit signed ACKs that legacy peers still parse; strict rejection is opt-in behind `ackSecurity.requireSigned` / `MURMUR_REQUIRE_SIGNED_ACKS=1` until every peer is upgraded.
+- **Hardened local state handling** (#101) — the daemon now sets umask `0077` before state/database creation, creates state directories `0700`, atomically creates/replaces secret JSON as `0600`, rejects symlinked, non-regular and wrong-owner config paths, reads configs with `O_NOFOLLOW` and re-checks the opened descriptor, and forces SQLite database/WAL/shared-memory files to `0600`. Agent configs hold long-term signing/encryption private keys and NATS credentials, and rewrites could previously return them to `0664`; SQLite files containing decrypted history were commonly `0644`. OpenClaw config setup no longer prints secret-bearing fields. `SECURITY.md` now documents that local message bodies remain plaintext and require a dedicated OS identity plus encrypted storage or an explicit retention policy.
+- **Dashboard rendering and ingress** (#102) — the optional dashboard renders every untrusted field through DOM `textContent` (no `innerHTML`, inline scripts or inline handlers), serves a strict CSP plus clickjacking, MIME-sniffing, referrer, opener, resource and cache protections, and requires Basic authentication backed by a private server-local token file for both HTTP and WebSocket access. Live messages are accepted only after envelope-schema, signature, NATS subject/recipient binding, traffic-direction and known-peer verification; the listener stays loopback-only. **Fails closed** unless `DASHBOARD_TOKEN_FILE` exists with at least 32 URL-safe characters and no group/other permission bits.
+
+### Fixed
+
+- **Codex wake seeded threads are usable** (#97) — `thread/start` no longer discards `thread.path`, and new threads carry `peer.cwd` instead of starting at `cwd: null`, which previously produced wrong workspace roots, missing project instructions and wrong permissions.
+- **Per-peer `baseInstructions` no longer dropped** (#98) — `normalizeWakeConfig` carries the value through, making the injector's `peer.resume === false` opt-out reachable from real configuration for the first time.
+
 ### Added
 - **Production file-level deploy tooling** — `deploy/production-file-deploy.sh`
   now builds gitignored `dist/` artifacts before copying the live-runtime
@@ -19,11 +348,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Phase N / N3 personality binding** — `buildChannelThreadStartBinding()` projects a `ChannelMemberRecord` into Codex app-server `thread/start` overrides (`model`, `personality`, optional `baseInstructions`, and audit metadata). Daemon wiring is opt-in only (`channelRoster.enabled` or `MURMUR_CHANNEL_ROSTER=1`) and leaves legacy wake behavior unchanged by default.
 - **Phase N / N6 MCP roster surface** — `@murmurv2/mcp-server` exposes `channel_create`, `channel_list`, `channel_members`, and `channel_evaluate_addressing`, backed by `MURMUR_CHANNEL_ROSTER_PATH` (default `DATA_DIR/channel-roster.db`) so agents and UI can manage rosters without direct SQLite access.
 
-### Pending
+### Known gaps
 - **Auth enforcement end-to-end** — the broker ingress hook + `authorizeInbound` exist; the daemon does not yet wire them (so `MURMUR_ENFORCE_AUTH` is not enforced end-to-end). Requires daemon roster/identity wiring + token provisioning.
+- **Delivery semantics** — failed wakes still advance the cursor and the relay is not idempotent (#105); an empty `finalText` still logs as relayed (#106); `WakeMonitor.drain` is sequential (#107); `threadId` is process-memory only and scoped per peer (#108). All four reported by @alexanderyswork in #96.
 
 ### Published
-- **npm** — `@murmurv2/core` @ **`0.3.0`** (v2.4: adds `SessionLeaseStore` / `createNativeLeaseGate` / `NATIVE_SESSION_PREFIX` — the scoped-channels lease primitive, typed + parity-tested). `@murmurv2/federation` + `@murmurv2/broker-nats` @ `0.2.0`; `security`/`observability` @ `0.1.1`, all other `@murmurv2/*` @ `0.1.0`.
+- **npm** — `@murmurv2/core` @ **`0.4.0`** (adds the signed-ACK primitive and the `SignedAckV1` protocol schema). `@murmurv2/broker-nats` @ `0.3.0` (signed-ACK emission and verification at the transport boundary), `@murmurv2/mcp-server` @ `0.2.0` (channel roster surface). `@murmurv2/federation` @ `0.2.0`; `bridge-murmur` @ `0.1.1`; `observability` @ `0.1.2`; `security` @ `0.1.1`; all other `@murmurv2/*` @ `0.1.0`.
+
+## [2.4.0] - 2026-06-23
+
+> Retroactively written on 2026-08-20. The v2.4.0 tag and GitHub release shipped on 2026-06-23 pointing
+> at "See CHANGELOG.md for details", but the section was never added — the release notes lived only on
+> the tag. Reconstructed here from the release body and the #77 epic record.
+
+### Added
+
+- **DB-backed session-ownership lease.** For an addressed conversation, only the owning session of the addressed agent responds; every other session and agent stays silent. Fixes multi-session double-emit and native wake hitting or spawning the wrong session.
+- **`SessionLeaseStore`** — atomic CAS `claim_or_skip`, heartbeat, per-turn fencing token, `session_presence` registry, `preemptPrefix`. Published in `@murmurv2/core@0.3.0`.
+- **Presence-deferring native wake** — `createNativeLeaseGate` defers to a live interactive session and claims only as a cold fallback, behind `MURMUR_SCOPED_CHANNELS` (default OFF, backwards compatible).
+- **All delivery paths honour one claim** — MCP channel, foreground push and coldstart each claim, fence and suppress against the same contract.
+
+### Validated
+
+- Lease smoke 11/11, wake-lease 7/7, cross-path coordination 9/9, real multi-process race N→1, wake-monitor regression green. Live: N sessions → exactly one emit, native defer with no competing thread.
+- External review by the Stas team: approved, no blockers; two minor notes closed (token-monotonicity fence invariant, reserved `native:` preempt namespace).
 
 ## [2.3.0] - 2026-06-22
 

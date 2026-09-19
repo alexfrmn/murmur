@@ -1,7 +1,9 @@
 import WebSocket from "ws";
 import { buildChannelThreadStartBinding } from "@murmurv2/core";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, mkdtempSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -125,10 +127,12 @@ export const readFinalAnswerFromSessionLog = (sessionPath, turnId) => {
   return "";
 };
 
-export const buildThreadStartParams = (binding = null) => ({
-  model: binding?.model ?? null,
+export const buildThreadStartParams = (binding = null, peer = null) => ({
+  model: binding?.model ?? peer?.model ?? null,
   modelProvider: null,
-  cwd: null,
+  // A seeded thread must inherit the peer's working directory, otherwise Codex starts
+  // in `/` with no project instructions, wrong workspace roots and wrong permissions.
+  cwd: peer?.cwd ?? null,
   runtimeWorkspaceRoots: null,
   approvalPolicy: null,
   approvalsReviewer: null,
@@ -378,7 +382,18 @@ export class CodexAppServerClient {
         if (message.method === "turn/completed" && message.params?.turn?.id) {
           turnId = turnId || message.params.turn.id;
           if (message.params.turn.id !== turnId) return;
-          finish(null, { ...startResult, finalText, turnId, source: "app-server-events" });
+          // #106 — `turn.status` (completed | interrupted | failed | inProgress) and
+          // `turn.error` are part of the notification; a caller that ignores them cannot
+          // tell a finished turn from a broken one.
+          const turn = message.params.turn;
+          finish(null, {
+            ...startResult,
+            finalText,
+            turnId,
+            source: "app-server-events",
+            status: typeof turn.status === "string" ? turn.status : null,
+            error: turn.error ?? null,
+          });
         }
       });
       socket.on("error", (err) => {
@@ -391,7 +406,42 @@ export class CodexAppServerClient {
   }
 }
 
-const sendRelayReply = (peer = {}, payload = {}, finalText = "") => new Promise((resolve, reject) => {
+/**
+ * The reply to one inbound delivery always carries the same msgId (#105): derived from
+ * the inbound msgId, never minted fresh. A retry after a crash therefore lands on the
+ * outbox row the previous attempt already wrote instead of producing a second reply.
+ * Shape is a v5-style UUID so every consumer that validates msgIds keeps accepting it.
+ */
+export const deriveRelayReplyMsgId = (inboundMsgId) => {
+  const hex = createHash("sha256").update(`murmur-relay-reply:${String(inboundMsgId ?? "")}`).digest("hex");
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+};
+
+/**
+ * Was this reply already queued by a previous attempt? Read straight from the peer's
+ * outbox — the store the relay writes to — so the answer survives daemon restarts and
+ * does not depend on what the current process remembers.
+ */
+const relayReplyAlreadyQueued = async (peer = {}, replyMsgId) => {
+  if (!peer?.storePath || !replyMsgId) return false;
+  try {
+    statSync(peer.storePath);
+  } catch {
+    return false;
+  }
+  const db = new DatabaseSync(peer.storePath, { readOnly: true });
+  try {
+    const row = db.prepare("SELECT 1 FROM outbox WHERE msg_id = ? LIMIT 1").get(replyMsgId);
+    return Boolean(row);
+  } catch {
+    return false;
+  } finally {
+    db.close();
+  }
+};
+
+const sendRelayReply = (peer = {}, payload = {}, finalText = "", { msgId } = {}) => new Promise((resolve, reject) => {
   const text = String(finalText || "").trim();
   if (!peer.relayFinalToMurmur || !text) {
     resolve(null);
@@ -408,7 +458,7 @@ const sendRelayReply = (peer = {}, payload = {}, finalText = "") => new Promise(
   const script = path.join(peer.murmurRoot, "scripts", "murmur-shell-send.mjs");
   execFile(
     process.execPath,
-    [script, "--to", payload.from, "--conv", payload.conversationId, "--text-file", replyFile],
+    [script, "--to", payload.from, "--conv", payload.conversationId, "--text-file", replyFile, ...(msgId ? ["--msg-id", msgId] : [])],
     {
       cwd: peer.murmurRoot,
       env: {
@@ -473,10 +523,41 @@ export const createChannelThreadStartBindingResolver = ({ rosterStore, agentId, 
   };
 };
 
-export const createCodexAppServerInjector = ({ Client = CodexAppServerClient, log = () => {}, timeoutMs = DEFAULT_TIMEOUT_MS, resolveThreadStartBinding = null } = {}) => {
+export const createCodexAppServerInjector = ({
+  Client = CodexAppServerClient,
+  log = () => {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  resolveThreadStartBinding = null,
+  relay = sendRelayReply,
+  relayAlreadyQueued = relayReplyAlreadyQueued,
+  threadStore = null,
+} = {}) => {
+  // #108 — one Codex thread per (peer, conversation). The daemon passes its message store
+  // so the mapping survives restarts; without one it still lives per conversation, only
+  // in memory. A static `peer.threadId` is an explicit pin and is never written here.
+  const memoryThreads = new Map();
+  const threads = threadStore ?? {
+    getWakeThread: async (peerId, conversationId) => memoryThreads.get(`${peerId}|${conversationId}`),
+    setWakeThread: async (record) => { memoryThreads.set(`${record.peerId}|${record.conversationId}`, record); },
+  };
+
   return async (payload, peer) => {
     const socketPath = peer?.socketPath || peer?.target;
     if (!socketPath) throw new Error(`codex-app-server-socket-missing:${payload.from}`);
+
+    const relayEnabled = peer?.relayFinalToMurmur === true;
+    const replyMsgId = relayEnabled ? deriveRelayReplyMsgId(payload.msgId) : null;
+    if (relayEnabled && (await relayAlreadyQueued(peer, replyMsgId))) {
+      // A previous attempt got as far as queueing the reply and then died before the
+      // delivery was settled. Running the turn again would execute the instruction
+      // twice; the reply is already on its way, so this attempt has nothing left to do.
+      log("warn", "Codex app-server wake relay already queued, turn not restarted", {
+        msgId: payload.msgId,
+        replyMsgId,
+        attempt: payload.attempt ?? null,
+      });
+      return { finalText: null, turnId: null, source: "relay-idempotent", replyMsgId };
+    }
 
     const client = new Client({ socketPath, timeoutMs });
     const text = buildCodexTurnText(payload, peer);
@@ -511,48 +592,102 @@ export const createCodexAppServerInjector = ({ Client = CodexAppServerClient, lo
       },
     });
     const startTurn = async (threadId) => {
-      if (peer?.relayFinalToMurmur === true) {
+      if (relayEnabled) {
         const result = await client.startTurnAndWaitForFinal(turnParams(threadId), {
           completionTimeoutMs: Number(peer?.replyTimeoutMs) || DEFAULT_TURN_COMPLETION_TIMEOUT_MS,
           sessionPath: threadPath,
         });
-        const relay = await sendRelayReply(peer, payload, result?.finalText || "");
+        const status = typeof result?.status === "string" ? result.status : null;
+        if (status && status !== "completed") {
+          // #106 — a turn that failed or was interrupted is not a success, whatever text
+          // it left behind. `failed` may clear on a retry (model/provider hiccup);
+          // `interrupted` means someone stopped it on purpose — do not run it again.
+          const detail = result?.error?.message ? `:${result.error.message}` : "";
+          log("warn", "Codex app-server wake turn did not complete", {
+            msgId: payload.msgId,
+            threadId,
+            socketPath,
+            turnId: result?.turnId ?? null,
+            status,
+            error: result?.error?.message ?? null,
+          });
+          throw Object.assign(
+            new Error(`codex-app-server-turn-${status}:${result?.turnId ?? "unknown"}${detail}`),
+            { retryable: status === "failed" },
+          );
+        }
+        const finalText = String(result?.finalText || "").trim();
+        if (!finalText) {
+          // #106 — the turn ended and there is nothing to relay. That is not a relay;
+          // logging it as one is how the peer waited six hours believing it was answered.
+          // Not retryable: a second turn would run the instruction again, not recover
+          // the missing text.
+          log("warn", "Codex app-server wake produced no final answer to relay", {
+            msgId: payload.msgId,
+            threadId,
+            socketPath,
+            turnId: result?.turnId ?? null,
+            source: result?.source ?? null,
+          });
+          throw Object.assign(
+            new Error(`codex-app-server-final-empty:${result?.turnId ?? "unknown"}:${result?.source ?? "unknown"}`),
+            { retryable: false },
+          );
+        }
+        const relayResult = await relay(peer, payload, finalText, { msgId: replyMsgId });
         log("info", "Codex app-server wake final relayed", {
           msgId: payload.msgId,
           threadId,
           socketPath,
           turnId: result?.turnId,
           source: result?.source ?? null,
-          replyMsgId: relay?.msgId ?? null,
-          finalTextLen: String(result?.finalText || "").length,
+          replyMsgId: relayResult?.msgId ?? replyMsgId,
+          finalTextLen: finalText.length,
         });
-        return result;
+        return { ...result, replyMsgId: relayResult?.msgId ?? replyMsgId };
       }
       return client.request("turn/start", turnParams(threadId));
     };
 
-    let threadId = peer?.threadId;
+    // A thread seeded in this call has no rollout file until its first turn, so
+    // `thread/resume` can only fail on it — and that failure is what used to leave
+    // `threadPath` null and silently disable the session-log completion fallback.
+    const threadKey = { peerId: String(payload.from ?? ""), conversationId: String(payload.conversationId ?? "") };
+    const seedThread = async (reason) => {
+      const started = await client.request("thread/start", buildThreadStartParams(threadStartBinding, peer));
+      const seededId = started?.thread?.id;
+      if (!seededId) throw new Error(`codex-app-server-thread-start-missing:${payload.from}`);
+      threadPath = started?.thread?.path || threadPath;
+      await threads.setWakeThread({
+        ...threadKey,
+        threadId: seededId,
+        threadPath: threadPath || undefined,
+        replacesThreadId: peer?.threadId || undefined,
+      });
+      log("info", `Codex app-server wake thread ${reason}`, { msgId: payload.msgId, threadId: seededId, socketPath, threadPath, conversationId: threadKey.conversationId });
+      return seededId;
+    };
+
+    // Resolution order: a remembered thread for this conversation, unless it was seeded to
+    // replace a pin that has since changed; then the static pin; then a fresh seed.
+    const remembered = await threads.getWakeThread(threadKey.peerId, threadKey.conversationId);
+    const rememberedUsable = remembered && (!peer?.threadId || !remembered.replacesThreadId || remembered.replacesThreadId === peer.threadId);
+    let threadId = rememberedUsable ? remembered.threadId : peer?.threadId;
+    if (rememberedUsable && remembered.threadPath) threadPath = remembered.threadPath;
+    let seededHere = false;
     if (!threadId) {
-      const started = await client.request("thread/start", buildThreadStartParams(threadStartBinding));
-      threadId = started?.thread?.id;
-      if (!threadId) throw new Error(`codex-app-server-thread-start-missing:${payload.from}`);
-      peer.threadId = threadId;
-      log("info", "Codex app-server wake thread seeded", { msgId: payload.msgId, threadId, socketPath });
+      threadId = await seedThread("seeded");
+      seededHere = true;
     }
 
     let result;
     try {
-      if (shouldResumeThread) await resumeThread(threadId);
+      if (shouldResumeThread && !seededHere) await resumeThread(threadId);
       result = await startTurn(threadId);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       if (!e.message.startsWith("codex-app-server-error:thread not found:")) throw e;
-      const started = await client.request("thread/start", buildThreadStartParams(threadStartBinding));
-      threadId = started?.thread?.id;
-      if (!threadId) throw new Error(`codex-app-server-thread-start-missing:${payload.from}`);
-      peer.threadId = threadId;
-      log("info", "Codex app-server wake thread re-seeded", { msgId: payload.msgId, threadId, socketPath });
-      if (shouldResumeThread) await resumeThread(threadId);
+      threadId = await seedThread("re-seeded");
       result = await startTurn(threadId);
     }
     log("info", "Codex app-server wake completed", { msgId: payload.msgId, threadId, socketPath });

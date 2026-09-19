@@ -33,10 +33,18 @@
         "traceId": { "type": "string" },
         "sequence": { "type": "number" },
         "parentMsgId": { "type": "string" },
+        "channelId": { "type": "string", "minLength": 1 },
+        "senderMemberId": { "type": "string", "minLength": 1 },
+        "addresseeMemberId": { "type": "string", "minLength": 1 },
         "authToken": { "type": "string", "minLength": 1 },
         "payloadCiphertext": { "type": "string", "minLength": 1 },
         "payloadNonce": { "type": "string", "minLength": 1 },
         "signature": { "type": "string", "minLength": 1 }
+      },
+      "dependentRequired": {
+        "channelId": ["senderMemberId"],
+        "senderMemberId": ["channelId"],
+        "addresseeMemberId": ["channelId"]
       }
     },
     "AckV1": {
@@ -48,6 +56,35 @@
         "status": { "enum": ["ack", "nack"] },
         "reason": { "type": "string" },
         "at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "SignedAckV1": {
+      "description": "Ed25519-signed delivery acknowledgement bound to the original envelope and expected peer.",
+      "type": "object",
+      "required": [
+        "ackVersion",
+        "msgId",
+        "messageDigest",
+        "conversationId",
+        "senderAgentId",
+        "recipientAgentId",
+        "status",
+        "at",
+        "nonce",
+        "signature"
+      ],
+      "properties": {
+        "ackVersion": { "const": "1.0" },
+        "msgId": { "type": "string", "minLength": 1 },
+        "messageDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "conversationId": { "type": "string", "minLength": 1 },
+        "senderAgentId": { "type": "string", "minLength": 1 },
+        "recipientAgentId": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ack", "nack"] },
+        "reason": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" },
+        "nonce": { "type": "string", "minLength": 1 },
+        "signature": { "type": "string", "minLength": 1 }
       }
     },
     "PresenceFrameV1": {

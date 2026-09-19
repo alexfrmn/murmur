@@ -4,6 +4,28 @@ import {
   buildReplyMatcher,
   waitForReply,
 } from "../packages/mcp-server/dist/src/request-reply.js";
+import {
+  codexTaskConversationId,
+  defaultPeerConversationId,
+} from "../packages/mcp-server/dist/src/codex-routing.js";
+
+test("Codex task ids become exact-task conversation ids", () => {
+  const threadId = "11111111-1111-4111-8111-111111111111";
+  assert.equal(codexTaskConversationId(threadId), `codex:task:${threadId}`);
+  assert.equal(defaultPeerConversationId({
+    to: "agent-b",
+    agentId: "agent-a",
+    codexThreadId: threadId,
+  }), `codex:task:${threadId}`);
+});
+
+test("non-Codex callers preserve the legacy peer conversation default", () => {
+  assert.equal(defaultPeerConversationId({
+    to: "agent-b",
+    agentId: "agent-a",
+    codexThreadId: "not-a-thread-id",
+  }), "dm:agent-a:agent-b");
+});
 
 const reply = (msgId) => ({
   id: msgId,
@@ -23,6 +45,13 @@ test("buildReplyMatcher matches same conversation + peer, rejects others", () =>
   assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.b" }), true);
   assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.c" }), false);
   assert.equal(match({ conversationId: "conv-2", senderAgentId: "agent.b" }), false);
+});
+
+test("buildReplyMatcher can distinguish members sharing one transport agent", () => {
+  const match = buildReplyMatcher("conv-1", "agent.b", "topic:5935");
+  assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.b", senderMemberId: "topic:5935" }), true);
+  assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.b", senderMemberId: "topic:33" }), false);
+  assert.equal(match({ conversationId: "conv-1", senderAgentId: "agent.b" }), false);
 });
 
 // --- A: durability when live-wait is OFF (pure store polling, no signal) ------

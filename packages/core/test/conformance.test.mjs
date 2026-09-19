@@ -2,10 +2,11 @@
 // Validates fixtures against the machine-readable JSON Schema (schema/protocol-v1.schema.json)
 // AND asserts the schema and the runtime guards AGREE on every structural case — so the spec and
 // the implementation can't silently drift, and a cross-language implementer can trust either as
-// the contract. Covered wire types: EnvelopeV1, AckV1, PresenceFrameV1, SignedPresenceFrameV1,
+// the contract. Covered wire types: EnvelopeV1, AckV1, SignedAckV1, PresenceFrameV1, SignedPresenceFrameV1,
 // StreamStart/StreamChunk/StreamEnd (+ the discriminated StreamFrame union). No external validator
 // dep: a tiny subset validator interprets the flat protocol $defs
-// (type incl. boolean / required / const / enum / minLength / minItems / items / exclusiveMinimum / oneOf).
+// (type incl. boolean / required / const / enum / minLength / pattern / minItems / items /
+// exclusiveMinimum / dependentRequired / oneOf).
 // The only runtime-only check is `format: date-time` validity, which Draft 2020-12 treats as an
 // advisory annotation (not an assertion); the guards enforce it via Date.parse and it sits outside
 // the agreement matrices (documented per-type). Everything else — including ttlMs > 0 and non-empty
@@ -17,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   isEnvelopeV1,
+  isSignedAckV1,
   isPresenceFrameV1,
   isSignedPresenceFrameV1,
   isStreamStart,
@@ -54,12 +56,20 @@ function validate(def, value, p = "$") {
       for (const [k, sub] of Object.entries(def.properties ?? {})) {
         if (k in value) errs.push(...validate(sub, value[k], `${p}.${k}`));
       }
+      for (const [trigger, dependencies] of Object.entries(def.dependentRequired ?? {})) {
+        if (trigger in value) {
+          for (const dependency of dependencies) {
+            if (!(dependency in value)) errs.push(`${p}.${dependency}: required by ${trigger}`);
+          }
+        }
+      }
       // unknown properties are intentionally allowed (forward compatibility)
       break;
     }
     case "string":
       if (typeof value !== "string") errs.push(`${p}: string`);
       else if (def.minLength != null && value.length < def.minLength) errs.push(`${p}: minLength`);
+      else if (def.pattern != null && !(new RegExp(def.pattern)).test(value)) errs.push(`${p}: pattern`);
       break;
     case "number":
       if (typeof value !== "number") errs.push(`${p}: number`);
@@ -80,6 +90,7 @@ function validate(def, value, p = "$") {
 }
 const envelopeOk = (v) => validate(schema.$defs.EnvelopeV1, v).length === 0;
 const ackOk = (v) => validate(schema.$defs.AckV1, v).length === 0;
+const signedAckOk = (v) => validate(schema.$defs.SignedAckV1, v).length === 0;
 const presenceOk = (v) => validate(schema.$defs.PresenceFrameV1, v).length === 0;
 const signedPresenceOk = (v) => validate(schema.$defs.SignedPresenceFrameV1, v).length === 0;
 const streamStartOk = (v) => validate(schema.$defs.StreamStart, v).length === 0;
@@ -105,7 +116,7 @@ const without = (key) => { const e = { ...GOOD }; delete e[key]; return e; };
 
 test("schema bundle is a valid Draft 2020-12 $defs registry", () => {
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
-  assert.ok(schema.$defs?.EnvelopeV1 && schema.$defs?.AckV1);
+  assert.ok(schema.$defs?.EnvelopeV1 && schema.$defs?.AckV1 && schema.$defs?.SignedAckV1);
   assert.equal(schema.$defs.EnvelopeV1.properties.schemaVersion.const, "1.0");
 });
 
@@ -151,11 +162,69 @@ test("optional fields + forward-compatible unknown fields are accepted by both",
   assert.equal(isEnvelopeV1(e), true);
 });
 
+test("Phase N routing fields are optional as a group and schema/runtime reject partial identity", () => {
+  const routed = {
+    ...GOOD,
+    channelId: "channel-1",
+    senderMemberId: "member-a",
+    addresseeMemberId: "member-b",
+  };
+  assert.equal(envelopeOk(routed), true);
+  assert.equal(isEnvelopeV1(routed), true);
+  for (const partial of [
+    { ...GOOD, channelId: "channel-1" },
+    { ...GOOD, senderMemberId: "member-a" },
+    { ...GOOD, addresseeMemberId: "member-b" },
+    { ...GOOD, channelId: "channel-1", addresseeMemberId: "member-b" },
+  ]) {
+    assert.equal(envelopeOk(partial), false);
+    assert.equal(isEnvelopeV1(partial), false);
+  }
+});
+
 test("AckV1: required fields + status enum", () => {
   assert.equal(ackOk({ msgId: "m", consumerId: "c", status: "ack", at: "2026-06-21T00:00:00Z" }), true);
   assert.equal(ackOk({ msgId: "m", consumerId: "c", status: "nack", reason: "x", at: "2026-06-21T00:00:00Z" }), true);
   assert.equal(ackOk({ msgId: "m", consumerId: "c", status: "maybe", at: "2026-06-21T00:00:00Z" }), false);
   assert.equal(ackOk({ msgId: "m", status: "ack", at: "2026-06-21T00:00:00Z" }), false);
+});
+
+const GOOD_SIGNED_ACK = Object.freeze({
+  ackVersion: "1.0",
+  msgId: "m",
+  messageDigest: `sha256:${"a".repeat(64)}`,
+  conversationId: "conversation",
+  senderAgentId: "agent-b",
+  recipientAgentId: "agent-a",
+  status: "ack",
+  at: "2026-06-21T00:00:00Z",
+  nonce: "nonce",
+  signature: "signature",
+});
+
+test("a conformant SignedAckV1 passes BOTH the schema and isSignedAckV1", () => {
+  assert.equal(signedAckOk(GOOD_SIGNED_ACK), true);
+  assert.equal(isSignedAckV1(GOOD_SIGNED_ACK), true);
+  assert.equal(signedAckOk({ ...GOOD_SIGNED_ACK, reason: "duplicate-ignored", futureFieldV2: "x" }), true);
+  assert.equal(isSignedAckV1({ ...GOOD_SIGNED_ACK, reason: "duplicate-ignored", futureFieldV2: "x" }), true);
+});
+
+test("schema and isSignedAckV1 agree on every structural violation", () => {
+  const bad = [
+    ["ackVersion const", { ...GOOD_SIGNED_ACK, ackVersion: "2.0" }],
+    ["missing msgId", omit(GOOD_SIGNED_ACK, "msgId")],
+    ["bad digest", { ...GOOD_SIGNED_ACK, messageDigest: "sha256:nope" }],
+    ["empty conversation", { ...GOOD_SIGNED_ACK, conversationId: "" }],
+    ["empty sender", { ...GOOD_SIGNED_ACK, senderAgentId: "" }],
+    ["empty recipient", { ...GOOD_SIGNED_ACK, recipientAgentId: "" }],
+    ["bad status", { ...GOOD_SIGNED_ACK, status: "maybe" }],
+    ["empty nonce", { ...GOOD_SIGNED_ACK, nonce: "" }],
+    ["empty signature", { ...GOOD_SIGNED_ACK, signature: "" }],
+  ];
+  for (const [label, ack] of bad) {
+    assert.equal(signedAckOk(ack), false, `schema must reject: ${label}`);
+    assert.equal(isSignedAckV1(ack), false, `isSignedAckV1 must reject: ${label}`);
+  }
 });
 
 // Note: `createdAt` carries JSON-Schema `format: date-time` (advisory) and is enforced at

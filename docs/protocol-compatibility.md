@@ -23,7 +23,8 @@ discriminated structurally — `presenceVersion: "1.0"` for presence, `kind` for
 - **Forward-compatible reads.** Unknown top-level fields are **permitted and ignored**
   (no `additionalProperties: false`). A future minor MAY add optional fields without
   bumping `schemaVersion`; older consumers ignore them. Current optional fields:
-  `ttlSeconds`, `traceId`, `sequence`, `parentMsgId`.
+  `ttlSeconds`, `traceId`, `sequence`, `parentMsgId`, `channelId`,
+  `senderMemberId`, `addresseeMemberId`, `authToken`.
 - **Breaking change ⇒ new version.** Removing/renaming a required field, changing a
   type, or tightening an enum bumps `schemaVersion` (e.g. `2.0`). Consumers gate on it.
 - **Signature/crypto are out of band of the schema.** The schema validates *shape*;
@@ -49,7 +50,15 @@ discriminated structurally — `presenceVersion: "1.0"` for presence, `kind` for
 | `traceId` | — | string | |
 | `sequence` | — | number | |
 | `parentMsgId` | — | string | |
+| `channelId` | — | string | non-empty; requires `senderMemberId` |
+| `senderMemberId` | — | string | non-empty; requires `channelId` |
+| `addresseeMemberId` | — | string | non-empty; requires `channelId` |
 | `authToken` | — | string | non-empty if present; bearer (`MURMUR-AUTH:…`) |
+
+The Phase N routing fields are covered by the envelope signature. Their order in the
+canonical signing payload is `channelId`, `senderMemberId`, `addresseeMemberId`, followed
+by `authToken`. If all three are absent, the signing bytes and delivery semantics are
+identical to legacy v1 envelopes.
 
 **`authToken` is part of the signed payload.** When present it is appended to
 `stableEnvelopePayload` in a fixed final position, so it cannot be stripped or swapped

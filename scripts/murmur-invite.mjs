@@ -7,16 +7,17 @@
  * Usage: node scripts/murmur-invite.mjs
  * Env: DATA_DIR (default: .data)
  */
-import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { readPrivateJson } from "./secure-state.mjs";
 
 const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
 
 let config;
 try {
-  config = JSON.parse(await readFile(configPath, "utf8"));
-} catch {
+  config = await readPrivateJson(configPath);
+} catch (err) {
+  if (err?.code !== "ENOENT") throw err;
   console.error("[invite] No agent config found. Run first: node scripts/agent-config-init.mjs");
   process.exit(1);
 }

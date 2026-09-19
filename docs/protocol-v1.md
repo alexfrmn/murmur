@@ -12,7 +12,8 @@ the guards cannot drift. Versioning and forward-compatibility rules live in
 | Type | Purpose | Schema `$def` | Runtime guard |
 |------|---------|---------------|---------------|
 | `EnvelopeV1` | encrypted inbound message | document root (`#/$defs/EnvelopeV1`) | `isEnvelopeV1` |
-| `AckV1` | delivery acknowledgement | `#/$defs/AckV1` | — |
+| `AckV1` | legacy unsigned delivery acknowledgement | `#/$defs/AckV1` | — |
+| `SignedAckV1` | signed, peer/message-bound delivery acknowledgement | `#/$defs/SignedAckV1` | `isSignedAckV1` |
 | `PresenceFrameV1` | discovery announcement (public metadata) | `#/$defs/PresenceFrameV1` | `isPresenceFrameV1` |
 | `SignedPresenceFrameV1` | Ed25519-signed presence | `#/$defs/SignedPresenceFrameV1` | `isSignedPresenceFrameV1` |
 | `StreamStart` / `StreamChunk` / `StreamEnd` | chunked payload streaming | `#/$defs/Stream*` (+ `StreamFrame` union) | `isStreamStart` / `isStreamChunk` / `isStreamEnd` / `isStreamFrame` |
@@ -28,8 +29,42 @@ Envelope message payloads are encrypted on the wire; presence frames are intenti
 3. Publish to subject `msg.<conversationId>`
 4. Consumer validates schema+signature
 5. Consumer processes idempotently using `msgId`
-6. Consumer emits ACK or NACK
-7. Retry policy moves failed messages; terminal failures go to DLQ
+6. Consumer emits a signed ACK or NACK bound to the message digest, conversation, sender,
+   recipient, timestamp, and nonce.
+7. Sender verifies the signature against the expected peer key and applies an atomic transition
+   only while the outbox row is in flight. Replays and mismatched bindings are rejected.
+8. Retry policy moves failed messages; terminal failures go to DLQ.
+
+### Signed ACK migration
+
+The daemon emits `SignedAckV1` by default. During a rolling upgrade,
+`ackSecurity.requireSigned` (or `MURMUR_REQUIRE_SIGNED_ACKS=1`) remains disabled until every peer
+emits signed ACKs; old consumers ignore the additional signed fields. Once peers are upgraded,
+enable strict mode on every endpoint. Strict correlation rejects legacy ACKs, stale/future
+timestamps, wrong peers, wrong conversations or recipients, digest mismatches, invalid signatures,
+and repeated/non-in-flight transitions. Rejections increment reason-tagged counters and emit
+metadata-only security events; ACK bodies and message contents are never logged.
+
+Retryable `failed` rows remain eligible for verified ACK/NACK transitions, alongside
+`pending` and `sent`. A signed `poison-message:*` NACK settles them atomically as
+`dlq`; neither `acked` nor `dlq` accepts another transition. ACK timeouts preserve
+an existing failure reason so exhaustion reports the peer's diagnosis.
+
+Outbox retries use `msgId:v<row-version>` as the JetStream transport dedupe ID.
+The signed envelope is unchanged. The row version advances on NACK/timeout even
+if a fast NACK prevented `markSent` from incrementing attempts, so the new send
+reaches the receiver inside the server's duplicate window. Direct `publish()`
+calls retain message-ID deduplication unless given an explicit transport ID.
+External outbox stores that omit the optional row version get a fresh random
+transport ID per publish call instead; receiver-side envelope deduplication still
+applies. A constant or attempts-based fallback would suppress fast-NACK retries.
+
+`config.proxySubjects` creates wake bridges, not delivery to another agent's inbox.
+Proxy subscriptions suppress delivery ACK/NACKs, including errors and duplicate
+receipts; their own JetStream consumer acknowledgements are independent. The
+addressed agent must run a daemon and acknowledge with its own key. Without it,
+the sender retries and eventually moves the unconfirmed message to DLQ; startup
+logs warn about this condition. No proxy delegation or alternate signer is trusted.
 
 An optional `authToken` (bearer `MURMUR-AUTH:…`) authorizes the sender. When present it
 is part of the signed payload (cannot be stripped/swapped) and can be verified with
@@ -37,6 +72,20 @@ is part of the signed payload (cannot be stripped/swapped) and can be verified w
 helper gated by `MURMUR_ENFORCE_AUTH`) is forthcoming in auth/authz #47 PR-D. Absent on
 un-authenticated envelopes, which sign byte-identically to before the field existed —
 see [`protocol-compatibility.md`](protocol-compatibility.md).
+
+### Typed channel identity and addressing
+
+Phase N messages may carry the signed routing tuple `channelId`, `senderMemberId`, and
+optional `addresseeMemberId`. `memberId` is stable within a channel and is distinct from
+both the transport-level `senderAgentId` and the history/session label `conversationId`.
+This lets several logical members share one transport agent while replies still correlate
+to the intended member.
+
+`channelId` and `senderMemberId` must appear together; `addresseeMemberId` requires them.
+When the daemon's channel roster is enabled, it verifies the authenticated sender owns
+`senderMemberId`, rejects unknown/closed channels or non-members, stores broadcasts for
+the channel, and wakes only the explicit addressee. With no routing tuple, v1 legacy
+delivery remains unchanged. See [`phase-n-routing.md`](phase-n-routing.md) for rollout.
 
 ## Delivery model
 - at-least-once delivery

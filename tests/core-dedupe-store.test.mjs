@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { InMemoryDedupeStore, SQLiteDedupeOutboxStore } from "../packages/core/dist/src/index.js";
@@ -33,10 +33,44 @@ test("SQLiteDedupeOutboxStore markSeen/seen roundtrip", async () => {
 
   try {
     const store = new SQLiteDedupeOutboxStore(dbPath);
+    assert.equal(statSync(dbPath).mode & 0o777, 0o600);
     assert.equal(await store.seen("m1", "consumer-1"), false);
     await store.markSeen("m1", "consumer-1");
     assert.equal(await store.seen("m1", "consumer-1"), true);
     assert.equal(await store.seen("m1", "consumer-2"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("SQLiteDedupeOutboxStore applies an ACK transition exactly once while sent", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "murmur-ack-transition-"));
+  const dbPath = join(dir, "murmur.db");
+  const envelope = {
+    schemaVersion: "1.0",
+    msgId: "m-ack-once",
+    conversationId: "conversation",
+    senderAgentId: "sender",
+    recipients: ["receiver"],
+    createdAt: new Date().toISOString(),
+    payloadCiphertext: "ciphertext",
+    payloadNonce: "nonce",
+    signature: "signature",
+  };
+
+  try {
+    const store = new SQLiteDedupeOutboxStore(dbPath);
+    await store.enqueue("msg.receiver", envelope);
+    await store.markSent(envelope.msgId);
+
+    assert.equal(await store.applyAckTransition(envelope.msgId, "ack"), "applied");
+    const afterFirst = await store.getOutboxRecord(envelope.msgId);
+    assert.equal(afterFirst.status, "acked");
+
+    assert.equal(await store.applyAckTransition(envelope.msgId, "ack"), "not-in-flight");
+    const afterReplay = await store.getOutboxRecord(envelope.msgId);
+    assert.equal(afterReplay.status, "acked");
+    assert.equal(afterReplay.version, afterFirst.version);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

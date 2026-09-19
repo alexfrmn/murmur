@@ -61,7 +61,7 @@ The Mac peer config needs these wake fields:
         "dataDir": "/Users/alex/.local/share/mur-mur-v2/.data-codex-mac-kovalyaevo",
         "storePath": "/Users/alex/.local/share/mur-mur-v2/.data-codex-mac-kovalyaevo/murmur.db",
         "relayFinalToMurmur": true,
-        "replyTimeoutMs": 180000
+        "replyTimeoutMs": 600000
       }
     }
   }
@@ -150,7 +150,22 @@ ssh -T agent-command-center \
 
 ## Last Known Good Verification
 
-Final smoke after the relay fix:
+Reply-window smoke on 2026-08-06:
+
+- Conversation: `codex:wake:reply-timeout-smoke-20260806T0818Z`
+- Mac inbound: `376adb3f-ca05-4f9b-988d-9b607007927d`, DB row `110`
+- Mac outbound: `8c02926b-5a51-44ad-9b85-0ad91acf29fe`, DB row `111`
+- Evidence: outbox `acked` on attempt `1`; server DB received the reply in row
+  `4734`
+- DORFA canary receipt: `6433daaf-c7b0-439a-8de0-cdf2b8ec0c4d`, server row
+  `4735`
+
+The 600-second window was introduced after a five-minute ontology canary
+completed successfully but the former 180-second reply monitor reported a false
+timeout. The new value changes reply collection only; the shared NATS broker was
+not restarted.
+
+Previous final smoke after the relay fix:
 
 - Inbound from server/JARVIS:
   `68e84b1c-0db9-4293-9ee0-c9b9599d12f3`

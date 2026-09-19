@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, promises as fs } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -28,6 +28,10 @@ export interface EnvelopeV1 {
   traceId?: string;
   sequence?: number;
   parentMsgId?: string;
+  /** Phase N routing identity. Member ids are scoped to channelId. */
+  channelId?: string;
+  senderMemberId?: string;
+  addresseeMemberId?: string;
   /** Optional bearer auth token (`MURMUR-AUTH:...`) authorizing the sender. When present
    *  it is part of the signed payload (so it can't be stripped/swapped) and can be
    *  verified with @murmurv2/federation `verifyAuthToken`. Ingress enforcement (an
@@ -48,6 +52,57 @@ export interface AckV1 {
   at: string;
 }
 
+export interface SignedAckV1 {
+  ackVersion: "1.0";
+  msgId: string;
+  messageDigest: string;
+  conversationId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  status: "ack" | "nack";
+  reason?: string;
+  at: string;
+  nonce: string;
+  signature: string;
+}
+
+export type UnsignedAckV1 = Omit<SignedAckV1, "signature">;
+
+export const envelopeDigest = (envelope: EnvelopeV1): string =>
+  `sha256:${createHash("sha256").update(stableEnvelopePayload(envelope)).digest("hex")}`;
+
+export const stableAckPayload = (ack: UnsignedAckV1 | SignedAckV1): string =>
+  JSON.stringify({
+    ackVersion: ack.ackVersion,
+    msgId: ack.msgId,
+    messageDigest: ack.messageDigest,
+    conversationId: ack.conversationId,
+    senderAgentId: ack.senderAgentId,
+    recipientAgentId: ack.recipientAgentId,
+    status: ack.status,
+    ...(ack.reason !== undefined ? { reason: ack.reason } : {}),
+    at: ack.at,
+    nonce: ack.nonce,
+  });
+
+export const isSignedAckV1 = (value: unknown): value is SignedAckV1 => {
+  if (!value || typeof value !== "object") return false;
+  const ack = value as Record<string, unknown>;
+  return (
+    ack.ackVersion === "1.0" &&
+    typeof ack.msgId === "string" && ack.msgId.length > 0 &&
+    typeof ack.messageDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(ack.messageDigest) &&
+    typeof ack.conversationId === "string" && ack.conversationId.length > 0 &&
+    typeof ack.senderAgentId === "string" && ack.senderAgentId.length > 0 &&
+    typeof ack.recipientAgentId === "string" && ack.recipientAgentId.length > 0 &&
+    (ack.status === "ack" || ack.status === "nack") &&
+    (ack.reason === undefined || typeof ack.reason === "string") &&
+    typeof ack.at === "string" && !Number.isNaN(Date.parse(ack.at)) &&
+    typeof ack.nonce === "string" && ack.nonce.length > 0 &&
+    typeof ack.signature === "string" && ack.signature.length > 0
+  );
+};
+
 /**
  * Canonical signing payload for an EnvelopeV1 — the SINGLE SOURCE OF TRUTH every
  * signer and verifier MUST use, so signatures interoperate across the whole mesh
@@ -66,23 +121,85 @@ export const stableEnvelopePayload = (envelope: EnvelopeV1): string =>
     createdAt: envelope.createdAt,
     payloadCiphertext: envelope.payloadCiphertext,
     payloadNonce: envelope.payloadNonce,
+    // Phase N identity is optional and appended only when present. Legacy
+    // envelopes therefore retain their byte-identical signing payload.
+    ...(envelope.channelId !== undefined ? { channelId: envelope.channelId } : {}),
+    ...(envelope.senderMemberId !== undefined ? { senderMemberId: envelope.senderMemberId } : {}),
+    ...(envelope.addresseeMemberId !== undefined ? { addresseeMemberId: envelope.addresseeMemberId } : {}),
     // authToken is appended ONLY when present, in a fixed final position: envelopes
     // without it sign byte-identically to before this field existed (back-compat),
     // and when present it is covered by the signature so it can't be stripped/swapped.
     ...(envelope.authToken !== undefined ? { authToken: envelope.authToken } : {}),
   });
 
-export interface DedupeStore {
-  seen(msgId: string, consumerId: string): Promise<boolean>;
-  markSeen(msgId: string, consumerId: string): Promise<void>;
+/**
+ * Что известно о конверте в момент отметки.
+ *
+ * Хранится ради одной операции: `add-peer` обязан уметь снять отметку ровно с тех писем,
+ * которые не доехали из-за отсутствия этого пира, и не тронуть доставленные. Без
+ * отправителя в строке такая выборка невозможна — по одному `msgId` не видно, от кого он.
+ */
+export interface DedupeSeenMeta {
+  /** Отправитель конверта — по нему `add-peer` находит, что расшивать. */
+  senderAgentId?: string;
+  /** Заполнена, когда конверт отмечен как отравленный, а не как доставленный. */
+  poisonReason?: string;
 }
 
-export class InMemoryDedupeStore implements DedupeStore {
-  private readonly keys: Map<string, true>;
+export interface DedupeStore {
+  seen(msgId: string, consumerId: string): Promise<boolean>;
+  markSeen(msgId: string, consumerId: string, meta?: DedupeSeenMeta): Promise<void>;
+  /**
+   * Снять отметку с ОТРАВЛЕННЫХ конвертов указанного отправителя; возвращает число снятых.
+   *
+   * Доставленные не трогает намеренно: иначе после `add-peer` заново приедет вся история
+   * переписки с этим пиром. Метод необязателен — реализация, не хранящая отправителя,
+   * его не объявляет, и вызывающий обязан это проверить.
+   */
+  clearPoisonedFrom?(senderAgentId: string): Promise<number>;
+}
+
+/**
+ * Durable replay protection for signed acknowledgements.
+ *
+ * An in-memory nonce set forgets everything on restart, which lets a signed NACK be
+ * replayed against a fresh process: the retry returns the row to `sent` and the replayed
+ * NACK fails it again. Implementations of this interface must survive a restart.
+ *
+ * `claimAckNonce` is claim-once semantics: it returns true the first time a nonce is seen
+ * and false for every subsequent call, so callers never need a separate check-then-write.
+ */
+export interface AckReceiptStore {
+  claimAckNonce(senderAgentId: string, nonce: string): Promise<boolean>;
+}
+
+/** Non-durable fallback. Use only where a restart cannot happen (tests, one-shot tools). */
+export class InMemoryAckReceiptStore implements AckReceiptStore {
+  private readonly keys = new Map<string, true>();
   private readonly maxSize: number;
 
   constructor(maxSize = 10_000) {
-    this.keys = new Map<string, true>();
+    this.maxSize = Math.max(1, Math.floor(maxSize));
+  }
+
+  async claimAckNonce(senderAgentId: string, nonce: string): Promise<boolean> {
+    const key = `${senderAgentId}:${nonce}`;
+    if (this.keys.has(key)) return false;
+    this.keys.set(key, true);
+    if (this.keys.size > this.maxSize) {
+      const oldest = this.keys.keys().next();
+      if (!oldest.done) this.keys.delete(oldest.value);
+    }
+    return true;
+  }
+}
+
+export class InMemoryDedupeStore implements DedupeStore {
+  private readonly keys: Map<string, DedupeSeenMeta>;
+  private readonly maxSize: number;
+
+  constructor(maxSize = 10_000) {
+    this.keys = new Map<string, DedupeSeenMeta>();
     this.maxSize = Math.max(1, Math.floor(maxSize));
   }
 
@@ -90,9 +207,20 @@ export class InMemoryDedupeStore implements DedupeStore {
     return this.keys.has(`${consumerId}:${msgId}`);
   }
 
-  async markSeen(msgId: string, consumerId: string): Promise<void> {
-    this.keys.set(`${consumerId}:${msgId}`, true);
+  async markSeen(msgId: string, consumerId: string, meta: DedupeSeenMeta = {}): Promise<void> {
+    this.keys.set(`${consumerId}:${msgId}`, meta);
     this.evictIfNeeded();
+  }
+
+  async clearPoisonedFrom(senderAgentId: string): Promise<number> {
+    let cleared = 0;
+    for (const [key, meta] of this.keys) {
+      if (meta.senderAgentId === senderAgentId && meta.poisonReason) {
+        this.keys.delete(key);
+        cleared += 1;
+      }
+    }
+    return cleared;
   }
 
   private evictIfNeeded(): void {
@@ -160,6 +288,28 @@ export class JsonFileDedupeStore implements DedupeStore {
 
 export type OutboxStatus = "pending" | "sent" | "acked" | "failed" | "dlq";
 
+/**
+ * Statuses a row can never be moved out of: the message is settled for good.
+ *
+ * `failed` is deliberately NOT here. A failed row is *scheduled for retry*, not
+ * settled — `claimDue()` selects it on purpose. Listing it as terminal made the
+ * retry unable to complete: claimDue re-selected the row, publish succeeded,
+ * markSent() refused to touch it, so status stayed `failed`, `attempts` never
+ * grew (no DLQ), `nextAttemptAt` stayed in the past (immediate re-claim), and
+ * the returning ACK was rejected as message-not-in-flight. An infinite loop with
+ * no way to settle it short of a manual dlq (#113).
+ *
+ * The race that put it here — a fast ACK landing between publish() and markSent(),
+ * where a late markSent() would drag the settled row back into flight — is handled
+ * by the `expectedVersion` compare-and-swap on markSent() instead. That guards the
+ * row against *any* concurrent transition, not just the two statuses someone
+ * remembered to enumerate.
+ */
+export const TERMINAL_OUTBOX_STATUSES: ReadonlySet<OutboxStatus> = new Set<OutboxStatus>([
+  "acked",
+  "dlq",
+]);
+
 export interface OutboxRecord {
   msgId: string;
   subject: string;
@@ -177,10 +327,26 @@ export interface OutboxStore {
   enqueue(subject: string, envelope: EnvelopeV1): Promise<void>;
   claimDue(limit?: number): Promise<OutboxRecord[]>;
   listInFlight?(): Promise<OutboxRecord[]>;
-  markSent(msgId: string): Promise<void>;
+  getOutboxRecord(msgId: string): Promise<OutboxRecord | undefined>;
+  /**
+   * Move a claimed row into flight.
+   *
+   * Pass the `version` the row carried when `claimDue()` returned it: the update is
+   * then applied only while the row is untouched, so an ACK/NACK that landed between
+   * publish() and this call keeps its verdict instead of being overwritten with
+   * `sent`. Omitting it keeps the old best-effort behaviour (settled rows are still
+   * protected) and is only appropriate outside the claim → publish → mark path.
+   */
+  markSent(msgId: string, expectedVersion?: number): Promise<void>;
   markAcked(msgId: string): Promise<void>;
   markFailed(msgId: string, error: string, nextAttemptAt: string): Promise<void>;
   markDlq(msgId: string, error: string): Promise<void>;
+  applyAckTransition(
+    msgId: string,
+    status: AckV1["status"],
+    error?: string,
+    nextAttemptAt?: string,
+  ): Promise<"applied" | "not-found" | "not-in-flight">;
   requeueStaleSent?(ackTimeoutMs: number, reason?: string): Promise<number>;
 }
 
@@ -240,10 +406,20 @@ export class JsonFileOutboxStore implements OutboxStore {
     return state.records.filter((r) => r.status === "sent");
   }
 
-  async markSent(msgId: string): Promise<void> {
+  async getOutboxRecord(msgId: string): Promise<OutboxRecord | undefined> {
+    const state = await this.load();
+    return state.records.find((record) => record.msgId === msgId);
+  }
+
+  async markSent(msgId: string, expectedVersion?: number): Promise<void> {
     const state = await this.load();
     const row = state.records.find((r) => r.msgId === msgId);
     if (!row) return;
+    // A settled row is never dragged back into flight.
+    if (TERMINAL_OUTBOX_STATUSES.has(row.status)) return;
+    // Compare-and-swap against the version claimDue() handed out: if anything moved the
+    // row since (a fast ACK/NACK between publish() and this call), that verdict wins.
+    if (expectedVersion !== undefined && (row.version ?? 1) !== expectedVersion) return;
     row.status = "sent";
     row.attempts += 1;
     row.updatedAt = new Date().toISOString();
@@ -284,6 +460,33 @@ export class JsonFileOutboxStore implements OutboxStore {
     await this.save(state);
   }
 
+  async applyAckTransition(
+    msgId: string,
+    status: AckV1["status"],
+    error = "nack",
+    nextAttemptAt = new Date().toISOString(),
+  ): Promise<"applied" | "not-found" | "not-in-flight"> {
+    const state = await this.load();
+    const row = state.records.find((record) => record.msgId === msgId);
+    if (!row) return "not-found";
+    // Failed rows still await a retry/verdict; only settled rows reject later ACKs.
+    // Pending also covers a fast ACK arriving between publish() and markSent().
+    if (TERMINAL_OUTBOX_STATUSES.has(row.status)) return "not-in-flight";
+
+    const now = new Date().toISOString();
+    if (status === "ack") {
+      row.status = "acked";
+    } else {
+      row.status = error.startsWith("poison-message:") ? "dlq" : "failed";
+      row.lastError = error;
+      row.nextAttemptAt = nextAttemptAt;
+    }
+    row.updatedAt = now;
+    row.version = (row.version ?? 0) + 1;
+    await this.save(state);
+    return "applied";
+  }
+
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {
     const state = await this.load();
     const now = Date.now();
@@ -293,7 +496,8 @@ export class JsonFileOutboxStore implements OutboxStore {
       const ageMs = now - new Date(row.updatedAt).getTime();
       if (ageMs < ackTimeoutMs) continue;
       row.status = "failed";
-      row.lastError = reason;
+      // Preserve the peer's diagnosis across a later lost ACK (#143).
+      row.lastError ||= reason;
       row.nextAttemptAt = new Date(now).toISOString();
       row.updatedAt = new Date(now).toISOString();
       row.version = (row.version ?? 0) + 1;
@@ -307,11 +511,58 @@ export class JsonFileOutboxStore implements OutboxStore {
 }
 
 const ensureDir = (filePath: string): void => {
+  if (filePath === ":memory:" || filePath.startsWith("file::memory:")) return;
   const dir = path.dirname(filePath);
-  mkdirSync(dir, { recursive: true });
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const dirStats = lstatSync(dir);
+  if (dirStats.isSymbolicLink() || !dirStats.isDirectory()) {
+    throw new Error(`sqlite-state-directory-invalid:${dir}`);
+  }
+  if (typeof process.getuid === "function" && dirStats.uid !== process.getuid()) {
+    throw new Error(`sqlite-state-directory-owner-mismatch:${dir}`);
+  }
+
+  if (existsSync(filePath)) {
+    const fileStats = lstatSync(filePath);
+    if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
+      throw new Error(`sqlite-state-file-invalid:${filePath}`);
+    }
+    if (typeof process.getuid === "function" && fileStats.uid !== process.getuid()) {
+      throw new Error(`sqlite-state-file-owner-mismatch:${filePath}`);
+    }
+  }
 };
 
-export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
+const secureSqliteFiles = (filePath: string): void => {
+  if (filePath === ":memory:" || filePath.startsWith("file::memory:")) return;
+  for (const candidate of [filePath, `${filePath}-wal`, `${filePath}-shm`]) {
+    if (existsSync(candidate)) chmodSync(candidate, 0o600);
+  }
+};
+
+/**
+ * Отказы, которые чинит настройка, а не переотправка.
+ *
+ * Письмо от ещё не добавленного пира расшифровать нельзя, но это временное состояние:
+ * `add-peer` его исправит. Если считать такой отказ отравленным письмом, конверт после
+ * трёх попыток уходит в `dedupe_seen` НАВСЕГДА — и уже не доедет даже после добавления
+ * пира, потому что каждый следующий ретрай отбивается как `duplicate-ignored`.
+ *
+ * Отправитель при этом продолжает ретраить, получатель продолжает отбивать: за ночь на
+ * машине agent-kirill это дало 3898 повторных доставок одного msgId, 12243 переотправки
+ * и 1008 реконнектов к брокеру (найдено 2026-09-11). Наши собственные два застрявших
+ * msgId лежат в dedupe_seen с 31.08 и штормят ACK по сей день.
+ *
+ * Такие отказы обязаны оставаться retryable: JetStream ограничит число доставок сам и
+ * положит конверт в DLQ, откуда он виден и восстановим.
+ */
+export const RECOVERABLE_REJECTION_PREFIXES = ["unknown-sender:"] as const;
+
+export function isRecoverableRejection(reason: string): boolean {
+  return RECOVERABLE_REJECTION_PREFIXES.some((p) => reason.startsWith(p));
+}
+
+export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckReceiptStore {
   private readonly db: DatabaseSync;
 
   constructor(dbPath = ".data/murmur.db") {
@@ -319,11 +570,20 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       PRAGMA journal_mode=WAL;
+      PRAGMA busy_timeout=10000;
       CREATE TABLE IF NOT EXISTS dedupe_seen (
         consumer_id TEXT NOT NULL,
         msg_id TEXT NOT NULL,
         seen_at TEXT NOT NULL,
+        sender_agent_id TEXT,
+        poison_reason TEXT,
         PRIMARY KEY (consumer_id, msg_id)
+      );
+      CREATE TABLE IF NOT EXISTS ack_receipts (
+        sender_agent_id TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        claimed_at TEXT NOT NULL,
+        PRIMARY KEY (sender_agent_id, nonce)
       );
       CREATE TABLE IF NOT EXISTS outbox (
         msg_id TEXT PRIMARY KEY,
@@ -339,6 +599,27 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
       );
       CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox(status, next_attempt_at);
     `);
+    this.migrateDedupeSeenColumns();
+    secureSqliteFiles(dbPath);
+  }
+
+  /**
+   * Дописать колонки происхождения в уже существующую `dedupe_seen`.
+   *
+   * `CREATE TABLE IF NOT EXISTS` на живой базе не делает ничего, поэтому у всех установок,
+   * созданных до 2.8.1, таблица остаётся трёхколоночной. У строк, записанных тогда,
+   * отправитель неизвестен навсегда — `add-peer` их не расшьёт, для них есть
+   * `clearPoisonedMsgIds`.
+   */
+  private migrateDedupeSeenColumns(): void {
+    const columns = this.db.prepare("PRAGMA table_info(dedupe_seen)").all() as Array<{ name: string }>;
+    const present = new Set(columns.map((c) => c.name));
+    for (const [name, ddl] of [
+      ["sender_agent_id", "ALTER TABLE dedupe_seen ADD COLUMN sender_agent_id TEXT"],
+      ["poison_reason", "ALTER TABLE dedupe_seen ADD COLUMN poison_reason TEXT"],
+    ] as const) {
+      if (!present.has(name)) this.db.exec(ddl);
+    }
   }
 
   async seen(msgId: string, consumerId: string): Promise<boolean> {
@@ -348,12 +629,62 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
     return !!row;
   }
 
-  async markSeen(msgId: string, consumerId: string): Promise<void> {
+  async markSeen(msgId: string, consumerId: string, meta: DedupeSeenMeta = {}): Promise<void> {
     this.db
       .prepare(
-        "INSERT OR IGNORE INTO dedupe_seen (consumer_id, msg_id, seen_at) VALUES (?, ?, ?)",
+        `INSERT OR IGNORE INTO dedupe_seen
+        (consumer_id, msg_id, seen_at, sender_agent_id, poison_reason) VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(consumerId, msgId, new Date().toISOString());
+      .run(
+        consumerId,
+        msgId,
+        new Date().toISOString(),
+        meta.senderAgentId ?? null,
+        meta.poisonReason ?? null,
+      );
+  }
+
+  /**
+   * Расшить письма, застрявшие из-за того, что отправителя не было в пирах.
+   *
+   * Вызывается из `murmur-add-peer`: пир добавлен, значит причина отказа снята, и конверт
+   * обязан получить ещё один шанс. Удаляются только строки с непустым `poison_reason` —
+   * доставленные остаются, иначе повторно приедет вся переписка с этим пиром.
+   */
+  async clearPoisonedFrom(senderAgentId: string): Promise<number> {
+    const result = this.db
+      .prepare("DELETE FROM dedupe_seen WHERE sender_agent_id = ? AND poison_reason IS NOT NULL")
+      .run(senderAgentId);
+    return Number(result.changes ?? 0);
+  }
+
+  /**
+   * Ручной путь для строк, записанных до 2.8.1: отправитель в них не сохранён, поэтому
+   * снять отметку можно только по явно названным `msgId`. Ровно этим расшиваются два
+   * конверта, лежащие в боевых базах с 31.08.2026.
+   */
+  async clearPoisonedMsgIds(msgIds: readonly string[]): Promise<number> {
+    if (msgIds.length === 0) return 0;
+    const stmt = this.db.prepare("DELETE FROM dedupe_seen WHERE msg_id = ?");
+    let cleared = 0;
+    for (const msgId of msgIds) cleared += Number(stmt.run(msgId).changes ?? 0);
+    return cleared;
+  }
+
+  /**
+   * Claim-once on `(sender_agent_id, nonce)`, durable across restarts.
+   *
+   * The PRIMARY KEY does the work: `INSERT OR IGNORE` reports zero changes when the nonce
+   * was already claimed, so a replayed ACK is rejected even by a process that never saw
+   * the original.
+   */
+  async claimAckNonce(senderAgentId: string, nonce: string): Promise<boolean> {
+    const result = this.db
+      .prepare(
+        "INSERT OR IGNORE INTO ack_receipts (sender_agent_id, nonce, claimed_at) VALUES (?, ?, ?)",
+      )
+      .run(senderAgentId, nonce, new Date().toISOString());
+    return Number(result.changes ?? 0) > 0;
   }
 
   async enqueue(subject: string, envelope: EnvelopeV1): Promise<void> {
@@ -387,12 +718,32 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
     return rows.map((row) => this.toOutboxRecord(row));
   }
 
-  async markSent(msgId: string): Promise<void> {
-    await this.updateOutboxOptimistic(msgId, (row) => ({
-      status: "sent",
-      attempts: row.attempts + 1,
-      updatedAt: new Date().toISOString(),
-    }));
+  async getOutboxRecord(msgId: string): Promise<OutboxRecord | undefined> {
+    return this.getOutboxRow(msgId);
+  }
+
+  async markSent(msgId: string, expectedVersion?: number): Promise<void> {
+    // Single statement, so the guard and the write cannot be split by a concurrent
+    // transition. A settled row (acked/dlq) is never dragged back into flight, and when
+    // the caller passes the version claimDue() handed out, an ACK/NACK that landed
+    // between publish() and this call keeps its verdict — see the JSON store.
+    const terminal = [...TERMINAL_OUTBOX_STATUSES];
+    const placeholders = terminal.map(() => "?").join(", ");
+    this.db
+      .prepare(
+        `UPDATE outbox
+         SET status = 'sent', attempts = attempts + 1, updated_at = ?, version = version + 1
+         WHERE msg_id = ?
+           AND status NOT IN (${placeholders})
+           AND (? IS NULL OR version = ?)`,
+      )
+      .run(
+        new Date().toISOString(),
+        msgId,
+        ...terminal,
+        expectedVersion ?? null,
+        expectedVersion ?? null,
+      );
   }
 
   async markAcked(msgId: string): Promise<void> {
@@ -419,13 +770,37 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore {
     }));
   }
 
+  async applyAckTransition(
+    msgId: string,
+    status: AckV1["status"],
+    error = "nack",
+    nextAttemptAt = new Date().toISOString(),
+  ): Promise<"applied" | "not-found" | "not-in-flight"> {
+    const now = new Date().toISOString();
+    const nextStatus = status === "ack" ? "acked" : error.startsWith("poison-message:") ? "dlq" : "failed";
+    const nextError = status === "ack" ? null : error;
+    // 'pending' is accepted alongside 'sent' on purpose: a fast peer can acknowledge
+    // between publish() and markSent(), and rejecting that ACK leaves the row to time out
+    // into a spurious retry. markSent() refuses to downgrade a terminal status, so the
+    // late markSent() cannot overwrite the transition applied here.
+    const changed = this.db
+      .prepare(
+        `UPDATE outbox
+         SET status = ?, last_error = ?, next_attempt_at = ?, updated_at = ?, version = version + 1
+         WHERE msg_id = ? AND status IN ('sent', 'pending', 'failed')`,
+      )
+      .run(nextStatus, nextError, nextAttemptAt, now, msgId);
+    if (changed.changes > 0) return "applied";
+    return this.getOutboxRow(msgId) ? "not-in-flight" : "not-found";
+  }
+
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {
     const threshold = new Date(Date.now() - ackTimeoutMs).toISOString();
     const res = this.db
       .prepare(
         `UPDATE outbox
          SET status = 'failed',
-             last_error = ?,
+             last_error = COALESCE(NULLIF(last_error, ''), ?),
              next_attempt_at = ?,
              updated_at = ?,
              version = version + 1
@@ -523,6 +898,106 @@ export interface LocalMessageRecord {
   text: string;
   createdAt: string;
   transport?: string;
+  channelId?: string;
+  senderMemberId?: string;
+  addresseeMemberId?: string;
+  /** Local receive-time authorization decision; never transported on EnvelopeV1. */
+  wakeEligible?: boolean;
+}
+
+/**
+ * What `append` hands back: the stored row plus where it landed and whether it was
+ * already there. `duplicate: true` means the delivery id was seen before — the caller
+ * must treat that as a delivery that already succeeded, not as new work (#105).
+ */
+export type AppendedMessageRecord = LocalMessageRecord & { rowid: number; duplicate: boolean };
+
+/**
+ * Durable wake state of one inbound delivery (#105). Lives next to the row itself so the
+ * insert and the initial state commit together, and so a restart resumes from the table,
+ * not from a cursor that only ever existed in process memory.
+ *
+ *   pending  — stored, nobody has started working on it
+ *   inflight — a wake is running right now (claimed by exactly one worker)
+ *   failed   — the wake threw or timed out; retried once `nextAttemptAt` passes
+ *   handled  — the wake completed (and, for relay peers, the reply was queued)
+ *   muted    — an intentional non-wake: policy, audit, lease, loop-breaker
+ *   dlq      — gave up after `maxAttempts`, or the error was not retryable
+ *
+ * Legacy rows written before this state existed carry NULL: outside the queue, never
+ * replayed — the same seeding rule wake-drain applies to a fresh cursor.
+ */
+export type WakeDeliveryStatus = "pending" | "inflight" | "failed" | "handled" | "muted" | "dlq";
+
+export const OPEN_WAKE_STATUSES: ReadonlySet<WakeDeliveryStatus> = new Set<WakeDeliveryStatus>(["pending", "inflight", "failed"]);
+
+export interface WakeDeliveryState {
+  rowid: number;
+  msgId: string;
+  status: WakeDeliveryStatus;
+  attempts: number;
+  nextAttemptAt?: string;
+  error?: string;
+  replyMsgId?: string;
+  updatedAt?: string;
+}
+
+export interface WakeClaimResult {
+  claimed: boolean;
+  attempts: number;
+  status?: WakeDeliveryStatus;
+}
+
+export interface WakeSettleInput {
+  status: Exclude<WakeDeliveryStatus, "pending" | "inflight">;
+  error?: string;
+  replyMsgId?: string;
+  nextAttemptAt?: string;
+  now?: string;
+}
+
+export type OpenWakeRecord = LocalMessageRecord & { rowid: number; wakeStatus: WakeDeliveryStatus; wakeAttempts: number };
+
+export interface WakeThreadRecord {
+  peerId: string;
+  conversationId: string;
+  threadId: string;
+  threadPath?: string;
+  /** The static `peer.threadId` this thread was seeded to replace, if any. */
+  replacesThreadId?: string;
+}
+
+/** One delivery id per direction: an agent that writes to itself keeps both copies. */
+export const deliveryIdFor = (direction: LocalMessageRecord["direction"], msgId: string): string => `${direction}:${msgId}`;
+
+/**
+ * Lifecycle stage of a single message, recorded independently of transport
+ * delivery. The outbox proves an envelope was *handed to the broker*; these
+ * events prove what happened *after* — whether a peer actually woke, handled
+ * it, and answered.
+ *
+ * Delivery progress is not processing success: a durable cursor shows an event
+ * was received, never that it was trusted, acted on, or acknowledged complete.
+ */
+export type MessageEventKind =
+  | "queued"       // accepted locally, handed to the outbox
+  | "delivered"    // transport confirmed handoff (broker ack)
+  | "woke"         // recipient session was actually woken
+  | "wake_failed"  // wake attempted and refused — delivered but nobody is listening
+  | "handled"      // recipient processed it
+  | "replied"      // recipient answered; relatesTo carries the answering msgId
+  | "failed";      // terminal failure, detail carries the reason
+
+export interface MessageEventRecord {
+  id: string;
+  msgId: string;
+  conversationId?: string;
+  event: MessageEventKind;
+  actor?: string;
+  detail?: string;
+  /** For `replied`: the msgId of the answer. For others: a correlated msgId. */
+  relatesTo?: string;
+  createdAt: string;
 }
 
 export class SQLiteMessageStore {
@@ -540,32 +1015,410 @@ export class SQLiteMessageStore {
         sender TEXT NOT NULL,
         text TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        transport TEXT
+        transport TEXT,
+        channel_id TEXT,
+        sender_member_id TEXT,
+        addressee_member_id TEXT,
+        wake_eligible INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_local_messages_conversation ON local_messages(conversation_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_local_messages_text ON local_messages(text);
+
+      CREATE TABLE IF NOT EXISTS message_events (
+        id TEXT PRIMARY KEY,
+        msg_id TEXT NOT NULL,
+        conversation_id TEXT,
+        event TEXT NOT NULL,
+        actor TEXT,
+        detail TEXT,
+        relates_to TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_message_events_msg ON message_events(msg_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_message_events_conversation ON message_events(conversation_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_message_events_relates ON message_events(relates_to);
+    `);
+    const messageColumns = new Set(
+      (this.db.prepare("PRAGMA table_info(local_messages)").all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    if (!messageColumns.has("channel_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN channel_id TEXT");
+    if (!messageColumns.has("sender_member_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN sender_member_id TEXT");
+    if (!messageColumns.has("addressee_member_id")) this.db.exec("ALTER TABLE local_messages ADD COLUMN addressee_member_id TEXT");
+    if (!messageColumns.has("wake_eligible")) this.db.exec("ALTER TABLE local_messages ADD COLUMN wake_eligible INTEGER");
+    this.migrateDeliveryColumns(messageColumns);
+    secureSqliteFiles(dbPath);
+  }
+
+  /**
+   * Delivery id + durable wake state (#105). Added with ALTER TABLE like the Phase-N
+   * columns, so an existing base keeps every row. The UNIQUE index tolerates the NULLs
+   * legacy rows carry (SQLite treats NULLs as distinct), which is exactly what makes
+   * this upgrade safe: nothing old conflicts, nothing old is replayed.
+   */
+  private migrateDeliveryColumns(present: Set<string>): void {
+    for (const [name, ddl] of [
+      ["delivery_id", "ALTER TABLE local_messages ADD COLUMN delivery_id TEXT"],
+      ["wake_status", "ALTER TABLE local_messages ADD COLUMN wake_status TEXT"],
+      ["wake_attempts", "ALTER TABLE local_messages ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0"],
+      ["wake_next_at", "ALTER TABLE local_messages ADD COLUMN wake_next_at TEXT"],
+      ["wake_error", "ALTER TABLE local_messages ADD COLUMN wake_error TEXT"],
+      ["wake_reply_msg_id", "ALTER TABLE local_messages ADD COLUMN wake_reply_msg_id TEXT"],
+      ["wake_updated_at", "ALTER TABLE local_messages ADD COLUMN wake_updated_at TEXT"],
+    ] as const) {
+      if (!present.has(name)) this.db.exec(ddl);
+    }
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_local_messages_delivery ON local_messages(delivery_id);
+      CREATE INDEX IF NOT EXISTS idx_local_messages_wake ON local_messages(direction, wake_status);
+      CREATE TABLE IF NOT EXISTS wake_threads (
+        peer_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        thread_path TEXT,
+        replaces_thread_id TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (peer_id, conversation_id)
+      );
     `);
   }
 
-  async append(input: Omit<LocalMessageRecord, "id">): Promise<LocalMessageRecord> {
-    const row: LocalMessageRecord = { id: randomUUID(), ...input };
+  /**
+   * The Codex thread serving one (peer, conversation) pair (#108). Before this the id
+   * lived in `peer.threadId` for the life of the process — one thread per peer, gone on
+   * restart. `replacesThreadId` remembers which static pin this thread was seeded to
+   * replace, so a newly pinned thread in config still wins over a stale remembered one.
+   */
+  async getWakeThread(peerId: string, conversationId: string): Promise<WakeThreadRecord | undefined> {
+    const raw = this.db
+      .prepare("SELECT peer_id, conversation_id, thread_id, thread_path, replaces_thread_id FROM wake_threads WHERE peer_id = ? AND conversation_id = ?")
+      .get(peerId, conversationId) as Record<string, unknown> | undefined;
+    if (!raw) return undefined;
+    const record: WakeThreadRecord = {
+      peerId: String(raw.peer_id),
+      conversationId: String(raw.conversation_id),
+      threadId: String(raw.thread_id),
+    };
+    if (raw.thread_path != null) record.threadPath = String(raw.thread_path);
+    if (raw.replaces_thread_id != null) record.replacesThreadId = String(raw.replaces_thread_id);
+    return record;
+  }
+
+  async setWakeThread(record: WakeThreadRecord): Promise<void> {
     this.db
       .prepare(
-        `INSERT INTO local_messages
-         (id, conversation_id, msg_id, direction, sender, text, created_at, transport)
+        `INSERT INTO wake_threads (peer_id, conversation_id, thread_id, thread_path, replaces_thread_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(peer_id, conversation_id) DO UPDATE SET
+           thread_id = excluded.thread_id,
+           thread_path = excluded.thread_path,
+           replaces_thread_id = excluded.replaces_thread_id,
+           updated_at = excluded.updated_at`,
+      )
+      .run(record.peerId, record.conversationId, record.threadId, record.threadPath ?? null, record.replacesThreadId ?? null, new Date().toISOString());
+  }
+
+  /**
+   * Append a lifecycle event. Additive and idempotent-safe: events accumulate,
+   * nothing is overwritten, so a trace stays readable even when a message goes
+   * delivered → wake_failed → (retry) → woke → handled.
+   */
+  async recordEvent(input: Omit<MessageEventRecord, "id" | "createdAt"> & { createdAt?: string }): Promise<MessageEventRecord> {
+    const row: MessageEventRecord = {
+      id: randomUUID(),
+      createdAt: input.createdAt ?? new Date().toISOString(),
+      ...input,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO message_events
+         (id, msg_id, conversation_id, event, actor, detail, relates_to, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
-        row.conversationId,
         row.msgId,
-        row.direction,
-        row.sender,
-        row.text,
+        row.conversationId ?? null,
+        row.event,
+        row.actor ?? null,
+        row.detail ?? null,
+        row.relatesTo ?? null,
         row.createdAt,
-        row.transport ?? null,
       );
     return row;
+  }
+
+  /** Full lifecycle of one message, oldest first — the answer to "what happened to it". */
+  async traceMessage(msgId: string): Promise<MessageEventRecord[]> {
+    return this.db
+      .prepare(
+        `SELECT
+           id,
+           msg_id as msgId,
+           conversation_id as conversationId,
+           event,
+           actor,
+           detail,
+           relates_to as relatesTo,
+           created_at as createdAt
+         FROM message_events
+         WHERE msg_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(msgId) as unknown as MessageEventRecord[];
+  }
+
+  /** Lifecycle across a conversation, newest first. */
+  async traceConversation(conversationId: string, limit = 100): Promise<MessageEventRecord[]> {
+    return this.db
+      .prepare(
+        `SELECT
+           id,
+           msg_id as msgId,
+           conversation_id as conversationId,
+           event,
+           actor,
+           detail,
+           relates_to as relatesTo,
+           created_at as createdAt
+         FROM message_events
+         WHERE conversation_id = ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(conversationId, limit) as unknown as MessageEventRecord[];
+  }
+
+  /**
+   * Outbound messages that were delivered but never answered — the question
+   * "who is silently ignoring me" that transport metrics cannot answer.
+   * A message counts as stalled when it has no `replied` event and its newest
+   * event is older than `olderThanIso`.
+   */
+  async stalledOutbound(olderThanIso: string, limit = 50): Promise<Array<{ msgId: string; conversationId: string | null; lastEvent: string; lastEventAt: string }>> {
+    return this.db
+      .prepare(
+        `SELECT
+           e.msg_id as msgId,
+           e.conversation_id as conversationId,
+           e.event as lastEvent,
+           e.created_at as lastEventAt
+         FROM message_events e
+         JOIN (
+           SELECT msg_id, MAX(created_at) as newest
+           FROM message_events
+           GROUP BY msg_id
+         ) latest ON latest.msg_id = e.msg_id AND latest.newest = e.created_at
+         WHERE e.created_at < ?
+           AND e.msg_id NOT IN (SELECT msg_id FROM message_events WHERE event = 'replied')
+         ORDER BY e.created_at ASC
+         LIMIT ?`,
+      )
+      .all(olderThanIso, limit) as unknown as Array<{ msgId: string; conversationId: string | null; lastEvent: string; lastEventAt: string }>;
+  }
+
+  /**
+   * Store one delivery exactly once (#105).
+   *
+   * The delivery id and the row commit in a single transaction; a redelivered envelope
+   * (JetStream redeliver, sender ACK-timeout resend, a 2.6.0 storm) finds the existing
+   * row and comes back with `duplicate: true`. The caller then ACKs — the delivery did
+   * succeed — but starts no second wake. Inbound rows enter the wake queue right here,
+   * so "stored" and "queued for wake" can never disagree after a crash.
+   */
+  async append(input: Omit<LocalMessageRecord, "id">): Promise<AppendedMessageRecord> {
+    const row: LocalMessageRecord = { id: randomUUID(), ...input };
+    const deliveryId = deliveryIdFor(row.direction, row.msgId);
+    const initialWakeStatus: WakeDeliveryStatus | null =
+      row.direction === "inbound" ? (row.wakeEligible === false ? "muted" : "pending") : null;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.selectByDeliveryId(deliveryId);
+      if (existing) {
+        this.db.exec("COMMIT");
+        return { ...existing, duplicate: true };
+      }
+      const result = this.db
+        .prepare(
+          `INSERT INTO local_messages
+           (id, conversation_id, msg_id, direction, sender, text, created_at, transport,
+            channel_id, sender_member_id, addressee_member_id, wake_eligible,
+            delivery_id, wake_status, wake_attempts, wake_updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        )
+        .run(
+          row.id,
+          row.conversationId,
+          row.msgId,
+          row.direction,
+          row.sender,
+          row.text,
+          row.createdAt,
+          row.transport ?? null,
+          row.channelId ?? null,
+          row.senderMemberId ?? null,
+          row.addresseeMemberId ?? null,
+          row.wakeEligible === undefined ? null : Number(row.wakeEligible),
+          deliveryId,
+          initialWakeStatus,
+          initialWakeStatus ? new Date().toISOString() : null,
+        );
+      this.db.exec("COMMIT");
+      return { ...row, rowid: Number(result.lastInsertRowid), duplicate: false };
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  private selectByDeliveryId(deliveryId: string): (LocalMessageRecord & { rowid: number }) | undefined {
+    const raw = this.db
+      .prepare(
+        `SELECT rowid, id, conversation_id, msg_id, direction, sender, text, created_at, transport,
+                channel_id, sender_member_id, addressee_member_id, wake_eligible
+         FROM local_messages WHERE delivery_id = ? LIMIT 1`,
+      )
+      .get(deliveryId) as Record<string, unknown> | undefined;
+    return raw ? this.toRecordWithRowid(raw) : undefined;
+  }
+
+  private toRecordWithRowid(raw: Record<string, unknown>): LocalMessageRecord & { rowid: number } {
+    const record: LocalMessageRecord & { rowid: number } = {
+      rowid: Number(raw.rowid),
+      id: String(raw.id),
+      conversationId: String(raw.conversation_id),
+      msgId: String(raw.msg_id),
+      direction: raw.direction as LocalMessageRecord["direction"],
+      sender: String(raw.sender),
+      text: String(raw.text),
+      createdAt: String(raw.created_at),
+    };
+    if (raw.transport != null) record.transport = String(raw.transport);
+    if (raw.channel_id != null) record.channelId = String(raw.channel_id);
+    if (raw.sender_member_id != null) record.senderMemberId = String(raw.sender_member_id);
+    if (raw.addressee_member_id != null) record.addresseeMemberId = String(raw.addressee_member_id);
+    if (raw.wake_eligible != null) record.wakeEligible = Boolean(raw.wake_eligible);
+    return record;
+  }
+
+  /**
+   * Inbound deliveries still owed a wake, oldest first: pending, or failed with the
+   * retry time already passed. In-flight rows belong to whoever claimed them and are
+   * never offered twice; legacy NULL rows are never offered at all.
+   */
+  async listOpenWakes({ now = new Date().toISOString(), limit = 50 }: { now?: string; limit?: number } = {}): Promise<OpenWakeRecord[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT rowid, id, conversation_id, msg_id, direction, sender, text, created_at, transport,
+                channel_id, sender_member_id, addressee_member_id, wake_eligible,
+                wake_status, wake_attempts
+         FROM local_messages
+         WHERE direction = 'inbound'
+           AND wake_status IN ('pending', 'failed')
+           AND (wake_next_at IS NULL OR wake_next_at <= ?)
+         ORDER BY rowid ASC
+         LIMIT ?`,
+      )
+      .all(now, limit) as Array<Record<string, unknown>>;
+    return rows.map((raw) => ({
+      ...this.toRecordWithRowid(raw),
+      wakeStatus: raw.wake_status as WakeDeliveryStatus,
+      wakeAttempts: Number(raw.wake_attempts ?? 0),
+    }));
+  }
+
+  /**
+   * Take exclusive ownership of one delivery for a wake attempt. The UPDATE's WHERE is
+   * the lock: only a pending or due-for-retry row flips to in-flight, so a duplicate
+   * arriving while the first copy is being processed — or after it was handled — is
+   * refused here, durably, whatever any in-memory cache remembers.
+   */
+  async claimWake(msgId: string, { now = new Date().toISOString() }: { now?: string } = {}): Promise<WakeClaimResult> {
+    const result = this.db
+      .prepare(
+        `UPDATE local_messages
+         SET wake_status = 'inflight', wake_attempts = wake_attempts + 1, wake_updated_at = ?
+         WHERE delivery_id = ?
+           AND wake_status IN ('pending', 'failed')
+           AND (wake_next_at IS NULL OR wake_next_at <= ?)`,
+      )
+      .run(now, deliveryIdFor("inbound", msgId), now);
+    const state = await this.wakeStateFor(msgId);
+    return { claimed: Number(result.changes ?? 0) > 0, attempts: state?.attempts ?? 0, status: state?.status };
+  }
+
+  /** Record the outcome of a wake attempt; `failed` needs `nextAttemptAt` to be retried. */
+  async settleWake(msgId: string, input: WakeSettleInput): Promise<void> {
+    const now = input.now ?? new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE local_messages
+         SET wake_status = ?, wake_error = ?, wake_reply_msg_id = COALESCE(?, wake_reply_msg_id),
+             wake_next_at = ?, wake_updated_at = ?
+         WHERE delivery_id = ?`,
+      )
+      .run(
+        input.status,
+        input.error ?? null,
+        input.replyMsgId ?? null,
+        input.status === "failed" ? input.nextAttemptAt ?? null : null,
+        now,
+        deliveryIdFor("inbound", msgId),
+      );
+  }
+
+  async wakeStateFor(msgId: string): Promise<WakeDeliveryState | undefined> {
+    const raw = this.db
+      .prepare(
+        `SELECT rowid, msg_id, wake_status, wake_attempts, wake_next_at, wake_error, wake_reply_msg_id, wake_updated_at
+         FROM local_messages WHERE delivery_id = ? LIMIT 1`,
+      )
+      .get(deliveryIdFor("inbound", msgId)) as Record<string, unknown> | undefined;
+    if (!raw || raw.wake_status == null) return undefined;
+    const state: WakeDeliveryState = {
+      rowid: Number(raw.rowid),
+      msgId: String(raw.msg_id),
+      status: raw.wake_status as WakeDeliveryStatus,
+      attempts: Number(raw.wake_attempts ?? 0),
+    };
+    if (raw.wake_next_at != null) state.nextAttemptAt = String(raw.wake_next_at);
+    if (raw.wake_error != null) state.error = String(raw.wake_error);
+    if (raw.wake_reply_msg_id != null) state.replyMsgId = String(raw.wake_reply_msg_id);
+    if (raw.wake_updated_at != null) state.updatedAt = String(raw.wake_updated_at);
+    return state;
+  }
+
+  /**
+   * Highest inbound rowid such that every inbound row at or below it is settled.
+   * An open delivery — pending, in flight, or awaiting retry — holds the cursor
+   * below itself; nothing after a gap counts until the gap closes.
+   */
+  async wakeCursor(): Promise<number> {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(
+           (SELECT MIN(rowid) - 1 FROM local_messages
+             WHERE direction = 'inbound' AND wake_status IN ('pending', 'inflight', 'failed')),
+           (SELECT COALESCE(MAX(rowid), 0) FROM local_messages WHERE direction = 'inbound')
+         ) as cursor`,
+      )
+      .get() as { cursor: number } | undefined;
+    return Number(row?.cursor ?? 0);
+  }
+
+  /**
+   * A process that died mid-wake leaves rows in flight forever. Called on startup, this
+   * hands them back to the queue as failed-and-due; the attempt they were on already
+   * counted, so a crash loop still ends in the DLQ instead of running for free.
+   */
+  async recoverInflightWakes({ now = new Date().toISOString() }: { now?: string } = {}): Promise<number> {
+    const result = this.db
+      .prepare(
+        `UPDATE local_messages
+         SET wake_status = 'failed', wake_error = COALESCE(wake_error, 'recovered-inflight'), wake_next_at = NULL, wake_updated_at = ?
+         WHERE direction = 'inbound' AND wake_status = 'inflight'`,
+      )
+      .run(now);
+    return Number(result.changes ?? 0);
   }
 
   async listConversations(limit = 50): Promise<Array<{ conversationId: string; lastMessageAt: string; messageCount: number }>> {
@@ -592,13 +1445,49 @@ export class SQLiteMessageStore {
            sender,
            text,
            created_at as createdAt,
-           transport
+           transport,
+           channel_id as channelId,
+           sender_member_id as senderMemberId,
+           addressee_member_id as addresseeMemberId
          FROM local_messages
          WHERE conversation_id = ? AND direction = 'inbound' AND created_at > ?
          ORDER BY created_at ASC
          LIMIT ?`,
       )
       .all(conversationId, afterTimestamp, limit) as unknown as LocalMessageRecord[];
+    return rows;
+  }
+
+  /**
+   * Inbound messages for this agent, newest first.
+   *
+   * The store is per-agent, so every inbound row in it is already addressed to this
+   * agent: `direction` is the whole filter. Do NOT express an inbox as a
+   * `searchMessages()` call — that is a LIKE query, and a message whose text happens
+   * not to mention the agent's own name is then silently absent from the result while
+   * the sender sees the delivery acked (#114).
+   */
+  async listInbound(limit = 20): Promise<LocalMessageRecord[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT
+           id,
+           conversation_id as conversationId,
+           msg_id as msgId,
+           direction,
+           sender,
+           text,
+           created_at as createdAt,
+           transport,
+           channel_id as channelId,
+           sender_member_id as senderMemberId,
+           addressee_member_id as addresseeMemberId
+         FROM local_messages
+         WHERE direction = 'inbound'
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit) as unknown as LocalMessageRecord[];
     return rows;
   }
 
@@ -614,7 +1503,10 @@ export class SQLiteMessageStore {
            sender,
            text,
            created_at as createdAt,
-           transport
+           transport,
+           channel_id as channelId,
+           sender_member_id as senderMemberId,
+           addressee_member_id as addresseeMemberId
          FROM local_messages
          WHERE text LIKE ? OR sender LIKE ? OR conversation_id LIKE ?
          ORDER BY created_at DESC
@@ -997,6 +1889,7 @@ export class SQLiteStreamReassembler {
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       PRAGMA journal_mode=WAL;
+      PRAGMA busy_timeout=10000;
       CREATE TABLE IF NOT EXISTS stream_reassembly_meta (
         stream_id TEXT PRIMARY KEY,
         chunk_count INTEGER NOT NULL,
@@ -1015,6 +1908,7 @@ export class SQLiteStreamReassembler {
       );
       CREATE INDEX IF NOT EXISTS idx_stream_reassembly_chunks_stream ON stream_reassembly_chunks(stream_id);
     `);
+    secureSqliteFiles(dbPath);
   }
 
   acceptEnd(end: StreamEnd): StreamReassemblyResult {
@@ -1213,6 +2107,14 @@ export const isEnvelopeV1 = (v: unknown): v is EnvelopeV1 => {
     hasOptional("traceId", "string") &&
     hasOptional("sequence", "number") &&
     hasOptional("parentMsgId", "string") &&
+    hasOptional("channelId", "string") &&
+    hasOptional("senderMemberId", "string") &&
+    hasOptional("addresseeMemberId", "string") &&
+    (o.channelId === undefined || (typeof o.channelId === "string" && o.channelId.length > 0)) &&
+    (o.senderMemberId === undefined || (typeof o.senderMemberId === "string" && o.senderMemberId.length > 0)) &&
+    (o.addresseeMemberId === undefined || (typeof o.addresseeMemberId === "string" && o.addresseeMemberId.length > 0)) &&
+    (o.channelId === undefined) === (o.senderMemberId === undefined) &&
+    (o.addresseeMemberId === undefined || o.channelId !== undefined) &&
     // authToken: optional, but if present must be a non-empty string (a bearer token)
     (o.authToken === undefined || (typeof o.authToken === "string" && o.authToken.length > 0))
   );
@@ -1229,6 +2131,24 @@ export const createAck = (
   status,
   reason,
   at: new Date().toISOString(),
+});
+
+export const createBoundAck = (
+  envelope: EnvelopeV1,
+  consumerId: string,
+  status: SignedAckV1["status"],
+  reason?: string,
+): UnsignedAckV1 => ({
+  ackVersion: "1.0",
+  msgId: envelope.msgId,
+  messageDigest: envelopeDigest(envelope),
+  conversationId: envelope.conversationId,
+  senderAgentId: consumerId,
+  recipientAgentId: envelope.senderAgentId,
+  status,
+  ...(reason !== undefined ? { reason } : {}),
+  at: new Date().toISOString(),
+  nonce: randomUUID(),
 });
 
 export const computeBackoffMs = (attempt: number, baseMs = 500, maxMs = 60_000): number => {

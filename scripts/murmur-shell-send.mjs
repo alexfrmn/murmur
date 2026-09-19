@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { SQLiteDedupeOutboxStore, SQLiteMessageStore, stableEnvelopePayload } from "@murmurv2/core";
 import { encryptPayload, signEnvelope } from "@murmurv2/security";
+import { readPrivateJson } from "./secure-state.mjs";
 
 const args = process.argv.slice(2);
 const opt = {};
@@ -14,16 +15,28 @@ for (let i = 0; i < args.length; i += 1) {
   const a = args[i];
   if (a === "--to") opt.to = args[++i];
   else if (a === "--conv" || a === "--conversation") opt.conversationId = args[++i];
+  else if (a === "--channel") opt.channelId = args[++i];
+  else if (a === "--sender-member") opt.senderMemberId = args[++i];
+  else if (a === "--addressee-member") opt.addresseeMemberId = args[++i];
   else if (a === "--text") opt.text = args[++i];
   else if (a === "--text-file") opt.textFile = args[++i];
   else if (a === "--stdin") opt.stdin = true;
+  else if (a === "--msg-id") opt.msgId = args[++i];
   else if (a === "--help" || a === "-h") opt.help = true;
 }
 
 if (opt.help || !opt.to || (!opt.text && !opt.textFile && !opt.stdin)) {
   process.stderr.write(
-    "usage: murmur-shell-send.mjs --to <peer-id> (--text <txt> | --text-file <path> | --stdin) [--conv <id>]\n",
+    "usage: murmur-shell-send.mjs --to <peer-id> (--text <txt> | --text-file <path> | --stdin) [--conv <id>] [--msg-id <uuid>] [--channel <id> --sender-member <id> [--addressee-member <id>]]\n",
   );
+  process.exit(1);
+}
+
+// `--msg-id` makes a send idempotent (#105): the caller supplies the id — the Codex wake
+// relay derives it from the inbound msgId — and a repeat with the same id changes nothing.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+if (opt.msgId !== undefined && !UUID_RE.test(String(opt.msgId))) {
+  process.stderr.write("error: --msg-id must be a UUID\n");
   process.exit(1);
 }
 
@@ -44,7 +57,7 @@ const dbPath = process.env.MURMUR_STORE_PATH ?? path.join(dataDir, "murmur.db");
 
 let cfg;
 try {
-  cfg = JSON.parse(readFileSync(configPath, "utf8"));
+  cfg = await readPrivateJson(configPath);
 } catch (err) {
   process.stderr.write(`error: cannot read ${configPath}: ${err.message}\n`);
   process.exit(2);
@@ -57,8 +70,21 @@ if (!peer) {
 }
 
 const conversationId = opt.conversationId || `dm:${cfg.agentId}:${opt.to}`;
-const msgId = randomUUID();
+const msgId = opt.msgId ? String(opt.msgId).toLowerCase() : randomUUID();
 const createdAt = new Date().toISOString();
+const optionalString = (value) => typeof value === "string" && value.trim() ? value.trim() : undefined;
+const channelId = optionalString(opt.channelId) ?? optionalString(peer.channelId);
+const senderMemberId = optionalString(opt.senderMemberId) ?? optionalString(cfg.memberId);
+const addresseeMemberId = optionalString(opt.addresseeMemberId) ?? optionalString(peer.memberId);
+if ((channelId || senderMemberId || addresseeMemberId) && (!channelId || !senderMemberId)) {
+  process.stderr.write("error: channelId and senderMemberId are required together for structured routing\n");
+  process.exit(2);
+}
+const routing = channelId ? {
+  channelId,
+  senderMemberId,
+  ...(addresseeMemberId ? { addresseeMemberId } : {}),
+} : {};
 
 
 try {
@@ -78,6 +104,7 @@ try {
     payloadCiphertext: encrypted.ciphertext,
     payloadNonce: encrypted.nonce,
     signature: "",
+    ...routing,
   };
   envelope.signature = await signEnvelope(
     stableEnvelopePayload(envelope),
@@ -86,6 +113,10 @@ try {
 
   const outbox = new SQLiteDedupeOutboxStore(dbPath);
   outbox.db?.exec?.("PRAGMA busy_timeout=5000;");
+  if (opt.msgId && (await outbox.getOutboxRecord(msgId))) {
+    process.stdout.write(`${JSON.stringify({ msgId, to: opt.to, conversationId, status: "already-queued", ...routing })}\n`);
+    process.exit(0);
+  }
   await outbox.enqueue(peer.subject, envelope);
 
   const store = new SQLiteMessageStore(dbPath);
@@ -98,10 +129,11 @@ try {
     text,
     createdAt,
     transport: "nats",
+    ...routing,
   });
 
   process.stdout.write(
-    `${JSON.stringify({ msgId, to: opt.to, conversationId, status: "queued" })}\n`,
+    `${JSON.stringify({ msgId, to: opt.to, conversationId, status: "queued", ...routing })}\n`,
   );
   process.exit(0);
 } catch (err) {

@@ -31,7 +31,7 @@
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <img src="https://img.shields.io/badge/version-2.4.0-blue" alt="version 2.4.0" />
+  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="version 2.8.0" />
   <a href="https://www.npmjs.com/org/murmurv2"><img src="https://img.shields.io/npm/v/@murmurv2/core" alt="npm @murmurv2/core" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
@@ -51,6 +51,48 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 **Murmur** applies the same principle to AI agents. No central orchestrator. No human relay. Each agent communicates directly with its peers through encrypted channels — and from these simple peer-to-peer interactions, complex collaborative workflows emerge. Code reviews, research tasks, architectural decisions — all happening autonomously between Claude, GPT, Gemini, or any other model, while you sleep.
 
 ---
+
+## What's New in v2.9
+
+- **Exactly-once wake delivery.** A failed wake used to be marked handled — the cursor advanced from `finally`, lived only in memory and re-seeded at the table tip on restart — and a retried relay could answer twice. Now every inbound delivery is one durable row (`delivery_id` UNIQUE, committed with its wake state in one transaction), a redelivered envelope is ACKed without a second wake, the ACK follows the durable commit instead of the end of the Codex turn, failed wakes retry under the same id with backoff and then dead-letter visibly, the cursor is the highest contiguous settled row, and the relay reply id is derived from the inbound `msgId` so a retry never starts the turn twice. Design by @alexanderyswork in #96. (v2.9.0)
+- **Codex turn outcome is read, not assumed.** `turn.status` / `turn.error` from `turn/completed` are surfaced; a `failed` turn is retried, an `interrupted` one is not, and an empty final answer is a failed wake, not a `wake final relayed` log line. (v2.9.0)
+- **Lanes instead of one line.** A long turn for one peer no longer holds every other inbound message: wakes run in lanes per (peer, conversation), up to `wake.concurrency` at once (default 4), ordered within a lane. (v2.9.0)
+- **Codex threads per conversation, remembered across restarts.** Seeded threads are keyed by (peer, conversation) and persisted in `wake_threads`; a static `peer.threadId` stays an explicit pin. (v2.9.0)
+- **The cold-start watcher stands down while a session is alive.** `codex-murmur-coldstart-watch.py` checks the app-server socket and `session_presence` before spawning a headless Codex. (v2.9.0)
+- **Phase N member routing and Codex Desktop exact-task delivery** — signed `channelId` / `senderMemberId` / `addresseeMemberId` through the whole path, and opt-in delivery to the exact Desktop task via `codex queue`. By @fedoseevstanislav. (v2.9.0)
+
+## What's New in v2.8
+
+- **Cold-start drain — what arrived while nothing was listening.** The wake cursor is per session, so a freshly started session seeded its baseline at the current tip and never saw messages that landed while the contour was dark. `wake-drain-claude.mjs --session` now reads a shared anchor, reports that backlog once, and moves the anchor forward — a reboot or watchdog restart no longer swallows delivery. (v2.8.0)
+- **A rejection the receiver never logged, and one it treated as poison.** An envelope from a peer that had not been added yet was counted as a poison message after three attempts and written into `dedupe_seen` forever: the sender kept retrying, the receiver answered `duplicate-ignored`, and it never arrived even after `add-peer`. Configuration-recoverable rejections are now retryable, JetStream caps the attempts, and the message lands in the DLQ where it can be seen; a rejected inbound envelope is now logged on the receiving side instead of only NACKing the sender. (v2.8.1)
+- **The sender's half of an ACK storm.** Three loops on the publishing side that the receiver-side 2.8.1 fixes did not touch — measured live on a shared broker at ~4.5 msg/s across three million stored messages:
+  - A letter to a receiver that is not on the mesh retried forever. `flushOutbox` enforced `maxAttempts` only when `publish()` threw, but a letter that is never ACKed never throws: `sent` → ack-timeout → `failed` → `sent`, on every flush. The cap now holds on the success path too and the row dead-letters as `max-attempts:<reason>`.
+  - A delivered message was undone by a timeout on its own ACK. `publishAck` ran on the delivery path, so a pub-ack `TIMEOUT` nak'd a letter already delivered and marked seen — five rounds to `max_deliver` and a DLQ advisory for a message that arrived on the first pass. Every ACK/NACK publish is now best-effort; the delivery outcome stands and the sender's own ACK timeout covers the gap.
+  - A nak'd letter is redelivered with a 1s → 30s backoff instead of immediately, keyed on the redelivery count.
+  - `murmur_send` no longer reports `database is locked` after the row was already written — both SQLite stores set `busy_timeout`, so a second writer waits out a short lock instead of failing.
+  - The wake hook no longer feeds raw peer text into the session's privileged `<system-reminder>` slot: poll mode names the sender and count only, and the cold-start drain wraps peer text in an explicit untrusted-content boundary. Reported by Kirill Oleinichenko. (v2.8.2)
+
+## What's New in v2.7
+
+- **A failed message could retry forever and never settle.** `failed` counted as a terminal status while `claimDue()` selected it for retry, so the row was re-published on every flush, `attempts` never grew, DLQ never fired, and the returning ACK was rejected as not-in-flight. The v2.6 race it was guarding is now handled with a version compare-and-swap on the row itself.
+- **The inbox silently dropped delivered messages.** `murmur_inbox` searched for the agent's own name in the message text instead of selecting by direction, so any reply that did not mention the agent reported `count:0` while the sender saw it acked. No error on either side — the worst possible shape for autonomous agents.
+- **Murmur now installs and wakes on Windows.** A directory `fsync` that Windows does not support killed the install; the wake hook shelled out to a `sqlite3` CLI that Windows does not ship, so it exited quietly and never woke anything. There is a dependency-free node port of the drain, and a fault now says what went wrong instead of looking like "no new messages".
+- **One message wakes every live session, not just the first one to notice.** Wake cursor and watcher lock are keyed per session; a new session starts watching from its own start instead of replaying history.
+- **Credit where due.** The three cross-host defects were found and reported — two with pull requests — by [@lichtpfad](https://github.com/lichtpfad), testing Mac ↔ Windows over a local NATS broker.
+
+## What's New in v2.6
+
+- **Signed-ACK hardening.** Replay protection is now durable — ACK nonces are claimed once in SQLite and survive a daemon restart, where before they lived in an in-memory set that forgot everything on exit. A fast ACK arriving between `publish()` and `markSent()` is applied instead of being rejected into a spurious retry, and `markSent()` can no longer drag a settled row back to `sent`.
+- **Two unguarded ACK paths closed.** The A2A bridge required no signature at all to resolve a pending task from a NACK, and the WebSocket path called `markAcked`/`markFailed` straight from the frame. Both now perform the same verification as the NATS path.
+- **Five packages were silently building against a two-versions-old core** — the dependency ranges could not resolve to the workspace, so npm installed an old copy from the registry instead. Their green tests meant less than they appeared to.
+
+## What's New in v2.5
+
+- **Signed and bound delivery acknowledgements.** ACK correlation used to trust attacker-controlled JSON carrying only `{msgId, status}` — anyone able to publish to an ACK subject could mark another peer's pending outbox row `acked` or `failed`. ACKs are now `SignedAckV1`: Ed25519 over the message digest, conversation, sender, intended recipient, status, timestamp and nonce, with wrong-recipient, stale, replayed and unsigned ACKs rejected. Migration is two-stage — legacy peers still parse the new shape, and strict rejection waits behind `ackSecurity.requireSigned`.
+- **Local state is no longer world-readable.** umask `0077` for the daemon, state directories `0700`, secret JSON atomically written `0600`, SQLite database/WAL/shm forced `0600`, symlinked and wrong-owner config paths rejected, `O_NOFOLLOW` on config reads. Agent configs hold long-term private keys; they used to drift back to `0664` on rewrite.
+- **Dashboard hardening.** Untrusted fields render through `textContent` only, strict CSP and the usual header set, Basic auth from a private token file for HTTP and WebSocket alike, and live messages verified for schema, signature, subject binding and known-peer identity before reaching the UI. Fails closed without a token file.
+- **Codex wake fixes.** Seeded threads keep `thread.path` and carry `peer.cwd` instead of starting at `cwd: null`; per-peer `baseInstructions` are no longer dropped by config normalisation.
+- **Credit where due.** This release is substantially external work — a security audit by [@fedoseevstanislav](https://github.com/fedoseevstanislav) and wake/delivery analysis by [@alexanderyswork](https://github.com/alexanderyswork).
 
 ## What's New in v2.4
 
@@ -76,6 +118,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, Web
 ## Install
 
 All packages are published on npm under the [`@murmurv2`](https://www.npmjs.com/org/murmurv2) scope (MIT):
+
+> **Registry lag (as of 2026-09-12).** npm currently serves `@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 — the code of 2.6.x. Everything from 2.7.0 to 2.9.0 (ACK-storm fixes, exactly-once wake delivery, Phase N routing) is in the repo and tagged but not yet published: publishing is paused by an npm account-security hold, expected to lift around 2026-09-14. To run the current release today, clone the `v2.9.0` tag and build from source (`npm ci && npm run build`), as in [Quick Start](#quick-start).
 
 ```bash
 # core types + SQLite stores, crypto, MCP server
@@ -128,7 +172,7 @@ Connect two agents in 3 commands. No JSON editing.
 ### Step 1 — Host generates invite
 
 ```bash
-git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
+git clone https://github.com/alexfrmn/murmur.git && cd murmur
 npm install && npm run build
 
 AGENT_ID=alice NATS_URL=tls://your-server:4222 \
@@ -143,7 +187,7 @@ MURMUR_INVITE_NATS_USER=bob MURMUR_INVITE_NATS_PASSWORD=BOB_SECRET \
 ### Step 2 — Peer joins with the blob
 
 ```bash
-git clone https://github.com/alexfrmn/murmur.git && cd mur-mur-v2
+git clone https://github.com/alexfrmn/murmur.git && cd murmur
 npm install && npm run build
 
 AGENT_ID=bob node scripts/murmur-join.mjs 'MURMUR:eyJ...'
@@ -177,7 +221,7 @@ Exporter metrics include outbox depth by status, oldest pending age, inbound/out
 Add Murmur as an MCP server in your AI client (e.g., Claude Code):
 
 ```bash
-claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/index.js
+claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
 ```
 
 Then from your AI agent:
@@ -189,6 +233,11 @@ murmur_send(to: "bob", text: "Hello from Alice!")
 # Or send-and-wait (blocks until reply arrives)
 murmur_request(to: "bob", text: "Review this code please", timeout_ms: 300000)
 ```
+
+For Phase N member-level addressing, configure a stable local `memberId` and the
+peer's `channelId` / `memberId`, or pass `channelId`, `senderMemberId`, and
+`addresseeMemberId` to `murmur_send` / `murmur_request`. Enable the same channel roster
+on every receiving daemon. See [the coordinated routing rollout](docs/phase-n-routing.md).
 
 That's it. Alice and Bob can now exchange encrypted messages — no human relay needed.
 
@@ -308,7 +357,7 @@ Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
 ### Add to Claude Code
 
 ```bash
-claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/index.js
+claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
 ```
 
 ### Add to any MCP client
@@ -318,9 +367,9 @@ claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/i
   "mcpServers": {
     "murmur": {
       "command": "node",
-      "args": ["/path/to/mur-mur-v2/packages/mcp-server/dist/src/index.js"],
+      "args": ["/path/to/murmur/packages/mcp-server/dist/src/index.js"],
       "env": {
-        "DATA_DIR": "/path/to/mur-mur-v2/.data"
+        "DATA_DIR": "/path/to/murmur/.data"
       }
     }
   }
@@ -336,7 +385,7 @@ claude mcp add murmur -- node /path/to/mur-mur-v2/packages/mcp-server/dist/src/i
 </p>
 
 ```
-mur-mur-v2/
+murmur/
 ├── packages/
 │   ├── core/              # Envelope schema, SQLite stores, policy validation
 │   ├── broker-nats/       # core NATS pub/sub, outbox flush, ACK correlation
@@ -377,12 +426,49 @@ See [ADR-001](docs/ADR-001-core-bus-nats.md) and [ADR-002](docs/ADR-002-envelope
 Murmur wakes agents through native runtime mechanisms instead of tmux or
 OpenClaw:
 
-- Claude Code: `asyncRewake` hook via `scripts/wake-drain-claude.sh`.
+- Claude Code: `asyncRewake` hook via `scripts/wake-drain-claude.sh`, or the
+  dependency-free node port `scripts/wake-drain-claude.mjs` (no `sqlite3` CLI
+  needed, so it also runs on a default Windows install).
+- Claude Code cold start: `scripts/wake-drain-claude.mjs --session` on a
+  `SessionStart` hook reports messages that arrived while no session was alive.
+  A live session is woken by the `Stop` hook; without this one, anything
+  delivered while the contour was dark is never seen.
+  A freshly started session has not taken a turn, so `Stop` has not fired and
+  the poller is not running: the lane is deaf until its first turn (#130). An
+  unattended lane needs one priming turn after launch — the watchdog sends one
+  harmless prompt right after starting it. In tmux, the text and `Enter` must be
+  two separate `send-keys` calls, or the prompt is never submitted.
 - Codex CLI: app-server WS-over-UDS `turn/start` via
   `scripts/codex-app-server-wake.mjs`.
 - Human notification remains on Telegram/webhook notify queues.
 
 See `docs/wake-native.md`.
+
+---
+
+## Dashboard
+
+The dashboard is loopback-only and fails closed unless a separate Basic-auth
+token is present in a private regular file. Create the token once:
+
+```bash
+install -d -m 0700 ~/.config/murmur
+umask 077
+openssl rand -hex 32 > ~/.config/murmur/dashboard-token
+chmod 0600 ~/.config/murmur/dashboard-token
+node dashboard/server.mjs
+```
+
+Open `http://127.0.0.1:4280/` and use username `murmur` with the generated token
+as the password. Override the path with `DASHBOARD_TOKEN_FILE`; do not pass the
+token itself in an environment variable or command line.
+
+The dashboard verifies every live envelope signature against configured peer
+keys, binds the signed recipient list to the NATS subject, decrypts only traffic
+to or from the local agent, and drops unsigned/invalid/cross-party frames. Its
+historical feed comes from the daemon's verified local store. All broker and
+database fields are rendered through DOM `textContent`; the page has no inline
+scripts or handlers and is served with a restrictive CSP.
 
 ---
 
@@ -427,6 +513,40 @@ node scripts/murmur-notify-init.mjs telegram
 node scripts/murmur-notify-init.mjs discord
 
 ```
+
+#### One chat, a thread per peer
+
+A notify target may declare which senders it takes. With a Telegram forum chat
+that gives every peer its own thread instead of one mixed feed:
+
+```jsonc
+"notify": {
+  "telegram": [
+    { "channel": "jarvis",  "botToken": "…", "chatId": "-1001234567890", "topicId": 2, "peers": ["agent-jarvis"] },
+    { "channel": "sasha",   "botToken": "…", "chatId": "-1001234567890", "topicId": 3, "peers": ["agent-sasha"] },
+    { "channel": "general", "botToken": "…", "chatId": "-1001234567890", "topicId": 1, "fallback": true }
+  ]
+}
+```
+
+- `peers` — the target takes only these agent ids (case-insensitive).
+  An explicit empty list accepts nobody; omit `peers` to accept every agent.
+- `fallback: true` — the target takes what no `peers` target took, so a peer
+  without a thread of its own still arrives somewhere, without a copy of every
+  message landing there.
+- Neither field — the target takes everything, which is what every config
+  written before this option does.
+
+If a message matches no target at all, the daemon logs a warning rather than
+dropping it in silence.
+
+Threads are bound to transport agent IDs (`payload.from`), not people or channel
+members. `senderMemberId` remains available in the payload but intentionally does
+not participate in notification routing. Only `peers` declares this filter;
+there is no `from` configuration alias. The same rules apply to bare
+`{botToken, chatId, peers}` and `{url, peers}` configurations and to failed-wake
+fallback notifications. Unmatched fallback notifications log the wake failure
+reason alongside sender and message ID.
 
 ---
 
@@ -477,12 +597,14 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [x] `murmur_request` send-and-wait — wake-accelerated via a read-only ephemeral NATS tap; SQLite store-poll is the durable fallback (daemon stays source of truth for decrypt)
 - [x] Optional JetStream durability — finite `max_deliver`/`ack_wait`, consumer repair, advisory → DLQ; default-OFF, SQLite outbox stays source of truth; running live on the reference mesh
 - [x] Dead-letter queue + poison handling · SQLite WAL with optimistic locking
+- [x] **Exactly-once wake delivery** (v2.9) — one durable row per inbound delivery (`delivery_id` UNIQUE, committed with its wake state in one transaction), ACK after the durable commit, redelivered envelopes ACKed without a second wake, failed wakes retried under the same id with backoff then dead-lettered visibly, a cursor that never skips a gap and survives restarts, relay replies with a derived `msgId` so a retry never runs the turn twice
 - [x] **Message streaming** — stream frames (start/chunk/end), UTF-8-safe chunking, in-memory + durable SQLite reassembly (out-of-order, idempotent, conflict-reject), backpressure (chunk + byte windows), sha256 integrity, ACK-window
 - [x] **Agent discovery** — presence frames + candidate registry (ttl expiry, dedupe, out-of-order guard), signed presence over NATS (`announcePresence`/`subscribePresence`), operator promote-flow (`queryCandidates`/`promoteCandidate`); trust is always an explicit operator promotion — candidates are never auto-trusted
 
 *Agent integration & ops*
 - [x] MCP server with 7 tools — full agent integration
 - [x] Native wake (live session) — Claude asyncRewake + Codex app-server UDS, with self-healing thread re-seed (`WakeMonitor`)
+- [x] **Codex Desktop exact-task delivery (opt-in)** — MCP calls made inside a Desktop task default to `codex:task:<thread-id>`; the macOS receive hook uses the shared `codex queue` command to inject only into that exact non-archived task. Legacy/unaddressed messages remain inbox-only, and synchronous `murmur_request` replies are not queued twice. See [`docs/codex-desktop-queue-wake.md`](docs/codex-desktop-queue-wake.md).
 - [x] **Scoped channels & session affinity** (v2.4) — DB-backed session-ownership lease: for an addressed conversation only the **owning session of the addressed agent** responds; native wake is demoted to a presence-deferring fallback (no competing thread). N delivery sessions → **exactly 1 emit** (live-verified). Behind `MURMUR_SCOPED_CHANNELS` (default-OFF). Lease ships in `@murmurv2/core`; delivery helpers and the cold-start spawn-on-inbound path are repo-shipped (`scripts/codex-murmur-*`)
 - [x] **Phase N / N1-N3 + N6 channel roster, addressing, personalities, MCP** — typed `ChannelRosterStore` in `@murmurv2/core`: `channelId` is a routing/personality primitive distinct from legacy `conversationId`, with `channels` / `channel_members` in a dedicated SQLite store, shared `evaluateAddressing()` decisions for reject/append/wake gating, MCP roster tools, and opt-in Codex app-server `thread/start` binding for per-member `personaId`, `model`, and base-instruction metadata.
 - [x] Telegram/Discord/WhatsApp notification adapters
@@ -495,18 +617,30 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [x] **Versioned protocol spec** — machine-readable schema (`protocol-v1.schema.json`) + prose (`docs/protocol-v1.md`) + compatibility matrix (`docs/protocol-compatibility.md`)
 
 *Distribution*
-- [x] **npm — public** under `@murmurv2/*` (MIT): `core` @ `0.3.0` (adds the scoped-channels lease primitive), `federation`/`broker-nats` @ `0.2.0`, `security`/`observability` @ `0.1.1`, the rest @ `0.1.0`
+- [x] **npm — public** under `@murmurv2/*` (MIT). Registry today: `core` 0.5.0, `mcp-server` 0.2.0, `federation`/`broker-nats` 0.2.0, `security`/`observability` 0.1.1, the rest 0.1.0 — three releases behind the repo until the publish hold lifts (see In Progress → Distribution)
 
 ### In Progress (next up)
-- [ ] **Auth/authz end-to-end** — the mechanism is shipped; wire it into the daemon (read `MURMUR_ENFORCE_AUTH` + build the authorizer from the roster) so enforcement is live, then provision org-authority tokens
-- [ ] **WebSocket transport** — `@murmurv2/broker-ws` relay + client are shipped (delivery, ACK correlation, dedupe, invalid-envelope NACKs); remaining: browser/edge deployment examples + hardening
 
-### Needs a real external partner (mechanism done, gated on a counterpart)
-- [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**
-- [ ] **A2A protocol bridge** — a real `@a2a-js/sdk` client → bridge → NATS → reply round-trip is proven (vs a mock internal agent) and Agent-Card discovery is fixed; agent-to-agent **over the Murmur mesh** is separately proven **cross-host** (fresh remote agent on published npm, bidirectional encrypt/verify/ACK). Gate: a **real remote A2A agent**
+*Security first — the shared broker still runs on one token*
+- [ ] **TLS + per-peer NATS authentication** (#103) — reviewed, CI-green, held for a coordinated cutover: every peer today shares one broker token, which is why a 2.6.0 client storming the broker could not be cut off and why a leaked invite blob (10.09) meant rotating everyone. Ships with a maintenance window (broker config + re-invite of all peers), not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client speaks token only (no user/password, no CA).
+- [ ] **Auth/authz end-to-end** — the mechanism is shipped (`@murmurv2/federation`: roster-backed signed tokens, `authorizeInbound`; broker ingress hook `authorize`). Remaining: the daemon does not read `MURMUR_ENFORCE_AUTH` or build the authorizer from the roster yet, and there is no CLI to mint org-authority tokens. Two small pieces: `murmur-daemon.mjs` wiring (default OFF) and `murmur-auth-token.mjs` (mint / verify), then provision tokens to the peers.
+- [ ] **`ackSecurity.requireSigned` rollout** — a rollout step, not a code step: unsigned ACKs are accepted until every peer runs 2.5.0+ and the flag is on. Blocked by the last 2.6.0 peer on the reference mesh.
+
+*Delivery & observability*
+- [ ] **Lifecycle events writer** — `message_events` (`queued → delivered → woke → handled → replied`), `recordEvent`, `traceMessage`, `traceConversation` and `stalledOutbound` are in `@murmurv2/core` with tests, and nothing in the daemon or MCP server calls them: after four days and thousands of messages the table holds zero rows. Since v2.9 the receiving side is covered by the durable `wake_status` on each inbound row; "delivered but never answered" on the *outbound* side still has no writer. Wire the four events into the daemon (send / broker ACK / wake settle) and the MCP server (send), then surface `stalledOutbound` next to `murmur_inbox`.
+- [ ] **Lane coalescing** (#124) — since v2.9 inbound messages for one peer/conversation queue in a lane; an opt-in mode to deliver everything queued for a lane as one turn at the turn boundary (quiet window + per-turn cap) is the next step for coordination-heavy days.
+- [ ] **Phase N tail** — N4 chat-session presence (#89), N5 subject scoping (#90).
+
+*Distribution*
+- [ ] **npm publish of 2.7.0 → 2.9.0** — the registry is three releases behind the repo (`@murmurv2/core` 0.5.0 published vs 0.6.3 in the tree; `mcp-server` 0.2.0 vs 0.2.2). Publishing is paused by an npm account-security hold on the maintainer's account, expected to lift around **2026-09-14**; until then run from the `v2.9.0` tag (see [Install](#install)).
+
+### Needs a real external counterpart (mechanism done, gated on a partner)
+- [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**. The reference mesh's external peers today share one broker account, so they do not count; the natural first partner is that contour on its own account once #103 lands.
+- [ ] **A2A protocol bridge** — a real `@a2a-js/sdk` client → bridge → NATS → reply round-trip is proven (vs a mock internal agent) and Agent-Card discovery is fixed; agent-to-agent **over the Murmur mesh** is separately proven **cross-host** (fresh remote agent on published npm, bidirectional encrypt/verify/ACK). Gate: a **real remote A2A agent**.
+- [ ] **WebSocket transport** — `@murmurv2/broker-ws` relay + client are shipped (delivery, ACK correlation, dedupe, invalid-envelope NACKs). Remaining: a browser/edge deployment example and hardening (origin checks, connection limits, TLS behind a proxy). Gate: a **real browser or edge consumer** — nothing on the reference mesh uses it yet.
 
 ### Research
-- [ ] MLS group encryption (RFC 9420) — forward secrecy for multi-agent groups via OpenMLS WASM
+- [ ] **MLS group encryption (RFC 9420)** — forward secrecy for multi-agent groups. Today a feature-flagged scaffold only: `MlsProvider` interface in `@murmurv2/security` with a noop provider that throws `mls-disabled`; no OpenMLS backend is wired.
 
 ---
 

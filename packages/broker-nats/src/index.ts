@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   AckPolicy,
   connect,
@@ -13,15 +14,22 @@ import {
   applyJitter,
   computeBackoffMs,
   createAck,
+  createBoundAck,
+  envelopeDigest,
   estimateBase64DecodedBytes,
   type EnvelopeV1,
+  isSignedAckV1,
   isEnvelopeV1,
+  isRecoverableRejection,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
+  type AckReceiptStore,
   type DedupeStore,
   type OutboxStore,
   type AckV1,
+  type SignedAckV1,
   type SecurityPolicy,
+  type UnsignedAckV1,
   streamBackpressureAllowsSend,
   buildSecureNatsConnectionOptions,
   type SecureNatsClientConfig,
@@ -70,6 +78,15 @@ export interface AckWindowConfig {
   maxInFlightBytes: number;
 }
 
+export type AckSigner = (ack: UnsignedAckV1) => Promise<SignedAckV1>;
+export type AckVerifier = (ack: SignedAckV1) => Promise<boolean>;
+
+export interface InvalidAckEvent {
+  reason: string;
+  msgId?: string;
+  senderAgentId?: string;
+}
+
 interface JetStreamConsumerAdvisory {
   type?: string;
   stream?: string;
@@ -88,12 +105,19 @@ export const buildNatsConnectionOptions = (config: BrokerConfig): ConnectionOpti
   waitOnFirstConnect: config.waitOnFirstConnect ?? true,
 });
 
+const ADVISORY_FAILURE_LOG_INTERVAL_MS = 60_000;
+
 export class NatsBroker {
   private nc?: NatsConnection;
   private js?: JetStreamClient;
   private jsm?: JetStreamManager;
   private readonly sc = StringCodec();
   private readonly failedDeliveries = new Map<string, number>();
+  /** Подавление повторов в логе DLQ-обработчика: один и тот же отказ печатается
+   *  не чаще раза в минуту, с числом подавленных с прошлой печати. */
+  private readonly advisoryFailureLog = new Map<string, { at: number; suppressed: number }>();
+  private readonly seenAckNonces = new Set<string>();
+  private readonly invalidAckCounts = new Map<string, number>();
   private reconnects = 0;
   private statusLoop?: Promise<void>;
 
@@ -135,6 +159,10 @@ export class NatsBroker {
 
   getReconnectCount(): number {
     return this.reconnects;
+  }
+
+  getAckSecurityMetrics(): Readonly<Record<string, number>> {
+    return Object.fromEntries(this.invalidAckCounts.entries());
   }
 
   private jetStreamEnabled(): boolean {
@@ -224,7 +252,7 @@ export class NatsBroker {
     });
   }
 
-  async publish(subject: string, envelope: EnvelopeV1, policy?: SecurityPolicy): Promise<void> {
+  async publish(subject: string, envelope: EnvelopeV1, policy?: SecurityPolicy, dedupeId = envelope.msgId): Promise<void> {
     const violations = validateEnvelopePolicy(envelope, policy);
     if (violations.length > 0) {
       throw new Error(`policy-rejected:${violations.join("|")}`);
@@ -232,22 +260,57 @@ export class NatsBroker {
     await this.connect();
     const payload = this.sc.encode(JSON.stringify(envelope));
     if (this.js) {
-      await this.js.publish(subject, payload, { msgID: envelope.msgId });
+      await this.js.publish(subject, payload, { msgID: dedupeId });
       return;
     }
     this.nc!.publish(subject, payload);
   }
 
-  async publishAck(subject: string, envelope: ReturnType<typeof createAck>): Promise<void> {
+  async publishAck(subject: string, envelope: AckV1 | SignedAckV1): Promise<void> {
     await this.connect();
     const payload = this.sc.encode(JSON.stringify(envelope));
+    const ackSender = "senderAgentId" in envelope ? envelope.senderAgentId : envelope.consumerId;
+    const nonce = "nonce" in envelope ? `:${envelope.nonce}` : "";
     if (this.js) {
       await this.js.publish(subject, payload, {
-        msgID: `ack:${envelope.msgId}:${envelope.consumerId}:${envelope.status}`,
+        msgID: `ack:${envelope.msgId}:${ackSender}:${envelope.status}${nonce}`,
       });
       return;
     }
     this.nc!.publish(subject, payload);
+  }
+
+  private async createDeliveryAck(
+    envelope: EnvelopeV1,
+    consumerId: string,
+    status: AckV1["status"],
+    reason: string | undefined,
+    signAck: AckSigner | undefined,
+  ): Promise<AckV1 | SignedAckV1> {
+    if (!signAck) return createAck(envelope.msgId, consumerId, status, reason);
+    return signAck(createBoundAck(envelope, consumerId, status, reason));
+  }
+
+  /**
+   * Publishing an ACK is a courtesy to the sender, not a condition of delivery. Once the
+   * letter has been handed to the handler and marked seen, a timeout on the ACK publish
+   * must not undo that: the message would be nak'd, come straight back, be rejected as a
+   * duplicate, time out again on that ACK — five rounds to max_deliver and a DLQ advisory
+   * for a letter delivered on the first pass (Kirill's log, 11.09). Log the phase and carry
+   * on; the sender's own ACK timeout covers the gap.
+   */
+  private async publishAckBestEffort(subject: string, envelope: AckV1 | SignedAckV1): Promise<void> {
+    try {
+      await this.publishAck(subject, envelope);
+    } catch (err) {
+      console.warn("[NatsBroker.publishAck] failed, delivery outcome kept", {
+        subject,
+        msgId: envelope.msgId,
+        status: envelope.status,
+        reason: envelope.reason,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private async processEnvelopeFrame(
@@ -258,22 +321,34 @@ export class NatsBroker {
       onMessage: MessageHandler;
       maxPoisonAttempts?: number;
       authorize?: InboundAuthorizer;
+      signAck?: AckSigner;
+      emitDeliveryAcks?: boolean;
     },
   ): Promise<"ack" | "retry"> {
     let msgId = "unknown";
     let ackSubject = `ack.${params.consumerId}`;
+    let decodedEnvelope: EnvelopeV1 | undefined;
+    // A proxy may wake a session but cannot acknowledge on behalf of its addressee.
+    // The return value still drives the proxy's own JetStream consumer disposition.
+    const publishAck = async (subject: string, ack: AckV1 | SignedAckV1): Promise<void> => {
+      if (params.emitDeliveryAcks !== false) await this.publishAckBestEffort(subject, ack);
+    };
     try {
       const decoded = JSON.parse(this.sc.decode(data));
       if (!isEnvelopeV1(decoded)) {
-        await this.publishAck(ackSubject, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
+        await publishAck(ackSubject, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
         return "ack";
       }
 
+      decodedEnvelope = decoded;
       msgId = decoded.msgId;
       ackSubject = `ack.${decoded.senderAgentId}`;
       const isDup = await params.dedupe.seen(decoded.msgId, params.consumerId);
       if (isDup) {
-        await this.publishAck(ackSubject, createAck(decoded.msgId, params.consumerId, "ack", "duplicate-ignored"));
+        await publishAck(
+          ackSubject,
+          await this.createDeliveryAck(decoded, params.consumerId, "ack", "duplicate-ignored", params.signAck),
+        );
         return "ack";
       }
 
@@ -283,32 +358,72 @@ export class NatsBroker {
       if (params.authorize) {
         const authz = await params.authorize(decoded);
         if (!authz.accepted) {
-          await this.publishAck(
+          await publishAck(
             ackSubject,
-            createAck(decoded.msgId, params.consumerId, "nack", `auth-rejected:${authz.reason ?? "denied"}`),
+            await this.createDeliveryAck(
+              decoded,
+              params.consumerId,
+              "nack",
+              `auth-rejected:${authz.reason ?? "denied"}`,
+              params.signAck,
+            ),
           );
           return "ack";
         }
       }
 
       await params.onMessage(decoded);
-      await params.dedupe.markSeen(decoded.msgId, params.consumerId);
+      await params.dedupe.markSeen(decoded.msgId, params.consumerId, {
+        senderAgentId: decoded.senderAgentId,
+      });
       this.failedDeliveries.delete(`${params.consumerId}:${decoded.msgId}`);
-      await this.publishAck(ackSubject, createAck(decoded.msgId, params.consumerId, "ack"));
+      await publishAck(
+        ackSubject,
+        await this.createDeliveryAck(decoded, params.consumerId, "ack", undefined, params.signAck),
+      );
       return "ack";
     } catch (err) {
       const reason = err instanceof Error ? err.message : "handler-failed";
       const maxPoisonAttempts = params.maxPoisonAttempts ?? 3;
       const key = `${params.consumerId}:${msgId}`;
+      // Отказ, который чинит настройка, а не переотправка, отравленным письмом не считается:
+      // иначе конверт от ещё не добавленного пира уходит в dedupe_seen навсегда и не доедет
+      // даже после add-peer. Счётчик попыток не растёт — это не сбой доставки.
+      if (isRecoverableRejection(reason)) {
+        const recoverableAck = decodedEnvelope
+          ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
+          : createAck(msgId, params.consumerId, "nack", reason);
+        await publishAck(ackSubject, recoverableAck);
+        return "retry";
+      }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
       this.failedDeliveries.set(key, failures);
       if (msgId !== "unknown" && failures >= maxPoisonAttempts) {
-        await params.dedupe.markSeen(msgId, params.consumerId);
+        // Отправитель записывается ЗАЯВЛЕННЫЙ — на этом пути подпись могла и не сойтись.
+        // Поле служит одному: `add-peer` должен уметь снять отметку с писем того пира,
+        // которого только что добавили или чей ключ обновили. Худшее, что даёт подлог
+        // имени, — конверт проедет круг ещё раз и снова отобьётся.
+        await params.dedupe.markSeen(msgId, params.consumerId, {
+          senderAgentId: decodedEnvelope?.senderAgentId,
+          poisonReason: reason,
+        });
         this.failedDeliveries.delete(key);
-        await this.publishAck(ackSubject, createAck(msgId, params.consumerId, "nack", `poison-message:${reason}`));
+        const ack = decodedEnvelope
+          ? await this.createDeliveryAck(
+              decodedEnvelope,
+              params.consumerId,
+              "nack",
+              `poison-message:${reason}`,
+              params.signAck,
+            )
+          : createAck(msgId, params.consumerId, "nack", `poison-message:${reason}`);
+        await publishAck(ackSubject, ack);
         return "ack";
       }
-      await this.publishAck(ackSubject, createAck(msgId, params.consumerId, "nack", reason));
+      const ack = decodedEnvelope
+        ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
+        : createAck(msgId, params.consumerId, "nack", reason);
+      await publishAck(ackSubject, ack);
       return "retry";
     }
   }
@@ -355,10 +470,10 @@ export class NatsBroker {
       for await (const m of messages) {
         try {
           const result = await onMessage(m.data);
-          if (result === "retry") m.nak();
+          if (result === "retry") m.nak(nakBackoffMs(m));
           else m.ack();
         } catch (err) {
-          m.nak();
+          m.nak(nakBackoffMs(m));
           const e = err instanceof Error ? err : new Error(String(err));
           console.error("[NatsBroker.consumeJetStream] message failed", {
             subject,
@@ -389,6 +504,10 @@ export class NatsBroker {
     /** Optional ingress authorizer; when set, envelopes are authorized before delivery
      *  (wire @murmurv2/federation authorizeInbound here behind MURMUR_ENFORCE_AUTH). */
     authorize?: InboundAuthorizer;
+    /** Signs ACKs with the receiving agent's long-term signing key. */
+    signAck?: AckSigner;
+    /** Disable peer delivery ACKs for proxies; JetStream consumer ACKs still apply. */
+    emitDeliveryAcks?: boolean;
   }): Promise<BrokerSubscription> {
     await this.connect();
 
@@ -493,15 +612,23 @@ export class NatsBroker {
 
   async startAckCorrelation(params: {
     outbox: OutboxStore;
+    /** Durable replay protection. Omit only where a restart cannot happen — without it
+     *  the in-memory fallback forgets every nonce when the process dies. */
+    ackReceipts?: AckReceiptStore;
     ackSubject: string;
     consumerId?: string;
+    verifyAck?: AckVerifier;
+    requireSignedAcks?: boolean;
+    maxAckAgeMs?: number;
+    maxFutureSkewMs?: number;
+    onInvalidAck?: (event: InvalidAckEvent) => void;
   }): Promise<BrokerSubscription> {
     await this.connect();
 
     if (this.js) {
       const consumerId = params.consumerId ?? `${params.ackSubject.replaceAll(".", "-")}-consumer`;
       return this.consumeJetStream(params.ackSubject, consumerId, async (data) => {
-        await this.processAckFrame(data, params.outbox);
+        await this.processAckFrame(data, params);
       });
     }
 
@@ -509,7 +636,7 @@ export class NatsBroker {
 
     (async () => {
       for await (const m of sub) {
-        await this.processAckFrame(m.data, params.outbox);
+        await this.processAckFrame(m.data, params);
       }
     })().catch((err) => {
       const e = err instanceof Error ? err : new Error(String(err));
@@ -519,30 +646,142 @@ export class NatsBroker {
     return sub;
   }
 
-  private async processAckFrame(data: Uint8Array, outbox: OutboxStore): Promise<void> {
-    try {
-      const decoded = JSON.parse(this.sc.decode(data)) as AckV1;
-      if (typeof decoded.msgId !== "string" || decoded.msgId.length === 0) return;
+  private invalidAck(
+    params: {
+      onInvalidAck?: (event: InvalidAckEvent) => void;
+    },
+    reason: string,
+    candidate?: Partial<SignedAckV1>,
+  ): void {
+    this.invalidAckCounts.set(reason, (this.invalidAckCounts.get(reason) ?? 0) + 1);
+    const event = {
+      reason,
+      ...(typeof candidate?.msgId === "string" ? { msgId: candidate.msgId } : {}),
+      ...(typeof candidate?.senderAgentId === "string" ? { senderAgentId: candidate.senderAgentId } : {}),
+    };
+    console.warn("[NatsBroker.security] invalid ACK rejected", event);
+    params.onInvalidAck?.(event);
+  }
 
-      if (decoded.status === "ack") {
-        await outbox.markAcked(decoded.msgId);
+  /**
+   * Claim an ACK nonce once. Prefers the durable store; the in-memory set is a fallback
+   * that does NOT survive a restart — see AckReceiptStore in @murmurv2/core.
+   */
+  private async claimAckNonce(
+    store: AckReceiptStore | undefined,
+    senderAgentId: string,
+    nonce: string,
+  ): Promise<boolean> {
+    if (store) return store.claimAckNonce(senderAgentId, nonce);
+    return this.rememberAckNonceInMemory(`${senderAgentId}:${nonce}`);
+  }
+
+  private rememberAckNonceInMemory(nonce: string): boolean {
+    if (this.seenAckNonces.has(nonce)) return false;
+    this.seenAckNonces.add(nonce);
+    if (this.seenAckNonces.size > 10_000) {
+      const oldest = this.seenAckNonces.values().next();
+      if (!oldest.done) this.seenAckNonces.delete(oldest.value);
+    }
+    return true;
+  }
+
+  private async processAckFrame(
+    data: Uint8Array,
+    params: {
+      outbox: OutboxStore;
+      ackReceipts?: AckReceiptStore;
+      verifyAck?: AckVerifier;
+      requireSignedAcks?: boolean;
+      maxAckAgeMs?: number;
+      maxFutureSkewMs?: number;
+      onInvalidAck?: (event: InvalidAckEvent) => void;
+    },
+  ): Promise<void> {
+    try {
+      const decoded = JSON.parse(this.sc.decode(data)) as unknown;
+
+      if (!isSignedAckV1(decoded)) {
+        const legacy = decoded as Partial<AckV1>;
+        if (params.requireSignedAcks === true) {
+          this.invalidAck(params, "unsigned-or-malformed", {
+            msgId: typeof legacy?.msgId === "string" ? legacy.msgId : undefined,
+          });
+          return;
+        }
+        if (typeof legacy?.msgId !== "string" || legacy.msgId.length === 0) return;
+        if (legacy.status === "ack") {
+          await params.outbox.markAcked(legacy.msgId);
+        } else if (legacy.status === "nack") {
+          await params.outbox.markFailed(
+            legacy.msgId,
+            legacy.reason ?? "nack",
+            new Date().toISOString(),
+          );
+        }
         return;
       }
 
-      if (decoded.status === "nack") {
-        await outbox.markFailed(
-          decoded.msgId,
-          decoded.reason ?? "nack",
-          new Date().toISOString(),
-        );
+      const record = await params.outbox.getOutboxRecord(decoded.msgId);
+      if (!record) {
+        this.invalidAck(params, "unknown-message", decoded);
+        return;
       }
-    } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      console.error("[NatsBroker.startAckCorrelation] malformed ack frame", {
-        message: e.message,
-        stack: e.stack,
-        raw: this.sc.decode(data),
-      });
+      // 'pending' is in flight too: the peer can acknowledge between publish() and
+      // markSent(). Rejecting that ACK leaves the row to time out into a spurious retry.
+      if (record.status !== "sent" && record.status !== "pending" && record.status !== "failed") {
+        this.invalidAck(params, "message-not-in-flight", decoded);
+        return;
+      }
+      if (decoded.messageDigest !== envelopeDigest(record.envelope)) {
+        this.invalidAck(params, "message-digest-mismatch", decoded);
+        return;
+      }
+      if (decoded.conversationId !== record.envelope.conversationId) {
+        this.invalidAck(params, "conversation-mismatch", decoded);
+        return;
+      }
+      if (decoded.recipientAgentId !== record.envelope.senderAgentId) {
+        this.invalidAck(params, "recipient-mismatch", decoded);
+        return;
+      }
+      if (!record.envelope.recipients.includes(decoded.senderAgentId)) {
+        this.invalidAck(params, "unexpected-peer", decoded);
+        return;
+      }
+
+      const atMs = Date.parse(decoded.at);
+      const now = Date.now();
+      const maxAckAgeMs = params.maxAckAgeMs ?? 5 * 60_000;
+      const maxFutureSkewMs = params.maxFutureSkewMs ?? 30_000;
+      if (atMs < now - maxAckAgeMs || atMs > now + maxFutureSkewMs) {
+        this.invalidAck(params, "timestamp-out-of-window", decoded);
+        return;
+      }
+      if (!params.verifyAck || !(await params.verifyAck(decoded))) {
+        this.invalidAck(params, "signature-invalid", decoded);
+        return;
+      }
+      if (!(await this.claimAckNonce(params.ackReceipts, decoded.senderAgentId, decoded.nonce))) {
+        this.invalidAck(params, "nonce-replay", decoded);
+        return;
+      }
+
+      if (decoded.status === "ack") {
+        const result = await params.outbox.applyAckTransition(decoded.msgId, "ack");
+        if (result !== "applied") this.invalidAck(params, `transition-${result}`, decoded);
+        return;
+      }
+
+      const result = await params.outbox.applyAckTransition(
+        decoded.msgId,
+        "nack",
+        decoded.reason ?? "nack",
+        new Date().toISOString(),
+      );
+      if (result !== "applied") this.invalidAck(params, `transition-${result}`, decoded);
+    } catch {
+      this.invalidAck(params, "processing-error");
     }
   }
 
@@ -600,11 +839,24 @@ export class NatsBroker {
       await outbox.markDlq(envelope.msgId, this.jetStreamAdvisoryReason(advisoryKind, advisory, streamSeq));
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
-      console.error("[NatsBroker.startJetStreamAdvisoryDlq] malformed advisory frame", {
+      // Диагноз обязан называть то, чем ошибка является. Таймаут запроса к JetStream — не
+      // «malformed advisory frame»: кадр разобран, не ответил сервер. Прежняя формулировка
+      // уводила читателя лога в сторону, а стек с сырым кадром печатались на КАЖДОЕ событие:
+      // за ночь daemon.log вырос с 33 строк до 117 307 (9.1 МБ), ротации и rate-limit нет.
+      // Найдено agent-kirill 2026-09-11.
+      const kind = /timeout/i.test(e.message) ? "advisory lookup timed out" : "malformed advisory frame";
+      const now = Date.now();
+      const bucket = `${kind}:${e.message}`;
+      const prev = this.advisoryFailureLog.get(bucket);
+      if (prev && now - prev.at < ADVISORY_FAILURE_LOG_INTERVAL_MS) {
+        prev.suppressed += 1;
+        return;
+      }
+      console.error(`[NatsBroker.startJetStreamAdvisoryDlq] ${kind}`, {
         message: e.message,
-        stack: e.stack,
-        raw: this.sc.decode(data),
+        ...(prev?.suppressed ? { suppressedSince: prev.suppressed } : {}),
       });
+      this.advisoryFailureLog.set(bucket, { at: now, suppressed: 0 });
     }
   }
 
@@ -667,9 +919,24 @@ export class NatsBroker {
         break;
       }
 
+      // The cap has to hold on the success path too: a letter to a receiver that is not on
+      // the mesh publishes fine every time, goes `sent`, comes back `failed` on ACK timeout
+      // and is claimed again — nothing throws, so the catch below never sees it (observed
+      // on VM105 as one row at attempts=32, still cycling).
+      if (rec.attempts >= maxAttempts) {
+        await params.outbox.markDlq(rec.msgId, `max-attempts:${rec.lastError ?? "ack-timeout"}`);
+        continue;
+      }
+
       try {
-        await this.publish(rec.subject, rec.envelope, params.policy);
-        await params.outbox.markSent(rec.msgId);
+        // A timeout/NACK advances the durable version even when a fast verdict made
+        // markSent's CAS skip the attempts increment. A retry must cross JS dedupe;
+        // the signed envelope ID stays unchanged for receiver-side deduplication.
+        const transportId = rec.version === undefined
+          ? `${rec.msgId}:retry:${randomUUID()}`
+          : `${rec.msgId}:v${rec.version}`;
+        await this.publish(rec.subject, rec.envelope, params.policy, transportId);
+        await params.outbox.markSent(rec.msgId, rec.version);
         if (params.ackWindow) {
           inFlightChunks += 1;
           inFlightBytes += nextChunkBytes;
@@ -696,3 +963,18 @@ export class NatsBroker {
     }
   }
 }
+
+/**
+ * Redelivery delay for a nak'd JetStream message: 1s, 2s, 4s … capped at 30s. An immediate
+ * nak puts the same letter straight back on the same failing handler — five rounds in as
+ * many milliseconds, then max_deliver and a DLQ advisory. The delay gives the fault (a peer
+ * not yet added, a broker slow to take the ACK) time to clear.
+ */
+export const nakBackoffMs = (
+  m: { info?: { redeliveryCount?: number } },
+  baseMs = 1000,
+  capMs = 30000,
+): number => {
+  const n = Math.max(1, m.info?.redeliveryCount ?? 1);
+  return Math.min(capMs, baseMs * 2 ** (n - 1));
+};

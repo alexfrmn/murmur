@@ -233,6 +233,47 @@ test("addressing policy wakes only the explicit addressee and mutes observers", 
   });
 });
 
+test("addressing policy authenticates an exact member when one transport agent owns several members", async () => {
+  await withRoster(async (store) => {
+    store.createChannel({
+      channelId: "chan:shared-transport",
+      conversationId: "codex:task:shared",
+      type: "group",
+      members: [
+        { memberId: "mac", agentId: "agent-mac" },
+        { memberId: "topic:33", memberSlot: "33", agentId: "agent-server" },
+        { memberId: "topic:5935", memberSlot: "5935", agentId: "agent-server" },
+      ],
+    });
+
+    const exact = store.evaluateAddressing({
+      channelId: "chan:shared-transport",
+      selfAgentId: "agent-mac",
+      senderAgentId: "agent-server",
+      senderMemberId: "topic:5935",
+      addresseeMemberId: "mac",
+    });
+    assert.equal(exact.reject, false);
+    assert.equal(exact.senderMember.memberId, "topic:5935");
+
+    assert.equal(store.evaluateAddressing({
+      channelId: "chan:shared-transport",
+      selfAgentId: "agent-mac",
+      senderAgentId: "agent-server",
+      senderMemberId: "missing-topic",
+      addresseeMemberId: "mac",
+    }).reason, "sender-not-member");
+
+    assert.equal(store.evaluateAddressing({
+      channelId: "chan:shared-transport",
+      selfAgentId: "agent-mac",
+      senderAgentId: "agent-other",
+      senderMemberId: "topic:5935",
+      addresseeMemberId: "mac",
+    }).reason, "sender-not-member");
+  });
+});
+
 test("addressing policy treats channel messages without addressee as channel broadcast", async () => {
   await withRoster(async (store) => {
     store.createChannel({

@@ -26,15 +26,145 @@ Register it out-of-the-box in the agent's `.claude/settings.json`:
 
 Env:
 
-- `MURMUR_DB`: daemon SQLite store path.
-- `MURMUR_WAKE_CURSOR`: per-session cursor file.
+- `MURMUR_DB`: daemon SQLite store path (default `.data/murmur.db`, relative to the
+  working directory — set it explicitly when the hook runs from elsewhere).
+- `MURMUR_WAKE_CURSOR`: cursor file. Defaults to one file **per session**,
+  `~/.murmur-wake-cursor-<session>`.
+- `MURMUR_WAKE_SESSION_KEY`: overrides the session key (first 8 chars of
+  `CLAUDE_CODE_SESSION_ID` otherwise).
 
 Drain semantics:
 
 - Only `local_messages.direction='inbound'` rows are surfaced.
-- The cursor advances to the current max inbound `rowid` after a non-empty
-  drain, so repeated hook invocations do not double-wake the same message.
+- One cursor per session, so a message wakes **every** live session rather than only
+  whichever one reached the hook first. Within a session the hook and the cold-idle
+  watcher share the key, so it still wakes exactly once.
+- The first run in a new session seeds the cursor to the current tip and stays silent:
+  without that, a fresh session would replay the whole inbound history as "new".
+- The cursor advances to the last **reported** `rowid`, never to the table's tip: a row
+  inserted mid-drain would otherwise be stepped over and never wake anyone.
 - Cursor writes use a temporary file plus rename where the filesystem allows it.
+
+### Windows / no `sqlite3` CLI — `wake-drain-claude.mjs`
+
+`wake-drain-claude.sh` shells out to the `sqlite3` CLI, which is not installed
+by default on Windows (the daemon uses `node:sqlite`, not the CLI). There the
+query returns empty, the hook exits `0`, and the session is never woken — native
+wake silently looks broken.
+
+`scripts/wake-drain-claude.mjs` is a dependency-free node port that reads the
+store via `node:sqlite`, so it runs anywhere node does. It also polls (up to
+`MURMUR_WAKE_MAX_SECONDS`, single-poller lock) so a message that arrives while
+the session is already idle still wakes it, which a one-shot Stop hook cannot.
+Run it under `node --no-warnings` and register the same way:
+
+```json
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node --no-warnings /path/to/scripts/wake-drain-claude.mjs", "asyncRewake": true }] }]
+  }
+}
+```
+
+Same env and the same per-session cursor as the shell version (`MURMUR_DB`,
+`MURMUR_WAKE_CURSOR`, `MURMUR_WAKE_SESSION_KEY`) plus `MURMUR_WAKE_LOCK`,
+`MURMUR_WAKE_MAX_SECONDS`, `MURMUR_WAKE_POLL_MS`. Pass `--once` for a single
+non-polling check (e.g. a PostToolUse hook). Requires Node with `node:sqlite`
+(22.5+).
+
+A fault — no store, an unreadable store, no `node:sqlite` — prints one line to stderr
+and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
+silently is the failure this port exists to remove, so it does neither.
+
+### Cold start: what arrived while nothing was listening
+
+The cursor is per session. That is what makes a message wake every live session
+instead of only the first one to reach the hook — but it also means a brand-new
+session has no cursor and seeds its baseline at the current tip. Anything that
+landed while no session was alive is then skipped by every session that follows.
+
+`--session` closes that gap. It reads a **shared** anchor
+(`MURMUR_WAKE_ANCHOR`, default `~/.murmur-wake-anchor`) that records how far the
+contour as a whole has been drained, reports what came in past it, and moves the
+anchor forward. Register it on `SessionStart`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node --no-warnings /path/to/scripts/wake-drain-claude.mjs --session" }] }]
+  }
+}
+```
+
+It writes to **stdout** and exits `0`, because a `SessionStart` hook feeds its
+stdout to the session as context — there, exit `2` means "block", not "wake".
+With no anchor on disk (fresh install, or an upgrade from a build without one)
+it adopts the tip and stays quiet rather than replaying the whole store. Output
+is capped at `MURMUR_WAKE_SESSION_MAX` messages (default 20); anything older is
+counted, not printed. The anchor only ever moves forward, so a stale writer
+cannot make a delivered message look undelivered.
+
+Only the node port has this mode; `wake-drain-claude.sh` still has `poll` and
+`--once` only.
+
+### Filtering what the drain wakes on — and what that costs (#146)
+
+Both drains accept an optional local filter. It is **off by default**: with no
+`MURMUR_WAKE_SKIP_*` set, every inbound row is reported exactly as before.
+
+| Env | Effect |
+|---|---|
+| `MURMUR_WAKE_SKIP_SENDERS` | comma-separated sender ids not to wake on |
+| `MURMUR_WAKE_SKIP_CONVERSATIONS` | comma-separated conversation ids not to wake on |
+| `MURMUR_WAKE_SKIP_INELIGIBLE` | `1` to also skip rows the daemon marked `wake_eligible=0` |
+| `MURMUR_WAKE_SKIPPED_LOG` | append-only JSONL ledger of skipped rows (default `~/.murmur-wake-skipped.jsonl`) |
+
+**The cursor rule.** The cursor may only ever pass a row the drain actually looked
+at, and the high-water mark it moves to comes from the same `SELECT` that produced
+the rows — never from a second `MAX(rowid)` query. Break that and messages are lost
+permanently and silently, in two ways: a row landing between the two queries is
+stepped over and reported by nobody, and any row removed by a filter ends up below
+the new cursor, where no future drain will select it again.
+
+So a filter here does not drop a row, it **records** it. Every deliberately skipped
+row is appended to the ledger — `{"ts","rowid","sender","conversationId","reason","cursor"}`
+— *before* the cursor moves past it, and if the ledger cannot be written the cursor
+stays put so the rows are selected again next run. "Skipped" and "never happened"
+stay different things.
+
+Hand-editing the drain's `WHERE` clause to exclude a peer or a conversation is the
+same defect with the ledger removed: the excluded rows go below the cursor and are
+gone. Use the env filters instead.
+
+### A new lane is deaf until its first turn
+
+The poller is started by the `Stop` hook, and `Stop` fires at the end of a turn.
+A session that has just started has not taken one, so the poller is not running
+and inbound messages do not wake it — even though `SessionStart --session` ran
+and seeded the anchor, which makes the wake path look fully wired (#130). For an
+autonomous install this is the normal state after every reboot or watchdog
+restart, not an edge case.
+
+Give the lane one priming turn after launch: the watchdog sends a harmless
+prompt right after starting the session, purely to produce a first `Stop`. In
+tmux, send the text and `Enter` as two separate `send-keys` calls — in one call
+the prompt is typed but never submitted.
+
+### No responder configured is a state, not a silence (#146)
+
+A daemon with neither `onReceive` nor `wake.peers[<id>].mode = "codex_app_server"`
+accepts, decrypts, stores and ACKs every message exactly like a healthy one. The
+only difference shows up when somebody waits for a reply nobody was going to write.
+
+Two places now say so out loud:
+
+- **Startup.** `Daemon ready` carries `wake: { configured, hook, native, nativePeers }`,
+  and a zero-responder daemon logs `No wake responder configured` at `warn` before the
+  first message arrives. The `agentId` and `peers` fields are unchanged.
+- **Per message.** `WakeMonitor: hook not configured, message stored only` at `warn`,
+  with `msgId` and `conversationId`. It replaces `WakeMonitor hook completed`, which
+  used to be printed whether or not a hook existed — a log in which a working contour
+  and a contour with no responder at all were byte-identical.
 
 ## Codex CLI - App-Server WS-over-UDS
 
@@ -206,6 +336,83 @@ session thread was just attached.
 With those five steps in the launcher, a new Codex session brings up remote
 control, captures its own app-server thread, wires Murmur wake routing, and
 restarts the daemon without a manual copy/paste step.
+
+## Delivery semantics: one wake per delivery (#105)
+
+The daemon's wake path is exactly-once on the receiving side. What that means in
+practice, and where each guarantee lives:
+
+- **The `msgId` is the delivery id.** It is minted once when the envelope enters the
+  sender's outbox and never changes across retries, so every copy of a redelivered
+  message — JetStream redelivery, a sender's ACK-timeout resend, a 2.6.0 storm —
+  carries the same id.
+- **One row per delivery.** `local_messages` stores `delivery_id` (`inbound:<msgId>`)
+  under a UNIQUE index. `append` runs the existence check and the insert in one
+  transaction and reports `duplicate: true` when the row was already there. The daemon
+  then ACKs — the delivery did succeed — and starts no second wake.
+- **ACK means stored, not woken.** The daemon returns to the broker as soon as the row
+  is committed; the wake itself runs off the durable queue. Before 2.9 the sender's ACK
+  (and JetStream's `ack_wait`) waited for the whole Codex turn, which is how a slow turn
+  produced a resend of the very message it was answering.
+- **The wake state lives on the row.** `wake_status` moves
+  `pending → inflight → handled | failed | muted | dlq`. A claim is an UPDATE whose WHERE
+  clause is the lock: only a pending or due-for-retry row flips to `inflight`, so a
+  duplicate that arrives while the first copy is being processed, or after it was
+  handled, is refused durably.
+- **A failed wake is retried under the same delivery id**, with exponential backoff
+  (`wake.retry.backoffMs`, default 30 s, doubling to `backoffMaxMs`, default 10 min),
+  up to `wake.retry.maxAttempts` (default 5). After that the row is dead-lettered and
+  the fallback notifier fires with reason `wake-dlq`. An error flagged
+  `retryable: false` dead-letters on the first attempt.
+- **The cursor never skips a gap.** It is not a counter the monitor bumps; it is the
+  highest inbound row such that every inbound row at or below it is settled, read back
+  from the table after every change. A restart resumes from the rows, not from the
+  table tip: rows left `inflight` by a dead process return to the queue as failed-and-due.
+- **The relay is idempotent.** For `relayFinalToMurmur` peers the reply's `msgId` is
+  derived from the inbound `msgId` (`deriveRelayReplyMsgId`), and `murmur-shell-send`
+  accepts it via `--msg-id`. On a retry the injector first checks the peer's outbox for
+  that id; if the previous attempt already queued the reply, the turn is **not** started
+  again and the delivery is settled with `source: "relay-idempotent"`.
+- **An empty final answer is not a relay** (#106). A turn that completes with nothing to
+  send fails the wake with `codex-app-server-final-empty:<turnId>:<source>` (not
+  retryable) instead of logging `wake final relayed` with a null reply.
+
+Upgrading is silent: the new columns are added with `ALTER TABLE`, rows written before
+this release keep a NULL `delivery_id` and NULL `wake_status` — outside the queue, never
+replayed — the same seeding rule `wake-drain-claude` applies to a fresh cursor.
+
+### Turn outcome, lanes and thread memory (#106, #107, #108)
+
+- **A turn's status is checked, not assumed** (#106). `turn/completed` carries
+  `turn.status` (`completed | interrupted | failed | inProgress`) and `turn.error`; the
+  client now surfaces both. A `failed` turn fails the wake as
+  `codex-app-server-turn-failed:<turnId>:<error>` and is retried under the same delivery
+  id; an `interrupted` turn (someone stopped it on purpose) fails as
+  `codex-app-server-turn-interrupted:<turnId>` and is not retried. Neither is relayed.
+- **Wakes run in lanes** (#107). `WakeMonitor` used to be one sequential loop: a long
+  turn for one peer held every other inbound message until it finished or timed out. It
+  now dispatches into lanes — one per (peer, conversation), or one per peer for a Codex
+  peer pinned to a static `threadId` — and runs up to `wake.concurrency` lanes at once
+  (default 4; `1` restores the old behaviour). Within a lane order is kept and nothing
+  overlaps; across lanes a short question no longer waits behind a long turn.
+- **Codex threads are remembered per (peer, conversation)** (#108). Without a static
+  `threadId`, the injector used to seed a thread and write its id into `peer.threadId` —
+  one thread per peer for the life of the process, gone on restart. Threads are now keyed
+  by peer *and* conversation and stored in `wake_threads` in the message store, so a
+  daemon restart resumes the same Codex thread and two conversations from one sender no
+  longer share context. A static `peer.threadId` remains an explicit pin for every
+  conversation; when a pinned thread is gone (`thread not found`) the re-seeded thread is
+  remembered together with the pin it replaced, so changing the pin in config wins over
+  the remembered thread.
+
+```json
+{
+  "wake": {
+    "concurrency": 4,
+    "retry": { "maxAttempts": 5, "backoffMs": 30000, "backoffMaxMs": 600000 }
+  }
+}
+```
 
 ## Scoped Channels & Session Affinity
 
