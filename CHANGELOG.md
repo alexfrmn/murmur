@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dashboard and migration client support distinct TLS credentials. Certificate
   checks cannot be disabled through arbitrary TLS options. This breaking change
   requires the coordinated operator window in `docs/nats-transport-security.md`.
+- **Dependency audit**: update transitive `qs` to 6.16.0, clearing the moderate
+  advisories reported by `npm audit` on the previous lockfile.
 - **Outbox retries now reach JetStream inside its duplicate window** (#141): each
   durable row version has its own transport dedupe ID; the signed envelope and
   receiver's message ID remain unchanged. This also covers a fast NACK that wins
