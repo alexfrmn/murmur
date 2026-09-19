@@ -405,7 +405,7 @@ try {
   });
   log("info", "Subscribed", { subject });
 
-  // Also subscribe to proxy subjects (agents without their own daemon)
+  // Proxy wake bridges cannot confirm delivery on behalf of another agent.
   const proxySubjects = (config.proxySubjects || []);
   for (const ps of proxySubjects) {
     const proxyAgentId = ps.replace(/^msg\./, "");
@@ -442,8 +442,14 @@ try {
         env: { MURMUR_PROXY_AGENT: proxyAgentId },
       });
     };
-    await broker.subscribeWithAck({ subject: ps, consumerId: `${agentId}-proxy-${durableSafe(ps)}`, dedupe: store, onMessage: proxyOnMessage });
-    log("info", "Subscribed (proxy)", { subject: ps });
+    await broker.subscribeWithAck({
+      subject: ps,
+      consumerId: `${agentId}-proxy-${durableSafe(ps)}`,
+      dedupe: store,
+      onMessage: proxyOnMessage,
+      emitDeliveryAcks: false,
+    });
+    log("warn", "Subscribed (proxy wake only); without an addressed agent daemon, delivery is unconfirmed and sender retries end in DLQ", { subject: ps });
   }
 
   // `store` is a SQLiteDedupeOutboxStore, which also implements AckReceiptStore: ACK nonces

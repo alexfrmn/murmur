@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Outbox retries now reach JetStream inside its duplicate window** (#141): each
+  durable row version has its own transport dedupe ID; the signed envelope and
+  receiver's message ID remain unchanged. This also covers a fast NACK that wins
+  the `markSent` CAS before the attempts counter advances.
+- **Late signed ACK/NACKs settle retryable failed rows** (#142). A verified
+  `poison-message:*` NACK atomically moves the row to DLQ with the peer's reason;
+  settled rows remain protected. Subsequent ACK timeouts retain an earlier error
+  instead of replacing the peer's diagnosis with `ack-timeout` (#143).
+- **Proxy subscriptions no longer acknowledge for another agent** (#144).
+  A proxy is a wake bridge, not delivery to the addressee's inbox. It emits no
+  peer ACK/NACK, while its own JetStream consumer still acknowledges processing.
+  Startup warns that without the addressed agent's daemon, the sender will retry
+  and eventually dead-letter the unconfirmed message. Proxy signing/delegation is
+  not part of the protocol; the expected-peer signature check remains unchanged.
 - **`WakeMonitor hook completed` was logged when there was no hook** (#146) — the line was
   printed whether or not a responder existed, so a daemon configured with neither `wake`
   nor `onReceive` produced a log byte-identical to a healthy one: `Message received`, then

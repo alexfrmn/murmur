@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   AckPolicy,
   connect,
@@ -252,7 +253,7 @@ export class NatsBroker {
     });
   }
 
-  async publish(subject: string, envelope: EnvelopeV1, policy?: SecurityPolicy): Promise<void> {
+  async publish(subject: string, envelope: EnvelopeV1, policy?: SecurityPolicy, dedupeId = envelope.msgId): Promise<void> {
     const violations = validateEnvelopePolicy(envelope, policy);
     if (violations.length > 0) {
       throw new Error(`policy-rejected:${violations.join("|")}`);
@@ -260,7 +261,7 @@ export class NatsBroker {
     await this.connect();
     const payload = this.sc.encode(JSON.stringify(envelope));
     if (this.js) {
-      await this.js.publish(subject, payload, { msgID: envelope.msgId });
+      await this.js.publish(subject, payload, { msgID: dedupeId });
       return;
     }
     this.nc!.publish(subject, payload);
@@ -322,15 +323,21 @@ export class NatsBroker {
       maxPoisonAttempts?: number;
       authorize?: InboundAuthorizer;
       signAck?: AckSigner;
+      emitDeliveryAcks?: boolean;
     },
   ): Promise<"ack" | "retry"> {
     let msgId = "unknown";
     let ackSubject = `ack.${params.consumerId}`;
     let decodedEnvelope: EnvelopeV1 | undefined;
+    // A proxy may wake a session but cannot acknowledge on behalf of its addressee.
+    // The return value still drives the proxy's own JetStream consumer disposition.
+    const publishAck = async (subject: string, ack: AckV1 | SignedAckV1): Promise<void> => {
+      if (params.emitDeliveryAcks !== false) await this.publishAckBestEffort(subject, ack);
+    };
     try {
       const decoded = JSON.parse(this.sc.decode(data));
       if (!isEnvelopeV1(decoded)) {
-        await this.publishAckBestEffort(ackSubject, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
+        await publishAck(ackSubject, createAck("unknown", params.consumerId, "nack", "invalid-envelope"));
         return "ack";
       }
 
@@ -339,7 +346,7 @@ export class NatsBroker {
       ackSubject = `ack.${decoded.senderAgentId}`;
       const isDup = await params.dedupe.seen(decoded.msgId, params.consumerId);
       if (isDup) {
-        await this.publishAckBestEffort(
+        await publishAck(
           ackSubject,
           await this.createDeliveryAck(decoded, params.consumerId, "ack", "duplicate-ignored", params.signAck),
         );
@@ -352,7 +359,7 @@ export class NatsBroker {
       if (params.authorize) {
         const authz = await params.authorize(decoded);
         if (!authz.accepted) {
-          await this.publishAckBestEffort(
+          await publishAck(
             ackSubject,
             await this.createDeliveryAck(
               decoded,
@@ -371,7 +378,7 @@ export class NatsBroker {
         senderAgentId: decoded.senderAgentId,
       });
       this.failedDeliveries.delete(`${params.consumerId}:${decoded.msgId}`);
-      await this.publishAckBestEffort(
+      await publishAck(
         ackSubject,
         await this.createDeliveryAck(decoded, params.consumerId, "ack", undefined, params.signAck),
       );
@@ -387,7 +394,7 @@ export class NatsBroker {
         const recoverableAck = decodedEnvelope
           ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
           : createAck(msgId, params.consumerId, "nack", reason);
-        await this.publishAckBestEffort(ackSubject, recoverableAck);
+        await publishAck(ackSubject, recoverableAck);
         return "retry";
       }
       const failures = (this.failedDeliveries.get(key) ?? 0) + 1;
@@ -411,13 +418,13 @@ export class NatsBroker {
               params.signAck,
             )
           : createAck(msgId, params.consumerId, "nack", `poison-message:${reason}`);
-        await this.publishAckBestEffort(ackSubject, ack);
+        await publishAck(ackSubject, ack);
         return "ack";
       }
       const ack = decodedEnvelope
         ? await this.createDeliveryAck(decodedEnvelope, params.consumerId, "nack", reason, params.signAck)
         : createAck(msgId, params.consumerId, "nack", reason);
-      await this.publishAckBestEffort(ackSubject, ack);
+      await publishAck(ackSubject, ack);
       return "retry";
     }
   }
@@ -500,6 +507,8 @@ export class NatsBroker {
     authorize?: InboundAuthorizer;
     /** Signs ACKs with the receiving agent's long-term signing key. */
     signAck?: AckSigner;
+    /** Disable peer delivery ACKs for proxies; JetStream consumer ACKs still apply. */
+    emitDeliveryAcks?: boolean;
   }): Promise<BrokerSubscription> {
     await this.connect();
 
@@ -721,7 +730,7 @@ export class NatsBroker {
       }
       // 'pending' is in flight too: the peer can acknowledge between publish() and
       // markSent(). Rejecting that ACK leaves the row to time out into a spurious retry.
-      if (record.status !== "sent" && record.status !== "pending") {
+      if (record.status !== "sent" && record.status !== "pending" && record.status !== "failed") {
         this.invalidAck(params, "message-not-in-flight", decoded);
         return;
       }
@@ -921,7 +930,13 @@ export class NatsBroker {
       }
 
       try {
-        await this.publish(rec.subject, rec.envelope, params.policy);
+        // A timeout/NACK advances the durable version even when a fast verdict made
+        // markSent's CAS skip the attempts increment. A retry must cross JS dedupe;
+        // the signed envelope ID stays unchanged for receiver-side deduplication.
+        const transportId = rec.version === undefined
+          ? `${rec.msgId}:retry:${randomUUID()}`
+          : `${rec.msgId}:v${rec.version}`;
+        await this.publish(rec.subject, rec.envelope, params.policy, transportId);
         await params.outbox.markSent(rec.msgId, rec.version);
         if (params.ackWindow) {
           inFlightChunks += 1;

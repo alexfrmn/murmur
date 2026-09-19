@@ -466,15 +466,15 @@ export class JsonFileOutboxStore implements OutboxStore {
     const state = await this.load();
     const row = state.records.find((record) => record.msgId === msgId);
     if (!row) return "not-found";
-    // See the SQLite implementation: 'pending' is accepted so a fast ACK arriving between
-    // publish() and markSent() is not rejected into a spurious retry.
-    if (row.status !== "sent" && row.status !== "pending") return "not-in-flight";
+    // Failed rows still await a retry/verdict; only settled rows reject later ACKs.
+    // Pending also covers a fast ACK arriving between publish() and markSent().
+    if (TERMINAL_OUTBOX_STATUSES.has(row.status)) return "not-in-flight";
 
     const now = new Date().toISOString();
     if (status === "ack") {
       row.status = "acked";
     } else {
-      row.status = "failed";
+      row.status = error.startsWith("poison-message:") ? "dlq" : "failed";
       row.lastError = error;
       row.nextAttemptAt = nextAttemptAt;
     }
@@ -493,7 +493,8 @@ export class JsonFileOutboxStore implements OutboxStore {
       const ageMs = now - new Date(row.updatedAt).getTime();
       if (ageMs < ackTimeoutMs) continue;
       row.status = "failed";
-      row.lastError = reason;
+      // Preserve the peer's diagnosis across a later lost ACK (#143).
+      row.lastError ||= reason;
       row.nextAttemptAt = new Date(now).toISOString();
       row.updatedAt = new Date(now).toISOString();
       row.version = (row.version ?? 0) + 1;
@@ -773,7 +774,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
     nextAttemptAt = new Date().toISOString(),
   ): Promise<"applied" | "not-found" | "not-in-flight"> {
     const now = new Date().toISOString();
-    const nextStatus = status === "ack" ? "acked" : "failed";
+    const nextStatus = status === "ack" ? "acked" : error.startsWith("poison-message:") ? "dlq" : "failed";
     const nextError = status === "ack" ? null : error;
     // 'pending' is accepted alongside 'sent' on purpose: a fast peer can acknowledge
     // between publish() and markSent(), and rejecting that ACK leaves the row to time out
@@ -783,7 +784,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
       .prepare(
         `UPDATE outbox
          SET status = ?, last_error = ?, next_attempt_at = ?, updated_at = ?, version = version + 1
-         WHERE msg_id = ? AND status IN ('sent', 'pending')`,
+         WHERE msg_id = ? AND status IN ('sent', 'pending', 'failed')`,
       )
       .run(nextStatus, nextError, nextAttemptAt, now, msgId);
     if (changed.changes > 0) return "applied";
@@ -796,7 +797,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
       .prepare(
         `UPDATE outbox
          SET status = 'failed',
-             last_error = ?,
+             last_error = COALESCE(NULLIF(last_error, ''), ?),
              next_attempt_at = ?,
              updated_at = ?,
              version = version + 1
