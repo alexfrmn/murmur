@@ -27,7 +27,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       if (mode === 'missing-field') delete status.service;
       await writeFile(entry, `
         import assert from 'node:assert/strict';
-        import { writeFileSync } from 'node:fs';
+        import { writeFileSync, statSync } from 'node:fs';
         const args=process.argv.slice(2);
         writeFileSync(${JSON.stringify(trace)},JSON.stringify({args,dataDir:process.env.DATA_DIR,node:process.execPath}));
         assert.equal(process.env.NODE_OPTIONS, undefined);
@@ -35,9 +35,14 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         if(args[0]==='version') console.log(JSON.stringify({schema:'murmur.version/1',version:'2.9.0'}));
         else {
           assert.equal(args[0],'status');
-          assert.equal(args[args.indexOf('--data-dir')+1],${JSON.stringify(profile)});
+          const selected=args[args.indexOf('--data-dir')+1];
+          const actual=statSync(selected), expected=statSync(${JSON.stringify(profile)});
+          // PowerShell expands the runner's RUNNER~1 parent to runneradmin.
+          // Compare the existing directory, not the spelling of that alias.
+          assert.equal(actual.dev,expected.dev); assert.equal(actual.ino,expected.ino);
           assert.equal(args[args.indexOf('--service-name')+1],'ChosenService');
-          assert.equal(process.env.DATA_DIR,${JSON.stringify(profile)});
+          assert.equal(process.env.DATA_DIR,selected);
+          writeFileSync(${JSON.stringify(trace)},JSON.stringify({stage:'validated',args,dataDir:process.env.DATA_DIR}));
           const status=${JSON.stringify(status)};
           status.generatedAt=new Date(Date.now()+${mode === 'future' ? 3_600_000 : 0}).toISOString();
           console.log(JSON.stringify(status));
@@ -51,6 +56,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       assert.equal(result.error, undefined);
       const observed = JSON.parse(await readFile(trace, 'utf8'));
       assert.equal(observed.args[0], 'status', JSON.stringify(observed));
+      assert.equal(observed.stage, 'validated', JSON.stringify(observed));
       if (mode === 'normal-return') {
         assert.equal(result.status, 0, result.stdout + result.stderr + JSON.stringify(observed));
         assert.match(result.stdout, /Murmur opened/);
