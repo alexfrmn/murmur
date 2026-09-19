@@ -18,6 +18,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       const profile = path.join(dir, "Alice's profile");
       await mkdir(profile);
       const entry = path.join(dir, 'runtime/packages/setup/bin/murmur.mjs');
+      const trace = path.join(dir, 'fixture-trace.json');
       await mkdir(path.dirname(entry), { recursive: true });
       // This is a protocol fixture, not a real service. The native tray must run
       // the selected Node/entry and reject bad identities before opening a GUI.
@@ -26,7 +27,9 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       if (mode === 'missing-field') delete status.service;
       await writeFile(entry, `
         import assert from 'node:assert/strict';
+        import { writeFileSync } from 'node:fs';
         const args=process.argv.slice(2);
+        writeFileSync(${JSON.stringify(trace)},JSON.stringify({args,dataDir:process.env.DATA_DIR,node:process.execPath}));
         assert.equal(process.env.NODE_OPTIONS, undefined);
         assert.equal(process.env.MURMUR_STORE_PATH, undefined);
         if(args[0]==='version') console.log(JSON.stringify({schema:'murmur.version/1',version:'2.9.0'}));
@@ -46,11 +49,13 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         env: { ...process.env, NODE_OPTIONS: '--require C:/must-not-run.js', MURMUR_STORE_PATH: 'C:/wrong-store' },
       });
       assert.equal(result.error, undefined);
+      const observed = JSON.parse(await readFile(trace, 'utf8'));
+      assert.equal(observed.args[0], 'status', JSON.stringify(observed));
       if (mode === 'normal-return') {
-        assert.equal(result.status, 0, result.stdout + result.stderr);
+        assert.equal(result.status, 0, result.stdout + result.stderr + JSON.stringify(observed));
         assert.match(result.stdout, /Murmur opened/);
       } else if (mode === 'valid') {
-        assert.equal(result.status, 0, result.stdout + result.stderr);
+        assert.equal(result.status, 0, result.stdout + result.stderr + JSON.stringify(observed));
         const output = JSON.parse(result.stdout.replace(/^\uFEFF/, ''));
         assert.equal(output.agentId, fixture.agentId);
         assert.equal(output.probe.schema, 'murmur.tray-probe/1');
