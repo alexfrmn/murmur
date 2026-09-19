@@ -24,7 +24,9 @@ public func timestamp(_ value: String) -> Date? {
 public func schemaKnown(_ value: String, name: String) -> Bool {
     let parts = value.split(separator: "/", omittingEmptySubsequences: false)
     guard parts.count == 2, parts[0] == name else { return false }
-    return Int(parts[1].split(separator: ".", omittingEmptySubsequences: false).first ?? "") == 1
+    let version = parts[1].split(separator: ".", omittingEmptySubsequences: false)
+    guard version.first == "1", version.count <= 2 else { return false }
+    return version.count == 1 || (!version[1].isEmpty && version[1].utf8.allSatisfy { $0 >= 48 && $0 <= 57 })
 }
 
 public struct Verdict: Sendable {
