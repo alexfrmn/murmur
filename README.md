@@ -160,51 +160,152 @@ AI agents today are isolated. Claude can't talk to GPT. Your coding assistant ca
 
 ## Quick Start
 
-Connect two agents in 3 commands. No JSON editing.
+**Five steps, two people, one shared broker.** Two of the five need a second person at
+the other end, so plan for that — you cannot finish this alone.
+
+This is the honest count. Earlier versions of this section promised three commands; on
+Windows the first of those three does not run at all, because it was written in shell
+syntax that PowerShell does not have. Every command below is given for both shells.
 
 ### Prerequisites
 
-- **Node.js 22+** (uses built-in `node:sqlite`)
-- **NATS server**:
-  ```bash
-  docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js --auth YOUR_SECRET
-  ```
+| you need | why | check |
+|---|---|---|
+| **Node.js 22.5+** | the daemon stores messages through the built-in `node:sqlite`, added in 22.5 | `node --version` |
+| **git** | step 1 starts by cloning | `git --version` |
+| **a NATS broker** | agents meet there; encryption is end-to-end, so the broker never sees plaintext | URL + token |
 
-### Step 1 — Host generates invite
+If your lab gave you a broker URL and token, use them — you do not need your own. If you
+are setting up alone, run one:
 
 ```bash
-git clone https://github.com/alexfrmn/murmur.git && cd murmur
-npm install && npm run build
+docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js --auth YOUR_SECRET
+```
 
+Docker is a separate install and is **not** needed when you were given a broker.
+
+### Step 1 — Get the code
+
+Same on every OS:
+
+```bash
+git clone https://github.com/alexfrmn/murmur.git
+cd murmur
+npm install
+npm run build
+```
+
+On Windows, run these as four separate lines. `&&` between commands is shell syntax that
+PowerShell 5.1 does not have — it fails to parse rather than running anything.
+
+### Step 2 — Create your identity
+
+Environment variables are set differently per shell. This is the step where copying the
+wrong one silently costs you the most time.
+
+**macOS / Linux (bash, zsh):**
+
+```bash
 AGENT_ID=alice NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
   node scripts/agent-config-init.mjs
+```
 
+**Windows (PowerShell):**
+
+```powershell
+$env:AGENT_ID = 'alice'
+$env:NATS_URL = 'nats://your-server:4222'
+$env:NATS_TOKEN = 'YOUR_SECRET'
+node scripts/agent-config-init.mjs
+```
+
+A prefix like `AGENT_ID=alice node …` is bash syntax. PowerShell has no equivalent form
+and reports `The term 'AGENT_ID=alice' is not recognized` — that error means the syntax,
+not your setup.
+
+You now have `.data/agent-config.json`. It holds your keys. Do not share it.
+
+### Step 3 — Pair with your peer
+
+Three commands across two machines. One of you is the host, the other joins.
+
+**Host:**
+
+```bash
 node scripts/murmur-invite.mjs
-# → Prints MURMUR:eyJ... blob — send it to your peer via any channel
+# → prints MURMUR:eyJ… — send this blob to your peer
 ```
 
-### Step 2 — Peer joins with the blob
+**Peer** (after doing steps 1 and 2 on their own machine):
 
 ```bash
-git clone https://github.com/alexfrmn/murmur.git && cd murmur
-npm install && npm run build
-
-AGENT_ID=bob NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
-  node scripts/murmur-join.mjs 'MURMUR:eyJ...'
-# → Prints MURMUR-REPLY:eyJ... blob — send it back to host
+node scripts/murmur-join.mjs 'MURMUR:eyJ…'
+# → prints MURMUR-REPLY:eyJ… — send this back to the host
 ```
 
-### Step 3 — Host adds peer
+**Host again:**
 
 ```bash
-node scripts/murmur-add-peer.mjs 'MURMUR-REPLY:eyJ...'
+node scripts/murmur-add-peer.mjs 'MURMUR-REPLY:eyJ…'
 ```
 
-### Start the daemons (both sides)
+The blobs carry public keys and your agent id — no private key and no broker token, so
+any channel you already trust for a public identifier will do.
+
+Importing the reply confirms **your** side of the pair. It does not prove the other side
+completed it; only a round trip does. If your first message never gets a reply, this is
+the first thing to re-check.
+
+### Step 4 — Run the daemon (both sides)
 
 ```bash
 node scripts/murmur-daemon.mjs
 ```
+
+**This keeps running only while that window stays open.** Close the terminal, log out or
+reboot, and the daemon stops with it: no messages are delivered, nothing warns you, and
+you usually discover it when someone does not get a reply.
+
+That is the whole reason a background service exists. Until you install one, treat that
+window as part of the setup and leave it open.
+
+### Step 5 — Connect your AI client
+
+```bash
+claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
+```
+
+On Windows the path uses backslashes and often contains a space, so quote it:
+
+```powershell
+claude mcp add murmur -- node "C:\Users\you\murmur\packages\mcp-server\dist\src\index.js"
+```
+
+Then, from your agent:
+
+```
+murmur_send(to: "bob", text: "Hello from Alice!")
+murmur_request(to: "bob", text: "Review this code please", timeout_ms: 300000)
+```
+
+### One more step if you want your agent to answer on its own
+
+Delivery and *waking your agent up* are different things. Out of the box, incoming
+messages are stored; your agent replies only once a wake hook is registered. See
+[docs/wake-native.md](docs/wake-native.md).
+
+On Windows, register the Node port (`wake-drain-claude.mjs`), not the shell script: the
+shell version needs `sh`, which a clean Windows does not have. Without `sh` the hook
+returns nothing, exits successfully, and waking silently never happens.
+
+### If something does not work
+
+- **Nothing happens after `murmur_send`** — check that the daemon window is still open
+  on *both* sides, and that step 3 completed on the peer's machine too.
+- **Russian or other non-ASCII text in logs looks like garbage on Windows** — that is
+  PowerShell 5.1 reading UTF-8 as the ANSI code page, not a corrupted file. Use
+  `Get-Content file -Encoding UTF8`.
+- **`node:sqlite` is not defined** — your Node is older than 22.5.
 
 ### Optional: expose Prometheus metrics
 
@@ -215,31 +316,6 @@ METRICS_PORT=9464 node scripts/prometheus-exporter.mjs
 ```
 
 Exporter metrics include outbox depth by status, oldest pending age, inbound/outbound message totals, ack latency (avg/p95), retry rows, and dead-letter rows.
-
-### Send your first message
-
-Add Murmur as an MCP server in your AI client (e.g., Claude Code):
-
-```bash
-claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
-```
-
-Then from your AI agent:
-
-```
-# Fire-and-forget
-murmur_send(to: "bob", text: "Hello from Alice!")
-
-# Or send-and-wait (blocks until reply arrives)
-murmur_request(to: "bob", text: "Review this code please", timeout_ms: 300000)
-```
-
-For Phase N member-level addressing, configure a stable local `memberId` and the
-peer's `channelId` / `memberId`, or pass `channelId`, `senderMemberId`, and
-`addresseeMemberId` to `murmur_send` / `murmur_request`. Enable the same channel roster
-on every receiving daemon. See [the coordinated routing rollout](docs/phase-n-routing.md).
-
-That's it. Alice and Bob can now exchange encrypted messages — no human relay needed.
 
 ---
 
@@ -304,7 +380,7 @@ This enables **fully autonomous overnight work** — launch 2-3 agents, they col
 ### Agent Integration
 - **MCP Server** — 7 tools for any MCP-compatible AI client
 - **`murmur_request`** — send-and-wait: no more manual polling
-- **Invite Flow** — 3 commands to connect two agents, zero JSON editing
+- **Invite Flow** — pairing by passing two blobs, no JSON editing; three commands across two machines
 - **Native Wake** — live-session wake via Claude asyncRewake / Codex app-server UDS with self-healing thread re-seed (always-on dead-session wake is an out-of-repo reference-deployment sidecar) (v2.1)
 - **A2A Bridge** — speaks the industry-standard A2A protocol into the Murmur mesh; live client→bridge→NATS→reply round-trip proven, real remote agent pending (v2.1)
 - **Telegram Notifications** — get notified when agents talk
@@ -593,7 +669,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 
 *Messaging & transport*
 - [x] E2E encryption — X25519 + XChaCha20-Poly1305 + Ed25519 signatures
-- [x] Invite-based peer setup — 3 commands, zero JSON editing
+- [x] Invite-based peer setup — three commands across two machines, no JSON editing
 - [x] `murmur_request` send-and-wait — wake-accelerated via a read-only ephemeral NATS tap; SQLite store-poll is the durable fallback (daemon stays source of truth for decrypt)
 - [x] Optional JetStream durability — finite `max_deliver`/`ack_wait`, consumer repair, advisory → DLQ; default-OFF, SQLite outbox stays source of truth; running live on the reference mesh
 - [x] Dead-letter queue + poison handling · SQLite WAL with optimistic locking
