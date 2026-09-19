@@ -7,6 +7,20 @@ on:
     branches: [main]
 
 jobs:
+  updates-windows:
+    name: Update CLI (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Check update CLI, cache and preferences without network
+        run: node --test tests/setup-updates.test.mjs
+
   build-and-test:
     runs-on: ubuntu-latest
 
