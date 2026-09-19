@@ -123,6 +123,21 @@ for (const Store of [JsonFileOutboxStore, SQLiteDedupeOutboxStore]) {
   });
 }
 
+test("versionless external stores also get a fresh retry transport ID (#141)", async () => {
+  const broker = new NatsBroker({ url: "nats://example.invalid" });
+  const ids = [];
+  broker.connect = async () => {};
+  broker.js = { async publish(_subject, _data, { msgID }) { ids.push(msgID); } };
+  const outbox = {
+    async claimDue() { return [{ msgId: envelope.msgId, envelope, subject: "msg.agent-receiver", attempts: 0, status: "failed" }]; },
+    async markSent() {},
+  };
+  await broker.flushOutbox({ outbox });
+  await broker.flushOutbox({ outbox });
+  assert.equal(ids.length, 2);
+  assert.notEqual(ids[0], ids[1]);
+});
+
 for (const outcome of ["delivered", "duplicate", "poison", "recoverable", "unauthorized", "malformed"]) {
   test(`proxy ${outcome}: no delivery ACK impersonates the addressee (#144)`, async () => {
     const broker = new NatsBroker({ url: "nats://example.invalid" });

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   AckPolicy,
   connect,
@@ -932,7 +933,10 @@ export class NatsBroker {
         // A timeout/NACK advances the durable version even when a fast verdict made
         // markSent's CAS skip the attempts increment. A retry must cross JS dedupe;
         // the signed envelope ID stays unchanged for receiver-side deduplication.
-        await this.publish(rec.subject, rec.envelope, params.policy, `${rec.msgId}:v${rec.version ?? rec.attempts}`);
+        const transportId = rec.version === undefined
+          ? `${rec.msgId}:retry:${randomUUID()}`
+          : `${rec.msgId}:v${rec.version}`;
+        await this.publish(rec.subject, rec.envelope, params.policy, transportId);
         await params.outbox.markSent(rec.msgId, rec.version);
         if (params.ackWindow) {
           inFlightChunks += 1;

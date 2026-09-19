@@ -55,6 +55,9 @@ The signed envelope is unchanged. The row version advances on NACK/timeout even
 if a fast NACK prevented `markSent` from incrementing attempts, so the new send
 reaches the receiver inside the server's duplicate window. Direct `publish()`
 calls retain message-ID deduplication unless given an explicit transport ID.
+External outbox stores that omit the optional row version get a fresh random
+transport ID per publish call instead; receiver-side envelope deduplication still
+applies. A constant or attempts-based fallback would suppress fast-NACK retries.
 
 `config.proxySubjects` creates wake bridges, not delivery to another agent's inbox.
 Proxy subscriptions suppress delivery ACK/NACKs, including errors and duplicate
