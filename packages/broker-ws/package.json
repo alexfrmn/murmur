@@ -10,7 +10,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@murmurv2/core": "^0.6.0",
+    "@murmurv2/core": "^0.6.3",
     "ws": "^8.21.0"
   },
   "license": "MIT",

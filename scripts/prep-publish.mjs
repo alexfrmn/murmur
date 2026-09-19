@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // One-shot publish-prep for the @murmurv2/* workspace packages: makes each package
 // publishable to the public npm registry without changing its name. Idempotent.
-//   - drop `private: true`
+//   - preserve `private: true` packages byte-for-byte (publication is opt-in)
 //   - set license: "MIT" + repository (with directory) + publishConfig.access=public
 //   - add a short `description` (npm hygiene; stubs marked experimental)
 //   - rewrite intra-workspace `@murmurv2/*` deps (file:../x or pinned) to `^<version>`
@@ -10,10 +10,14 @@
 //     drops dist/tsconfig.tsbuildinfo noise
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const REPO_URL = "git+https://github.com/alexfrmn/murmur.git";
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkgsDir = path.join(root, "packages");
+const args = process.argv.slice(2);
+if (args.some(arg => arg !== "--check")) throw new Error("Usage: node scripts/prep-publish.mjs [--check]");
+const check = args.includes("--check");
 
 const DESCRIPTIONS = {
   "@murmurv2/core": "Murmur V2 core — EnvelopeV1/AckV1 wire types, SQLite outbox + dedupe stores, machine-readable protocol schema.",
@@ -30,29 +34,40 @@ const DESCRIPTIONS = {
   "@murmurv2/observability": "Murmur V2 observability helpers (scaffold).",
 };
 
-for (const dir of readdirSync(pkgsDir)) {
+// Read and validate the entire graph before changing any manifest. A typo in a
+// later dependency must not leave earlier packages partially prepared.
+const packages = [];
+const byName = new Map();
+for (const dir of readdirSync(pkgsDir).sort()) {
   const file = path.join(pkgsDir, dir, "package.json");
-  let pkg;
-  try {
-    if (!statSync(file).isFile()) continue;
-    pkg = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    continue;
-  }
+  if (!existsSync(file) || !statSync(file).isFile()) continue;
+  const original = readFileSync(file, "utf8"), pkg = JSON.parse(original);
   if (!pkg.name) continue;
+  if (byName.has(pkg.name)) throw new Error(`Duplicate workspace package: ${pkg.name}`);
+  byName.set(pkg.name, pkg);
+  packages.push({ dir, file, original, pkg });
+}
+const changes = [];
+for (const { dir, file, original, pkg } of packages) {
+  if (pkg.private === true) continue;
+  if (typeof pkg.version !== "string" || !pkg.version) throw new Error(`Missing version: ${pkg.name}`);
 
-  delete pkg.private;
   pkg.license = "MIT";
   pkg.repository = { type: "git", url: REPO_URL, directory: `packages/${dir}` };
   pkg.publishConfig = { access: "public" };
-  if (DESCRIPTIONS[pkg.name]) pkg.description = DESCRIPTIONS[pkg.name];
+  if (!pkg.description && DESCRIPTIONS[pkg.name]) pkg.description = DESCRIPTIONS[pkg.name];
 
-  const version = pkg.version || "0.1.0";
-  for (const key of ["dependencies", "devDependencies", "peerDependencies"]) {
+  const version = pkg.version;
+  for (const key of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
     const deps = pkg[key];
     if (!deps) continue;
     for (const name of Object.keys(deps)) {
-      if (name.startsWith("@murmurv2/")) deps[name] = `^${version}`;
+      if (!name.startsWith("@murmurv2/")) continue;
+      const dependency = byName.get(name);
+      if (!dependency) throw new Error(`${pkg.name}: unknown workspace dependency ${name}`);
+      if (dependency.private === true) throw new Error(`${pkg.name}: private workspace dependency ${name} is not publishable`);
+      if (typeof dependency.version !== "string" || !dependency.version) throw new Error(`Missing version: ${name}`);
+      deps[name] = `^${dependency.version}`;
     }
   }
 
@@ -64,6 +79,11 @@ for (const dir of readdirSync(pkgsDir)) {
   if (existsSync(path.join(pkgsDir, dir, "schema"))) files.splice(1, 0, "schema");
   pkg.files = files;
 
-  writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
-  console.log(`prepped ${pkg.name}@${version}`);
+  const content = JSON.stringify(pkg, null, 2) + "\n";
+  if (content !== original) changes.push({ file, content, label: `${pkg.name}@${version}` });
 }
+for (const { file, content, label } of changes) {
+  if (!check) writeFileSync(file, content);
+  console.log(`${check ? "needs preparation" : "prepped"} ${label}`);
+}
+if (check && changes.length) process.exitCode = 1;
