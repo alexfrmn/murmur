@@ -95,7 +95,9 @@ export const createShellHook = ({ command, timeoutMs = 10000, baseEnv = process.
         // a stable failure code; hooks may contain credentials or private content.
         const reason = err.killed ? "timeout-or-killed" : String(err.code ?? err.signal ?? "failed");
         const failure = new Error(`wake-hook-${reason}`);
-        failure.retryable = true;
+        // Shell convention: 126/127 means the command cannot execute/is absent.
+        // Other exit codes (including 2) can belong to the invoked application.
+        failure.retryable = !["ENOENT", "EACCES", "EPERM", 126, 127].includes(err.code);
         log("warn", "wake hook failed", { error: failure.message, msgId: payload.msgId });
         reject(failure);
         return;

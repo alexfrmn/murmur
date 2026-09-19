@@ -21,12 +21,31 @@ durable inbound monitor it follows the configured retry/backoff and DLQ policy;
 it never becomes `handled`. The legacy proxy monitor has no durable queue, so
 its failures are logged without durable retry. Error records contain a stable
 failure code rather than the shell command or captured output.
+Missing/inaccessible shell executables (`ENOENT`, `EACCES`, `EPERM`) and shell
+exit codes 126/127 are permanent and go straight to DLQ. Other exit codes retain
+bounded retries: an application's exit 2 is not necessarily shell syntax failure.
 
 With no responder configured, the durable row settles as `stored-only` with
 `wake-no-responder`. This terminal state proves persistence only, not wake or
 agent handling. It is excluded from automatic retries, including after a
 responder is configured later. The additive status needs no table migration;
 operators can still retrieve the message from the inbox.
+
+### Status/doctor mapping for onboarding clients
+
+The upcoming `murmur.status/1` engine reports `wake.storedOnly` as a separate
+count (null if unmeasured). It does not add these terminal rows to
+`wake.pendingUndelivered` or `wake.lastFault`; absence of a responder is a mode,
+not a failed wake attempt. The menu shows the count and `wake.mode: "none"`,
+`wake.responder: "none"` explicitly when unconfigured. The stored-only count
+does not affect the tray color. Doctor names `wake.no-responder` rather than
+claiming wake was tested successfully. This contract is for the pending setup
+implementation; this PR changes durable state and startup reporting only.
+
+`wake.enabled: false` remains explicit in status, and startup logs include the
+effective enabled/mode/hook presence plus `wake-disabled` with the preserve policy.
+Paused pending work stays pending; consumers must present pause as a mode, not
+infer successful wake from transport or an empty error list.
 
 ## Optional Codex wake batching (#124)
 

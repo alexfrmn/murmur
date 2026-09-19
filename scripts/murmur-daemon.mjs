@@ -125,8 +125,13 @@ log("info", "Daemon starting", {
     maxAgeMs: maxAckAgeMs,
   },
   ackWindow,
+  wake: { enabled: wakeConfig.enabled, mode: wakeConfig.mode, hookConfigured: Boolean(config.onReceive) },
   notifyTargets: effectiveNotifyTargets.map((t) => `${t.type}:${t.channel}`),
   notifyFallbackFromEnv: envTelegramFallback.length > 0,
+});
+
+if (!wakeConfig.enabled) log("warn", "Wake dispatch paused by configuration", {
+  reason: "wake-disabled", pendingPolicy: "preserve-until-enabled",
 });
 
 const store = new SQLiteDedupeOutboxStore(dbPath);

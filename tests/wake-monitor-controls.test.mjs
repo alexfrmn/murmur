@@ -9,8 +9,8 @@ import { WakeMonitor, createShellHook, normalizeWakeConfig } from "../scripts/wa
 const epoch = Date.parse("2026-09-19T12:00:00Z");
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "murmur-wake-controls-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const store = new SQLiteMessageStore(join(dir, "murmur.db"));
+  t.after(() => { store.db.close(); rmSync(dir, { recursive: true, force: true }); });
   const clock = { now: epoch };
   const options = { deliveries: store, now: () => clock.now, retryBackoffMs: 100, maxAttempts: 2 };
   const receive = async (msgId) => {
@@ -58,7 +58,6 @@ test("pausing during a lane leaves later queued work pending while its active ho
 for (const [label, hookOptions] of [
   ["nonzero exit", { command: "exit 7" }],
   ["timeout", { command: "exec sleep 2", timeoutMs: 30 }],
-  ["missing shell", { command: "true", baseEnv: { PATH: "/murmur-test-no-shell" } }],
 ]) test(`shell hook ${label} keeps cursor at failure, retries and finally enters DLQ`, async (t) => {
   const { store, options, clock, receive } = fixture(t);
   const notices = [];
@@ -76,6 +75,20 @@ for (const [label, hookOptions] of [
   await monitor.drain();
   assert.equal((await store.wakeStateFor("failed-hook")).status, "dlq");
   assert.deepEqual(notices, [["failed-hook", "wake-dlq"]]);
+});
+
+for (const [label, hookOptions] of [
+  ["missing shell", { command: "true", baseEnv: { PATH: "/murmur-test-no-shell" } }],
+  ["missing command", { command: "murmur_test_command_that_does_not_exist" }],
+  ["command not executable", { command: "exit 126" }],
+]) test(`shell hook ${label} enters DLQ immediately without retries`, async (t) => {
+  const { store, options, receive } = fixture(t);
+  const monitor = new WakeMonitor({ ...options, hook: createShellHook(hookOptions) });
+  await monitor.onInbound(await receive("permanent-hook-error"));
+  const state = await store.wakeStateFor("permanent-hook-error");
+  assert.equal(state.status, "dlq");
+  assert.equal(state.attempts, 1);
+  assert.match(state.error, /^wake-hook-/);
 });
 
 test("no responder persists stored-only, never handled, and restart does not replay it", async (t) => {
