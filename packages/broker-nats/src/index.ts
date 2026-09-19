@@ -651,6 +651,7 @@ export class NatsBroker {
     ackSubject: string;
     consumerId?: string;
     verifyAck?: AckVerifier;
+    /** @deprecated Signed acknowledgements are always required; false cannot downgrade verification. */
     requireSignedAcks?: boolean;
     maxAckAgeMs?: number;
     maxFutureSkewMs?: number;
@@ -725,6 +726,7 @@ export class NatsBroker {
       outbox: OutboxStore;
       ackReceipts?: AckReceiptStore;
       verifyAck?: AckVerifier;
+      /** @deprecated Signed acknowledgements are always required; false cannot downgrade verification. */
       requireSignedAcks?: boolean;
       maxAckAgeMs?: number;
       maxFutureSkewMs?: number;
@@ -736,22 +738,12 @@ export class NatsBroker {
 
       if (!isSignedAckV1(decoded)) {
         const legacy = decoded as Partial<AckV1>;
-        if (params.requireSignedAcks === true) {
-          this.invalidAck(params, "unsigned-or-malformed", {
-            msgId: typeof legacy?.msgId === "string" ? legacy.msgId : undefined,
-          });
-          return;
-        }
-        if (typeof legacy?.msgId !== "string" || legacy.msgId.length === 0) return;
-        if (legacy.status === "ack") {
-          await params.outbox.markAcked(legacy.msgId);
-        } else if (legacy.status === "nack") {
-          await params.outbox.markFailed(
-            legacy.msgId,
-            legacy.reason ?? "nack",
-            new Date().toISOString(),
-          );
-        }
+        // A legacy observer can receive a frame without persisting the message.
+        // Its unsigned ACK is never evidence of delivery, even if a caller kept
+        // the old requireSignedAcks=false option during an upgrade.
+        this.invalidAck(params, "unsigned-or-malformed", {
+          msgId: typeof legacy?.msgId === "string" ? legacy.msgId : undefined,
+        });
         return;
       }
 
