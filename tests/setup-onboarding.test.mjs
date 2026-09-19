@@ -57,3 +57,18 @@ test('broker credentials come from a private input file and are absent from comm
   assert.ok(!JSON.stringify(result).includes('fixture-secret-token'));
   assert.equal((await f.config('agent-a')).natsToken, 'fixture-secret-token');
 });
+test('add-peer clears only this peer poisoned dedupe rows and preserves delivered rows', async t => {
+  const { SQLiteDedupeOutboxStore } = await import('../packages/core/dist/src/index.js');
+  const f = await fixture(t); await f.init('agent-a'); const config = await f.config('agent-a');
+  const store = new SQLiteDedupeOutboxStore(path.join(f.root, 'agent-a', 'murmur.db')); t.after(() => store.close());
+  await store.markSeen('blocked', 'consumer', { senderAgentId:'agent-b', poisonReason:'unknown-peer' });
+  await store.markSeen('delivered', 'consumer', { senderAgentId:'agent-b' });
+  await store.markSeen('other', 'consumer', { senderAgentId:'agent-c', poisonReason:'unknown-peer' });
+  const file = path.join(f.root, 'reply');
+  await fs.writeFile(file, 'MURMUR-REPLY:' + Buffer.from(JSON.stringify({ v:1,type:'reply',agentId:'agent-b',subject:'msg.agent-b',encryption:{publicKey:config.keys.encryption.publicKey},signing:{publicKey:config.keys.signing.publicKey} })).toString('base64'));
+  const result = await f.command('agent-a', ['add-peer','--reply-file',file]);
+  assert.deepEqual(result.poisonReset,{cleared:1,reason:null});
+  assert.equal(await store.seen('blocked','consumer'),false);
+  assert.equal(await store.seen('delivered','consumer'),true);
+  assert.equal(await store.seen('other','consumer'),true);
+});

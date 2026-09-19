@@ -1,7 +1,8 @@
 import { constants } from 'node:fs';
-import { mkdir, open, rmdir } from 'node:fs/promises';
+import { mkdir, open, rmdir, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { SQLiteDedupeOutboxStore } from '@murmurv2/core';
 import { createKeyPair, createSigningKeyPair } from '@murmurv2/security';
 import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerConfig } from './config.js';
 import { writeState } from './state.js';
@@ -101,11 +102,25 @@ export async function join(c: ServiceContext, options: { agentId: string; invite
     return { schema: 'murmur.join/1', agentId: next.agentId, peerId: incoming.agentId, paired: null, replyFile: options.replyOut, backup, restartRequired: true };
   });
 }
+async function clearPeerPoison(c: ServiceContext, peerId: string) {
+  try {
+    const info = await lstat(c.storePath);
+    if (!info.isFile()) throw new Error('onboarding.store-invalid');
+    const store = new SQLiteDedupeOutboxStore(c.storePath);
+    try { return { cleared: await store.clearPoisonedFrom(peerId), reason: null }; }
+    finally { store.close(); }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { cleared: 0, reason: null };
+    // Key import succeeded; an unreadable/locked store must not be reported as zero cleared.
+    return { cleared: null, reason: 'onboarding.poison-reset-failed' };
+  }
+}
 export async function importPeer(c: ServiceContext, replyFile: string) {
   const incoming = await readBlob(replyFile, 'MURMUR-REPLY:', 'reply');
   return locked(c, async () => {
     const previous = await loadConfig(c), next = addPeer(previous, incoming);
     const backup = await saveChanged(c, previous, next);
-    return { schema: 'murmur.peer/1', peerId: incoming.agentId, paired: null, backup, restartRequired: true };
+    return { schema: 'murmur.peer/1', peerId: incoming.agentId, paired: null, backup,
+      poisonReset: await clearPeerPoison(c, incoming.agentId), restartRequired: true };
   });
 }
