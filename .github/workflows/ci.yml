@@ -34,3 +34,59 @@ jobs:
 
       - name: Unit tests
         run: node --test tests/*.test.mjs
+
+  # Go-часть: значок и адаптер службы под Windows. Собирается и проверяется на Windows
+  # намеренно — оба модуля целиком платформенные, и проверка на Linux доказывала бы не то.
+  go:
+    name: Go (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/windows-tray-go/go.mod
+          cache-dependency-path: spikes/windows-tray-go/go.sum
+
+      - name: Formatting
+        shell: bash
+        run: |
+          bad=$(gofmt -l spikes)
+          if [ -n "$bad" ]; then
+            echo "Эти файлы не отформатированы:"
+            echo "$bad"
+            exit 1
+          fi
+
+      # Прогон по образцам — главное здесь. Он сверяет вердикты реализации с ожиданиями,
+      # записанными рядом со входом, и именно он не даёт двум нативным реализациям
+      # разъехаться незаметно.
+      - name: Tray — vet, build, conformance
+        shell: bash
+        working-directory: spikes/windows-tray-go
+        run: |
+          go vet ./...
+          go build -ldflags "-H windowsgui" -o murmur-tray.exe .
+          go test ./... -v
+
+      # Модуль службы появится в дереве вместе со своим PR; до тех пор шаг пропускается,
+      # чтобы задача жила в main самостоятельно.
+      - name: Service — vet, build, tests
+        shell: bash
+        working-directory: .
+        run: |
+          if [ ! -f spikes/windows-service-go/go.mod ]; then
+            echo "Модуль службы ещё не в дереве, шаг пропущен."
+            exit 0
+          fi
+          cd spikes/windows-service-go
+          go vet ./...
+          go build -o murmur-svc.exe .
+          go test ./...
+        env:
+          # Приёмка службы ставит настоящую службу Windows и по умолчанию не гоняется:
+          # на общих раннерах это долго и меняет состояние машины. Локально включается
+          # переменной MURMUR_SVC_E2E=1.
+          MURMUR_SVC_E2E: ''
