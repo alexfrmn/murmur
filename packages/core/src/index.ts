@@ -919,13 +919,14 @@ export type AppendedMessageRecord = LocalMessageRecord & { rowid: number; duplic
  *   inflight — a wake is running right now (claimed by exactly one worker)
  *   failed   — the wake threw or timed out; retried once `nextAttemptAt` passes
  *   handled  — the wake completed (and, for relay peers, the reply was queued)
+ *   stored-only — no responder configured; stored without any wake effect
  *   muted    — an intentional non-wake: policy, audit, lease, loop-breaker
  *   dlq      — gave up after `maxAttempts`, or the error was not retryable
  *
  * Legacy rows written before this state existed carry NULL: outside the queue, never
  * replayed — the same seeding rule wake-drain applies to a fresh cursor.
  */
-export type WakeDeliveryStatus = "pending" | "inflight" | "failed" | "handled" | "muted" | "dlq";
+export type WakeDeliveryStatus = "pending" | "inflight" | "failed" | "handled" | "stored-only" | "muted" | "dlq";
 
 export const OPEN_WAKE_STATUSES: ReadonlySet<WakeDeliveryStatus> = new Set<WakeDeliveryStatus>(["pending", "inflight", "failed"]);
 

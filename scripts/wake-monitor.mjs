@@ -13,6 +13,10 @@ export const normalizeWakeConfig = (config = {}) => {
   const dedup = ensureObject(wake.dedup);
   const loopBreaker = ensureObject(wake.loopBreaker);
   const retry = ensureObject(wake.retry);
+  const hookTimeoutMs = wake.hookTimeoutMs === undefined ? 10000 : wake.hookTimeoutMs;
+  if (!Number.isSafeInteger(hookTimeoutMs) || hookTimeoutMs < 1 || hookTimeoutMs > 2147483647) {
+    throw new Error("wake-hook-timeout-invalid");
+  }
   const peers = Object.fromEntries(
     Object.entries(ensureObject(wake.peers)).map(([agentId, peer]) => {
       const value = ensureObject(peer);
@@ -48,6 +52,7 @@ export const normalizeWakeConfig = (config = {}) => {
   );
   return {
     enabled: wake.enabled !== false,
+    hookTimeoutMs,
     mode: validMode(wake.mode) ? wake.mode : "stateless",
     peers,
     auditHook: typeof wake.auditHook === "string" && wake.auditHook.trim() ? wake.auditHook.trim() : null,
@@ -72,7 +77,7 @@ export const normalizeWakeConfig = (config = {}) => {
 
 export const createShellHook = ({ command, timeoutMs = 10000, baseEnv = process.env, log = () => {} }) => {
   if (!command) return null;
-  return (payload) => new Promise((resolve) => {
+  return (payload) => new Promise((resolve, reject) => {
     const env = {
       ...baseEnv,
       MURMUR_FROM: payload.from,
@@ -85,7 +90,16 @@ export const createShellHook = ({ command, timeoutMs = 10000, baseEnv = process.
       ...(payload.env || {}),
     };
     execFile("sh", ["-c", command], { env, timeout: timeoutMs }, (err) => {
-      if (err) log("warn", "wake hook failed", { error: err.message, msgId: payload.msgId });
+      if (err) {
+        // execFile's message includes the command and captured output. Persist only
+        // a stable failure code; hooks may contain credentials or private content.
+        const reason = err.killed ? "timeout-or-killed" : String(err.code ?? err.signal ?? "failed");
+        const failure = new Error(`wake-hook-${reason}`);
+        failure.retryable = true;
+        log("warn", "wake hook failed", { error: failure.message, msgId: payload.msgId });
+        reject(failure);
+        return;
+      }
       resolve();
     });
   });
@@ -218,7 +232,7 @@ export class WakeMonitor {
   async runLanes() {
     const active = new Map();
     while (this.queue.length > 0 || active.size > 0) {
-      if (active.size < this.concurrency) {
+      if (this.enabled && active.size < this.concurrency) {
         const index = this.queue.findIndex((payload) => !active.has(this.laneKeyFor(payload)));
         if (index >= 0) {
           const [payload] = this.queue.splice(index, 1);
@@ -246,6 +260,9 @@ export class WakeMonitor {
   }
 
   async drain() {
+    // The daemon timer enters here without onInbound(). Disabled means paused:
+    // keep rows and attempts intact, including recovery of old in-flight rows.
+    if (!this.enabled) return;
     if (this.processing) {
       this.kickDispatcher();
       return;
@@ -259,8 +276,9 @@ export class WakeMonitor {
         this.cursor = await this.deliveries.wakeCursor();
       }
       const offeredThisDrain = new Set();
-      while (true) {
+      while (this.enabled) {
         await this.runLanes();
+        if (!this.enabled) break;
 
         let backlog;
         if (this.loadBacklogAfter) {
@@ -400,6 +418,8 @@ export class WakeMonitor {
             conversationId: payload.conversationId,
             from: payload.from,
           });
+          await settleEffect("stored-only", { error: "wake-no-responder" });
+          return;
         }
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
