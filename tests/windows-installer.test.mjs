@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,8 @@ import { spawnSync } from 'node:child_process';
 const installer = fileURLToPath(new URL('../spikes/windows-onboarding/Install-Murmur.ps1', import.meta.url));
 const windows = process.platform === 'win32';
 function fixture(scenario) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'murmur installer '));
+  // PowerShell expands Windows 8.3 aliases; use the same physical parent.
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'murmur installer ')));
   const runtime = path.join(dir, 'runtime'), profile = path.join(dir, 'private profile');
   mkdirSync(path.join(runtime, 'packages/setup/bin'), { recursive: true });
   mkdirSync(path.join(runtime, 'bin')); writeFileSync(path.join(runtime, 'bin/murmur-svc.exe'), 'not executed');
