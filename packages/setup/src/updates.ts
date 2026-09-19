@@ -158,7 +158,8 @@ async function requestRelease(fetcher: typeof fetch, timeoutMs: number): Promise
     catch { throw new Error('updates.release-invalid'); }
     const version = typeof data.tag_name === 'string' ? data.tag_name.slice(1) : null;
     if (data.draft !== false || data.prerelease !== false || !versionParts(version) ||
-        data.tag_name !== `v${version}` || data.html_url !== RELEASE_BASE + encodeURIComponent(data.tag_name) ||
+        data.tag_name !== `v${version}` ||
+        ![RELEASE_BASE + encodeURIComponent(data.tag_name), RELEASE_BASE + data.tag_name].includes(data.html_url) ||
         typeof data.published_at !== 'string' || !Number.isFinite(Date.parse(data.published_at))) {
       throw new Error('updates.release-invalid');
     }

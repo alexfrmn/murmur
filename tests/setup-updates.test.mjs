@@ -78,6 +78,14 @@ test('cache avoids network for six hours and re-compares against changed local v
   assert.equal(newerLocal.releaseUrl, null); assert.equal(newerLocal.action, null);
 });
 
+test('build metadata accepts GitHub raw-plus URLs but returns a canonical release page', async t => {
+  const { options } = await fixture(t);
+  const result = await checkUpdates({ ...options, fetch: async () => response(release('2.10.0+build.1', {
+    html_url: 'https://github.com/alexfrmn/murmur/releases/tag/v2.10.0+build.1' })) });
+  assert.equal(result.state, 'available');
+  assert.equal(result.releaseUrl, 'https://github.com/alexfrmn/murmur/releases/tag/v2.10.0%2Bbuild.1');
+});
+
 test('expired successful cache plus network failure is unknown, timestamped and throttled', async t => {
   const { options } = await fixture(t);
   await checkUpdates({ ...options, fetch: async () => response(release('2.9.0')) });
