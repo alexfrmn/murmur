@@ -3,8 +3,8 @@ import MurmurTrayCore
 
 struct CheckFailure: Error { let message: String }
 
-func check(_ condition: @autoclosure () -> Bool, _ message: String) throws {
-    guard condition() else { throw CheckFailure(message: message) }
+func check(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+    guard try condition() else { throw CheckFailure(message: message) }
 }
 
 func withCLI(_ body: String, test: (URL) throws -> Void) throws {
@@ -278,6 +278,7 @@ struct ProbeChecks {
             print("PASS additive/optional input: \(name)"); extraChecks += 1
         }
         let canonicalCount = files.count + doctorFiles.count
-        print("\(7 + canonicalCount + extraChecks) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks)")
+        let controlCount = try runControlChecks(fixtures: directory)
+        print("\(7 + canonicalCount + extraChecks + controlCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount)")
     }
 }
