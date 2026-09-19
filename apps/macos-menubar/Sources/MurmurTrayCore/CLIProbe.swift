@@ -1,0 +1,89 @@
+import Foundation
+import Darwin
+
+/// CLI transport. `doctor` can send a roundtrip: callers must never poll it.
+/// A successful process exit or JSON parse alone is not a health verdict.
+public struct CLIProbe: Sendable {
+    public let executable: URL
+    public let timeout: TimeInterval
+
+    public init(executable: URL, timeout: TimeInterval = 5) {
+        self.executable = executable
+        self.timeout = timeout
+    }
+
+    public static func locate(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [environment["MURMUR_BIN"], environment["MURMUR_CLI"], "/opt/homebrew/bin/murmur",
+                          "/usr/local/bin/murmur", "\(home)/.local/bin/murmur"].compactMap { $0 }
+        return candidates.first(where: {
+            var directory: ObjCBool = false
+            return $0.hasPrefix("/") && FileManager.default.fileExists(atPath: $0, isDirectory: &directory)
+                && !directory.boolValue && FileManager.default.isExecutableFile(atPath: $0)
+        })
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    public func run(_ command: String) throws -> ProbeSummary {
+        precondition(command == "status" || command == "doctor")
+        let fm = FileManager.default
+        let directory = fm.temporaryDirectory.appendingPathComponent("murmur-probe-\(UUID().uuidString)")
+        try fm.createDirectory(at: directory, withIntermediateDirectories: false,
+                               attributes: [.posixPermissions: 0o700])
+        defer { try? fm.removeItem(at: directory) }
+        let stdout = directory.appendingPathComponent("stdout")
+        let stderr = directory.appendingPathComponent("stderr")
+        fm.createFile(atPath: stdout.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        fm.createFile(atPath: stderr.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        let out = try FileHandle(forWritingTo: stdout)
+        let err = try FileHandle(forWritingTo: stderr)
+        defer { try? out.close(); try? err.close() }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = [command, "--json"]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = out
+        process.standardError = err
+        // No shell; GUI launches must not depend on an interactive shell PATH.
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        process.environment = environment
+        try process.run()
+        let deadline = Date().addingTimeInterval(timeout)
+        let limit = 256 * 1024
+        var failure: ProbeError?
+        while process.isRunning {
+            if Date() >= deadline { failure = .timedOut; break }
+            let sizes = [stdout, stderr].map { (try? fm.attributesOfItem(atPath: $0.path)[.size] as? Int) ?? 0 }
+            if sizes.contains(where: { $0 > limit }) { failure = .outputLimit; break }
+            Thread.sleep(forTimeInterval: 0.025)
+        }
+        if process.isRunning {
+            process.terminate()
+            let killDeadline = Date().addingTimeInterval(0.25)
+            while process.isRunning && Date() < killDeadline { Thread.sleep(forTimeInterval: 0.01) }
+            if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
+        }
+        process.waitUntilExit()
+        if let failure { throw failure }
+        let size = (try fm.attributesOfItem(atPath: stdout.path)[.size] as? Int) ?? 0
+        let errorSize = (try fm.attributesOfItem(atPath: stderr.path)[.size] as? Int) ?? 0
+        guard size <= limit, errorSize <= limit else { throw ProbeError.outputLimit }
+        if process.terminationStatus != 0 {
+            let errorText = String(data: try Data(contentsOf: stderr), encoding: .utf8) ?? ""
+            let firstLine = errorText.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+            // CLI promises a human-readable reason. Keep a bounded single line,
+            // suppressing obvious credentials/URLs rather than copying a trace.
+            let containsCredential = firstLine.range(of: "(?i)(authorization|token|secret|password|api[_ -]?key|bearer|://)", options: .regularExpression) != nil
+            let clean = String(String(firstLine.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }).prefix(180))
+            if !clean.isEmpty && !containsCredential { throw ProbeError.failedWithReason(process.terminationStatus, clean) }
+            throw ProbeError.failed(process.terminationStatus)
+        }
+        let data = try Data(contentsOf: stdout)
+        guard let object = try? JSONSerialization.jsonObject(with: data), object is [String: Any] else {
+            throw ProbeError.invalidJSON
+        }
+        return ProbeSummary(command: command, byteCount: data.count, exitCode: process.terminationStatus, data: data)
+    }
+}

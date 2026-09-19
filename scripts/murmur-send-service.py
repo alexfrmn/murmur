@@ -15,9 +15,20 @@ from pathlib import Path
 
 SOCKET_PATH = Path(os.environ.get("MURMUR_SEND_SOCKET", "/run/murmur-send-service/codex-volt.sock"))
 AUDIT_LOG = Path(os.environ.get("MURMUR_SEND_AUDIT", "/var/log/murmur-send-service.log"))
-DATA_DIR = os.environ.get("MURMUR_DATA_DIR", "/opt/lifecoach/mur-mur-v2/.data-codex-volt")
-SEND_SCRIPT = os.environ.get("MURMUR_SEND_SCRIPT", "/opt/lifecoach/mur-mur-v2/scripts/murmur-shell-send.mjs")
-MURMUR_CWD = os.environ.get("MURMUR_CWD", "/opt/lifecoach/mur-mur-v2")
+def resolve_data_dir(environ=None) -> str:
+    environ = os.environ if environ is None else environ
+    canonical, legacy = environ.get("DATA_DIR"), environ.get("MURMUR_DATA_DIR")
+    values = [value for value in (canonical, legacy) if value is not None]
+    if not values or any(not value or not Path(value).is_absolute() for value in values):
+        raise ValueError("Set DATA_DIR to an explicit absolute Murmur profile directory")
+    paths = [str(Path(value).resolve()) for value in values]
+    if len(set(paths)) != 1:
+        raise ValueError("DATA_DIR and legacy MURMUR_DATA_DIR refer to different profiles")
+    return paths[0]
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SEND_SCRIPT = os.environ.get("MURMUR_SEND_SCRIPT", str(REPO_ROOT / "scripts" / "murmur-shell-send.mjs"))
+MURMUR_CWD = os.environ.get("MURMUR_CWD", str(REPO_ROOT))
 
 PEERS = {"agent-jarvis", "agent-codex-mac-kovalyaevo"}
 KINDS = {"ack", "progress", "final", "blocked", "error"}
@@ -68,7 +79,7 @@ def send(payload: dict) -> dict:
         return {"ok": False, "error": reason}
 
     env = os.environ.copy()
-    env["DATA_DIR"] = DATA_DIR
+    env["DATA_DIR"] = resolve_data_dir()
     proc = subprocess.run(
         ["node", SEND_SCRIPT, "--to", payload["to"], "--conv", payload["conversation_id"], "--stdin"],
         input=payload["text"],
@@ -97,6 +108,7 @@ def handle_line(line: bytes) -> bytes:
 
 
 def serve() -> None:
+    resolve_data_dir()  # Reject missing/conflicting settings before socket or filesystem effects.
     SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
@@ -152,7 +164,11 @@ def main() -> int:
     args = parser.parse_args()
     if args.self_test:
         return run_self_test()
-    serve()
+    try:
+        serve()
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     return 0
 
 

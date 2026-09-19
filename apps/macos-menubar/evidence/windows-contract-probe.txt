@@ -1,0 +1,17 @@
+=== RUN   TestMacReviewContractMustFailClosed
+=== RUN   TestMacReviewContractMustFailClosed/invalid-generatedAt
+    mac_contract_probe_test.go:30: expected grey for invalid contract; actual=3 reason=демон, брокер и 4 пира в порядке
+=== RUN   TestMacReviewContractMustFailClosed/missing-generatedAt
+    mac_contract_probe_test.go:30: expected grey for invalid contract; actual=3 reason=демон, брокер и 4 пира в порядке
+=== RUN   TestMacReviewContractMustFailClosed/unknown-service-state
+    mac_contract_probe_test.go:30: expected grey for invalid contract; actual=3 reason=демон, брокер и 4 пира в порядке
+=== RUN   TestMacReviewContractMustFailClosed/missing-required-wake
+    mac_contract_probe_test.go:30: expected grey for invalid contract; actual=3 reason=демон, брокер и 4 пира в порядке
+--- FAIL: TestMacReviewContractMustFailClosed (0.00s)
+    --- FAIL: TestMacReviewContractMustFailClosed/invalid-generatedAt (0.00s)
+    --- FAIL: TestMacReviewContractMustFailClosed/missing-generatedAt (0.00s)
+    --- FAIL: TestMacReviewContractMustFailClosed/unknown-service-state (0.00s)
+    --- FAIL: TestMacReviewContractMustFailClosed/missing-required-wake (0.00s)
+FAIL
+FAIL	github.com/alexfrmn/murmur/spikes/windows-tray-go	0.541s
+FAIL

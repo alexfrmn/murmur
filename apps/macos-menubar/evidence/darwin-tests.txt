@@ -1,0 +1,27 @@
+(node:65617) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/packages/setup/src/platform/darwin.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ install produces private escaped plist, stays unloaded and is idempotent (7.413875ms)
+✔ install backs up only an owned changed plist (2.933458ms)
+✔ install refuses unmanaged and symlink plist (1.744334ms)
+✔ install refuses updating a loaded label and inconclusive launchctl errors (1.847583ms)
+✔ reject relative paths, control characters, traversal and misleading store path before commands (1.183916ms)
+✔ status distinguishes absent service from unreadable service without leaking stderr (1.915792ms)
+✔ running state reports actual FD store evidence and start time (2.084542ms)
+✔ environment claim does not prove observed store path (1.1695ms)
+✔ nonzero exited service is failed, unrecognized state stays unknown (1.973875ms)
+✔ start bootstraps by argv then kickstarts without killing; stop bootouts idempotently (2.333875ms)
+✔ never operates an unrelated loaded service sharing the requested label (1.470208ms)
+✔ client detection uses executable permission and desktop bundle IDs; never writes config (1.815125ms)
+✔ classic ChatGPT application is not mistaken for Codex (1.646584ms)
+✔ custom Claude profile remains explicit unknown, and an executable directory is not a CLI (0.871584ms)
+✔ stop refuses another profile reusing the same serviceName without any bootout (1.304791ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 137.337583

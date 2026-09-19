@@ -21,13 +21,17 @@ import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.
 import { WakeMonitor, createAuditShellHook, createShellHook, normalizeWakeConfig } from "./wake-monitor.mjs";
 import { SessionLeaseStore, createNativeLeaseGate } from "./lease.mjs";
 import { ensurePrivateDirectory, readPrivateJson, setPrivateUmask } from "./secure-state.mjs";
+import { createDaemonObservation } from "./daemon-observation.mjs";
+import { normalizeAckSecurity } from "./ack-security.mjs";
 // vault-guard: optional content policy hook (not included in OSS release)
 
 setPrivateUmask();
 
+let observeLog = () => {};
 const log = (level, msg, data) => {
   const entry = { ts: new Date().toISOString(), level, msg, ...data };
   console.log(JSON.stringify(entry));
+  observeLog(level, msg, data);
 };
 
 const dataDir = process.env.DATA_DIR || ".data";
@@ -72,12 +76,9 @@ const ackTimeoutMs = optionalPositiveInteger(
   firstDefined(streamingConfig.ackTimeoutMs, process.env.MURMUR_ACK_TIMEOUT_MS),
 ) ?? 15_000;
 const ackSecurityConfig = config.ackSecurity || {};
-const emitSignedAcks = process.env.MURMUR_EMIT_SIGNED_ACKS !== undefined
-  ? process.env.MURMUR_EMIT_SIGNED_ACKS !== "0"
-  : ackSecurityConfig.emitSigned ?? true;
-const requireSignedAcks = process.env.MURMUR_REQUIRE_SIGNED_ACKS !== undefined
-  ? process.env.MURMUR_REQUIRE_SIGNED_ACKS === "1"
-  : ackSecurityConfig.requireSigned ?? false;
+const ackPolicy = normalizeAckSecurity(config, process.env, log);
+const emitSignedAcks = ackPolicy.emitSigned;
+const requireSignedAcks = ackPolicy.requireSigned;
 const maxAckAgeMs = optionalPositiveInteger(
   "ack-max-age-ms",
   firstDefined(ackSecurityConfig.maxAgeMs, process.env.MURMUR_ACK_MAX_AGE_MS),
@@ -120,13 +121,17 @@ log("info", "Daemon starting", {
   jetstreamAckWaitMs,
   ackTimeoutMs,
   ackSecurity: {
-    emitSigned: emitSignedAcks,
-    requireSigned: requireSignedAcks,
+    ...ackPolicy,
     maxAgeMs: maxAckAgeMs,
   },
   ackWindow,
+  wake: { enabled: wakeConfig.enabled, mode: wakeConfig.mode, hookConfigured: Boolean(config.onReceive) },
   notifyTargets: effectiveNotifyTargets.map((t) => `${t.type}:${t.channel}`),
   notifyFallbackFromEnv: envTelegramFallback.length > 0,
+});
+
+if (!wakeConfig.enabled) log("warn", "Wake dispatch paused by configuration", {
+  reason: "wake-disabled", pendingPolicy: "preserve-until-enabled",
 });
 
 const store = new SQLiteDedupeOutboxStore(dbPath);
@@ -160,6 +165,12 @@ if (subjectRoutes.length > 1) {
 const threadStartBindingResolver = channelRosterStore
   ? createChannelThreadStartBindingResolver({ rosterStore: channelRosterStore, agentId, log })
   : null;
+const nativeConfigured = wakeConfig.mode === "codex_app_server" || Object.values(wakeConfig.peers).some((peer) => peer.mode === "codex_app_server");
+const observation = createDaemonObservation({ dataDir, storePath: dbPath, agentId, log,
+  wake: { enabled: wakeConfig.enabled, mode: nativeConfigured ? "monitor" : config.onReceive ? "hook" : "none",
+    // A custom shell command's identity cannot be inferred from arbitrary text.
+    responder: nativeConfigured ? "codex" : config.onReceive ? null : "none" } });
+observeLog = observation.observeLog;
 // #108 — Codex threads are remembered per (peer, conversation) in the message store.
 const codexAppServerInjector = createCodexAppServerInjector({ log, resolveThreadStartBinding: threadStartBindingResolver, threadStore: msgStore });
 if (channelRosterEnabled) log("info", "Channel roster thread-start binding enabled", { channelRosterPath });
@@ -171,6 +182,7 @@ const broker = new NatsBroker({
   streamSubjects: jetstreamSubjects,
   jetstreamMaxDeliver,
   jetstreamAckWaitMs,
+  onStatus: (event) => observation.onStatus(event),
 });
 
 const signAck = async (unsignedAck) => ({
@@ -180,7 +192,7 @@ const signAck = async (unsignedAck) => ({
 
 const verifyAck = async (ack) => {
   const peer = peers[ack.senderAgentId];
-  if (!peer?.signing?.publicKey) return false;
+  if (!peer?.signing?.publicKey) return "key-unavailable";
   return verifyEnvelopeSignature(stableAckPayload(ack), ack.signature, peer.signing.publicKey);
 };
 
@@ -203,7 +215,7 @@ const wakeMonitor = new WakeMonitor({
   deliveries: msgStore,
   leaseGate: nativeLeaseGate,
   auditHook: createAuditShellHook({ command: wakeConfig.auditHook, log }),
-  hook: createShellHook({ command: config.onReceive, log }),
+  hook: createShellHook({ command: config.onReceive, timeoutMs: wakeConfig.hookTimeoutMs, log }),
   injector: async (payload, peer) => {
     if (peer.mode === "codex_app_server") {
       return codexAppServerInjector(payload, peer);
@@ -218,7 +230,7 @@ const proxyWakeMonitor = new WakeMonitor({
   ...wakeConfig,
   initialCursor: inboundCursor(),
   auditHook: createAuditShellHook({ command: wakeConfig.auditHook, log }),
-  hook: createShellHook({ command: config.proxyOnReceive, log }),
+  hook: createShellHook({ command: config.proxyOnReceive, timeoutMs: wakeConfig.hookTimeoutMs, log }),
   leaseGate: nativeLeaseGate,
   injector: async (payload, peer) => {
     if (peer.mode === "codex_app_server") {
@@ -383,6 +395,7 @@ const flushLoop = async () => {
 const shutdown = async (signal) => {
   log("info", "Shutdown signal received, draining NATS", { signal });
   running = false;
+  observation.stop();
   try {
     await broker.close();
   } catch (err) {
@@ -396,7 +409,9 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
 try {
+  await observation.start();
   await broker.connect();
+  await observation.connected();
   log("info", "NATS connected", { url: natsUrl });
 
   for (const route of subjectRoutes) {

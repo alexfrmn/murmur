@@ -1,0 +1,54 @@
+{
+  "recordedAt": "2026-09-19T13:17:11.945999+00:00",
+  "platform": "macOS 26.6.2 arm64",
+  "swift": "6.4",
+  "go": "1.27.1",
+  "consumerContract": "78b40c4605f421a2d6bc8435846066fa953ff51c",
+  "unitChecks": {
+    "swiftTotal": 31,
+    "canonicalStatus": 12,
+    "CLITransport": 7,
+    "boundary": 12,
+    "darwin": 15
+  },
+  "binaries": [
+    {
+      "path": "dist/Murmur Spike.app/Contents/MacOS/MurmurMenuBar",
+      "bytes": 645280,
+      "sha256": "316c43c6cecdf684e4ec7381c809070339959b6b81b6afe28857b049183cb815"
+    },
+    {
+      "path": "go-shared/dist/Murmur Shared Go.app/Contents/MacOS/MurmurSharedGo",
+      "bytes": 2200992,
+      "sha256": "99bd72dcb3c02db7a993a670bce22febbc21a4eed868c696435ccfb7e33c6e77"
+    },
+    {
+      "path": "go-smoke/dist/Murmur Go Smoke.app/Contents/MacOS/MurmurGoSmoke",
+      "bytes": 4140752,
+      "sha256": "3c93192e02f711c04b6281bf9bdda8aa5764a4e955caadc8a55e6a8a1527bbd8"
+    }
+  ],
+  "goSourceLines": [
+    {
+      "status.go": 255,
+      "icons.go": 140,
+      "main.go": 347,
+      "sharedPercent": 53.2,
+      "sha": "a9dcb7200561bb9c55e2b21a22dedf8266703922"
+    },
+    {
+      "status.go": 460,
+      "icons.go": 140,
+      "main.go": 382,
+      "sharedPercent": 61.1,
+      "sha": "21d916d355baf3295ca42553d9fed6125dfed0ea"
+    },
+    {
+      "status.go": 529,
+      "icons.go": 140,
+      "main.go": 418,
+      "sharedPercent": 61.5,
+      "sha": "78b40c4605f421a2d6bc8435846066fa953ff51c"
+    }
+  ]
+}

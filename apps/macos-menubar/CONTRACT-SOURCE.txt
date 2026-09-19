@@ -1,0 +1,5 @@
+Frozen consumer contract/unchanged shared fixtures: 44b882d48f0139592dea9bd65d89b8a3f11c23cc (packet one)
+Canonical fixture path: contracts/setup/v1/fixtures (owned by setup engine).
+No private fixture copies. Runner applies embedded $stamp and compares embedded $expect level/unread/code/missing set/missingWhy map; doctor compares $expect.valid.
+Original Go false-green repro / shared-Go smoke pinned to a9dcb7200561bb9c55e2b21a22dedf8266703922.
+Canonical engine fixture commit verified byte-for-byte: 5ca71b812185c40c69a2a3f26b15412079dd940f (17 files)

@@ -1,0 +1,20 @@
+{
+  "recordedAt": "2026-09-19T12:55:02.737540+00:00",
+  "apps": [
+    {
+      "pid": 64462,
+      "executable": "/private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/apps/macos-menubar/go-shared/dist/Murmur Shared Go.app/Contents/MacOS/MurmurSharedGo",
+      "rssKiB": 46816,
+      "running": true,
+      "visualInspection": "blocked: native UI inspector timeout for accessory application"
+    },
+    {
+      "pid": 64473,
+      "executable": "/private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/apps/macos-menubar/dist/Murmur Spike.app/Contents/MacOS/MurmurMenuBar",
+      "rssKiB": 71008,
+      "running": true,
+      "visualInspection": "blocked: native UI inspector timeout for accessory application"
+    }
+  ],
+  "cleanup": "SIGTERM sent to exact verified owned processes"
+}
