@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Release producer (Git + npm + tar required). Consumers need only external Node.
 import fs from 'node:fs/promises';
+import { constants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -193,7 +194,8 @@ async function main(args) {
     await fs.copyFile(path.join(runtime, 'runtime-manifest.json'), path.join(prepared, 'runtime-manifest.json'));
     await fs.writeFile(path.join(prepared, 'SHA256SUMS.txt'), `${hash(await fs.readFile(path.join(prepared, archive)))}  ${archive}\n`);
     // Cross-device output is common (/tmp -> workspace); publish only completed files.
-    await fs.mkdir(output); await fs.cp(prepared, output, { recursive: true, errorOnExist: true, force: false });
+    await fs.mkdir(output);
+    for (const file of await fs.readdir(prepared)) await fs.copyFile(path.join(prepared, file), path.join(output, file), constants.COPYFILE_EXCL);
     console.log(JSON.stringify({ sourceCommit: commit, output, archive, dependencies: manifest.dependencies.length, files: Object.keys(manifest.files).length }));
   } finally { await fs.rm(temp, { recursive: true, force: true }); }
 }
