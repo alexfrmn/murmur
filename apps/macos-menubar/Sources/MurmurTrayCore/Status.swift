@@ -1,7 +1,22 @@
 import Foundation
 
 public enum ContractError: Error, LocalizedError, Sendable {
-    case schema, timestamp, missingOrInvalidFields, duplicateStage, stageOrder
+    case schema, timestamp, missingOrInvalidFields, duplicateStage, stageOrder, stageState, unparsable
+    case missingKeys([String]), wrongTypes([String]), invalidValue(String)
+    case doctorChain(stage: String, blocker: String)
+
+    public var code: String {
+        switch self {
+        case .schema: "schema.unknown"
+        case .timestamp: "snapshot.unparsable"
+        case .missingKeys: "schema.missing-key"
+        case .wrongTypes: "schema.wrong-type"
+        case .invalidValue: "schema.invalid-value"
+        case .doctorChain: "doctor.invalid-chain"
+        default: "schema.unparsable"
+        }
+    }
+
     public var errorDescription: String? {
         switch self {
         case .schema: "Схема ответа незнакома"
@@ -9,6 +24,12 @@ public enum ContractError: Error, LocalizedError, Sendable {
         case .missingOrInvalidFields: "В ответе отсутствуют обязательные данные"
         case .duplicateStage: "В проверке повторяется один этап"
         case .stageOrder: "Нарушен порядок этапов проверки"
+        case .stageState: "В проверке незнакомое состояние этапа"
+        case .unparsable: "Ответ не удалось разобрать"
+        case .missingKeys(let paths): "В ответе нет обязательных полей: " + paths.joined(separator: ", ")
+        case .wrongTypes(let paths): "В ответе неверный тип данных: " + paths.joined(separator: ", ")
+        case .invalidValue(let path): "Счётчик не может быть отрицательным: " + path
+        case .doctorChain(let stage, let blocker): "Некорректная проверка: этап \(stage) должен быть пропущен после отказа \(blocker)"
         }
     }
 }
@@ -34,11 +55,16 @@ public struct Verdict: Sendable {
     public let unread: Bool
     public let code: String
     public let missing: [String]
+    public let missingWhy: [String: String]
     public let reason: String
     public init(_ indicator: Indicator, unread: Bool = false, code: String = "status.unavailable",
-                missing: [String] = [], reason: String) {
+                missing: [String] = [], missingWhy: [String: String] = [:], reason: String) {
         self.indicator = indicator; self.unread = unread; self.code = code
-        self.missing = missing; self.reason = reason
+        self.missing = missing; self.missingWhy = missingWhy; self.reason = reason
+    }
+    public static func unavailable(_ error: any Error) -> Self {
+        // Invalid responses cannot supply even an unread indicator.
+        Verdict(.unknown, code: (error as? ContractError)?.code ?? "status.unavailable", reason: error.localizedDescription)
     }
     public var color: String {
         switch indicator {
@@ -50,7 +76,7 @@ public struct Verdict: Sendable {
     }
 }
 
-/// Frozen consumer contract 78b40c. Unknown values are never zero/default success.
+/// Frozen consumer contract 44b882d, packet one. Unknown measurements never imply success.
 public struct StatusSnapshot: Decodable, Sendable {
     public struct Service: Decodable, Sendable {
         public enum State: String, Decodable, Sendable { case running, stopped, failed, unknown }
@@ -71,6 +97,13 @@ public struct StatusSnapshot: Decodable, Sendable {
         public struct Faults: Decodable, Sendable { public let lastError: String?, lastErrorAt: String?, unknownReason: String? }
         public let queue: Queue
         public let faults: Faults
+        private enum CodingKeys: String, CodingKey { case queue, faults }
+        public init(from decoder: Decoder) throws {
+            let fields = try decoder.container(keyedBy: CodingKeys.self)
+            queue = try fields.decode(Queue.self, forKey: .queue)
+            faults = try fields.decodeIfPresent(Faults.self, forKey: .faults)
+                ?? Faults(lastError: nil, lastErrorAt: nil, unknownReason: nil)
+        }
     }
     public struct Wake: Decodable, Sendable {
         public struct Config: Decodable, Sendable {
@@ -87,36 +120,33 @@ public struct StatusSnapshot: Decodable, Sendable {
         }
         public struct Faults: Decodable, Sendable { public let lastFault: String?, lastFaultAt: String?, unknownReason: String? }
         public let config: Config, effective: Effective, delivery: Delivery, faults: Faults
+        private enum CodingKeys: String, CodingKey { case config, effective, delivery, faults }
+        public init(from decoder: Decoder) throws {
+            let fields = try decoder.container(keyedBy: CodingKeys.self)
+            config = try fields.decode(Config.self, forKey: .config)
+            delivery = try fields.decode(Delivery.self, forKey: .delivery)
+            faults = try fields.decode(Faults.self, forKey: .faults)
+            effective = try fields.decodeIfPresent(Effective.self, forKey: .effective)
+                ?? Effective(enabled: nil, needsRestart: nil, observedAt: nil, unknownReason: nil)
+        }
     }
     public let schema: String, generatedAt: String
     public let service: Service, broker: Broker, peers: Peers, inbox: Inbox, outbox: Outbox, wake: Wake
 
     public static func decode(_ data: Data) throws -> Self {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let schema = object["schema"] as? String, schemaKnown(schema, name: "murmur.status") else {
+        var object = try validateStatusObject(data)
+        guard let schema = object["schema"] as? String, schemaKnown(schema, name: "murmur.status") else {
             throw ContractError.schema
         }
-        // Optional Swift properties alone conflate missing and explicit null.
-        // Verify required keys before decoding their nullable values.
-        for key in ["generatedAt", "service.state", "broker.state", "peers.list", "inbox.unread",
-                    "outbox.queue.failed", "outbox.queue.dlq", "outbox.queue.unknownReason", "outbox.faults.unknownReason",
-                    "wake.config.enabled", "wake.config.unknownReason", "wake.effective.enabled", "wake.effective.unknownReason",
-                    "wake.delivery.pendingUndelivered", "wake.delivery.unknownReason", "wake.faults.lastFault", "wake.faults.unknownReason"] {
-            var current: Any = object
-            for part in key.split(separator: ".").map(String.init) {
-                guard let dictionary = current as? [String: Any], let value = dictionary[part] else {
-                    throw ContractError.missingOrInvalidFields
-                }
-                current = value
-            }
+        // Null is a present, unknown timestamp; the verdict handles it as such.
+        let decodeData: Data
+        if object["generatedAt"] is NSNull {
+            object["generatedAt"] = ""
+            decodeData = try JSONSerialization.data(withJSONObject: object)
+        } else {
+            decodeData = data
         }
-        if let peers = (object["peers"] as? [String: Any])?["list"] as? [[String: Any]],
-           peers.contains(where: { !$0.keys.contains("paired") }) { throw ContractError.missingOrInvalidFields }
-        guard let value = try? JSONDecoder().decode(Self.self, from: data) else { throw ContractError.missingOrInvalidFields }
-        let counts = [value.inbox.unread, value.outbox.queue.failed, value.outbox.queue.dlq,
-                      value.wake.delivery.pendingUndelivered, value.wake.delivery.storedOnly,
-                      value.service.restartCount, value.service.restartWindowMs, value.service.restartsLastHour]
-        guard counts.compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else { throw ContractError.missingOrInvalidFields }
+        guard let value = try? JSONDecoder().decode(Self.self, from: decodeData) else { throw ContractError.unparsable }
         return value
     }
 
@@ -129,8 +159,15 @@ public struct StatusSnapshot: Decodable, Sendable {
     public func verdict(now: Date = Date()) -> Verdict {
         let unread = (inbox.unread ?? 0) > 0
         var missing: [String] = []
+        var missingWhy: [String: String] = [:]
+        var missingDetail: [String: String] = [:]
+        func note(_ path: String, _ reason: String? = nil) {
+            missing.append(path)
+            missingWhy[path] = reason?.isEmpty == false ? "source-unreadable" : "unmeasured"
+            if let reason, !reason.isEmpty { missingDetail[path] = reason }
+        }
         func result(_ indicator: Indicator, _ code: String, _ reason: String) -> Verdict {
-            Verdict(indicator, unread: unread, code: code, missing: missing, reason: reason)
+            Verdict(indicator, unread: unread, code: code, missing: Array(Set(missing)).sorted(), missingWhy: missingWhy, reason: reason)
         }
         guard let generated = timestamp(generatedAt) else { return result(.unknown, "snapshot.unparsable", "Время снимка неизвестно") }
         if now.timeIntervalSince(generated) > 120 { return result(.unknown, "snapshot.stale", "Данные старше двух минут") }
@@ -141,19 +178,18 @@ public struct StatusSnapshot: Decodable, Sendable {
         case .failed: return result(.failed, "service.failed", "Служба завершилась с ошибкой")
         case .running: break
         }
-        if outbox.queue.failed == nil { missing.append("outbox.queue.failed") }
-        if outbox.queue.dlq == nil { missing.append("outbox.queue.dlq") }
+        if outbox.queue.failed == nil { note("outbox.queue.failed") }
+        if outbox.queue.dlq == nil { note("outbox.queue.dlq") }
         if (outbox.queue.failed ?? 0) > 0 || (outbox.queue.dlq ?? 0) > 0 {
             return result(.failed, "outbox.undelivered", "Не доставлено: \(outbox.queue.failed.map(String.init) ?? "не измерено"); DLQ: \(outbox.queue.dlq.map(String.init) ?? "не измерено")")
         }
         if wake.faults.lastFault?.isEmpty == false { return result(.failed, "wake.fault", "Ошибка передачи сообщения агенту") }
-        if wake.delivery.pendingUndelivered == nil { missing.append("wake.delivery.pendingUndelivered") }
+        if wake.delivery.pendingUndelivered == nil { note("wake.delivery.pendingUndelivered") }
         if (wake.delivery.pendingUndelivered ?? 0) > 0 { return result(.failed, "wake.pending", "Есть сообщения, не переданные агенту") }
-        for (name, reason) in [("журнал отказов отправки", outbox.faults.unknownReason),
-                               ("журнал отказов пробуждения", wake.faults.unknownReason),
-                               ("очередь", outbox.queue.unknownReason), ("доставка wake", wake.delivery.unknownReason),
-                               ("настройки wake", wake.config.unknownReason), ("действующее состояние wake", wake.effective.unknownReason)] {
-            if let reason, !reason.isEmpty { missing.append("\(name) (\(reason))") }
+        for (path, reason) in [("outbox.faults", outbox.faults.unknownReason), ("wake.faults", wake.faults.unknownReason),
+                               ("outbox.queue", outbox.queue.unknownReason), ("wake.delivery", wake.delivery.unknownReason),
+                               ("wake.config", wake.config.unknownReason), ("wake.effective", wake.effective.unknownReason)] {
+            if let reason, !reason.isEmpty { note(path, reason) }
         }
         switch broker.state {
         case .unauthorized: return result(.offline, "broker.unauthorized", "Брокер отклонил доступ")
@@ -161,22 +197,23 @@ public struct StatusSnapshot: Decodable, Sendable {
         case .unknown, nil: missing.append("broker.state")
         case .connected: break
         }
-        func explained(_ name: String, _ reason: String?) -> String {
-            name + (reason?.isEmpty == false ? " (\(reason!))" : "")
-        }
         if let list = peers.list {
             if list.isEmpty { return result(.offline, "peers.none", "Подключите первого агента") }
             if list.contains(where: { $0.paired == false }) { return result(.offline, "peers.unpaired", "Не все агенты подключены друг к другу") }
-            let unknown = list.filter { $0.paired == nil }.map(\.agentId)
-            if !unknown.isEmpty { missing.append("парность неизвестна: " + unknown.joined(separator: ", ")) }
-        } else { missing.append(explained("peers.list", peers.unknownReason)) }
-        if inbox.unread == nil { missing.append(explained("inbox.unread", inbox.unknownReason)) }
+            for peer in list where peer.paired == nil { note("peers.list.\(peer.agentId).paired") }
+        } else { note("peers.list", peers.unknownReason) }
+        if inbox.unread == nil { note("inbox.unread", inbox.unknownReason) }
         if let mismatch = modeMismatch { return result(.offline, "wake.mode-mismatch", mismatch) }
         // Required nullable flags must not silently imply effective/paired state.
         // A source reason already names the same missing measurement when present.
-        if wake.config.enabled == nil && wake.config.unknownReason?.isEmpty != false { missing.append("wake.config.enabled") }
-        if wake.effective.enabled == nil && wake.effective.unknownReason?.isEmpty != false { missing.append("wake.effective.enabled") }
-        if !missing.isEmpty { return result(.unknown, "unmeasured", "Не измерено: " + missing.joined(separator: ", ")) }
+        if wake.config.enabled == nil && wake.config.unknownReason?.isEmpty != false { note("wake.config.enabled") }
+        if wake.effective.enabled == nil && wake.effective.unknownReason?.isEmpty != false { note("wake.effective.enabled") }
+        if !missing.isEmpty {
+            let details = Array(Set(missing)).sorted().map { path in
+                path + (missingDetail[path].map { " (\($0))" } ?? "")
+            }
+            return result(.unknown, "unmeasured", "Не измерено: " + details.joined(separator: ", "))
+        }
         let detail = wake.config.responder == "none" ? "Связь работает; автоматический ответ не настроен"
             : (wake.effective.enabled == false ? "Связь работает; приём агентом на паузе" : "Служба, брокер и подключения работают")
         return result(.ready, "ok", detail)

@@ -3,13 +3,13 @@ import SwiftUI
 import ServiceManagement
 import MurmurTrayCore
 
-private struct StatusRead: Sendable { let value: StatusSnapshot?; let error: String? }
+private struct StatusRead: Sendable { let value: StatusSnapshot?; let error: Verdict? }
 private struct DoctorRead: Sendable { let value: DoctorSnapshot?; let error: String? }
 
 @MainActor
 final class TrayModel: ObservableObject {
     @Published var status: StatusSnapshot?
-    @Published var statusError = "Состояние ещё не получено"
+    @Published var statusError = Verdict(.unknown, reason: "Состояние ещё не получено")
     @Published var doctor: DoctorSnapshot?
     @Published var doctorError: String?
     @Published var operationError: String?
@@ -36,7 +36,7 @@ final class TrayModel: ObservableObject {
             return Verdict(demoState, unread: demoState == .unread,
                            reason: "Демонстрация — \(demoState.title.lowercased())")
         }
-        return status?.verdict() ?? Verdict(.unknown, reason: statusError)
+        return status?.verdict() ?? statusError
     }
 
     func refreshStatus() {
@@ -45,15 +45,15 @@ final class TrayModel: ObservableObject {
         Task {
             let result = await Task.detached { () -> StatusRead in
                 guard let path = CLIProbe.locate() else {
-                    return StatusRead(value: nil, error: ProbeError.missingCLI.localizedDescription)
+                    return StatusRead(value: nil, error: .unavailable(ProbeError.missingCLI))
                 }
                 do {
                     let data = try CLIProbe(executable: path).run("status").data
                     return StatusRead(value: try StatusSnapshot.decode(data), error: nil)
-                } catch { return StatusRead(value: nil, error: error.localizedDescription) }
+                } catch { return StatusRead(value: nil, error: .unavailable(error)) }
             }.value
             status = result.value
-            statusError = result.error ?? ""
+            statusError = result.error ?? Verdict(.unknown, reason: "Состояние ещё не получено")
             checkingStatus = false
         }
     }
