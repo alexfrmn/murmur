@@ -1,7 +1,6 @@
 # Setup engine and CLI contract (work in progress)
 
-This is the implementation-side mapping for the consumer-owned
-`spikes/windows-tray-go/CONTRACT.md` at `78b40c4605f421a2d6bc8435846066fa953ff51c`. No UI infers successful delivery
+This maps the implementation to the frozen [setup v1 contract](../contracts/setup/v1/README.md). No UI infers successful delivery
 from process liveness. Commands write JSON to stdout, diagnostics to stderr, and
 exit 0 for a formed response even when its measured state is bad.
 
@@ -10,18 +9,19 @@ exit 0 for a formed response even when its measured state is bad.
 Shared exports: `packages/setup/src/types.ts`. Darwin uses
 `import type { PlatformAdapter, ServiceContext } from "../types.js"`.
 All context paths are absolute. `configPath` is `dataDir/agent-config.json`,
-`storePath` is `dataDir/murmur.db`, and **the only setup log directory is
-`dataDir/logs`**. Conflicting derived paths are rejected before service changes.
+`storePath` is `dataDir/murmur.db`. Linux and macOS use `dataDir/logs`; the Windows
+native helper keeps service logs under `%ProgramData%/Murmur/logs/<serviceName>`. Conflicting derived paths are rejected before service changes.
 No automatic migration or relabeling of existing legacy paths.
 
 Default data directory: Linux `$XDG_STATE_HOME/murmur` or
 `~/.local/state/murmur`; macOS `~/Library/Application Support/Murmur`;
-Windows `%ProgramData%/Murmur` for the service installation, shared by CLI/service/tray
-regardless of their account. A standalone Windows daemon uses explicit `--data-dir`,
-not a second implicit profile path. The installer grants SYSTEM and the designated
-interactive account access to private state; readable logs must not make private
-keys readable by all Users. Explicit `--data-dir` selects an entire contour,
-including logs and read/proof state. Relative overrides are rejected, never
+Windows `%LOCALAPPDATA%/Murmur` (or the user's `AppData/Local/Murmur`).
+This private state is separate from public SCM metadata. `DATA_DIR` is canonical;
+`MURMUR_DATA_DIR` remains a compatibility alias. Conflicting values fail unless
+an explicit `--data-dir` selects the profile. Existing directories are not moved.
+A raw daemon/MCP entry invoked outside the CLI still requires explicit `DATA_DIR`.
+Explicit profile selection binds identity, database and read/proof state; Windows
+service logs remain in their native metadata location. Relative overrides are rejected, never
 resolved against an arbitrary launch directory.
 
 ## Status: field types and evidence
@@ -157,11 +157,17 @@ The peer must respond with the exact requested line in the same conversation.
 Doctor does not infer intended live-session wake from a transport roundtrip.
 
 Linux uses a per-user systemd unit and Mac a LaunchAgent. Both write stdout/stderr
-into the selected `dataDir/logs`. Windows adapter integration remains pending in
-this engine revision and is explicitly unknown, not reported stopped/healthy.
-The package is private and depends on a built source checkout; this is not an npm
-installation or an end-user release. Init/invite/join and client config writing
-are a subsequent integration slice, not claimed implemented here.
+into the selected `dataDir/logs`. Windows uses the matching `murmur-svc.exe` through
+the shared CLI; unavailable or incompatible helpers produce unknown status.
+The current `logs path` contract is confined to the profile, so Windows returns
+`logs.windows-native-location-unavailable` rather than advertising the wrong folder.
+Windows supports explicit `service uninstall`, retaining private data and logs;
+the other adapters do not yet implement that operation.
+
+Init/invite/join/add-peer and client configuration are implemented by the shared
+engine; see [onboarding](setup-onboarding.md). They run from a built checkout or
+prebuilt runtime and do not require published Murmur npm packages. Pairing remains
+unknown until doctor proves a persisted signed roundtrip.
 
 Runtime wake faults combine durable SQLite failure records with a fresh PID/store
 bound daemon observation. The daemon records stable codes for monitor crashes,

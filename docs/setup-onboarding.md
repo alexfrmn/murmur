@@ -38,7 +38,7 @@ nonce through the real daemon outbox, verifies the peer's signed encrypted reply
 and requires that reply in the local inbox before saving pairing evidence.
 It does not certify GUI appearance or an LLM session wake.
 
-Linux/systemd and Darwin/launchd adapters are integrated. The Windows service
-adapter is a separate pending integration; these commands do not invent a healthy
-Windows service. An already-running service must be restarted explicitly to load
+Linux/systemd, Darwin/launchd and Windows SCM adapters use the shared CLI.
+Windows additionally needs the matching native service helper and elevation for
+service mutations; see [Windows CLI](windows-service-cli.md). An already-running service must be restarted explicitly to load
 changed peer configuration. Commands do not silently stop running processes.

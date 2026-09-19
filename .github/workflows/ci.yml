@@ -110,3 +110,13 @@ jobs:
           # на общих раннерах это долго и меняет состояние машины. Локально включается
           # переменной MURMUR_SVC_E2E=1.
           MURMUR_SVC_E2E: ''
+
+  windows-installer:
+    name: Windows installer preflight
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - run: node --test tests/windows-installer.test.mjs
