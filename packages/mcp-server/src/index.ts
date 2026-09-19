@@ -18,6 +18,8 @@ import {
   SQLiteDedupeOutboxStore,
   SQLiteMessageStore,
   stableEnvelopePayload,
+  resolveMessageSubject,
+  channelScopedSubject,
   type EnvelopeV1,
   type LocalMessageRecord,
 } from "@murmurv2/core";
@@ -39,6 +41,7 @@ interface AgentConfig {
   natsUrl: string;
   natsToken?: string;
   subject: string;
+  subjectScoping?: { enabled?: boolean; channelIds?: string[] };
   dataDir: string;
   keys: {
     encryption: { publicKey: string; privateKey: string };
@@ -50,6 +53,7 @@ interface AgentConfig {
       encryption: { publicKey: string };
       signing: { publicKey: string };
       subject: string;
+      subjectScoping?: boolean;
       channelId?: string;
       memberId?: string;
     }
@@ -452,7 +456,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     );
 
     // Enqueue to outbox — daemon will flush to NATS
-    await outbox.enqueue(peer.subject, envelope);
+    await outbox.enqueue(resolveMessageSubject(peer, routing.channelId), envelope);
     recordCodexTaskPeerBinding(conversationId, to);
 
     // Store outbound copy in message store
@@ -536,7 +540,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     // Enqueue to outbox
     const suppressionMarker = armSynchronousReplySuppression(conversationId, to, timeoutMs);
     try {
-      await outbox.enqueue(peer.subject, envelope);
+      await outbox.enqueue(resolveMessageSubject(peer, routing.channelId), envelope);
       recordCodexTaskPeerBinding(conversationId, to);
     } catch (error) {
       clearSynchronousReplySuppression(suppressionMarker);
@@ -579,19 +583,23 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     let onSignal: ((wake: () => void) => void) | undefined;
     if (broker) {
       onSignal = (wake) => {
-        tap.attach = broker
-          .subscribeRaw(agentConfig!.subject, (env) => {
+        const subjects = [agentConfig!.subject];
+        if (agentConfig!.subjectScoping?.enabled === true && routing.channelId) subjects.push(channelScopedSubject(agentConfig!.subject, routing.channelId));
+        const subscriptions: BrokerSubscription[] = [];
+        tap.sub = { unsubscribe: async () => { for (const sub of subscriptions) await sub.unsubscribe(); } };
+        tap.attach = Promise.all(subjects.map((subject) => broker
+          .subscribeRaw(subject, (env) => {
             if (matchReply(env)) {
               wokenBySignal = true;
               wake();
             }
           })
           .then((sub) => {
-            tap.sub = sub;
+            subscriptions.push(sub);
           })
           .catch(() => {
             /* tap failed to attach — store polling still resolves the reply */
-          });
+          }))).then(() => undefined);
       };
     }
 

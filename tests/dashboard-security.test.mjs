@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { stableEnvelopePayload } from "../packages/core/dist/src/index.js";
+import { stableEnvelopePayload, channelScopedSubject } from "../packages/core/dist/src/index.js";
 import {
   createKeyPair,
   createSigningKeyPair,
@@ -170,4 +170,15 @@ test("only signed, recipient-bound, local envelopes become authenticated events"
     await authenticateEnvelope(JSON.stringify(envelope), "msg.someone-else", config),
     { accepted: false, reason: "recipient-subject-mismatch" },
   );
+});
+
+test("dashboard accepts signed scoped traffic only on its canonical channel subject", async () => {
+  const { envelope, config } = await fixture();
+  envelope.channelId = "c.with.dots";
+  envelope.senderMemberId = "sender-member";
+  envelope.signature = await signEnvelope(stableEnvelopePayload(envelope), config.peers["agent-peer"].signing.privateKey);
+  assert.equal((await authenticateEnvelope(JSON.stringify(envelope), channelScopedSubject("msg.agent-local", envelope.channelId), config)).accepted, true);
+  for (const subject of [channelScopedSubject("msg.agent-local", "other"), "msg.agent-local.arbitrary", "msg.agent-local."]) {
+    assert.deepEqual(await authenticateEnvelope(JSON.stringify(envelope), subject, config), { accepted: false, reason: "channel-subject-mismatch" });
+  }
 });

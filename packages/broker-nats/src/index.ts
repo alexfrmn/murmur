@@ -114,6 +114,7 @@ export class NatsBroker {
   private jsm?: JetStreamManager;
   private readonly sc = StringCodec();
   private readonly failedDeliveries = new Map<string, number>();
+  private readonly frameLanes = new Map<string, Promise<"ack" | "retry">>();
   /** Подавление повторов в логе DLQ-обработчика: один и тот же отказ печатается
    *  не чаще раза в минуту, с числом подавленных с прошлой печати. */
   private readonly advisoryFailureLog = new Map<string, { at: number; suppressed: number }>();
@@ -316,6 +317,26 @@ export class NatsBroker {
 
   private async processEnvelopeFrame(
     data: Uint8Array,
+    params: Parameters<NatsBroker["processEnvelopeFrameUnlocked"]>[1],
+  ): Promise<"ack" | "retry"> {
+    let key: string;
+    try {
+      const decoded = JSON.parse(this.sc.decode(data));
+      if (!isEnvelopeV1(decoded)) return this.processEnvelopeFrameUnlocked(data, params);
+      key = JSON.stringify([params.consumerId, decoded.msgId]);
+    } catch { return this.processEnvelopeFrameUnlocked(data, params); }
+    // Legacy and scoped consumers share the application dedupe identity. Serialize
+    // concurrent copies of one letter so both cannot pass seen() before markSeen().
+    const previous = this.frameLanes.get(key);
+    const run = (previous ? previous.catch(() => undefined) : Promise.resolve())
+      .then(() => this.processEnvelopeFrameUnlocked(data, params));
+    this.frameLanes.set(key, run);
+    try { return await run; }
+    finally { if (this.frameLanes.get(key) === run) this.frameLanes.delete(key); }
+  }
+
+  private async processEnvelopeFrameUnlocked(
+    data: Uint8Array,
     params: {
       consumerId: string;
       dedupe: DedupeStore;
@@ -324,6 +345,7 @@ export class NatsBroker {
       authorize?: InboundAuthorizer;
       signAck?: AckSigner;
       emitDeliveryAcks?: boolean;
+      channelId?: string;
     },
   ): Promise<"ack" | "retry"> {
     let msgId = "unknown";
@@ -344,6 +366,12 @@ export class NatsBroker {
       decodedEnvelope = decoded;
       msgId = decoded.msgId;
       ackSubject = `ack.${decoded.senderAgentId}`;
+      if (params.channelId !== undefined && decoded.channelId !== params.channelId) {
+        // A misrouted copy must not poison the shared dedupe namespace: the same
+        // signed envelope can still arrive on its correct subject during migration.
+        await publishAck(ackSubject, await this.createDeliveryAck(decoded, params.consumerId, "nack", "subject-channel-mismatch", params.signAck));
+        return "ack";
+      }
       const isDup = await params.dedupe.seen(decoded.msgId, params.consumerId);
       if (isDup) {
         await publishAck(
@@ -445,7 +473,7 @@ export class NatsBroker {
     }
 
     const filterSubject = info.config.filter_subject;
-    if (filterSubject && filterSubject !== subject) {
+    if (filterSubject !== subject || (info.config.filter_subjects?.length ?? 0) > 0) {
       throw new Error(`jetstream-consumer-filter-mismatch:${durableName}:${filterSubject}:${subject}`);
     }
     if (info.config.max_deliver !== config.max_deliver || info.config.ack_wait !== config.ack_wait) {
@@ -499,6 +527,10 @@ export class NatsBroker {
   async subscribeWithAck(params: {
     subject: string;
     consumerId: string;
+    /** Transport durable may differ; consumerId remains the application dedupe/ACK identity. */
+    durableName?: string;
+    /** Required signed channel identity for a channel-specific subject. */
+    channelId?: string;
     dedupe: DedupeStore;
     onMessage: MessageHandler;
     maxPoisonAttempts?: number;
@@ -513,7 +545,7 @@ export class NatsBroker {
     await this.connect();
 
     if (this.js) {
-      return this.consumeJetStream(params.subject, params.consumerId, (data) => this.processEnvelopeFrame(data, params));
+      return this.consumeJetStream(params.subject, params.durableName ?? params.consumerId, (data) => this.processEnvelopeFrame(data, params));
     }
 
     const sub = this.nc!.subscribe(params.subject);

@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { SQLiteDedupeOutboxStore, SQLiteMessageStore, stableEnvelopePayload } from "@murmurv2/core";
+import { SQLiteDedupeOutboxStore, SQLiteMessageStore, stableEnvelopePayload, resolveMessageSubject } from "@murmurv2/core";
 import { encryptPayload, signEnvelope } from "@murmurv2/security";
 import { readPrivateJson } from "./secure-state.mjs";
 
@@ -117,7 +117,7 @@ try {
     process.stdout.write(`${JSON.stringify({ msgId, to: opt.to, conversationId, status: "already-queued", ...routing })}\n`);
     process.exit(0);
   }
-  await outbox.enqueue(peer.subject, envelope);
+  await outbox.enqueue(resolveMessageSubject(peer, channelId), envelope);
 
   const store = new SQLiteMessageStore(dbPath);
   store.db?.exec?.("PRAGMA busy_timeout=5000;");

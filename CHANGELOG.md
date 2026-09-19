@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SELECT`, and the cursor only ever passes a row that was reported or recorded.
 
 ### Added
+- **Optional per-channel NATS subjects** (#90): explicit channel consumers share the
+  existing stream, legacy durable cursor and application dedupe identity. Includes
+  additive migration/rollback checks, sender opt-in, MCP bridge routing and an
+  isolated JetStream proof. Default mailbox routing remains unchanged.
 - **Channel chat-session presence** (#89): explicit MCP heartbeat/leave/list tools
   report local sessions with bounded TTL, validated roster identities and immediate
   hiding of closed/departed memberships. This advisory state is separate from peer
