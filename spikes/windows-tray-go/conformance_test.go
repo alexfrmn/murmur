@@ -49,7 +49,7 @@ func stampValue(policy string, current any) any {
 }
 
 func TestConformance(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("fixtures", "status-*.json"))
+	files, err := filepath.Glob(filepath.Join(fixtureDir, "status-*.json"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("образцы не найдены: %v", err)
 	}
@@ -125,7 +125,7 @@ func sameSet(a, b []string) bool {
 // идут пропуски со ссылкой на остановивший этап. Отрицательный образец обязан быть
 // отвергнут — иначе проверка правила существует только в моей голове.
 func TestDoctorChainRule(t *testing.T) {
-	files, _ := filepath.Glob(filepath.Join("fixtures", "doctor-*.json"))
+	files, _ := filepath.Glob(filepath.Join(fixtureDir, "doctor-*.json"))
 	if len(files) == 0 {
 		t.Fatal("образцы доктора не найдены")
 	}
