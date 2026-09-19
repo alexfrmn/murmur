@@ -91,20 +91,35 @@ test("restart before dispatch recovers the pending messages from SQLite", async 
   assert.deepEqual(calls[0].batchMsgIds, ["one", "two"]);
 });
 
-test("failed batch keeps its identity across restart and new arrivals", async (t) => {
+for (const settlementDelay of [0, 150]) test(`failed batch keeps its identity across restart and new arrivals (settlement delay ${settlementDelay}ms)`, async (t) => {
   const { store, receive } = fixture(t);
+  let clock = Date.parse("2026-09-19T12:00:00.000Z");
+  const options = { now: () => clock, peers: { peer: { ...peer, steer_batch_window_ms: 0 } } };
+  const settle = store.settleWakeBatch.bind(store);
+  let settlements = 0;
+  store.settleWakeBatch = async (outcomes) => {
+    await settle(outcomes);
+    // A slow first settlement can make the first retry due before drain returns.
+    if (++settlements === 1) clock += settlementDelay;
+  };
   let failedId;
-  const failing = monitorFor(store, async (p) => { failedId = p.msgId; throw new Error("session-gone"); }, { retryBackoffMs: 100 });
+  const failing = monitorFor(store, async (p) => { failedId = p.msgId; throw new Error("session-gone"); }, { ...options, retryBackoffMs: 100 });
   failing.enqueue(await receive("one"));
   failing.enqueue(await receive("two"));
   await failing.drain();
-  assert.equal((await store.wakeStateFor("one")).status, "failed");
-  assert.equal((await store.wakeStateFor("two")).status, "failed");
+  const one = await store.wakeStateFor("one"), two = await store.wakeStateFor("two");
+  assert.equal(one.status, "failed");
+  assert.equal(two.status, "failed");
+  assert.equal(one.attempts, settlementDelay ? 2 : 1);
+  assert.equal(one.nextAttemptAt, two.nextAttemptAt);
   await receive("new");
-  await delay(120);
+  // Retry backoff grows with attempts. A fixed sleep can restart before the saved
+  // deadline after a slow drain; this test concerns identity once the retry is due.
+  clock = Date.parse(one.nextAttemptAt);
   const calls = [];
-  const restarted = monitorFor(store, async (p) => calls.push(p));
+  const restarted = monitorFor(store, async (p) => calls.push(p), options);
   await restarted.drain();
+  assert.equal(calls.length, 2);
   assert.equal(calls[0].msgId, failedId);
   assert.deepEqual(calls[0].batchMsgIds, ["one", "two"]);
   assert.equal(calls[1].msgId, "new");

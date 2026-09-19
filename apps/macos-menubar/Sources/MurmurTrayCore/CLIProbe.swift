@@ -6,10 +6,15 @@ import Darwin
 public struct CLIProbe: Sendable {
     public let executable: URL
     public let timeout: TimeInterval
+    public let profile: ProfileBinding?
+    private let environment: [String: String]
 
-    public init(executable: URL, timeout: TimeInterval = 5) {
+    public init(executable: URL, timeout: TimeInterval = 5, profile: ProfileBinding? = nil,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.executable = executable
         self.timeout = timeout
+        self.profile = profile
+        self.environment = environment
     }
 
     public static func locate(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
@@ -25,7 +30,14 @@ public struct CLIProbe: Sendable {
     }
 
     public func run(_ command: String) throws -> ProbeSummary {
-        precondition(command == "status" || command == "doctor")
+        guard command == "status" || command == "doctor" else { throw ProfileError.unsupportedCommand }
+        return try invoke([command])
+    }
+
+    // Mutating argv is built only by ProfileClient after a fresh identity check.
+    func invoke(_ arguments: [String]) throws -> ProbeSummary {
+        guard timeout.isFinite, timeout > 0, timeout <= 60 else { throw ProfileError.invalidTimeout }
+        guard executable.isFileURL, executable.path.hasPrefix("/") else { throw ProfileError.invalidCLI }
         let fm = FileManager.default
         let directory = fm.temporaryDirectory.appendingPathComponent("murmur-probe-\(UUID().uuidString)")
         try fm.createDirectory(at: directory, withIntermediateDirectories: false,
@@ -41,14 +53,16 @@ public struct CLIProbe: Sendable {
 
         let process = Process()
         process.executableURL = executable
-        process.arguments = [command, "--json"]
+        process.arguments = arguments + ["--json"] + (profile?.arguments ?? [])
+        process.currentDirectoryURL = URL(fileURLWithPath: "/")
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = out
         process.standardError = err
         // No shell; GUI launches must not depend on an interactive shell PATH.
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        process.environment = environment
+        let inherited = ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]
+        var childEnvironment = environment.filter { inherited.contains($0.key) }
+        childEnvironment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        process.environment = childEnvironment
         try process.run()
         let deadline = Date().addingTimeInterval(timeout)
         let limit = 256 * 1024
@@ -84,6 +98,6 @@ public struct CLIProbe: Sendable {
         guard let object = try? JSONSerialization.jsonObject(with: data), object is [String: Any] else {
             throw ProbeError.invalidJSON
         }
-        return ProbeSummary(command: command, byteCount: data.count, exitCode: process.terminationStatus, data: data)
+        return ProbeSummary(command: arguments.joined(separator: " "), byteCount: data.count, exitCode: process.terminationStatus, data: data)
     }
 }
