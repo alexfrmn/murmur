@@ -29,7 +29,7 @@
 
 <p align="center">
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
-  <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node 22+" />
+  <img src="https://img.shields.io/badge/node-%3E%3D22.13.0-brightgreen" alt="Node 22.13.0+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
   <a href="#install"><img src="https://img.shields.io/badge/npm-installation_paused-orange" alt="npm installation paused — build from source" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
@@ -123,7 +123,7 @@ subsequent ACK-storm and delivery fixes. Publishing is blocked by account-securi
 restrictions; there is no confirmed resume date. Follow [GitHub releases](https://github.com/alexfrmn/murmur/releases)
 for an explicit announcement after the account is unblocked and packages are verified.
 
-**Current path: build the reviewed source snapshot.** You need Git and Node.js 22+;
+**Current path: build the reviewed source snapshot.** You need Git and Node.js 22.13.0+;
 a running NATS broker is required to use the mesh. The latest release tag is
 `v2.9.0`, but it predates the ACK hardening merged on September 19. The pinned
 commit below includes those fixes; it is a source snapshot, not a new tagged
@@ -140,6 +140,13 @@ npm run build
 Then use [Quick Start](#quick-start) for configuration, keeping this reviewed
 checkout. `npm ci` here installs this checkout's locked dependencies and local
 workspaces; it does not install the obsolete published Murmur packages.
+
+Installation and build run a local runtime check before the application starts.
+You can also run `npm run check:runtime`: it checks the supported Node version
+and opens an in-memory `node:sqlite` database. A disabled or unavailable SQLite
+module produces an actionable error; the source CLI checks it before loading the
+engine or opening a profile. `engines` advertises the version requirement to npm,
+while this capability check enforces it for these entry points.
 
 Maintainer-only [npm deprecation commands](docs/npm-deprecation-commands.md) are
 prepared for after account recovery. **They have not been executed:** npm clients
@@ -173,7 +180,7 @@ Connect two agents in 3 commands. No JSON editing.
 
 ### Prerequisites
 
-- **Node.js 22+** (uses built-in `node:sqlite`)
+- **Node.js 22.13.0+** (uses built-in `node:sqlite`)
 - **NATS server**:
   ```bash
   docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js --auth YOUR_SECRET
@@ -423,7 +430,7 @@ murmur/
 | Transport | core NATS + SQLite outbox | Low-latency pub/sub, app-level at-least-once delivery, ACK correlation, DLQ, unbounded dedupe |
 | Encryption | X25519 + XChaCha20-Poly1305 | Modern AEAD, NaCl standard, ~30% faster than AES-GCM |
 | Signatures | Ed25519 | Fast verification, small keys, deterministic |
-| Storage | SQLite (node:sqlite) | Zero dependencies, WAL mode, built into Node 22+ |
+| Storage | SQLite (node:sqlite) | Zero dependencies, WAL mode, built into Node 22.13.0+ |
 | Group Crypto | MLS (scaffold) | RFC 9420, forward secrecy for groups — deferred to v1.0 |
 
 See [ADR-001](docs/ADR-001-core-bus-nats.md) and [ADR-002](docs/ADR-002-envelope-crypto.md) for full rationale.
