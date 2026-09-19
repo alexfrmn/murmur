@@ -24,6 +24,7 @@ var (
 	colGreen  = color.NRGBA{R: 0x3f, G: 0xb9, B: 0x50, A: 0xff}
 	colRed    = color.NRGBA{R: 0xd9, G: 0x3d, B: 0x3d, A: 0xff}
 	colUnread = color.NRGBA{R: 0x3d, G: 0x8b, B: 0xfd, A: 0xff}
+	colUpdate = color.NRGBA{R: 0xf0, G: 0xa8, B: 0x68, A: 0xff}
 )
 
 // disc рисует круг с мягким краем: без сглаживания значок на 32px выглядит рваным.
@@ -50,6 +51,25 @@ func disc(img *image.NRGBA, cx, cy, r float64, c color.NRGBA) {
 	}
 }
 
+// wedge рисует треугольник вершиной вверх — метку «вышла новая версия».
+func wedge(img *image.NRGBA, cx, cy, r float64, c color.NRGBA) {
+	for y := int(cy - r); y <= int(cy+r); y++ {
+		for x := int(cx - r); x <= int(cx+r); x++ {
+			if x < 0 || y < 0 || x >= iconSize || y >= iconSize {
+				continue
+			}
+			dy := (float64(y) + .5) - (cy - r)
+			halfWidth := dy * .95
+			if dy < 0 || dy > 2*r {
+				continue
+			}
+			if math.Abs((float64(x)+.5)-cx) <= halfWidth && dy <= 2*r*.8 {
+				img.SetNRGBA(x, y, c)
+			}
+		}
+	}
+}
+
 func blend(dst, src color.NRGBA) color.NRGBA {
 	a := float64(src.A) / 255
 	out := color.NRGBA{
@@ -61,7 +81,12 @@ func blend(dst, src color.NRGBA) color.NRGBA {
 	return out
 }
 
-func iconBytes(base color.NRGBA, unread bool) []byte {
+// Две метки на одном значке живут в разных углах и разной формой: снизу справа круг
+// непрочитанного, сверху справа клин обновления. Один и тот же приём для обоих сделал бы
+// их неразличимыми на 16 пикселях в трее.
+func iconBytes(base color.NRGBA, unread bool) []byte { return iconWith(base, unread, false) }
+
+func iconWith(base color.NRGBA, unread, update bool) []byte {
 	img := image.NewNRGBA(image.Rect(0, 0, iconSize, iconSize))
 	disc(img, 16, 16, 12, base)
 	if unread {
@@ -70,6 +95,12 @@ func iconBytes(base color.NRGBA, unread bool) []byte {
 		disc(img, 24, 24, 8, color.NRGBA{})
 		clearDisc(img, 24, 24, 7.5)
 		disc(img, 24, 24, 6, colUnread)
+	}
+	if update {
+		// Клин вверх: у метки обновления есть направление, и оно читается даже там,
+		// где цвет уже не различить.
+		clearDisc(img, 24, 8, 8)
+		wedge(img, 24, 8, 6.5, colUpdate)
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
@@ -117,15 +148,18 @@ func dumpIcons(dir string) error {
 		name   string
 		col    color.NRGBA
 		unread bool
+		update bool
 	}{
-		{"grey", colGrey, false},
-		{"yellow", colYellow, false},
-		{"green", colGreen, false},
-		{"red", colRed, false},
-		{"green-unread", colGreen, true},
+		{"grey", colGrey, false, false},
+		{"yellow", colYellow, false, false},
+		{"green", colGreen, false, false},
+		{"red", colRed, false, false},
+		{"green-unread", colGreen, true, false},
+		{"green-update", colGreen, false, true},
+		{"green-unread-update", colGreen, true, true},
 	}
 	for _, it := range set {
-		ico := iconBytes(it.col, it.unread)
+		ico := iconWith(it.col, it.unread, it.update)
 		if ico == nil {
 			return fmt.Errorf("иконка %s не собралась", it.name)
 		}
