@@ -37,6 +37,15 @@ public struct DoctorSnapshot: Decodable, Sendable {
         guard Set(value.stages.map(\.id)).count == value.stages.count else { throw ContractError.duplicateStage }
         let indices = value.stages.compactMap { stageIDs.firstIndex(of: $0.id) }
         guard indices.count == value.stages.count, indices == indices.sorted() else { throw ContractError.stageOrder }
+        var blocker: String?
+        for stage in value.stages {
+            guard ["ok", "warn", "fail", "skip"].contains(stage.state) else { throw ContractError.stageState }
+            if let blocker {
+                guard stage.state == "skip", stage.reason == "blocked-by:\(blocker)" else {
+                    throw ContractError.doctorChain(stage: stage.id, blocker: blocker)
+                }
+            } else if stage.state == "fail" { blocker = stage.id }
+        }
         return value
     }
 
