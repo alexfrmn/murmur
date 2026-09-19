@@ -15,6 +15,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,13 +80,15 @@ func main() {
 		if len(os.Args) >= 3 && os.Args[1] == "run" {
 			runtimeName = os.Args[2]
 		}
-		_ = svc.Run(svcName(), &daemonHost{})
+		mustDo(validateServiceName(svcName()))
+		mustDo(svc.Run(svcName(), &daemonHost{}))
 		return
 	}
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
 	}
+	mustDo(validateServiceName(svcName()))
 	switch os.Args[1] {
 	case "install":
 		mustDo(install())
@@ -281,9 +284,12 @@ func resolveSpec() (*launchSpec, error) {
 	if workDir == "" {
 		workDir = filepath.Dir(filepath.Dir(entry))
 	}
-	data := os.Getenv("MURMUR_DATA_DIR")
-	if data == "" {
-		data = filepath.Join(workDir, ".data")
+	data, err := selectedDataDir(filepath.Join(workDir, ".data"))
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectMetadataOverlap(data, dataDir()); err != nil {
+		return nil, err
 	}
 	limit := restartsPerHourDefault
 	if v := os.Getenv("MURMUR_RESTARTS_PER_HOUR_LIMIT"); v != "" {
@@ -330,6 +336,8 @@ func install() error {
 			return fmt.Errorf("%v; ничего не тронуто", ownErr)
 		}
 		return fmt.Errorf("служба %s уже установлена; ничего не тронуто, снимите её командой uninstall", svcName())
+	} else if !serviceAbsent(err) {
+		return fmt.Errorf("не удалось проверить существующую службу; ничего не тронуто: %w", err)
 	}
 
 	spec, err := resolveSpec()
@@ -384,13 +392,23 @@ func install() error {
 }
 
 func verifyStart(s *mgr.Service) error {
-	_ = os.Remove(daemonPIDPath())
-	if err := s.Start(); err != nil {
-		return fmt.Errorf("диспетчер отказался запускать службу: %w", err)
-	}
-	if err := waitState(s, svc.Running, startTimeout); err != nil {
+	before, err := s.Query()
+	if err != nil {
 		return err
 	}
+	if before.State == svc.Stopped {
+		_ = os.Remove(daemonPIDPath())
+		if err := s.Start(); err != nil {
+			return fmt.Errorf("диспетчер отказался запускать службу: %w", err)
+		}
+		if err := waitState(s, svc.Running, startTimeout); err != nil {
+			return err
+		}
+	} else if before.State != svc.Running {
+		return fmt.Errorf("service.transition-in-progress: retry after the current operation")
+	}
+	// Repeated start observes the existing process; it must not remove its PID
+	// witness before discovering that SCM already has a running service.
 	say("служба в состоянии Running")
 
 	pid, err := waitDaemonPID(startTimeout)
@@ -485,9 +503,23 @@ func uninstall() error {
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
+		if !serviceAbsent(err) {
+			return fmt.Errorf("состояние службы недоступно; файлы не тронуты: %w", err)
+		}
 		// Службы в диспетчере нет — но файлы после отката установки есть, и это ровно
 		// та команда, на которую откат сослался. Отказаться здесь значит не выполнить
 		// собственное обещание.
+		if _, err := os.Stat(specPath()); err == nil {
+			spec, err := resolveSpecFromFile()
+			if err != nil {
+				return err
+			}
+			if err := requireExpectedProfile(spec); err != nil {
+				return err
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 		say("службы %s в диспетчере нет, убираю оставшиеся файлы", svcName())
 		removeLeftovers()
 		return nil
@@ -496,7 +528,9 @@ func uninstall() error {
 	if err := ownService(s); err != nil {
 		return err
 	}
-	_ = stopService(s)
+	if err := stopService(s); err != nil {
+		return fmt.Errorf("service.stop-failed: refusing to delete a running service: %w", err)
+	}
 	if err := s.Delete(); err != nil {
 		return err
 	}
@@ -564,6 +598,13 @@ func stop() error {
 }
 
 func stopService(s *mgr.Service) error {
+	q, err := s.Query()
+	if err != nil {
+		return err
+	}
+	if q.State == svc.Stopped {
+		return nil
+	}
 	if _, err := s.Control(svc.Stop); err != nil {
 		return err
 	}
@@ -575,6 +616,7 @@ func stopService(s *mgr.Service) error {
 // runState — то, чего SCM не знает: сколько раз надзор поднимал демона и чем он
 // закончил в прошлый раз.
 type runState struct {
+	HostPID       int         `json:"hostPid"`
 	Restarts      []time.Time `json:"restarts"`
 	LastExitCode  *int        `json:"lastExitCode"`
 	LastFailureAt string      `json:"lastFailureAt"`
@@ -609,9 +651,14 @@ func (st runState) restartsLastHour() int {
 // ServiceStatus — фрагмент, который CLI кладёт в поле service ответа status --json.
 // Имена полей совпадают с CONTRACT.md намеренно: перекладывать их по дороге негде.
 type ServiceStatus struct {
-	State   string  `json:"state"`
-	Manager string  `json:"manager"`
-	Since   *string `json:"since"`
+	Schema          string      `json:"schema"`
+	ServiceName     string      `json:"serviceName"`
+	Profile         *launchSpec `json:"profile"`
+	RestartWindowMs *int64      `json:"restartWindowMs"`
+	RestartCount    *int        `json:"restartCount"`
+	State           string      `json:"state"`
+	Manager         string      `json:"manager"`
+	Since           *string     `json:"since"`
 	// PID — процесс хоста службы. DaemonPID — процесс самого демона: это разные вещи,
 	// и вопрос «жив ли демон» относится ко второму.
 	PID       int  `json:"pid"`
@@ -645,65 +692,94 @@ func orNil(s string) *string {
 	return &s
 }
 
+// status requests only query rights. Tray users must not need elevation just to
+// observe a service; mutations continue using the administrator-only connection.
+func connectReadOnly() (*mgr.Mgr, error) {
+	h, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return nil, err
+	}
+	return &mgr.Mgr{Handle: h}, nil
+}
+func openReadOnly(m *mgr.Mgr, name string) (*mgr.Service, error) {
+	encoded, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return nil, err
+	}
+	h, err := windows.OpenService(m.Handle, encoded, windows.SERVICE_QUERY_STATUS|windows.SERVICE_QUERY_CONFIG)
+	if err != nil {
+		return nil, err
+	}
+	return &mgr.Service{Name: name, Handle: h}, nil
+}
+
 func printStatus() error {
-	spec, specErr := resolveSpecFromFile()
-	st, stateErr := readStateChecked()
-
 	out := ServiceStatus{
-		State:                "unknown",
-		Manager:              "windows-service",
-		RestartsPerHourLimit: limitOf(spec),
+		Schema: "murmur.windows-service/1", ServiceName: svcName(),
+		State: "unknown", Manager: "windows-service",
+		RestartsPerHourLimit:  restartsPerHourDefault,
+		RestartsUnknownReason: orNil("service.history-host-unverified"),
+		ObservedStoreReason:   orNil("service.manager-unavailable"),
 	}
-	if stateErr == nil {
-		n := st.restartsLastHour()
-		out.RestartsLastHour = &n
-		out.Since = orNil(st.StartedAt)
-		out.LastExitCode = st.LastExitCode
-		out.LastFailureAt = orNil(st.LastFailureAt)
-	} else {
-		out.RestartsUnknownReason = orNil(stateErr.Error())
-	}
-
-	m, err := mgr.Connect()
+	m, err := connectReadOnly()
 	if err == nil {
 		defer m.Disconnect()
-		s, oerr := m.OpenService(svcName())
+		s, oerr := openReadOnly(m, svcName())
 		if oerr != nil {
-			out.State, out.Manager = "stopped", "none"
+			if serviceAbsent(oerr) {
+				out.State, out.Manager = "stopped", "none"
+				out.ObservedStoreReason = orNil("service.not-installed")
+			}
 		} else {
 			defer s.Close()
 			if ownErr := ownService(s); ownErr != nil {
-				// Имя службы задаётся снаружи, значит совпадение с чужой возможно.
-				// Отвечать за чужой профиль мы не вправе — и молчать об этом тоже.
-				out.State, out.Manager = "unknown", "foreign"
+				out.Manager = "foreign"
 				out.ObservedStoreReason = orNil(ownErr.Error())
 			} else if q, qerr := s.Query(); qerr == nil {
-				out.State = stateName(q)
-				out.PID = int(q.ProcessId)
+				spec, specErr := resolveSpecFromFile()
+				if specErr == nil && requireExpectedProfile(spec) == nil {
+					out.Profile = spec
+					out.RestartsPerHourLimit = limitOf(spec)
+					out.State, out.PID = stateName(q), int(q.ProcessId)
+					out.ObservedStoreReason = orNil("service.daemon-not-observed")
+					st, stateErr := readStateChecked()
+					if stateErr != nil {
+						out.RestartsUnknownReason = orNil(stateErr.Error())
+					} else if q.State == svc.Running && st.HostPID == out.PID && out.PID > 0 {
+						out.Since, out.LastExitCode, out.LastFailureAt = orNil(st.StartedAt), st.LastExitCode, orNil(st.LastFailureAt)
+						n, window, historyErr := measuredRestarts(st, time.Now())
+						if historyErr != nil {
+							out.RestartsUnknownReason = orNil(historyErr.Error())
+						} else {
+							out.RestartCount, out.RestartWindowMs = &n, &window
+							out.RestartsUnknownReason = orNil("service.history-window-incomplete")
+							if window == int64(time.Hour/time.Millisecond) {
+								out.RestartsLastHour, out.RestartsUnknownReason = &n, nil
+							}
+						}
+						daemonPID, _ := readDaemonPID()
+						if daemonPID > 0 {
+							// A normal user may be denied OpenProcess for a SYSTEM child,
+							// while Restart Manager can still observe its open database.
+							// Do not discard that stronger direct observation beforehand.
+							if path, why := observedStore(spec.DataDir, daemonPID); path != "" {
+								out.DaemonPID = &daemonPID
+								out.ObservedStorePath, out.ObservedStoreReason = &path, nil
+							} else {
+								out.ObservedStoreReason = orNil(why)
+								if processAlive(daemonPID) {
+									out.DaemonPID = &daemonPID
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}
-
-	if out.Manager != "foreign" {
-		daemonPID, _ := readDaemonPID()
-		if daemonPID > 0 && processAlive(daemonPID) {
-			out.DaemonPID = &daemonPID
-		}
-		dataDir := ""
-		if specErr == nil {
-			dataDir = spec.DataDir
-		}
-		if path, why := observedStore(dataDir, daemonPID); path != "" {
-			out.ObservedStorePath = &path
-		} else {
-			out.ObservedStoreReason = orNil(why)
-		}
-	}
-
-	if out.State == "running" && out.RestartsLastHour != nil && *out.RestartsLastHour >= limitOf(spec) {
+	if out.State == "running" && out.RestartCount != nil && *out.RestartCount >= out.RestartsPerHourLimit {
 		out.State = "failed"
 	}
-
 	buf, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return err
@@ -712,14 +788,11 @@ func printStatus() error {
 	return nil
 }
 
-// readStateChecked отличает «состояния ещё нет» от «прочитать не удалось»: первое даёт
-// честный ноль подъёмов, второе — неизвестность.
+// Missing history is unmeasured. It must not become a measured zero after deletion
+// or a failed state write.
 func readStateChecked() (runState, error) {
 	var st runState
 	buf, err := os.ReadFile(statePath())
-	if os.IsNotExist(err) {
-		return st, nil
-	}
 	if err != nil {
 		return st, fmt.Errorf("файл состояния не прочитан: %w", err)
 	}
@@ -741,24 +814,42 @@ func ownService(s *mgr.Service) error {
 	if err != nil {
 		return err
 	}
-	bin := strings.Trim(strings.Fields(cfg.BinaryPathName)[0], `"`)
-	a, _ := filepath.EvalSymlinks(bin)
-	b, _ := filepath.EvalSymlinks(self)
-	if a == "" {
-		a = bin
+	if err := validateServiceImage(cfg.BinaryPathName, self, svcName()); err != nil {
+		return err
 	}
-	if b == "" {
-		b = self
+	spec, err := resolveSpecFromFile()
+	if err != nil {
+		return err
 	}
-	if !strings.EqualFold(filepath.Clean(a), filepath.Clean(b)) {
-		return fmt.Errorf("служба %s принадлежит другой программе (%s) — не трогаю её", svcName(), bin)
+	return requireExpectedProfile(spec)
+}
+
+func serviceAbsent(err error) bool { return errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) }
+
+// SCM ImagePath is a Windows command line. Splitting on whitespace truncates a
+// quoted Program Files executable and strands an otherwise running service.
+func validateServiceImage(imagePath, self, name string) error {
+	args, err := windows.DecomposeCommandLine(imagePath)
+	if err != nil || len(args) != 3 || args[1] != "run" || args[2] != name {
+		return fmt.Errorf("service.foreign-image-path: executable and run/service arguments are required")
+	}
+	binary, err := os.Stat(args[0])
+	if err != nil {
+		return fmt.Errorf("service.image-path-unavailable: %w", err)
+	}
+	current, err := os.Stat(self)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(binary, current) {
+		return fmt.Errorf("service.foreign-executable: refusing another service binary")
 	}
 	return nil
 }
 
 func stateName(q svc.Status) string {
 	switch q.State {
-	case svc.Running, svc.StartPending, svc.ContinuePending:
+	case svc.Running:
 		return "running"
 	case svc.Stopped:
 		// Остановленная по команде и упавшая различаются кодом выхода. Служебный код
@@ -768,7 +859,7 @@ func stateName(q svc.Status) string {
 		}
 		return "stopped"
 	default:
-		return "stopped"
+		return "unknown"
 	}
 }
 
@@ -807,12 +898,12 @@ func (h *daemonHost) Execute(args []string, r <-chan svc.ChangeRequest, s chan<-
 
 	fatal := make(chan uint32, 1)
 	done := make(chan struct{})
-	go h.supervise(spec, fatal, done)
-
-	s <- svc.Status{State: svc.Running, Accepts: accepted}
 	st := readState()
-	st.StartedAt = time.Now().UTC().Format(time.RFC3339)
+	st.HostPID = os.Getpid()
+	st.StartedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	writeState(st)
+	go h.supervise(spec, fatal, done)
+	s <- svc.Status{State: svc.Running, Accepts: accepted}
 
 	for {
 		select {
@@ -889,8 +980,8 @@ func (h *daemonHost) supervise(spec *launchSpec, fatal chan<- uint32, done chan<
 		//
 		// Имя переменной проверено по исходнику демона: scripts/murmur-daemon.mjs читает
 		// DATA_DIR и при её отсутствии берёт «.data» относительно рабочего каталога.
-		// MURMUR_DATA_DIR передаётся рядом как имя, предложенное движком, — когда демон
-		// начнёт читать его, здесь ничего менять не придётся.
+		// DATA_DIR is canonical. The legacy name is passed with the same value only
+		// for existing auxiliary consumers; it does not name a future migration.
 		cmd.Env = append(os.Environ(),
 			"DATA_DIR="+spec.DataDir,
 			"MURMUR_DATA_DIR="+spec.DataDir)

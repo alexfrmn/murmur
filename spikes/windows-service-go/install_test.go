@@ -10,6 +10,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,7 @@ func TestSecondInstallLeavesFilesUntouched(t *testing.T) {
 		"MURMUR_ENTRY=" + entry,
 		"MURMUR_WORKDIR=" + dir,
 		"MURMUR_DATA_DIR=" + filepath.Join(dir, ".data"),
+		"DATA_DIR=" + filepath.Join(dir, ".data"),
 	}
 	defer run(t, exe, env, "uninstall")
 
@@ -91,6 +93,32 @@ func TestSecondInstallLeavesFilesUntouched(t *testing.T) {
 	}
 	if stateAfter := digest(t, state); stateAfter != stateBefore {
 		t.Errorf("состояние изменено отказавшей командой\n%s", out)
+	}
+	pidFile := filepath.Join(os.Getenv("ProgramData"), "Murmur", name+".daemon-pid")
+	pidBefore := digest(t, pidFile)
+	if out, err := run(t, exe, env, "start"); err != nil {
+		t.Fatalf("repeated start: %v %s", err, out)
+	}
+	if digest(t, pidFile) != pidBefore || digest(t, state) != stateBefore {
+		t.Fatal("repeated start changed live process witnesses")
+	}
+	wrong := append(append([]string{}, env...), "DATA_DIR="+filepath.Join(dir, "other"), "MURMUR_DATA_DIR="+filepath.Join(dir, "other"))
+	if _, err := run(t, exe, wrong, "stop"); err == nil {
+		t.Fatal("other selected profile stopped service")
+	}
+	if digest(t, spec) != specBefore || digest(t, state) != stateBefore {
+		t.Fatal("foreign profile changed metadata")
+	}
+	out, err = run(t, exe, env, "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status ServiceStatus
+	if err := json.Unmarshal([]byte(out), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Schema != "murmur.windows-service/1" || status.State != "running" || status.DaemonPID == nil || status.RestartWindowMs == nil || *status.RestartWindowMs >= 3600000 || status.RestartsLastHour != nil {
+		t.Fatalf("incorrect service observation: %s", out)
 	}
 }
 
