@@ -184,7 +184,7 @@
     <h2>отдайте это<br>своему агенту</h2>
     <p class="lead">ставит не человек. скопируйте текст ниже и отдайте своему агенту —
        у него есть терминал, он пройдёт всё сам. от вас понадобится адрес брокера с токеном
-       и второй участник на той стороне: пару в одиночку не закончить.</p>
+       и второй участник на той стороне.</p>
 
     <div class="promptbox">
       <div class="head">
@@ -248,7 +248,7 @@ sh, которого там нет, и пробуждение молча не с
   </div>
 </footer>
 
-<script src="vendor/bend.js"></script>
+<script src="vendor/particle-scroll.js"></script>
 <script>
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function lcg(seed) {
@@ -322,7 +322,7 @@ function setT(t) {
   [[A, 'агент А', 1 - swing], [B, 'агент Б', swing]].forEach(([n, name, hot]) => {
     s += `<circle cx="${n.x}" cy="${n.y}" r="${(5 + hot * 3).toFixed(2)}" fill="#f2f0e8" opacity="${(.55 + hot * .45).toFixed(2)}"/>`;
     s += `<circle cx="${n.x}" cy="${n.y}" r="${(16 + hot * 10).toFixed(1)}" fill="none" stroke="#8a8a82" opacity="${(.15 + hot * .35).toFixed(2)}"/>`;
-    s += `<text x="${n.x + 28}" y="${n.y + 5}" font-size="15" letter-spacing="1" fill="#c8c6bc" opacity="${(.45 + hot * .55).toFixed(2)}">${name}</text>`;
+    s += `<text x="${n.x}" y="${n.y - 30}" text-anchor="middle" font-size="15" letter-spacing="1" fill="#c8c6bc" opacity="${(.45 + hot * .55).toFixed(2)}">${name}</text>`;
   });
   s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4.5" fill="#d92027"/>`;
   s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${(11 + 4 * Math.sin(4 * Math.PI * P)).toFixed(1)}" fill="none" stroke="#d92027" opacity=".45"/>`;
@@ -380,7 +380,7 @@ function build() {
   // Пакеты стартуют с узлов, у которых есть куда идти.
   const live = nodes.map((_, i) => i).filter(i => adj[i].length);
   packets = [];
-  for (let k = 0; k < Math.min(16, live.length); k++) {
+  for (let k = 0; k < Math.min(160, live.length * 4); k++) {
     const from = live[Math.floor(rnd() * live.length)];
     const e = adj[from][Math.floor(rnd() * adj[from].length)];
     packets.push({ edge: e, from, t: rnd(), speed: .18 + rnd() * .22, rnd });
@@ -409,18 +409,22 @@ function step(dt) {
 
   ctx.clearRect(0, 0, W, H);
 
+  // Рёбра и узлы сами по себе не рисуются: видно только то, где сейчас идёт сообщение.
+  // Структура проступает из движения, а не стоит сеткой.
   ctx.lineWidth = 1;
   for (const e of G.edges) {
+    if (e.glow < .04) continue;
     const a = G.nodes[e.a], b = G.nodes[e.b];
-    ctx.strokeStyle = `rgba(242,240,233,${(.055 + e.glow * .42).toFixed(3)})`;
+    ctx.strokeStyle = `rgba(242,240,233,${(e.glow * .3).toFixed(3)})`;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
 
   for (const n of G.nodes) {
     const near = pointer ? Math.exp(-Math.pow(Math.hypot(n.x - pointer.x, n.y - pointer.y) / 130, 2)) : 0;
-    const bright = Math.min(1, .16 + n.glow * .84 + near * .5);
+    const bright = n.glow * .9 + near * .35;
+    if (bright < .03) continue;
     ctx.fillStyle = `rgba(242,240,233,${bright.toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(n.x, n.y, 1.5 + n.glow * 2.2 + near * 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(n.x, n.y, 1.4 + n.glow * 2.2 + near * 1.2, 0, Math.PI * 2); ctx.fill();
   }
 
   for (const p of packets) {
@@ -471,14 +475,15 @@ copyBtn.addEventListener('click', async () => {
   setTimeout(() => { copyBtn.textContent = 'скопировать'; }, 1800);
 });
 
-/* ——————————— Bend ——————————— */
-// Работает только в Chrome с включённым флагом HTML-in-Canvas. Везде остальном страница
-// остаётся обычной: поддержка проверяется до того, как что-либо трогается в разметке.
+/* ——————————— Particle Scroll ——————————— */
+// Страница осыпается песком ниже линии формирования. Как и Bend, эффект построен на
+// html-in-canvas: он работает только в Chrome с включённым флагом, а везде остальном
+// страница остаётся обычной. Поддержка проверяется до того, как что-либо трогается.
 (function () {
   const probe = document.createElement('canvas').getContext('2d');
   const supported = typeof probe?.drawElementImage === 'function'
     && typeof document.createElement('canvas').requestPaint === 'function'
-    && window.CanvasUIBend;
+    && window.CanvasUIParticleScroll;
   if (!supported || reduced) return;
 
   const host = document.createElement('div');
@@ -505,9 +510,10 @@ copyBtn.addEventListener('click', async () => {
     }
   };
   fit();
-  const bend = window.CanvasUIBend.createBend({ source, content, output },
-    { zone: 240, angle: 70, rounding: 150, direction: 'in', tilt: .35, tumble: .4 });
-  if (bend) window.addEventListener('resize', () => { fit(); bend.resize(); build(); });
+  // density — шаг зерна в пикселях, ближайшее к «gap» из плейграунда.
+  const fx = window.CanvasUIParticleScroll.createParticleScroll({ source, content, output },
+    { point: .68, band: 420, density: 7, size: 1.25, spread: 220, gravity: .35, drift: .7 });
+  if (fx) window.addEventListener('resize', () => { fit(); fx.resize(); build(); });
 })();
 </script>
 </body>
