@@ -101,11 +101,47 @@ names missing responders or paused wake, without claiming a successful wake test
 ## Source checkout CLI
 
 After `npm ci && npm run build`, run `node packages/setup/bin/murmur.mjs`.
-Supported now: `status --json`, `doctor --json [--peer AGENT] [--timeout MS]`,
+Supported now: `status --json`, `doctor --json [--peer AGENT] [--timeout MS]`, `logs path --json`,
 `clients detect`, `service install|start|stop`, `wake pause|resume [--apply]`, and
 `inbox mark-read`. Every command accepts absolute `--data-dir` and optional
 `--service-name`. Status/doctor form JSON even for a missing configuration or
 stopped service. Unknown CLI arguments fail without a fabricated status.
+
+### Log directory lookup
+
+`murmur logs path --json --data-dir ABSOLUTE [--service-name NAME]` is read-only.
+On success it exits zero and returns a separate command schema:
+
+```json
+{
+  "schema": "murmur.logs/1",
+  "agentId": "agent-a",
+  "dataDir": "/absolute/canonical/profile",
+  "serviceName": "murmur-example",
+  "logDir": "/absolute/canonical/profile/logs",
+  "source": "configured"
+}
+```
+
+All six fields are required strings. The identity comes from the validated config
+of the selected profile. Both paths are existing absolute realpaths. The log path
+must resolve to a readable, traversable directory strictly inside that profile;
+an alias to the profile root or another profile is rejected. The command neither
+creates directories nor changes permissions, reads log contents, opens the store,
+or contacts the service or broker. `source: "configured"` describes the configured
+location; it does not prove that a running daemon writes there. Filesystem checks
+are observations at invocation time, not protection against later path changes.
+
+A consumer should invoke this command afresh when opening logs, compare `agentId`
+with the selected profile's freshly validated status identity, and open only the
+returned `logDir`. Failure exits one with empty stdout and a stable stderr code:
+`logs.directory-missing`, `logs.not-directory`, `logs.directory-unreadable`,
+`logs.path-outside-profile`, or `logs.path-unavailable`. Configuration failures
+retain the existing sanitized configuration error behavior. A consumer must not
+derive a replacement path or treat a failed lookup as an empty log directory.
+This command does not change the frozen status or doctor schemas.
+
+### Other operations
 
 Pause/resume always backs up a changed configuration atomically. `--apply` also
 stops/starts the exact managed service; without it the response honestly reports
