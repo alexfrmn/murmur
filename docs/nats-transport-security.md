@@ -130,18 +130,122 @@ certificate identity.
 
 ## Coordinated cutover
 
-1. Inventory every client and its exact publish/subscribe subjects.
-2. Generate the server certificate and separate client passwords. Store bcrypt
-   password hashes—not plaintext client passwords—in `nats.conf`.
-3. Deliver each peer only its own password and the public CA/certificate through
-   an authenticated, encrypted channel.
-4. Update all clients to `tls://`, username/password, and the correct CA file.
-5. Stop the clients, replace the broker config, validate it with
-   `nats-server -t -c`, restart the broker, then restart clients.
-6. Prove allowed durable delivery plus signed ACK works, foreign consumer reads,
-   stream payload reads and consumer creation are denied, the dashboard reads but
-   cannot publish, the old token fails, and untrusted CA/wrong hostname fail.
-7. Block arbitrary public TCP/4222 and confirm from an external host.
+This procedure has **mesh-wide downtime** from stopping clients until the broker
+and every required client pass validation. Book at least 30 minutes, including
+rollback. Agree the start time, required-client list, operator, and decision maker
+before starting. Keep an SSH/out-of-band coordination path independent of Murmur.
+No broker restart or live client-config change is authorized by code review alone.
+
+### Before the window: prepare and verify recovery material
+
+Use one literal UTC window identifier, for example `20260919T150000Z`; that example
+does not schedule a window. The paths below are a preparation contract, **not a
+claim that backups already exist**. Record their verified absolute paths in the
+window manifest before authorizing the switch. Backups contain secrets: directory
+mode `0700`, files `0600`, original owners recorded, no Git upload or chat output.
+
+- Broker host: use a verified persistent local filesystem. On CloudFarmSRV the
+  designated backup directory is
+  `/mnt/user/appdata/murmur-cutover/<window-id>/broker/`. Save `nats.conf.before`,
+  every included config and referenced credential/certificate file under `files/`,
+  and `manifest.json`. The manifest maps each backup to its canonical original
+  absolute path, owner/mode, SHA-256, container mount destination, and image
+  digest. Resolve the actual config bind mount from the running container; do not
+  guess its host path. Record container start parameters, persistent JetStream
+  volume, leaf configuration, and firewall rules; retain the current image locally.
+- Each client host: use `/var/backups/murmur/<window-id>/clients/<client-id>/`
+  (or an explicitly recorded persistent owner-private directory on hosts without
+  `/var/backups`). Save `agent-config.json.before`, any service environment/CA files,
+  and `manifest.json` mapping the canonical live paths and service/start commands.
+  Inventory separate `DATA_DIR`s even when they share a code checkout. Include
+  daemon, MCP/channel server, CLI, bridge, dashboard, remote peers and leaf clients;
+  a list from one account or one host is not the complete mesh inventory.
+- Save the **exact deployed old executable artifact** on every client host as
+  `runtime-before.tar` in that client's backup directory, with a SHA-256 file.
+  Include built packages/scripts, runtime dependencies and launch configuration,
+  including any deployed changes absent from Git. Exclude live data directories
+  and credentials from this archive; back them up separately above. Record its Git
+  SHA, local changes and Node/binary version. Also retain that executable/Node
+  version locally. For an image deployment, retain the old image by digest and a
+  local image archive instead. Test extraction and loading the old artifact in an
+  isolated directory with loopback NATS. Rollback must need neither Git fetch nor
+  npm registry access; a source SHA or `package-lock.json` alone is insufficient.
+- Stage each new config separately as `agent-config.json.tls`, validate its JSON,
+  certificate/hostname, distinct credentials, own-consumer ACLs and connectivity
+  against an isolated TLS broker. Preserve the old plaintext configuration until
+  the announced switch. Check disk capacity and verify every backup checksum and
+  owner can be restored. A missing/unreadable client config blocks readiness.
+- Prepare operator provisioning for existing stream/legacy consumers plus new
+  scoped consumers, without resetting their cursors. Check roster and migration
+  plans for every affected receiver. Keep publisher `subjectScoping` off until
+  TLS delivery works across the complete required-client list. Stage a second,
+  tested TLS config with scoping disabled for a TLS-only rollback.
+
+### Switch and acceptance timeline
+
+1. At the announced start, confirm the decision maker is present and recovery
+   material is verified. Quiesce producers and stop all inventoried clients,
+   including auto-restarting services and short-lived MCP/CLI publishers. Record
+   stream/consumer positions and pending counts. Do not purge messages or outboxes.
+2. Stop the broker, preserve its persistent JetStream volume, install the staged
+   TLS/user configuration and certificate files, validate with `nats-server -t -c`
+   using the deployed image/binary, then start the broker. Use bcrypt password
+   hashes in its config; never `allow_non_tls`. If validation fails, restore the
+   saved files before starting it. Broker readiness is due by **T+2 minutes**.
+3. Preprovision required consumers using the separate operator identity. Install
+   the staged TLS configs and reviewed client artifact; start clients with
+   `provisioning: "client"`, restricted ACLs and publisher scoping still off.
+   By **T+5 minutes**, every required client must connect and pass an allowed
+   durable message plus signed ACK in both directions. A running PID is not proof.
+4. Validate foreign-consumer reads, raw stream reads, consumer creation and old
+   token use are denied; verify dashboard read-only access, wrong-hostname and
+   untrusted-CA rejection. Preserve baseline leaf connectivity and durable state.
+   Only after TLS passes, enable prepared scoped receivers, then publishers in
+   controlled pairs as described in [Phase N routing](phase-n-routing.md). Confirm
+   both legacy and scoped delivery, no duplicate handler calls, and backlog drain.
+5. By **T+10 minutes**, all required clients/routes and security checks must pass.
+   Any missed T+2/T+5/T+10 gate means rollback starts immediately, not an open-ended
+   debugging extension. Unauthorized access, cursor reset, lost messages or a
+   duplicate side effect are immediate stop/rollback triggers at any point.
+   Before accepting the change, enforce the agreed private/allowlisted listener
+   policy and verify reachability from both an allowed and a denied external host.
+
+### Rollback
+
+- **One client config is broken while the TLS broker is healthy:** keep its
+  publishers stopped, restore that client's prevalidated TLS-only config and
+  compatible tested artifact, and restart only that client. Do not restore its
+  plaintext config against a TLS-only broker or weaken broker verification. If it
+  cannot pass the required proof before the current deadline, roll back the mesh.
+- **Scoping fails after TLS passed:** disable scoped publishing on every sender
+  first, including MCP/CLI processes and queued outbox retries. Keep the scoped
+  receivers running until existing scoped outbox rows finish and the operator's
+  `--check-rollback` reports no pending or ACK-pending messages for every affected
+  receiver. Then disable scoped receiving and retain the consumers. An unsafe
+  drain blocks disabling receivers; it does not authorize deleting backlog. Stop
+  new writes and escalate recovery if the drain cannot complete within the window.
+- **TLS/broker failure, or any required client misses its deadline:** stop all
+  clients/producers and their restart supervisors. If scoped traffic has already
+  been emitted, complete the safe drain above before removing compatible scoped
+  receivers; otherwise keep recovery offline with state retained. Stop the broker,
+  restore `nats.conf.before` and every mapped file with recorded owner/mode, restore
+  its previous image/start parameters and network rules, validate the old config,
+  then start it on the **same** JetStream volume. Never recreate the stream or
+  restore an old stream snapshot over messages accepted during the window.
+- Restore every client's `agent-config.json.before` and mapped service files.
+  Extract its verified local `runtime-before.tar` into a separate rollback release
+  directory and switch its recorded launcher to that release (or load/start the
+  retained image digest). Restore the compatible Node executable if it changed.
+  Keep each live `DATA_DIR`, SQLite DB/outbox and JetStream state in place; never
+  overwrite them with the runtime archive. Restart the saved client commands only
+  after the old broker is ready. **Restoring configs alone is insufficient:** the
+  new TLS-enforcing code rejects the old non-loopback plaintext URL on startup.
+- Confirm every required client reconnects, bidirectional signed delivery/ACK
+  works, backlogs drain, consumer cursors were preserved and no duplicate handler
+  effects occurred. Record failed gate, rollback start/end, proof and any retained
+  backlog. Target completed recovery by **T+20 minutes**; if it fails, keep writers
+  stopped, declare an incident through the independent channel and retain all
+  state for recovery. Do not report success just because the container is running.
 
 Run `packages/broker-nats/integration/run-secure-transport-live.sh` on a host
 with `nats-server` and `openssl` for an isolated TLS/ACL proof.
