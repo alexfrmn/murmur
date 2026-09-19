@@ -72,3 +72,11 @@ test('add-peer clears only this peer poisoned dedupe rows and preserves delivere
   assert.equal(await store.seen('delivered','consumer'),true);
   assert.equal(await store.seen('other','consumer'),true);
 });
+test('join output conflict does not create a half-imported identity', async t => {
+  const f=await fixture(t); await f.init('agent-a');
+  const invitation=path.join(f.root,'invite'), reply=path.join(f.root,'existing-reply');
+  await f.command('agent-a',['invite','--out',invitation]); await fs.writeFile(reply,'keep');
+  await assert.rejects(f.command('agent-b',['join','--agent-id','agent-b','--invite-file',invitation,'--reply-out',reply]),{code:'EEXIST'});
+  assert.equal(await fs.readFile(reply,'utf8'),'keep');
+  await assert.rejects(f.config('agent-b'),{code:'ENOENT'});
+});

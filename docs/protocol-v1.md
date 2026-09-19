@@ -191,3 +191,7 @@ Coverage correction: #159 originally removed unsigned settlement in NATS only.
 The remaining WebSocket path was found during #162 review; #157 was reopened
 until that transport was fixed and tested as well. Code merge is not runtime
 rollout, and compatibility flags cannot re-enable unsigned queue mutation.
+
+ACK subject binding is equivalent across transports: WebSocket explicitly checks
+`ack-subject-mismatch`, while NATS combines its filtered ACK subscription with
+`recipientAgentId` validation against the original envelope sender.

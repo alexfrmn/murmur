@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { mkdir, open, rmdir, lstat } from 'node:fs/promises';
+import { mkdir, open, rmdir, lstat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SQLiteDedupeOutboxStore } from '@murmurv2/core';
@@ -17,10 +17,13 @@ async function privateText(file: string): Promise<string> {
     return (await handle.readFile('utf8')).trim();
   } finally { await handle.close(); }
 }
-async function outputBlob(file: string, value: unknown, prefix: string) {
+async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
   if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
   const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
-  try { await handle.writeFile(prefix + Buffer.from(JSON.stringify(value)).toString('base64') + '\n'); await handle.sync(); }
+  try {
+    await beforeWrite?.();
+    await handle.writeFile(prefix + Buffer.from(JSON.stringify(value)).toString('base64') + '\n'); await handle.sync();
+  } catch (error) { await unlink(file).catch(() => {}); throw error; }
   finally { await handle.close(); }
 }
 async function locked<T>(c: ServiceContext, fn: () => Promise<T>) {
@@ -97,8 +100,12 @@ export async function join(c: ServiceContext, options: { agentId: string; invite
     const previous = await existing(c);
     if (previous && (previous.agentId !== options.agentId || previous.natsUrl !== incoming.natsUrl)) throw new Error('onboarding.existing-profile-conflict');
     const config = previous ?? await newConfig(options.agentId, incoming.natsUrl, incoming.natsToken);
-    const next = addPeer(config, incoming), backup = await saveChanged(c, previous, next);
-    await outputBlob(options.replyOut, { v: 1, type: 'reply', ...publicPeer(next) }, 'MURMUR-REPLY:');
+    const next = addPeer(config, incoming);
+    let backup: string | null = null;
+    // Reserve the reply path before changing config: an existing output must not half-import a profile.
+    await outputBlob(options.replyOut, { v: 1, type: 'reply', ...publicPeer(next) }, 'MURMUR-REPLY:', async () => {
+      backup = await saveChanged(c, previous, next);
+    });
     return { schema: 'murmur.join/1', agentId: next.agentId, peerId: incoming.agentId, paired: null, replyFile: options.replyOut, backup, restartRequired: true };
   });
 }
