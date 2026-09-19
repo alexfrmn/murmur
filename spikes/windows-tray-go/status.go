@@ -88,29 +88,55 @@ type Status struct {
 		UnknownReason *string `json:"unknownReason"`
 	} `json:"inbox"`
 
+	// Секции разделены по источникам: признак неизвестности обязан стоять там, где
+	// делается измерение. Очередь читается из базы, журнал отказов — из лога; если
+	// база ответила, а лог прочитать не удалось, «вся секция неизвестна» было бы
+	// неправдой, и в серое ушло бы то, что на самом деле измерено.
 	Outbox struct {
-		Pending         *int    `json:"pending"`
-		Inflight        *int    `json:"inflight"`
-		Delivered       *int    `json:"delivered"`
-		Failed          *int    `json:"failed"`
-		DLQ             *int    `json:"dlq"`
-		OldestPendingAt *string `json:"oldestPendingAt"`
-		LastError       *string `json:"lastError"`
-		LastErrorAt     *string `json:"lastErrorAt"`
-		UnknownReason   *string `json:"unknownReason"`
+		Queue struct {
+			Pending         *int    `json:"pending"`
+			Inflight        *int    `json:"inflight"`
+			Delivered       *int    `json:"delivered"`
+			Failed          *int    `json:"failed"`
+			DLQ             *int    `json:"dlq"`
+			OldestPendingAt *string `json:"oldestPendingAt"`
+			UnknownReason   *string `json:"unknownReason"`
+		} `json:"queue"`
+		Faults struct {
+			LastError     *string `json:"lastError"`
+			LastErrorAt   *string `json:"lastErrorAt"`
+			UnknownReason *string `json:"unknownReason"`
+		} `json:"faults"`
 	} `json:"outbox"`
 
 	Deliveries []Delivery `json:"deliveries"`
 
 	Wake struct {
-		Enabled            *bool   `json:"enabled"`
-		Mode               string  `json:"mode"`
-		Responder          string  `json:"responder"`
-		LastDeliveredAt    *string `json:"lastDeliveredAt"`
-		LastFault          *string `json:"lastFault"`
-		LastFaultAt        *string `json:"lastFaultAt"`
-		PendingUndelivered *int    `json:"pendingUndelivered"`
-		UnknownReason      *string `json:"unknownReason"`
+		Config struct {
+			Enabled       *bool   `json:"enabled"`
+			Mode          string  `json:"mode"`
+			Responder     string  `json:"responder"`
+			UnknownReason *string `json:"unknownReason"`
+		} `json:"config"`
+		// Effective — наблюдаемое поведение, Config — записанное в настройках. Они
+		// расходятся, пока изменение не применено: «поставлено на паузу» без свежего
+		// наблюдения было бы обещанием вместо факта.
+		Effective struct {
+			Enabled       *bool   `json:"enabled"`
+			NeedsRestart  *bool   `json:"needsRestart"`
+			ObservedAt    *string `json:"observedAt"`
+			UnknownReason *string `json:"unknownReason"`
+		} `json:"effective"`
+		Delivery struct {
+			PendingUndelivered *int    `json:"pendingUndelivered"`
+			LastDeliveredAt    *string `json:"lastDeliveredAt"`
+			UnknownReason      *string `json:"unknownReason"`
+		} `json:"delivery"`
+		Faults struct {
+			LastFault     *string `json:"lastFault"`
+			LastFaultAt   *string `json:"lastFaultAt"`
+			UnknownReason *string `json:"unknownReason"`
+		} `json:"faults"`
 	} `json:"wake"`
 }
 
@@ -215,25 +241,31 @@ func resolve(s *Status, err error) Verdict {
 		return *p, true
 	}
 
-	failed, okFailed := need("outbox.failed", s.Outbox.Failed)
-	dlq, okDLQ := need("outbox.dlq", s.Outbox.DLQ)
+	failed, okFailed := need("outbox.queue.failed", s.Outbox.Queue.Failed)
+	dlq, okDLQ := need("outbox.queue.dlq", s.Outbox.Queue.DLQ)
 	if (okFailed && failed > 0) || (okDLQ && dlq > 0) {
-		return out(LevelRed, fmt.Sprintf("недоставленные: failed %s, DLQ %s", num(s.Outbox.Failed), num(s.Outbox.DLQ)))
+		return out(LevelRed, fmt.Sprintf("недоставленные: failed %s, DLQ %s", num(s.Outbox.Queue.Failed), num(s.Outbox.Queue.DLQ)))
 	}
-	if fault := str(s.Wake.LastFault); fault != "" {
+	if fault := str(s.Wake.Faults.LastFault); fault != "" {
 		return out(LevelRed, "wake не сработал: "+fault)
 	}
-	if pending, okPending := need("wake.pendingUndelivered", s.Wake.PendingUndelivered); okPending && pending > 0 {
+	if pending, okPending := need("wake.delivery.pendingUndelivered", s.Wake.Delivery.PendingUndelivered); okPending && pending > 0 {
 		return out(LevelRed, "wake не доставил "+plural(pending, "сообщение", "сообщения", "сообщений"))
 	}
-	// Секция, которую не удалось прочитать целиком, отдельным признаком: null в поле
-	// последней ошибки означает «отказа не было», и отличить его от «не смотрел» можно
-	// только так.
-	if r := str(s.Wake.UnknownReason); r != "" {
-		missing = append(missing, "wake ("+r+")")
-	}
-	if r := str(s.Outbox.UnknownReason); r != "" {
-		missing = append(missing, "исходящие ("+r+")")
+	// Журнал отказов — отдельный источник от очереди: null в поле последней ошибки
+	// означает «отказа не было», и отличить его от «не смотрел» можно только признаком
+	// на том подмножестве, которое читается этим источником.
+	for _, sec := range []struct{ name, reason string }{
+		{"журнал отказов отправки", str(s.Outbox.Faults.UnknownReason)},
+		{"журнал отказов пробуждения", str(s.Wake.Faults.UnknownReason)},
+		{"очередь", str(s.Outbox.Queue.UnknownReason)},
+		{"доставка wake", str(s.Wake.Delivery.UnknownReason)},
+		{"настройки wake", str(s.Wake.Config.UnknownReason)},
+		{"действующее состояние wake", str(s.Wake.Effective.UnknownReason)},
+	} {
+		if sec.reason != "" {
+			missing = append(missing, sec.name+" ("+sec.reason+")")
+		}
 	}
 
 	switch s.Broker.State {
@@ -336,11 +368,23 @@ func history(s *Status) []string {
 		}
 		out = append(out, line)
 	}
-	add("последняя ошибка отправки", str(s.Outbox.LastError), str(s.Outbox.LastErrorAt))
-	add("последний сбой пробуждения", str(s.Wake.LastFault), str(s.Wake.LastFaultAt))
+	add("последняя ошибка отправки", str(s.Outbox.Faults.LastError), str(s.Outbox.Faults.LastErrorAt))
+	add("последний сбой пробуждения", str(s.Wake.Faults.LastFault), str(s.Wake.Faults.LastFaultAt))
 	add("последняя ошибка брокера", str(s.Broker.LastError), str(s.Broker.LastErrorAt))
 	if at := str(s.Service.LastFailureAt); at != "" {
 		add("служба падала", "", at)
+	}
+	// Расхождение записанного и действующего — то, о чём человек обязан узнать сам:
+	// он нажал паузу, она принята настройками и не работает.
+	if c, e := s.Wake.Config.Enabled, s.Wake.Effective.Enabled; c != nil && e != nil && *c != *e {
+		line := "пауза задана в настройках и не применена"
+		if *c {
+			line = "пробуждение включено в настройках и не действует"
+		}
+		if r := s.Wake.Effective.NeedsRestart; r != nil && *r {
+			line += ", нужен перезапуск службы"
+		}
+		out = append(out, line)
 	}
 	if n := s.Service.RestartsLastHour; n != nil && *n > 0 {
 		out = append(out, "подъёмов демона за час: "+strconv.Itoa(*n))

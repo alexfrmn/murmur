@@ -19,29 +19,54 @@
     "lastErrorAt": null
   },
   "peers": {
-    "list": null,
-    "unknownReason": "брокер не ответил"
+    "unknownReason": null,
+    "list": [
+      {
+        "agentId": "agent-jarvis",
+        "paired": true,
+        "lastInboundAt": "2026-09-19T12:40:17Z",
+        "lastOutboundAt": "2026-09-19T12:26:00Z"
+      },
+      {
+        "agentId": "agent-sasha",
+        "paired": true,
+        "lastInboundAt": "2026-09-11T09:12:00Z",
+        "lastOutboundAt": "2026-09-11T09:20:00Z"
+      },
+      {
+        "agentId": "agent-viola",
+        "paired": true,
+        "lastInboundAt": "2026-09-11T14:00:00Z",
+        "lastOutboundAt": "2026-09-11T14:05:00Z"
+      },
+      {
+        "agentId": "agent-danik",
+        "paired": true,
+        "lastInboundAt": "2026-09-18T09:51:09Z",
+        "lastOutboundAt": "2026-09-18T10:02:00Z"
+      }
+    ]
   },
   "inbox": {
-    "unread": null,
-    "total": null,
+    "unread": 2,
+    "total": 156,
     "lastAt": "2026-09-19T12:40:17Z",
-    "unknownReason": "база занята записью"
+    "unknownReason": null
   },
   "outbox": {
     "queue": {
-      "pending": null,
-      "inflight": null,
-      "delivered": null,
-      "failed": null,
-      "dlq": null,
+      "pending": 0,
+      "inflight": 0,
+      "delivered": 45,
+      "failed": 0,
+      "dlq": 0,
       "oldestPendingAt": null,
-      "unknownReason": "база занята записью"
+      "unknownReason": null
     },
     "faults": {
       "lastError": null,
       "lastErrorAt": null,
-      "unknownReason": null
+      "unknownReason": "файл журнала занят"
     }
   },
   "deliveries": [

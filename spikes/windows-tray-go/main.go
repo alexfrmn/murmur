@@ -27,6 +27,8 @@ const (
 	doctorTimeout = 30 * time.Second
 	// Сколько строк истории держать в меню. Пункты создаются один раз при старте.
 	historyLines = 4
+	// Сколько последних входящих показывать строками.
+	recentLines = 3
 )
 
 // Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
@@ -52,7 +54,7 @@ type app struct {
 	mStages  map[string]*systray.MenuItem
 	mRecheck *systray.MenuItem
 	mPause   *systray.MenuItem
-	mInbox   *systray.MenuItem
+	mRecent  []*systray.MenuItem
 	mCopy    *systray.MenuItem
 	mSvcStar *systray.MenuItem
 	mSvcStop *systray.MenuItem
@@ -110,7 +112,17 @@ func (a *app) onReady() {
 	systray.AddSeparator()
 
 	a.mPause = systray.AddMenuItem("Пауза", "приостановить доставку wake")
-	a.mInbox = systray.AddMenuItem("Открыть inbox", "")
+	// Вместо кнопки «Открыть inbox» — строки последних отправителей. Открыть переписку
+	// человеку сейчас нечем, а кнопка, ведущая не туда, куда обещает именем, хуже
+	// отсутствующей.
+	recentHeader := systray.AddMenuItem("Последние входящие", "")
+	recentHeader.Disable()
+	for i := 0; i < recentLines; i++ {
+		item := systray.AddMenuItem("", "")
+		item.Disable()
+		item.Hide()
+		a.mRecent = append(a.mRecent, item)
+	}
 	a.mCopy = systray.AddMenuItem("Скопировать диагностику", "status и doctor в буфер обмена")
 	svc := systray.AddMenuItem("Служба", "")
 	a.mSvcStar = svc.AddSubMenuItem("Старт", "")
@@ -169,6 +181,8 @@ func (a *app) render(v Verdict) {
 	systray.SetTooltip(tip)
 	a.mHeader.SetTitle(v.Reason)
 
+	a.renderRecent()
+
 	for i, item := range a.mHistory {
 		if i < len(v.History) {
 			item.SetTitle(v.History[i])
@@ -179,7 +193,7 @@ func (a *app) render(v Verdict) {
 	}
 
 	a.mu.Lock()
-	paused := a.status != nil && a.status.Wake.Enabled != nil && !*a.status.Wake.Enabled
+	paused := a.status != nil && a.status.Wake.Effective.Enabled != nil && !*a.status.Wake.Effective.Enabled
 	a.mu.Unlock()
 	if paused {
 		a.mPause.SetTitle("Возобновить")
@@ -238,15 +252,13 @@ func (a *app) handleClicks() {
 			// Кнопка живёт, но в приёмку не идёт: drain() в wake-monitor не смотрит на
 			// enabled, поэтому отложенное доезжает и на паузе.
 			a.mu.Lock()
-			paused := a.status != nil && a.status.Wake.Enabled != nil && !*a.status.Wake.Enabled
+			paused := a.status != nil && a.status.Wake.Effective.Enabled != nil && !*a.status.Wake.Effective.Enabled
 			a.mu.Unlock()
 			verb := "pause"
 			if paused {
 				verb = "resume"
 			}
 			go a.runCLI("wake", verb)
-		case <-a.mInbox.ClickedCh:
-			go a.openInbox()
 		case <-a.mCopy.ClickedCh:
 			go a.copyDiagnostics()
 		case <-a.mSvcStar.ClickedCh:
@@ -275,15 +287,6 @@ func (a *app) runCLI(args ...string) {
 		// отказ, и значок обязан сказать об этом, а не промолчать.
 		systray.SetTooltip(fmt.Sprintf("murmur %s: %v — %s", strings.Join(args, " "), err, firstLine(out)))
 	}
-}
-
-func (a *app) openInbox() {
-	bin := os.Getenv("MURMUR_BIN")
-	if bin == "" {
-		bin = "murmur"
-	}
-	// cmd /c start открывает отдельное окно консоли: значок сам ничего не рисует.
-	_ = exec.Command("cmd", "/c", "start", "", bin, "inbox").Start()
 }
 
 func (a *app) copyDiagnostics() {
@@ -350,9 +353,11 @@ func utf16LEWithBOM(s string) []byte {
 	return out
 }
 
-// logDir — предсказуемое место логов, названное в PR: %LOCALAPPDATA%\Murmur\logs.
+// logDir — один каталог логов на продукт: %ProgramData%\Murmur\logs. Человек, которому
+// сказали «пришли журнал», должен идти в одно место; два каталога означают, что в момент
+// разбора он посмотрит не туда и сделает вывод о продукте.
 func logDir() string {
-	base := os.Getenv("LOCALAPPDATA")
+	base := os.Getenv("ProgramData")
 	if base == "" {
 		base = os.TempDir()
 	}
@@ -379,4 +384,35 @@ func stampNow(path string) error {
 		return err
 	}
 	return os.WriteFile(path, out, 0o644)
+}
+
+// renderRecent показывает, от кого пришли последние сообщения и когда. Это ответ на
+// вопрос «что произошло», который цвет дать не может.
+func (a *app) renderRecent() {
+	a.mu.Lock()
+	var lines []string
+	if a.status != nil {
+		for _, d := range a.status.Deliveries {
+			if d.Direction != "inbound" {
+				continue
+			}
+			lines = append(lines, d.Peer+" — "+d.At)
+			if len(lines) == recentLines {
+				break
+			}
+		}
+		if len(lines) == 0 && a.status.Inbox.Total != nil && *a.status.Inbox.Total == 0 {
+			lines = append(lines, "входящих ещё не было")
+		}
+	}
+	a.mu.Unlock()
+
+	for i, item := range a.mRecent {
+		if i < len(lines) {
+			item.SetTitle(lines[i])
+			item.Show()
+			continue
+		}
+		item.Hide()
+	}
 }

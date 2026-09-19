@@ -125,12 +125,12 @@ func TestZeroIsNotNull(t *testing.T) {
 		t.Errorf("измеренные нули должны давать зелёное, получено %v (%s)", zero.Level, zero.Reason)
 	}
 	s := load(t, "status-green.json")
-	s.Outbox.Failed = nil
+	s.Outbox.Queue.Failed = nil
 	v := resolve(s, nil)
 	if v.Level != LevelGrey {
 		t.Errorf("неизмеренный счётчик отказов должен гасить в серый, получен %v (%s)", v.Level, v.Reason)
 	}
-	if !strings.Contains(v.Reason, "outbox.failed") {
+	if !strings.Contains(v.Reason, "outbox.queue.failed") {
 		t.Errorf("в причине должно быть названо поле: %s", v.Reason)
 	}
 }
@@ -147,6 +147,22 @@ func TestPairingUnknownIsNotPaired(t *testing.T) {
 	s.Peers.List[0].Paired = &no
 	if v := resolve(s, nil); v.Level != LevelYellow {
 		t.Errorf("подтверждённое отсутствие пары — жёлтый, получен %v (%s)", v.Level, v.Reason)
+	}
+}
+
+// Признак неизвестности стоит на том подмножестве, которое читается своим источником:
+// очередь измерена из базы, журнал отказов прочитать не удалось — в серое уходит только
+// журнал, и он назван, а измеренная очередь зелёной остаётся.
+func TestUnknownFollowsSource(t *testing.T) {
+	v := resolve(load(t, "status-faultlog-unread.json"), nil)
+	if v.Level != LevelGrey {
+		t.Errorf("непрочитанный журнал отказов должен гасить в серый, получен %v (%s)", v.Level, v.Reason)
+	}
+	if !strings.Contains(v.Reason, "журнал отказов отправки") {
+		t.Errorf("серый обязан назвать именно источник: %s", v.Reason)
+	}
+	if strings.Contains(v.Reason, "очередь") {
+		t.Errorf("очередь измерена и в неизвестное попадать не должна: %s", v.Reason)
 	}
 }
 
@@ -193,5 +209,18 @@ func TestIconsBuild(t *testing.T) {
 		if string(ico[22:26]) != "\x89PNG" {
 			t.Errorf("кадр не PNG: % x", ico[22:26])
 		}
+	}
+}
+
+// Записанное в настройках паузой ещё не является: пока свежего наблюдения нет,
+// человек обязан узнать, что его действие не применилось.
+func TestPauseConfiguredButNotEffective(t *testing.T) {
+	v := resolve(load(t, "status-pause-not-applied.json"), nil)
+	joined := strings.Join(v.History, " | ")
+	if !strings.Contains(joined, "не применена") {
+		t.Errorf("расхождение настроек и действующего состояния должно быть названо: %v", v.History)
+	}
+	if !strings.Contains(joined, "перезапуск") {
+		t.Errorf("нужное действие должно быть названо: %v", v.History)
 	}
 }

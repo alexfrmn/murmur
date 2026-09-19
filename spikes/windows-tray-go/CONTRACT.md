@@ -67,15 +67,20 @@
   },
 
   "outbox": {
-    "pending": 0,
-    "inflight": 0,
-    "delivered": 43,
-    "failed": 0,
-    "dlq": 0,
-    "oldestPendingAt": null,
-    "lastError": null,
-    "lastErrorAt": null,
-    "unknownReason": null
+    "queue": {
+      "pending": 0,
+      "inflight": 0,
+      "delivered": 43,
+      "failed": 0,
+      "dlq": 0,
+      "oldestPendingAt": null,
+      "unknownReason": null
+    },
+    "faults": {
+      "lastError": null,
+      "lastErrorAt": null,
+      "unknownReason": null
+    }
   },
 
   "deliveries": [
@@ -91,14 +96,28 @@
   ],
 
   "wake": {
-    "enabled": true,
-    "mode": "hook | monitor | none",
-    "responder": "claude-code | codex | none",
-    "lastDeliveredAt": "2026-09-19T12:28:27Z",
-    "lastFault": null,
-    "lastFaultAt": null,
-    "pendingUndelivered": 0,
-    "unknownReason": null
+    "config": {
+      "enabled": true,
+      "mode": "hook | monitor | none",
+      "responder": "claude-code | codex | none",
+      "unknownReason": null
+    },
+    "effective": {
+      "enabled": true,
+      "needsRestart": false,
+      "observedAt": "2026-09-19T12:28:27Z",
+      "unknownReason": null
+    },
+    "delivery": {
+      "pendingUndelivered": 0,
+      "lastDeliveredAt": "2026-09-19T12:28:27Z",
+      "unknownReason": null
+    },
+    "faults": {
+      "lastFault": null,
+      "lastFaultAt": null,
+      "unknownReason": null
+    }
   }
 }
 ```
@@ -122,6 +141,32 @@
 
 Потребитель при `null` в поле, необходимом для вывода цвета, показывает серый и
 называет, чего именно он не смог измерить.
+
+### Признак неизвестности стоит там, где делается измерение
+
+Секции разделены по источникам, и `unknownReason` живёт на том подмножестве, которое
+читается **одним** источником. Очередь приходит из базы, журнал отказов — из лога; если
+база ответила, а лог прочитать не удалось, «вся секция неизвестна» было бы неправдой, и
+в серое ушло бы измеренное. Поэтому `outbox` делится на `queue` и `faults`, а `wake` —
+на `config` (настройки), `effective` (наблюдаемое поведение), `delivery` (доставка) и
+`faults` (журнал отказов).
+
+### Записанное в настройках и действующее — разные поля
+
+`wake.config.enabled` — то, что записано. `wake.effective.enabled` — то, что наблюдается
+сейчас, с `observedAt`. Пока свежего наблюдения нет, `effective.enabled` равен `null`, а
+`needsRestart` говорит, что нужно сделать. Ответ «поставлено на паузу» без наблюдения —
+обещание вместо факта, и потребитель на него не опирается: подпись кнопки берётся из
+`effective`, а расхождение с `config` показывается отдельной строкой в меню.
+
+### Чем подтверждается парность
+
+`peers[].paired = true` ставится **только** по свежему проходу с одноразовым значением в
+обе стороны: точная личность пира, отпечатки его ключей шифрования и подписи, наша
+собственная личность. Запись в настройках и неподписанное подтверждение доказательством
+не считаются; импорт ответного блока подтверждает наши локальные ключи, а не обе
+стороны. Нет такого измерения — `null`. Несовпадение — `false`. Доказательство живёт
+сутки и сгорает при смене ключей.
 
 **Дыра в этом правиле, и как она закрыта.** Для полей последних отказов — `lastError`,
 `lastFault`, `lastFailureAt` — `null` означает «отказа не зафиксировано», и это
@@ -148,9 +193,9 @@
 | цвет | условие | поля |
 |------|---------|------|
 | серый | `schema` незнакома, ответа нет, возраст снимка неизвестен или вне диапазона, либо `service.state ∈ {stopped, unknown}` | `schema`, `generatedAt`, `service.state` |
-| красный | `service.state = failed`, `outbox.failed > 0`, `outbox.dlq > 0`, `wake.lastFault ≠ null`, `wake.pendingUndelivered > 0` | `service.state`, `outbox.failed`, `outbox.dlq`, `wake.lastFault`, `wake.pendingUndelivered` |
+| красный | `service.state = failed`, `outbox.queue.failed > 0`, `outbox.queue.dlq > 0`, `wake.faults.lastFault ≠ null`, `wake.delivery.pendingUndelivered > 0` | те же поля |
 | жёлтый | `broker.state ≠ connected`, список пиров пуст, либо у любого пира `paired = false` | `broker.state`, `peers.list` |
-| серый | ни один известный отказ не сработал, но поле, нужное для цвета, пришло `null` | `peers.list`, `peers[].paired`, `outbox.failed`, `outbox.dlq`, `wake.pendingUndelivered`, `inbox.unread`, `*.unknownReason` |
+| серый | ни один известный отказ не сработал, но поле, нужное для цвета, пришло `null` | `peers.list`, `peers[].paired`, `outbox.queue.failed`, `outbox.queue.dlq`, `wake.delivery.pendingUndelivered`, `inbox.unread`, `*.unknownReason` |
 | зелёный | всё перечисленное выше не сработало | — |
 | синяя точка | `inbox.unread` измерен и больше нуля | `inbox.unread` |
 
@@ -172,8 +217,9 @@
 Цвет отвечает на вопрос «что сейчас», меню — на вопрос «что было». Поэтому потребитель
 показывает строками, независимо от цвета:
 
-- `outbox.lastError` и `outbox.lastErrorAt` — последняя ошибка отправки;
-- `wake.lastFault` и `wake.lastFaultAt` — последний сбой пробуждения;
+- `outbox.faults.lastError` и `outbox.faults.lastErrorAt` — последняя ошибка отправки;
+- `wake.faults.lastFault` и `wake.faults.lastFaultAt` — последний сбой пробуждения;
+- расхождение `wake.config.enabled` и `wake.effective.enabled` — действие принято и не применено;
 - `broker.lastError` и `broker.lastErrorAt` — последняя ошибка брокера;
 - `service.lastFailureAt` и `service.lastExitCode` — когда и с каким кодом падала служба;
 - `service.restartsLastHour` — сколько раз надзор поднимал демона за последний час.
@@ -185,8 +231,8 @@
 и отдавать `service.state: "failed"`.
 
 Обязательные к заполнению: `schema`, `generatedAt`, `service.state`, `broker.state`,
-`inbox.unread`, `outbox.failed`, `outbox.dlq`, `wake.enabled`, `wake.lastFault`,
-`wake.pendingUndelivered`. Без них цвет не выводится.
+`inbox.unread`, `outbox.queue.failed`, `outbox.queue.dlq`, `wake.config.enabled`,
+`wake.faults.lastFault`, `wake.delivery.pendingUndelivered`. Без них цвет не выводится.
 
 ---
 

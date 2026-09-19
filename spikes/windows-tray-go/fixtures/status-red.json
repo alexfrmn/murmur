@@ -54,15 +54,20 @@
     "unknownReason": null
   },
   "outbox": {
-    "pending": 0,
-    "inflight": 0,
-    "delivered": 45,
-    "failed": 2,
-    "dlq": 1,
-    "oldestPendingAt": null,
-    "lastError": "authorization violation",
-    "lastErrorAt": "2026-09-19T12:20:00Z",
-    "unknownReason": null
+    "queue": {
+      "pending": 0,
+      "inflight": 0,
+      "delivered": 45,
+      "failed": 2,
+      "dlq": 1,
+      "oldestPendingAt": null,
+      "unknownReason": null
+    },
+    "faults": {
+      "lastError": "authorization violation",
+      "lastErrorAt": "2026-09-19T12:20:00Z",
+      "unknownReason": null
+    }
   },
   "deliveries": [
     {
@@ -76,13 +81,27 @@
     }
   ],
   "wake": {
-    "enabled": true,
-    "mode": "monitor",
-    "responder": "claude-code",
-    "lastDeliveredAt": "2026-09-19T12:40:18Z",
-    "lastFault": null,
-    "lastFaultAt": null,
-    "pendingUndelivered": 0,
-    "unknownReason": null
+    "config": {
+      "enabled": true,
+      "mode": "monitor",
+      "responder": "claude-code",
+      "unknownReason": null
+    },
+    "delivery": {
+      "pendingUndelivered": 0,
+      "lastDeliveredAt": "2026-09-19T12:40:18Z",
+      "unknownReason": null
+    },
+    "faults": {
+      "lastFault": null,
+      "lastFaultAt": null,
+      "unknownReason": null
+    },
+    "effective": {
+      "enabled": true,
+      "needsRestart": false,
+      "observedAt": "2026-09-19T12:40:18Z",
+      "unknownReason": null
+    }
   }
 }
