@@ -319,7 +319,7 @@ function setT(t) {
   });
   s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="#34342f"/>`;
   s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="url(#g)" stroke-width="2"/>`;
-  [[A, 'агент А', 1 - swing], [B, 'агент Б', swing]].forEach(([n, name, hot]) => {
+  [[A, 'агент А', 1 - swing], [B, 'агент B', swing]].forEach(([n, name, hot]) => {
     s += `<circle cx="${n.x}" cy="${n.y}" r="${(5 + hot * 3).toFixed(2)}" fill="#f2f0e8" opacity="${(.55 + hot * .45).toFixed(2)}"/>`;
     s += `<circle cx="${n.x}" cy="${n.y}" r="${(16 + hot * 10).toFixed(1)}" fill="none" stroke="#8a8a82" opacity="${(.15 + hot * .35).toFixed(2)}"/>`;
     s += `<text x="${n.x}" y="${n.y - 30}" text-anchor="middle" font-size="15" letter-spacing="1" fill="#c8c6bc" opacity="${(.45 + hot * .55).toFixed(2)}">${name}</text>`;
@@ -380,7 +380,7 @@ function build() {
   // Пакеты стартуют с узлов, у которых есть куда идти.
   const live = nodes.map((_, i) => i).filter(i => adj[i].length);
   packets = [];
-  for (let k = 0; k < Math.min(160, live.length * 4); k++) {
+  for (let k = 0; k < Math.min(80, live.length * 2); k++) {
     const from = live[Math.floor(rnd() * live.length)];
     const e = adj[from][Math.floor(rnd() * adj[from].length)];
     packets.push({ edge: e, from, t: rnd(), speed: .18 + rnd() * .22, rnd });
@@ -402,35 +402,53 @@ function step(dt) {
       const arrived = p.from === e.a ? e.b : e.a;
       G.nodes[arrived].glow = 1;
       const out = G.adj[arrived].filter(id => id !== p.edge);
-      const next = (out.length ? out : G.adj[arrived])[Math.floor(p.rnd() * (out.length || G.adj[arrived].length))];
+      const choices = out.length ? out : G.adj[arrived];
+      let next = choices[Math.floor(p.rnd() * choices.length)];
+      // Рядом с курсором сообщение выбирает ту ветку, что уводит от него.
+      if (pointer && choices.length > 1) {
+        const here = G.nodes[arrived];
+        if (Math.hypot(here.x - pointer.x, here.y - pointer.y) < 220) {
+          let best = -Infinity;
+          for (const id of choices) {
+            const far = G.nodes[G.edges[id].a === arrived ? G.edges[id].b : G.edges[id].a];
+            const d = Math.hypot(far.x - pointer.x, far.y - pointer.y);
+            if (d > best) { best = d; next = id; }
+          }
+        }
+      }
       p.edge = next; p.from = arrived; p.t = 0;
     }
   }
 
   ctx.clearRect(0, 0, W, H);
 
-  // Рёбра и узлы сами по себе не рисуются: видно только то, где сейчас идёт сообщение.
-  // Структура проступает из движения, а не стоит сеткой.
+  // Сетка стоит постоянно и тускло: она задаёт, по чему идут сообщения. Яркость
+  // добавляет только то, где сообщение сейчас.
   ctx.lineWidth = 1;
   for (const e of G.edges) {
-    if (e.glow < .04) continue;
     const a = G.nodes[e.a], b = G.nodes[e.b];
-    ctx.strokeStyle = `rgba(242,240,233,${(e.glow * .3).toFixed(3)})`;
+    ctx.strokeStyle = `rgba(242,240,233,${(.055 + e.glow * .4).toFixed(3)})`;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
 
   for (const n of G.nodes) {
-    const near = pointer ? Math.exp(-Math.pow(Math.hypot(n.x - pointer.x, n.y - pointer.y) / 130, 2)) : 0;
-    const bright = n.glow * .9 + near * .35;
-    if (bright < .03) continue;
+    const bright = Math.min(1, .16 + n.glow * .84);
     ctx.fillStyle = `rgba(242,240,233,${bright.toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(n.x, n.y, 1.4 + n.glow * 2.2 + near * 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(n.x, n.y, 1.5 + n.glow * 2.2, 0, Math.PI * 2); ctx.fill();
   }
 
   for (const p of packets) {
     const e = G.edges[p.edge];
     const from = G.nodes[p.from], to = G.nodes[p.from === e.a ? e.b : e.a];
-    const x = from.x + (to.x - from.x) * p.t, y = from.y + (to.y - from.y) * p.t;
+    let x = from.x + (to.x - from.x) * p.t, y = from.y + (to.y - from.y) * p.t;
+    // Само сообщение тоже шарахается: чем ближе курсор, тем сильнее его сносит в сторону.
+    if (pointer) {
+      const dx = x - pointer.x, dy = y - pointer.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const push = Math.max(0, 1 - d / 190);
+      x += (dx / d) * push * push * 46;
+      y += (dy / d) * push * push * 46;
+    }
     if (inHole({ x, y }, hole)) continue;
     ctx.fillStyle = 'rgba(242,240,233,.95)';
     ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
