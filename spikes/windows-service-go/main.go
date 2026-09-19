@@ -220,19 +220,25 @@ func trustedFile(path string) (bool, string, error) {
 	// заголовок ACL и запись ACE имеют фиксированную раскладку.
 	hdr := (*aclHeader)(unsafe.Pointer(dacl))
 	for i := uint32(0); i < uint32(hdr.AceCount); i++ {
-		var acePtr uintptr
-		r, _, err := procGetAce.Call(uintptr(unsafe.Pointer(dacl)), uintptr(i), uintptr(unsafe.Pointer(&acePtr)))
+		// Принимаем сразу типизированный указатель: GetAce пишет адрес записи в нашу
+		// переменную, и хранить его промежуточно в целом числе незачем. Через uintptr
+		// это была бы та самая подмена, на которую ругается go vet: между приведениями
+		// сборщик мусора вправе переместить объект.
+		var ace *allowedAce
+		r, _, err := procGetAce.Call(uintptr(unsafe.Pointer(dacl)), uintptr(i), uintptr(unsafe.Pointer(&ace)))
 		if r == 0 {
 			return false, "", err
 		}
-		ace := (*allowedAce)(unsafe.Pointer(acePtr))
 		if ace.Type != accessAllowedAceType {
 			continue
 		}
 		if ace.Mask&writeMask == 0 {
 			continue
 		}
-		sid := (*windows.SID)(unsafe.Pointer(uintptr(unsafe.Pointer(ace)) + unsafe.Offsetof(ace.SidStart)))
+		// unsafe.Add вместо арифметики по uintptr: приведение указателя через целое
+		// небезопасно — сборщик мусора вправе переместить объект между двумя шагами, и
+		// go vet справедливо это ловит.
+		sid := (*windows.SID)(unsafe.Add(unsafe.Pointer(ace), unsafe.Offsetof(ace.SidStart)))
 		if sid.Equals(system) || sid.Equals(admins) {
 			continue
 		}
