@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Check packaged launcher binding and environment
+        run: python3 apps/macos-menubar/packaging/launcher-checks.py
       - name: Install isolated test broker binary
         run: brew install nats-server
       - name: Build engine and check portable setup behavior
