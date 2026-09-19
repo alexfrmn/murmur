@@ -21,13 +21,16 @@ import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.
 import { WakeMonitor, createAuditShellHook, createShellHook, normalizeWakeConfig } from "./wake-monitor.mjs";
 import { SessionLeaseStore, createNativeLeaseGate } from "./lease.mjs";
 import { ensurePrivateDirectory, readPrivateJson, setPrivateUmask } from "./secure-state.mjs";
+import { createDaemonObservation } from "./daemon-observation.mjs";
 // vault-guard: optional content policy hook (not included in OSS release)
 
 setPrivateUmask();
 
+let observeLog = () => {};
 const log = (level, msg, data) => {
   const entry = { ts: new Date().toISOString(), level, msg, ...data };
   console.log(JSON.stringify(entry));
+  observeLog(level, msg, data);
 };
 
 const dataDir = process.env.DATA_DIR || ".data";
@@ -165,6 +168,12 @@ if (subjectRoutes.length > 1) {
 const threadStartBindingResolver = channelRosterStore
   ? createChannelThreadStartBindingResolver({ rosterStore: channelRosterStore, agentId, log })
   : null;
+const nativeConfigured = wakeConfig.mode === "codex_app_server" || Object.values(wakeConfig.peers).some((peer) => peer.mode === "codex_app_server");
+const observation = createDaemonObservation({ dataDir, storePath: dbPath, agentId, log,
+  wake: { enabled: wakeConfig.enabled, mode: nativeConfigured ? "monitor" : config.onReceive ? "hook" : "none",
+    // A custom shell command's identity cannot be inferred from arbitrary text.
+    responder: nativeConfigured ? "codex" : config.onReceive ? null : "none" } });
+observeLog = observation.observeLog;
 // #108 — Codex threads are remembered per (peer, conversation) in the message store.
 const codexAppServerInjector = createCodexAppServerInjector({ log, resolveThreadStartBinding: threadStartBindingResolver, threadStore: msgStore });
 if (channelRosterEnabled) log("info", "Channel roster thread-start binding enabled", { channelRosterPath });
@@ -176,6 +185,7 @@ const broker = new NatsBroker({
   streamSubjects: jetstreamSubjects,
   jetstreamMaxDeliver,
   jetstreamAckWaitMs,
+  onStatus: (event) => observation.onStatus(event),
 });
 
 const signAck = async (unsignedAck) => ({
@@ -388,6 +398,7 @@ const flushLoop = async () => {
 const shutdown = async (signal) => {
   log("info", "Shutdown signal received, draining NATS", { signal });
   running = false;
+  observation.stop();
   try {
     await broker.close();
   } catch (err) {
@@ -401,7 +412,9 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
 try {
+  await observation.start();
   await broker.connect();
+  await observation.connected();
   log("info", "NATS connected", { url: natsUrl });
 
   for (const route of subjectRoutes) {

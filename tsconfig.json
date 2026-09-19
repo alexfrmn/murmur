@@ -9,6 +9,7 @@
     { "path": "./packages/bridge-telegram" },
     { "path": "./packages/mcp-server" },
     { "path": "./packages/security" },
-    { "path": "./packages/observability" }
+    { "path": "./packages/observability" },
+    { "path": "./packages/setup" }
   ]
 }
