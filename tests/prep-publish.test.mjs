@@ -63,3 +63,38 @@ test('prep resolves URL-encoded checkout paths independently of cwd', async t =>
   const result = f.run();
   assert.equal(result.status, 0, result.stderr);
 });
+
+test('current workspace preparation resolves every public internal dependency and preserves private manifests', async t => {
+  const workspace = {};
+  for (const dir of await fs.readdir(new URL('../packages/', import.meta.url))) {
+    try { workspace[dir] = JSON.parse(await fs.readFile(new URL(`../packages/${dir}/package.json`, import.meta.url), 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  const f = await fixture(t, workspace);
+  const originals = new Map(await Promise.all(Object.keys(workspace).map(async dir => [dir, await f.read(dir)])));
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+  const byName = new Map(Object.values(workspace).map(pkg => [pkg.name, pkg]));
+  let checked = 0;
+  for (const [dir, original] of Object.entries(workspace)) {
+    const contents = await f.read(dir);
+    if (original.private === true) { assert.equal(contents, originals.get(dir), dir); continue; }
+    const prepared = JSON.parse(contents);
+    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      for (const [name, range] of Object.entries(prepared[field] ?? {})) {
+        if (!name.startsWith('@murmurv2/')) continue;
+        const target = byName.get(name);
+        assert.ok(target && target.private !== true, `${prepared.name}: public target ${name}`);
+        assert.equal(range, `^${target.version}`, `${prepared.name}: ${field}.${name}`);
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 0, 'real workspace internal dependencies must be exercised');
+  assert.equal(f.run('--check').status, 0);
+  const coreFile = path.join(f.root, 'packages/core/package.json');
+  const core = JSON.parse(await fs.readFile(coreFile, 'utf8'));
+  core.version = '99.0.0';
+  await fs.writeFile(coreFile, JSON.stringify(core, null, 2) + '\n');
+  assert.equal(f.run('--check').status, 1, 'changing a dependency version without synchronizing consumers must fail the CI gate');
+});
