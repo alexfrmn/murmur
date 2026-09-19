@@ -956,6 +956,11 @@ export interface WakeSettleInput {
 
 export type OpenWakeRecord = LocalMessageRecord & { rowid: number; wakeStatus: WakeDeliveryStatus; wakeAttempts: number };
 
+export interface WakeBatchRecord {
+  batchId: string;
+  messages: Array<LocalMessageRecord & { rowid: number }>;
+}
+
 export interface WakeThreadRecord {
   peerId: string;
   conversationId: string;
@@ -1062,12 +1067,14 @@ export class SQLiteMessageStore {
       ["wake_error", "ALTER TABLE local_messages ADD COLUMN wake_error TEXT"],
       ["wake_reply_msg_id", "ALTER TABLE local_messages ADD COLUMN wake_reply_msg_id TEXT"],
       ["wake_updated_at", "ALTER TABLE local_messages ADD COLUMN wake_updated_at TEXT"],
+      ["wake_batch_id", "ALTER TABLE local_messages ADD COLUMN wake_batch_id TEXT"],
     ] as const) {
       if (!present.has(name)) this.db.exec(ddl);
     }
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_local_messages_delivery ON local_messages(delivery_id);
       CREATE INDEX IF NOT EXISTS idx_local_messages_wake ON local_messages(direction, wake_status);
+      CREATE INDEX IF NOT EXISTS idx_local_messages_wake_batch ON local_messages(wake_batch_id);
       CREATE TABLE IF NOT EXISTS wake_threads (
         peer_id TEXT NOT NULL,
         conversation_id TEXT NOT NULL,
@@ -1344,8 +1351,54 @@ export class SQLiteMessageStore {
     return { claimed: Number(result.changes ?? 0) > 0, attempts: state?.attempts ?? 0, status: state?.status };
   }
 
+  /** Persist batch membership before an effect so retries retain the same relay identity. */
+  async assignWakeBatch(msgIds: string[]): Promise<WakeBatchRecord> {
+    if (msgIds.length < 2 || msgIds.length > 100 || new Set(msgIds).size !== msgIds.length) throw new Error("wake-batch-invalid-members");
+    const placeholders = msgIds.map(() => "?").join(",");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.db.prepare(`SELECT rowid, * FROM local_messages WHERE direction = 'inbound' AND msg_id IN (${placeholders}) ORDER BY rowid`).all(...msgIds) as Array<Record<string, unknown>>;
+      if (rows.length !== msgIds.length || rows.some((row) => row.wake_status !== "inflight" || row.wake_eligible === 0)) throw new Error("wake-batch-members-not-claimed");
+      const routing = (row: Record<string, unknown>) => JSON.stringify([row.sender, row.conversation_id, row.channel_id, row.sender_member_id, row.addressee_member_id]);
+      if (rows.some((row) => routing(row) !== routing(rows[0]!))) throw new Error("wake-batch-routing-mismatch");
+      const batchId = `wake-batch:${createHash("sha256").update(JSON.stringify(rows.map((row) => row.msg_id))).digest("hex")}`;
+      if (rows.some((row) => row.wake_batch_id != null && row.wake_batch_id !== batchId)) throw new Error("wake-batch-already-assigned");
+      this.db.prepare(`UPDATE local_messages SET wake_batch_id = ? WHERE direction = 'inbound' AND msg_id IN (${placeholders})`).run(batchId, ...msgIds);
+      this.db.exec("COMMIT");
+      return { batchId, messages: rows.map((row) => this.toRecordWithRowid(row)) };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async getWakeBatch(msgId: string): Promise<WakeBatchRecord | undefined> {
+    const rows = this.db.prepare(`SELECT rowid, * FROM local_messages
+      WHERE direction = 'inbound' AND wake_batch_id = (
+        SELECT wake_batch_id FROM local_messages WHERE delivery_id = ?
+      ) ORDER BY rowid`).all(deliveryIdFor("inbound", msgId)) as Array<Record<string, unknown>>;
+    if (rows.length === 0) return undefined;
+    return { batchId: String(rows[0]!.wake_batch_id), messages: rows.map((row) => this.toRecordWithRowid(row)) };
+  }
+
+  /** A batch outcome commits all member states together; no restart sees a half-settled batch. */
+  async settleWakeBatch(outcomes: Array<{ msgId: string; input: WakeSettleInput }>): Promise<void> {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const { msgId, input } of outcomes) this.settleWakeSync(msgId, input);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   /** Record the outcome of a wake attempt; `failed` needs `nextAttemptAt` to be retried. */
   async settleWake(msgId: string, input: WakeSettleInput): Promise<void> {
+    this.settleWakeSync(msgId, input);
+  }
+
+  private settleWakeSync(msgId: string, input: WakeSettleInput): void {
     const now = input.now ?? new Date().toISOString();
     this.db
       .prepare(
