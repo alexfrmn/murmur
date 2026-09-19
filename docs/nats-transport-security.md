@@ -143,6 +143,12 @@ does not schedule a window. The paths below are a preparation contract, **not a
 claim that backups already exist**. Record their verified absolute paths in the
 window manifest before authorizing the switch. Backups contain secrets: directory
 mode `0700`, files `0600`, original owners recorded, no Git upload or chat output.
+Capture these backups from the currently running, verified topology for this
+specific window. At the change freeze, compare live-file checksums to the manifest;
+refresh and reverify any changed file before proceeding. Never select a historical
+backup by glob, modification time or a "latest" directory: it may reference a
+retired broker. Confirm every saved endpoint and old start command against the
+working baseline before accepting it as rollback material.
 
 - Broker host: use a verified persistent local filesystem. On CloudFarmSRV the
   designated backup directory is
