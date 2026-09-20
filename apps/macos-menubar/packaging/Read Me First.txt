@@ -15,7 +15,7 @@ macOS dialogs use your system language.
 
 First opening
 
-This pilot build has an ad-hoc signature, without Developer ID or Apple notarization.
+This build has an ad-hoc signature, without Developer ID or Apple notarization.
 macOS may show a warning with no Open button. On macOS 26.6.2 with a Russian interface,
 the tested path was: open the installed app → Done (Готово) → right-click Murmur →
 Open (Открыть). No second dialog appeared in that test; no password or Touch ID was requested.
@@ -26,5 +26,3 @@ https://support.apple.com/102445
 
 Button names and the available route depend on your macOS version and language.
 A DMG does not remove macOS security warnings. Keep Gatekeeper enabled.
-
-Русская инструкция: Read Me First (Русский).txt
