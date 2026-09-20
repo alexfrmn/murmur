@@ -50,6 +50,42 @@ jobs:
           node scripts/check-runtime-bundle.mjs 'runtime with spaces/runtime'
           if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
 
+  windows-bundle:
+    name: Windows companion ZIP
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache-dependency-path: |
+            spikes/windows-tray-go/go.sum
+            spikes/windows-service-go/go.sum
+      - name: Verify packaging refusals and inventories
+        run: node --test tests/windows-bundle.test.mjs
+      - name: Build the complete companion from this exact commit
+        shell: pwsh
+        run: |
+          node scripts/build-windows-bundle.mjs --ref HEAD --out "$env:RUNNER_TEMP/windows-output"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows bundle build failed' }
+          $archive = @(Get-ChildItem "$env:RUNNER_TEMP/windows-output/Murmur-Windows-*-x64.zip")
+          if ($archive.Count -ne 1) { throw 'Expected one Windows bundle' }
+          Expand-Archive $archive[0].FullName -DestinationPath "$env:RUNNER_TEMP/windows extracted"
+          node "$env:RUNNER_TEMP/windows extracted/check-windows-bundle.mjs" "$env:RUNNER_TEMP/windows extracted"
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted Windows inventory or native version differs' }
+          node "$env:RUNNER_TEMP/windows extracted/runtime/packages/setup/bin/murmur.mjs" version --json
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted CLI failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-companion-bundle
+          path: ${{ runner.temp }}/windows-output/*
+          if-no-files-found: error
+
   updates-windows:
     name: Update CLI (Windows)
     runs-on: windows-latest
