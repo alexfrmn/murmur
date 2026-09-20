@@ -115,6 +115,8 @@
 "Open release page" = "Open release page";
 "Pause agent delivery" = "Pause agent delivery";
 "Pause saved in settings" = "Pause saved in settings";
+"Pairing has not been checked yet — run a check" = "Pairing has not been checked yet — run a check";
+"Pairing is not confirmed — run a check" = "Pairing is not confirmed — run a check";
 "Preview states" = "Preview states";
 "Product version: %@" = "Product version: %@";
 "Profile: %@" = "Profile: %@";
@@ -145,9 +147,11 @@
 "Some agents are not paired" = "Some agents are not paired";
 "Some engine files are missing. Download Murmur again and move it to Applications." = "Some engine files are missing. Download Murmur again and move it to Applications.";
 "Some messages have not reached the agent" = "Some messages have not reached the agent";
+"Some status details were not measured — run a check" = "Some status details were not measured — run a check";
 "Start" = "Start";
 "Start service" = "Start service";
 "Status has not been received yet" = "Status has not been received yet";
+"Status is unavailable — copy diagnostics for details" = "Status is unavailable — copy diagnostics for details";
 "Status unknown" = "Status unknown";
 "Stop" = "Stop";
 "Stop service" = "Stop service";
@@ -162,6 +166,7 @@
 "The saved result is unavailable" = "The saved result is unavailable";
 "The selected profile has an invalid service name" = "The selected profile has an invalid service name";
 "The shared status / doctor contract is required" = "The shared status / doctor contract is required";
+"The status response format is not supported — copy diagnostics for details" = "The status response format is not supported — copy diagnostics for details";
 "The update preference is unavailable" = "The update preference is unavailable";
 "The update result is stale" = "The update result is stale";
 "This command is not supported by the menu app" = "This command is not supported by the menu app";
@@ -178,6 +183,7 @@
 "Wait for the current command to finish" = "Wait for the current command to finish";
 "Waiting for agent delivery: %@" = "Waiting for agent delivery: %@";
 "Warning" = "Warning";
+"Wake failed — copy diagnostics for details" = "Wake failed — copy diagnostics for details";
 "Working…" = "Working…";
 "agent delivery enabled" = "agent delivery enabled";
 "agent delivery paused" = "agent delivery paused";

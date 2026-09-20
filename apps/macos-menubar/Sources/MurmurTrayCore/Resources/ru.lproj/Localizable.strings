@@ -115,6 +115,8 @@
 "Open release page" = "Открыть страницу релиза";
 "Pause agent delivery" = "Пауза";
 "Pause saved in settings" = "Пауза записана в настройки";
+"Pairing has not been checked yet — run a check" = "Пара ещё не проверена — выполните проверку";
+"Pairing is not confirmed — run a check" = "Пара не подтверждена — выполните проверку";
 "Preview states" = "Проверить состояния";
 "Product version: %@" = "Версия продукта: %@";
 "Profile: %@" = "Профиль: %@";
@@ -145,9 +147,11 @@
 "Some agents are not paired" = "Не все агенты подключены друг к другу";
 "Some engine files are missing. Download Murmur again and move it to Applications." = "В приложении не хватает файлов движка. Загрузите Murmur заново и перенесите приложение в папку «Программы».";
 "Some messages have not reached the agent" = "Есть сообщения, не переданные агенту";
+"Some status details were not measured — run a check" = "Некоторые данные статуса не измерены — выполните проверку";
 "Start" = "Запустить";
 "Start service" = "Запустить службу";
 "Status has not been received yet" = "Состояние ещё не получено";
+"Status is unavailable — copy diagnostics for details" = "Статус недоступен — подробности есть в диагностике";
 "Status unknown" = "Состояние неизвестно";
 "Stop" = "Остановить";
 "Stop service" = "Остановить службу";
@@ -162,6 +166,7 @@
 "The saved result is unavailable" = "Сохранённый результат недоступен";
 "The selected profile has an invalid service name" = "Имя службы в выбранном профиле недопустимо";
 "The shared status / doctor contract is required" = "Ожидается общий контракт status / doctor";
+"The status response format is not supported — copy diagnostics for details" = "Формат ответа статуса не поддерживается — подробности есть в диагностике";
 "The update preference is unavailable" = "Настройка проверки недоступна";
 "The update result is stale" = "Результат проверки обновлений устарел";
 "This command is not supported by the menu app" = "Эта команда не поддерживается значком";
@@ -178,6 +183,7 @@
 "Wait for the current command to finish" = "Дождитесь завершения текущей команды";
 "Waiting for agent delivery: %@" = "Ожидают передачи агенту: %@";
 "Warning" = "Предупреждение";
+"Wake failed — copy diagnostics for details" = "Wake не сработал — подробности есть в диагностике";
 "Working…" = "Выполняется…";
 "agent delivery enabled" = "передача агенту включена";
 "agent delivery paused" = "передача агенту на паузе";

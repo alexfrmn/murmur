@@ -1,0 +1,89 @@
+{
+  "schema": "murmur.status-presentation/1",
+  "messages": {
+    "status.pairingUnknown": {
+      "en": "Pairing has not been checked yet — run a check",
+      "ru": "Пара ещё не проверена — выполните проверку"
+    },
+    "status.schema": {
+      "en": "The status response format is not supported — copy diagnostics for details",
+      "ru": "Формат ответа статуса не поддерживается — подробности есть в диагностике"
+    },
+    "status.unavailable": {
+      "en": "Status is unavailable — copy diagnostics for details",
+      "ru": "Статус недоступен — подробности есть в диагностике"
+    },
+    "status.unmeasured": {
+      "en": "Some status details were not measured — run a check",
+      "ru": "Некоторые данные статуса не измерены — выполните проверку"
+    },
+    "status.unpaired": {
+      "en": "Pairing is not confirmed — run a check",
+      "ru": "Пара не подтверждена — выполните проверку"
+    },
+    "status.wakeFault": {
+      "en": "Wake failed — copy diagnostics for details",
+      "ru": "Wake не сработал — подробности есть в диагностике"
+    }
+  },
+  "rules": [
+    {
+      "codes": [
+        "status.unavailable",
+        "schema.unparsable",
+        "schema.missing-key",
+        "schema.wrong-type",
+        "schema.invalid-value"
+      ],
+      "missing": "any",
+      "messageId": "status.unavailable"
+    },
+    {
+      "codes": [
+        "schema.unknown"
+      ],
+      "missing": "any",
+      "messageId": "status.schema"
+    },
+    {
+      "codes": [
+        "wake.fault"
+      ],
+      "missing": "any",
+      "messageId": "status.wakeFault"
+    },
+    {
+      "codes": [
+        "unmeasured"
+      ],
+      "missing": "only-peer-pairing-fields",
+      "messageId": "status.pairingUnknown"
+    },
+    {
+      "codes": [
+        "unmeasured"
+      ],
+      "missing": "any-other-fields",
+      "messageId": "status.unmeasured"
+    },
+    {
+      "codes": [
+        "peers.unpaired"
+      ],
+      "missing": "any",
+      "messageId": "status.unpaired"
+    }
+  ],
+  "exposure": {
+    "displayedReasonAllows": [],
+    "diagnosticsRetain": [
+      "agentId",
+      "peerId",
+      "fieldPath",
+      "rawError",
+      "missing",
+      "missingWhy"
+    ],
+    "onlyPeerPairingFieldPattern": "^peers\\.list\\.[^.]+\\.paired$"
+  }
+}

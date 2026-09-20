@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -144,9 +145,12 @@ func trError(key string, cause error, args ...any) error {
 }
 
 type trayPreferences struct {
-	Schema string `json:"schema"`
-	Locale string `json:"locale"`
+	Schema    string `json:"schema"`
+	Locale    string `json:"locale"`
+	GuideSeen bool   `json:"guideSeen,omitempty"`
 }
+
+var preferencesMu sync.Mutex
 
 func defaultPreferencesPath() string {
 	base := os.Getenv("LOCALAPPDATA")
@@ -160,28 +164,60 @@ func defaultPreferencesPath() string {
 }
 
 func loadLocalePreference(path string) string {
+	preferencesMu.Lock()
+	defer preferencesMu.Unlock()
+	return loadTrayPreferences(path).Locale
+}
+
+func guideSeenPreference(path string) bool {
+	preferencesMu.Lock()
+	defer preferencesMu.Unlock()
+	return loadTrayPreferences(path).GuideSeen
+}
+
+func loadTrayPreferences(path string) trayPreferences {
+	defaults := trayPreferences{Schema: "murmur.tray-preferences/1", Locale: defaultLocale}
 	if path == "" {
-		return defaultLocale
+		return defaults
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return defaultLocale
+		return defaults
 	}
 	var value trayPreferences
 	if json.Unmarshal(data, &value) != nil || value.Schema != "murmur.tray-preferences/1" || !validLocale(value.Locale) {
-		return defaultLocale
+		return defaults
 	}
-	return value.Locale
+	return value
 }
 
 func saveLocalePreference(path, locale string) error {
 	if path == "" || !validLocale(locale) {
 		return errors.New("invalid locale preference")
 	}
+	preferencesMu.Lock()
+	defer preferencesMu.Unlock()
+	value := loadTrayPreferences(path)
+	value.Locale = locale
+	return saveTrayPreferences(path, value)
+}
+
+func saveGuideSeenPreference(path string) error {
+	if path == "" {
+		return errors.New("invalid tray preference path")
+	}
+	preferencesMu.Lock()
+	defer preferencesMu.Unlock()
+	value := loadTrayPreferences(path)
+	value.GuideSeen = true
+	return saveTrayPreferences(path, value)
+}
+
+func saveTrayPreferences(path string, value trayPreferences) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(trayPreferences{Schema: "murmur.tray-preferences/1", Locale: locale}, "", "  ")
+	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -194,6 +230,7 @@ type trayArguments struct {
 	target         string
 	locale         string
 	localeExplicit bool
+	launcherStart  bool
 }
 
 func parseTrayArguments(args []string) (trayArguments, error) {
@@ -207,6 +244,8 @@ func parseTrayArguments(args []string) (trayArguments, error) {
 			i++
 			result.locale = strings.ToLower(args[i])
 			result.localeExplicit = true
+		case "--launcher-start":
+			result.launcherStart = true
 		case "--launch", "--check-profile":
 			if result.mode != "" {
 				return result, errors.New(tr("args.command"))

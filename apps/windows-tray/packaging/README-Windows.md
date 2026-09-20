@@ -44,6 +44,24 @@ reboot, browser warnings and actual GUI clicks have separate acceptance records.
 
 ## Finding and reopening Murmur
 
+On the first successful launcher start, Murmur opens a durable native guide. It
+confirms only that the tray controls are running; service and connection health
+remain unknown until measured and appear separately. The guide explains the
+hidden-icons arrow and that only the user can drag the icon into the visible
+notification area. Murmur never changes taskbar or pinning settings. Dismissing
+the guide records that choice; **Where is Murmur?** in the menu reopens it. If the
+guide is already open, opening a Murmur shortcut again brings that same window to
+the front instead of starting another tray or creating another guide.
+
+При первом успешном запуске через launcher Murmur открывает постоянное нативное
+окно-подсказку. Оно подтверждает только работу управления в tray; состояние службы
+и соединения остаётся неизвестным до измерения и показывается отдельно. Подсказка
+объясняет стрелку скрытых значков и ручное перетаскивание значка в видимую область;
+Murmur не меняет настройки панели задач и закрепления. Выбор сохраняется только
+после явного закрытия окна. Пункт **Где Murmur?** открывает его снова, а повторный
+запуск ярлыка выводит уже открытое окно на передний план без второго процесса или
+второй подсказки.
+
 After a successful first launch, the launcher creates **Murmur** shortcuts on your
 Desktop and in your per-user Start menu. Both remember the selected Node, bundle,
 profile and service name. Open either shortcut to show the controls of the same

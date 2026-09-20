@@ -127,6 +127,15 @@ function processIdentity(processId) {
   return parsePowerShellJson(result.stdout);
 }
 
+function waitForMainWindowTitle(processId, title) {
+  const result = runPowerShell(`$deadline=[datetime]::UtcNow.AddSeconds(5);do{` +
+    `$process=Get-Process -Id ${processId} -ErrorAction SilentlyContinue;if($process){$process.Refresh();` +
+    `if($process.MainWindowTitle -ceq ${psLiteral(title)}){Write-Output $process.MainWindowTitle;exit 0}};` +
+    `Start-Sleep -Milliseconds 100}while([datetime]::UtcNow -lt $deadline);throw 'guide window was not exposed'`);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  return result.stdout.replace(/^\uFEFF/, '').trim();
+}
+
 function removeOwnedShortcuts(shortcutPaths, launcherPath) {
   const command = `$shell=New-Object -ComObject WScript.Shell;foreach($path in @(${shortcutPaths.map(psLiteral).join(',')})){` +
     `if(Test-Path -LiteralPath $path -PathType Leaf){try{$link=$shell.CreateShortcut($path);` +
@@ -276,9 +285,11 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
           assert.ok(link.arguments.includes('"ChosenService"'), link.arguments);
         }
 
+        assert.equal(waitForMainWindowTitle(state.pid, 'Murmur'), 'Murmur');
         const reopened = spawnSync('powershell.exe', launchArgs, launchOptions);
         assert.equal(reopened.status, 0, reopened.stdout + reopened.stderr);
         assert.match(reopened.stdout, /Murmur controls opened/);
+        assert.equal(waitForMainWindowTitle(state.pid, 'Murmur'), 'Murmur');
         const doctorRecords = await waitForCommandTrace(trace, 'doctor');
         assert.ok(doctorRecords.some(record => record.stage === 'validated' && record.command === 'doctor'), JSON.stringify(doctorRecords));
         const processesAfterReopen = exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe'));

@@ -1,0 +1,33 @@
+{
+  "schema": "murmur.status-presentation-fixtures/1",
+  "cases": [
+    {
+      "name": "pairing-only-unknown",
+      "statusFixture": "../v1/fixtures/status-pairing-unknown.json",
+      "expectedCode": "unmeasured",
+      "expectedMessageId": "status.pairingUnknown",
+      "forbiddenDisplayedSubstrings": [
+        "peers.list.agent-jarvis.paired",
+        "agent-jarvis"
+      ],
+      "requiredDiagnosticMissing": [
+        "peers.list.agent-jarvis.paired"
+      ]
+    },
+    {
+      "name": "generic-unmeasured",
+      "statusFixture": "../v1/fixtures/status-unmeasured.json",
+      "expectedCode": "unmeasured",
+      "expectedMessageId": "status.unmeasured",
+      "forbiddenDisplayedSubstrings": [
+        "outbox.queue.failed",
+        "peers.list",
+        "agent-jarvis"
+      ],
+      "requiredDiagnosticMissing": [
+        "outbox.queue.failed",
+        "peers.list"
+      ]
+    }
+  ]
+}
