@@ -6,10 +6,10 @@ public enum RuntimeError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .missingNode(let minimum): "Для Murmur нужен Node.js \(minimum) или новее. Установите актуальную LTS-версию с nodejs.org, затем нажмите «Проверить снова»."
-        case .incompleteBundle: "В приложении не хватает файлов движка. Загрузите Murmur заново и перенесите приложение в папку «Программы»."
-        case .invalidPolicy: "Не удалось прочитать требования движка к Node.js. Загрузите Murmur заново."
-        case .cannotLaunch: "Не удалось запустить Node.js. Проверьте его установку и откройте Murmur снова."
+        case .missingNode(let minimum): L10n.text("Murmur needs Node.js %@ or newer. Install the current LTS version from nodejs.org, then select Try again.", String(describing: (minimum)))
+        case .incompleteBundle: L10n.text("Some engine files are missing. Download Murmur again and move it to Applications.")
+        case .invalidPolicy: L10n.text("Could not read the engine requirements for Node.js. Download Murmur again.")
+        case .cannotLaunch: L10n.text("Could not start Node.js. Check its installation and open Murmur again.")
         }
     }
 }

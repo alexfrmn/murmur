@@ -18,15 +18,24 @@ INTEL="$(swift build -c release --triple x86_64-apple-macosx13.0 --scratch-path 
 "$ARM/MurmurProbeChecks" "$REPO/contracts/setup/v1/fixtures"
 APP="$STAGE/Murmur Spike.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+/usr/bin/ditto "$ARM/MurmurMenuBarSpike_MurmurTrayCore.bundle" "$APP/Contents/Resources/MurmurMenuBarSpike_MurmurTrayCore.bundle"
 /bin/cp "$SOURCE/Resources/Info.plist" "$APP/Contents/Info.plist"
+VERSION_SOURCE="$REPO/package.json"
+if [ -n "${2-}" ]; then
+  RUNTIME="$(cd -- "$2" && pwd -P)"
+  VERSION_SOURCE="$RUNTIME/runtime-manifest.json"
+fi
+python3 "$SOURCE/packaging/stamp-version.py" "$APP/Contents/Info.plist" "$VERSION_SOURCE" >/dev/null
 /usr/bin/lipo -create "$ARM/MurmurMenuBar" "$INTEL/MurmurMenuBar" -output "$APP/Contents/MacOS/MurmurMenuBar"
 ARCHES="$(/usr/bin/lipo -archs "$APP/Contents/MacOS/MurmurMenuBar")"
 case "$ARCHES" in
   'arm64 x86_64'|'x86_64 arm64') ;;
   *) printf 'Unexpected archive architectures: %s\n' "$ARCHES" >&2; exit 1 ;;
 esac
+python3 "$SOURCE/packaging/stamp-version.py" "$APP/Contents/Info.plist" "$VERSION_SOURCE" --check >/dev/null
 /usr/bin/codesign --force --sign - "$APP"
 /usr/bin/codesign --verify --strict "$APP"
+python3 "$SOURCE/packaging/localization-checks.py" "$APP"
 /bin/cp "$SOURCE/packaging/Open Murmur.command" "$SOURCE/packaging/murmur" "$SOURCE/packaging/README-Mac.md" "$STAGE/"
 /bin/chmod 755 "$STAGE/Open Murmur.command" "$STAGE/murmur"
 if [ -n "${2-}" ]; then

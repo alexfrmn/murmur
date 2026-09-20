@@ -11,6 +11,7 @@ case "$BUILD_ROOT" in /*) ;; *) printf '%s\n' 'Swift build root must be absolute
 RUNTIME="$(cd -- "$RUNTIME" && pwd -P)"
 # Verify every runtime byte before building. No dependency resolution or build in the user's app.
 python3 "$SOURCE/packaging/manifest-checks.py"
+python3 "$SOURCE/packaging/version-checks.py"
 python3 "$SOURCE/packaging/verify-runtime.py" "$RUNTIME"
 mkdir -p "$OUTPUT"
 cd "$SOURCE"
@@ -27,12 +28,12 @@ esac
 STAGE="$OUTPUT/image"
 APP="$STAGE/Murmur.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+/usr/bin/ditto "$ARM/MurmurMenuBarSpike_MurmurTrayCore.bundle" "$APP/Contents/Resources/MurmurMenuBarSpike_MurmurTrayCore.bundle"
 cp "$SOURCE/Resources/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleName Murmur' "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier org.murmur.mac' "$APP/Contents/Info.plist"
 # The engine's declared version is preserved; a prerelease filename is not a version bump.
-VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["declaredVersion"])' "$RUNTIME/runtime-manifest.json")"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+VERSION="$(python3 "$SOURCE/packaging/stamp-version.py" "$APP/Contents/Info.plist" "$RUNTIME/runtime-manifest.json")"
 for binary in MurmurMenuBar MurmurRuntimeLauncher; do
   name="$binary"
   if [ "$binary" = MurmurRuntimeLauncher ]; then name=murmur; fi
@@ -46,12 +47,16 @@ for binary in MurmurMenuBar MurmurRuntimeLauncher; do
 done
 /usr/bin/ditto "$RUNTIME" "$APP/Contents/Resources/runtime"
 python3 "$SOURCE/packaging/verify-runtime.py" "$APP/Contents/Resources/runtime"
+python3 "$SOURCE/packaging/stamp-version.py" "$APP/Contents/Info.plist" "$RUNTIME/runtime-manifest.json" --check >/dev/null
 /usr/bin/codesign --force --sign - "$APP"
 /usr/bin/codesign --verify --deep --strict "$APP"
+python3 "$SOURCE/packaging/localization-checks.py" "$APP"
 python3 "$SOURCE/packaging/native-bridge-check.py" "$APP"
 ln -s /Applications "$STAGE/Applications"
 cp "$SOURCE/packaging/Read Me First.txt" "$STAGE/Read Me First.txt"
-/usr/bin/hdiutil create -volname Murmur -srcfolder "$STAGE" -format UDZO "$OUTPUT/Murmur-Mac-universal.dmg"
-/usr/bin/hdiutil verify "$OUTPUT/Murmur-Mac-universal.dmg"
-/usr/bin/shasum -a 256 "$OUTPUT/Murmur-Mac-universal.dmg"
-printf '%s\n' "$OUTPUT/Murmur-Mac-universal.dmg"
+cp "$SOURCE/packaging/Read Me First (Русский).txt" "$STAGE/Read Me First (Русский).txt"
+DMG="$OUTPUT/Murmur-Mac-$VERSION-universal.dmg"
+/usr/bin/hdiutil create -volname Murmur -srcfolder "$STAGE" -format UDZO "$DMG"
+/usr/bin/hdiutil verify "$DMG"
+/usr/bin/shasum -a 256 "$DMG"
+printf '%s\n' "$DMG"
