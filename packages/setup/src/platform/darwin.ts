@@ -162,11 +162,14 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
         }
         // Apple's process_netpolicy() sets NPOLICY but no name. Native lsof also
         // emits unnamed NEXUS FDs; XNU gives that Skywalk controller its own
-        // fileops, separate from vnodes. Only these exact numeric FD types may
+        // fileops, separate from vnodes. Darwin process_pipe_common() leaves
+        // NAME empty when an anonymous pipe has no peer handle or byte count.
+        // PIPE is distinct from a filesystem FIFO. Only these numeric FD types may
         // have an empty n; missing n, other empty types and pseudo-FDs refuse.
         // https://github.com/apple-opensource/lsof/blob/da09c8c6436286e5bd8c400b42e86b54404f12a7/lsof/dialects/darwin/libproc/dnetpolicy.c
         // https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/skywalk/nexus/nexus_syscalls.c
-        if (line.length === 1 && !((type === "NPOLICY" || type === "NEXUS") && /^\d+$/.test(descriptor))) {
+        // https://github.com/lsof-org/lsof/blob/1ebf257c64db1b2ece5e4d5e922ed711c692f161/lib/dialects/darwin/dfile.c#L306-L340
+        if (line.length === 1 && !((type === "NPOLICY" || type === "NEXUS" || type === "PIPE") && /^\d+$/.test(descriptor))) {
           throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
         }
         records.push({ pid, descriptor, type, name: line.slice(1) });
