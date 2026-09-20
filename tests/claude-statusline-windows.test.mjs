@@ -10,9 +10,26 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const windows = process.platform === 'win32';
 const hash = value => createHash('sha256').update(value).digest('hex');
+// The generated command starts PowerShell, which starts the Node wrapper. The
+// wrapper bounds its Murmur child at 10 s and the existing PowerShell status
+// line at 5 s. Keep the native harness above both product bounds, with time for
+// cold process startup and tree teardown, instead of racing the 10 s child.
+const nativeStatuslineTimeout = 10_000 + 5_000 + 10_000;
 const run = (file, args, options = {}) => spawnSync(file, args, {
   encoding: 'utf8', windowsHide: true, timeout: 10_000, ...options,
 });
+const runDiagnostics = result => JSON.stringify({
+  status: result.status,
+  signal: result.signal,
+  error: result.error ? {
+    name: result.error.name,
+    code: result.error.code,
+    errno: result.error.errno,
+    syscall: result.error.syscall,
+    message: result.error.message,
+  } : null,
+  stderr: result.stderr,
+}, null, 2);
 const decodeLauncher = command => {
   const match = /^powershell -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)$/.exec(command);
   assert.ok(match, `unexpected launcher: ${command}`);
@@ -70,8 +87,11 @@ test('Windows Claude statusline executes encoded paths and preserves stdin and s
     proposal.proposedStatusLine.command], { input, env: { ...process.env,
       MURMUR_NATIVE_PATH_TOKEN: 'EXPANDED-WRONG', MURMUR_NATIVE_SCRIPT: 'EXPANDED-WRONG',
       MURMUR_NATIVE_SETTINGS: 'EXPANDED-WRONG', MURMUR_NATIVE_EXPECTED_DATA: dataDir,
-      MURMUR_NATIVE_MARKER: marker } });
-  assert.equal(rendered.status, 0, rendered.stderr);
+      MURMUR_NATIVE_MARKER: marker }, timeout: nativeStatuslineTimeout });
+  const renderedDiagnostics = runDiagnostics(rendered);
+  assert.equal(rendered.error, undefined, renderedDiagnostics);
+  assert.equal(rendered.signal, null, renderedDiagnostics);
+  assert.equal(rendered.status, 0, renderedDiagnostics);
   assert.equal(rendered.stdout.replaceAll('\r\n', '\n'), 'legacy:claude-native-fixture\nMurmur: 7 unread\n');
   assert.equal(await fs.readFile(marker, 'utf8'), 'run\n');
   assert.equal(hash(await fs.readFile(settings)), beforeHash);
