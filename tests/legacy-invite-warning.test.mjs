@@ -1,6 +1,3 @@
-// The legacy script is what the agent prompts on the site tell a newcomer to run.
-// It has to warn before it prints the secret, and it must not echo a credential
-// that is hidden in the broker URL. No live credentials: synthetic profiles only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
@@ -8,67 +5,71 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-const run = promisify(execFile);
-const script = path.join(process.cwd(), 'scripts', 'murmur-invite.mjs');
 
-async function invoke(t, config) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-legacy-invite-'));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  await fs.writeFile(path.join(root, 'agent-config.json'), JSON.stringify({
-    agentId: 'agent-a', subject: 'msg.agent-a',
-    keys: { encryption: { publicKey: 'enc-public' }, signing: { publicKey: 'sign-public' } },
-    ...config }), { mode: 0o600 });
+const run = promisify(execFile);
+const root = process.cwd();
+
+async function invoke(script, args, env) {
   try {
-    const { stdout, stderr } = await run(process.execPath, [script], { env: { ...process.env, DATA_DIR: root } });
+    const { stdout, stderr } = await run(process.execPath, [path.join(root, 'scripts', script), ...args], { env });
     return { code: 0, stdout, stderr };
-  } catch (err) {
-    return { code: err.code ?? 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
+  } catch (error) {
+    return { code: error.code ?? 1, stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
   }
 }
-const profile = async (t, config) => (await invoke(t, config)).stdout;
 
-test('a blob carrying a broker token is called a password before it is printed', async t => {
-  const out = await profile(t, { natsUrl: 'nats://broker.example:4222', natsToken: 'synthetic-token' });
-  const warning = out.indexOf('password'), secret = out.indexOf('MURMUR:');
-  assert.notEqual(warning, -1, 'the warning must name the risk in the word a person acts on');
-  assert.ok(warning < secret, 'the warning must come before the secret, not after it');
-  assert.match(out, /credential/i);
-  assert.match(out, /does not prove pairing/);
+test('legacy invitation entrypoints stop before profile access and point to the canonical file workflow', async t => {
+  const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-legacy-deprecation-'));
+  t.after(() => fs.rm(profile, { recursive: true, force: true }));
+  const config = path.join(profile, 'agent-config.json');
+  const original = Buffer.from('sentinel-profile-bytes');
+  await fs.writeFile(config, original, { mode: 0o600 });
+  const secret = 'synthetic-command-line-secret';
+  const cases = [
+    ['murmur-invite.mjs', [], /murmur\.mjs invite --out ABSOLUTE_FILE --data-dir ABSOLUTE_PROFILE/],
+    ['murmur-join.mjs', [`MURMUR:${secret}`], /murmur\.mjs join --agent-id ID --invite-file ABSOLUTE_FILE --reply-out ABSOLUTE_FILE --data-dir ABSOLUTE_PROFILE/],
+    ['murmur-add-peer.mjs', [`MURMUR-REPLY:${secret}`], /murmur\.mjs add-peer --reply-file ABSOLUTE_FILE --data-dir ABSOLUTE_PROFILE/],
+  ];
+
+  for (const [script, args, replacement] of cases) {
+    const result = await invoke(script, args, { ...process.env, DATA_DIR: profile });
+    assert.notEqual(result.code, 0, `${script} must refuse the removed workflow`);
+    assert.equal(result.stdout, '', `${script} must not print a blob or profile data`);
+    assert.match(result.stderr, /deprecated/i);
+    assert.match(result.stderr, replacement);
+    assert.match(result.stderr, /docs\/setup-onboarding\.md/);
+    assert.ok(!(result.stdout + result.stderr).includes(secret), `${script} must not echo command-line secrets`);
+    assert.deepEqual(await fs.readFile(config), original, `${script} must not mutate the profile`);
+  }
 });
 
-test('a blob without a credential is not called a password', async t => {
-  const out = await profile(t, { natsUrl: 'nats://broker.example:4222' });
-  assert.ok(!/password/i.test(out), 'calling a harmless file a password teaches people to ignore the word');
-  assert.match(out, /identity/i);
-  assert.match(out, /does not prove pairing/);
-});
-
-test('a credential hidden in the broker URL still triggers the warning and is never echoed', async t => {
-  const out = await profile(t, { natsUrl: 'nats://alice:s3cr3t@broker.example:4222' });
-  assert.match(out, /password/i, 'userinfo in the URL is a credential too');
-  assert.ok(!out.includes('s3cr3t'), 'the credential must not be echoed into the shell history');
-  assert.match(out, /nats:\/\/\*\*\*@broker\.example:4222/, 'the printed URL is masked, not dropped');
-});
-
-// Review found this one: two spaces in front of the URL defeated an anchored
-// regex, so the profile read as credential-free and the password was printed.
-// The NATS client trims the value, which makes this the same address, not a
-// made-up format.
-test('whitespace in front of the URL does not hide the credential', async t => {
-  const out = await profile(t, { natsUrl: '  nats://alice:leading-secret@broker.example:4222  ' });
-  assert.match(out, /password/i, 'a trimmed address is the same address');
-  assert.ok(!out.includes('leading-secret'), 'the credential must not survive into stdout');
-  assert.match(out, /nats:\/\/\*\*\*@broker\.example:4222/);
-});
-
-test('an address the script cannot vouch for stops it before any output', async t => {
-  for (const natsUrl of ['http://broker.example:4222', 'nats://broker.example:4222?token=synthetic',
-                         'nats://broker.example:4222#synthetic', 'not-a-url']) {
-    const r = await invoke(t, { natsUrl, natsToken: 'synthetic-token' });
-    assert.equal(r.code, 1, `${natsUrl} must be refused`);
-    assert.ok(!r.stdout.includes('MURMUR:'), `${natsUrl} must not reach a blob`);
-    assert.ok(!(r.stdout + r.stderr).includes('synthetic-token'), `${natsUrl} must not leak the token`);
-    assert.match(r.stderr, /not usable/);
-    assert.match(r.stderr, /murmur invite --out/, 'a refusal has to say where to go instead');
+test('site agent prompts use the canonical invite, join and add-peer file workflow in both languages', async () => {
+  const site = await fs.readFile(path.join(root, 'site', 'index.html'), 'utf8');
+  for (const legacy of ['scripts/murmur-invite.mjs', 'scripts/murmur-join.mjs', 'scripts/murmur-add-peer.mjs']) {
+    assert.ok(!site.includes(legacy), `site still advertises ${legacy}`);
+  }
+  for (const command of [
+    'packages/setup/bin/murmur.mjs invite --out',
+    'packages/setup/bin/murmur.mjs join --agent-id',
+    'packages/setup/bin/murmur.mjs add-peer --reply-file',
+  ]) {
+    assert.equal(site.split(command).length - 1, 2, `${command} must appear once per language`);
+  }
+  assert.match(site, /blob\/v2\.10\.0\/docs\/setup-onboarding\.md/);
+  assert.ok(!site.includes('claude mcp add murmur'), 'site must use the shared client-settings writer');
+  const prompts = [...site.matchAll(/prompt: `([\s\S]*?)`/g)].map(match => match[1]);
+  assert.equal(prompts.length, 2, 'English and Russian prompts must both be present');
+  for (const prompt of prompts) {
+    const ordered = [
+      'murmur.mjs init --agent-id',
+      'murmur.mjs invite --out',
+      'murmur.mjs join --agent-id',
+      'murmur.mjs add-peer --reply-file',
+      'scripts/murmur-daemon.mjs',
+      'murmur.mjs clients detect',
+      'murmur.mjs clients configure',
+    ].map(command => prompt.indexOf(command));
+    assert.ok(ordered.every(index => index >= 0), 'prompt is missing a canonical setup phase');
+    assert.deepEqual(ordered, [...ordered].sort((a, b) => a - b), 'pairing must finish before daemon and client startup');
   }
 });
