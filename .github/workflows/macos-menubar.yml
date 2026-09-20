@@ -27,3 +27,11 @@ jobs:
       - name: Build native consumer after canonical fixture gate
         working-directory: apps/macos-menubar
         run: ./scripts/build-app.sh
+      - name: Build and verify native DMG with the exact committed runtime
+        shell: bash
+        run: |
+          node scripts/build-runtime-bundle.mjs --ref HEAD --out "$RUNNER_TEMP/mac-runtime"
+          archives=("$RUNNER_TEMP/mac-runtime"/*.zip)
+          test "${#archives[@]}" -eq 1
+          ditto -x -k "${archives[0]}" "$RUNNER_TEMP/mac-runtime-extracted"
+          apps/macos-menubar/packaging/build-dmg.sh "$RUNNER_TEMP/mac-dmg" "$RUNNER_TEMP/mac-runtime-extracted/runtime"

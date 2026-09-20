@@ -18,6 +18,8 @@ public struct CLIProbe: Sendable {
     }
 
     public static func locate(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        // A distributed app always uses its own immutable engine, not a different global install.
+        if let bundled = BundledRuntime.cli() { return bundled }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let candidates = [environment["MURMUR_BIN"], environment["MURMUR_CLI"], "/opt/homebrew/bin/murmur",
                           "/usr/local/bin/murmur", "\(home)/.local/bin/murmur"].compactMap { $0 }

@@ -22,6 +22,8 @@ final class TrayModel: ObservableObject {
     @Published var updates: UpdateSnapshot?
     @Published var updateError: String?
     @Published var checkingUpdates = false
+    @Published var runtimeError: String?
+    @Published var preparingRuntime = false
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published var demoState: Indicator = .unknown
     let isDemo: Bool
@@ -33,7 +35,52 @@ final class TrayModel: ObservableObject {
 
     init() {
         isDemo = ProcessInfo.processInfo.arguments.contains("--demo")
-        if !isDemo {
+        if !isDemo { prepareRuntime() }
+    }
+
+    func prepareRuntime() {
+        guard !isDemo, !preparingRuntime else { return }
+        guard let helper = BundledRuntime.cli() else { connectClients(); return }
+        preparingRuntime = true
+        Task {
+            let result = await Task.detached { () -> Result<Void, Error> in
+                Result {
+                    let runtime = try BundledRuntime.runtime(for: helper)
+                    _ = try BundledRuntime.findNode(runtime: runtime)
+                }
+            }.value
+            preparingRuntime = false
+            switch result {
+            case .success:
+                runtimeError = nil
+                connectClients()
+            case .failure(let error):
+                runtimeError = error.localizedDescription
+                statusError = Verdict(.unknown, reason: error.localizedDescription)
+                let alert = NSAlert()
+                alert.messageText = "Murmur пока не может запуститься"
+                alert.informativeText = error.localizedDescription
+                if case RuntimeError.missingNode = error {
+                    alert.addButton(withTitle: "Открыть сайт Node.js")
+                    alert.addButton(withTitle: "Проверить снова")
+                    alert.addButton(withTitle: "Закрыть")
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    switch alert.runModal() {
+                    case .alertFirstButtonReturn: NSWorkspace.shared.open(URL(string: "https://nodejs.org/en/download")!)
+                    case .alertSecondButtonReturn: prepareRuntime()
+                    default: break
+                    }
+                } else {
+                    alert.addButton(withTitle: "Закрыть")
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    alert.runModal()
+                }
+            }
+        }
+    }
+
+    private func connectClients() {
+            timer?.invalidate()
             let env = ProcessInfo.processInfo.environment
             let stored = UserDefaults.standard
             let directory = env["MURMUR_DATA_DIR"] ?? stored.string(forKey: "profileDirectory")
@@ -49,10 +96,9 @@ final class TrayModel: ObservableObject {
                 updatesClient = UpdatesClient(executable: executable, environment: env)
                 refreshUpdates()
             } else { updateError = ProbeError.missingCLI.localizedDescription }
-        }
     }
 
-    var busy: Bool { operating || checkingStatus || checkingDoctor }
+    var busy: Bool { preparingRuntime || operating || checkingStatus || checkingDoctor }
     // Update I/O never participates in profile/status/service command readiness.
     var canChangeUpdates: Bool { !isDemo && updatesClient != nil && !checkingUpdates }
     var updatesForcedOff: Bool { updatesClient?.forcedOff == true }
@@ -93,6 +139,8 @@ final class TrayModel: ObservableObject {
 
     var controlBlockReason: String? {
         if isDemo { return "Демонстрационный режим" }
+        if preparingRuntime { return "Проверяем движок Murmur…" }
+        if let runtimeError { return runtimeError }
         if let profileError { return profileError }
         guard let client, let status, let agentID else { return "Профиль ещё не подтверждён" }
         do {
@@ -105,7 +153,7 @@ final class TrayModel: ObservableObject {
     var wakeAction: ControlAction { status?.wake.config.enabled == false ? .resume : .pause }
 
     func chooseProfile() {
-        guard !busy, !isDemo else { return }
+        guard !busy, !isDemo, runtimeError == nil else { return }
         let picker = NSOpenPanel()
         picker.title = "Папка профиля Murmur"
         picker.message = "Выберите папку профиля, созданного через Murmur CLI"
@@ -295,13 +343,17 @@ struct MurmurMenuBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text(model.isDemo ? "Murmur — демо" : "Murmur — прототип")
+            Text(model.isDemo ? "Murmur — демо" : "Murmur")
+            if model.runtimeError != nil {
+                Button("Проверить снова") { model.prepareRuntime() }.disabled(model.preparingRuntime)
+            }
             if let profile = model.profile {
                 Text("Профиль: \(model.agentID ?? "не подтверждён")")
                 Text(profile.dataDirectory)
                 if let service = profile.serviceName { Text("Служба: \(service)") }
             }
-            Button("Выбрать папку профиля…") { model.chooseProfile() }.disabled(model.busy || model.isDemo)
+            Button("Выбрать папку профиля…") { model.chooseProfile() }
+                .disabled(model.busy || model.isDemo || model.runtimeError != nil)
             if let reason = model.controlBlockReason { Text(reason) }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
             Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
