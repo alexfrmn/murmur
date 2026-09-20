@@ -5,6 +5,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and the affected package documentation b
 ## Shared behavior
 
 - `packages/setup` owns onboarding, selected profile paths, service/client configuration and update checks. Desktop and terminal integrations consume its CLI contracts; do not add independent profile discovery, version comparison or configuration writers.
+- Do not silently canonicalize a selected profile path used to derive the default service name: aliases can name the same files while selecting different services.
 - `package.json` `engines.node` owns the runtime minimum. Use the shared capability check before loading the engine; keep stated requirements covered by `scripts/check-node-requirements.mjs`.
 - `contracts/setup/v1/fixtures` is the shared setup contract corpus. JavaScript, Swift and Go read the same files. Change a frozen contract deliberately across consumers; do not silently rename codes or copy fixtures into another implementation.
 - Preserve the difference between configured and observed state, transport delivery and agent wake, and unknown and healthy. A successful command response does not by itself prove a running daemon or a returned reply.
