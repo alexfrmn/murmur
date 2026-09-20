@@ -65,11 +65,13 @@ test('PowerShell installer gives actionable guidance when Node is missing', { sk
     writeFileSync(path.join(runtime, 'packages/setup/bin/murmur.mjs'), '// not reached');
     writeFileSync(path.join(runtime, 'bin/murmur-svc.exe'), 'not reached');
     const powershell = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
-    const result = spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', installer,
-      '-AgentId', 'fixture', '-RuntimeRoot', runtime, '-DataDir', profile], {
+    const psLiteral = value => `'${value.replaceAll("'", "''")}'`;
+    const command = `$env:PATH=${psLiteral(dir)}; & ${psLiteral(installer)} -AgentId fixture -RuntimeRoot ${psLiteral(runtime)} -DataDir ${psLiteral(profile)}`;
+    const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       encoding: 'utf8', timeout: 30_000,
-      env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, PATH: dir, TEMP: dir, TMP: dir, LOCALAPPDATA: dir },
+      env: { ...process.env, TEMP: dir, TMP: dir, LOCALAPPDATA: dir },
     });
+    assert.equal(result.error, undefined, String(result.error));
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout, /Install Node\.js 22\.13\.0 or newer/);
     assert.doesNotMatch(result.stdout, /Get-Command/i);
