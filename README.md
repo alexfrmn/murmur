@@ -123,30 +123,43 @@ subsequent ACK-storm and delivery fixes. Publishing is blocked by account-securi
 restrictions; there is no confirmed resume date. Follow [GitHub releases](https://github.com/alexfrmn/murmur/releases)
 for an explicit announcement after the account is unblocked and packages are verified.
 
-**Current path: build the reviewed source snapshot.** You need Git and Node.js 22.13.0+;
-a running NATS broker is required to use the mesh. The latest release tag is
-`v2.9.0`, but it predates the ACK hardening merged on September 19. The pinned
-commit below includes those fixes; it is a source snapshot, not a new tagged
-release or a ready-made desktop installer.
+**Source path: build current `main` and record its commit.** You need Git and Node.js
+22.13.0+. The old `v2.9.0` tag predates the September 19 delivery and onboarding
+changes; use the current checkout for the commands below. `main` is a development
+snapshot, not a signed installer. Do not substitute the old tag just because its
+version matches the CLI's declared release version.
 
 ```text
 git clone https://github.com/alexfrmn/murmur.git
 cd murmur
-git checkout --detach 234b03ec59ec66649abcea5a206d011c86958c5a
-npm ci
-npm run build
+git checkout main
+git rev-parse HEAD
 ```
 
-Then use [Quick Start](#quick-start) for configuration, keeping this reviewed
-checkout. `npm ci` here installs this checkout's locked dependencies and local
-workspaces; it does not install the obsolete published Murmur packages.
+On macOS/Linux, run `npm ci` then `npm run build`. On Windows PowerShell, run
+`npm.cmd ci` then `npm.cmd run build` as separate lines. `npm.cmd` avoids the
+`npm.ps1` execution-policy error on a default Windows installation. These commands
+install the checkout's locked dependencies and local workspaces, not the obsolete
+published Murmur packages.
 
-Installation and build run a local runtime check before the application starts.
-You can also run `npm run check:runtime`: it checks the supported Node version
-and opens an in-memory `node:sqlite` database. A disabled or unavailable SQLite
-module produces an actionable error; the source CLI checks it before loading the
-engine or opening a profile. `engines` advertises the version requirement to npm,
-while this capability check enforces it for these entry points.
+A prebuilt runtime ZIP, when offered as a release asset, already contains those
+outputs and dependencies: extract it and use its `runtime` directory without npm,
+Git or a build. It still needs external Node.js 22.13.0+. GitHub's automatic
+**Source code** ZIP/tar archives are source checkouts, not prebuilt runtime assets.
+The CLI update action opens the release page; it does not install anything or
+promise that the selected release has executable assets.
+
+Continue with [Quick Start](#quick-start) in the same checkout or extracted runtime.
+Do not clone a second copy.
+
+Source installation and build run a local runtime check before the application
+starts. In a **source checkout only**, `npm run check:runtime` (`npm.cmd run
+check:runtime` on Windows) checks the supported Node version and opens an in-memory
+`node:sqlite` database. A prebuilt runtime has no npm scripts: run
+`node packages/setup/bin/murmur.mjs version --json` from its runtime directory.
+Every CLI command performs the same capability check before loading the engine or
+opening a profile. A disabled or unavailable SQLite module produces an actionable
+error. `engines` also advertises the version requirement to npm for source installs.
 
 Maintainer-only [npm deprecation commands](docs/npm-deprecation-commands.md) are
 prepared for after account recovery. **They have not been executed:** npm clients
@@ -176,86 +189,167 @@ AI agents today are isolated. Claude can't talk to GPT. Your coding assistant ca
 
 ## Quick Start
 
-Connect two agents in 3 commands. No JSON editing.
+Use one explicit private profile for the CLI, service and AI client. A reachable
+NATS broker and a second participant are required for a returned message. Obtain
+the broker address and credentials from its owner; starting a personal broker is
+a separate step. Key import alone does not establish a working pair.
 
-### Prerequisites
+### 1. Select this runtime and one profile
 
-- **Node.js 22.13.0+** (uses built-in `node:sqlite`)
-- **NATS server**:
-  ```bash
-  docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js --auth YOUR_SECRET
-  ```
+Start in the checkout you built above, or the extracted prebuilt `runtime` folder.
+Node.js 22.13.0+ is required in both cases.
 
-### Step 1 — Host generates invite
-
-```bash
-git clone https://github.com/alexfrmn/murmur.git && cd murmur
-npm install && npm run build
-
-AGENT_ID=alice NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
-  node scripts/agent-config-init.mjs
-
-node scripts/murmur-invite.mjs
-# → Prints MURMUR:eyJ... blob — send it to your peer via any channel
-```
-
-### Step 2 — Peer joins with the blob
+**macOS/Linux:**
 
 ```bash
-git clone https://github.com/alexfrmn/murmur.git && cd murmur
-npm install && npm run build
-
-AGENT_ID=bob NATS_URL=nats://your-server:4222 NATS_TOKEN=YOUR_SECRET \
-  node scripts/murmur-join.mjs 'MURMUR:eyJ...'
-# → Prints MURMUR-REPLY:eyJ... blob — send it back to host
+RUNTIME="$PWD"
+PROFILE="$HOME/Murmur-profile"
+CLI="$RUNTIME/packages/setup/bin/murmur.mjs"
+node "$CLI" version --json
 ```
 
-### Step 3 — Host adds peer
+**Windows PowerShell:**
+
+```powershell
+$Runtime = (Get-Location).Path
+$Profile = Join-Path $env:LOCALAPPDATA 'Murmur'
+$Cli = Join-Path $Runtime 'packages\setup\bin\murmur.mjs'
+node $Cli version --json
+```
+
+Keep these values in this terminal. On Windows, run each line separately; Windows
+PowerShell 5.1 does not support `&&`. An existing profile must be selected explicitly;
+these commands do not migrate old `.data` directories. Never share `agent-config.json`.
+
+### 2. Create an identity and exchange invitation files
+
+Put a broker token, if required, in a private local file. Pass its absolute path
+with `--token-file`; omit that option for a broker that does not use a token.
+Do not paste a token into the command line or publish it with an invitation.
+
+**First participant, macOS/Linux:**
 
 ```bash
-node scripts/murmur-add-peer.mjs 'MURMUR-REPLY:eyJ...'
+node "$CLI" init --data-dir "$PROFILE" --agent-id alice --broker-url tls://broker.example.org:4222 --token-file "$HOME/broker-token.txt"
+node "$CLI" invite --data-dir "$PROFILE" --out "$HOME/murmur-invite.txt"
 ```
 
-### Start the daemons (both sides)
+**First participant, Windows:**
+
+```powershell
+node $Cli init --data-dir $Profile --agent-id alice --broker-url tls://broker.example.org:4222 --token-file "$env:USERPROFILE\broker-token.txt"
+node $Cli invite --data-dir $Profile --out "$env:USERPROFILE\murmur-invite.txt"
+```
+
+Replace the example broker URL with the address and scheme supplied by its owner.
+The invite can contain broker credentials. Send the file through a trusted private
+channel. The recipient selects their own runtime/profile, then imports the invite:
 
 ```bash
-node scripts/murmur-daemon.mjs
+# macOS/Linux, on the recipient's machine
+node "$CLI" join --data-dir "$PROFILE" --agent-id bob --invite-file "$HOME/murmur-invite.txt" --reply-out "$HOME/murmur-reply.txt"
 ```
 
-### Optional: expose Prometheus metrics
+```powershell
+# Windows, on the recipient's machine
+node $Cli join --data-dir $Profile --agent-id bob --invite-file "$env:USERPROFILE\murmur-invite.txt" --reply-out "$env:USERPROFILE\murmur-reply.txt"
+```
+
+Return the reply file to the first participant. It contains public peer keys,
+not the broker token or private keys. The first participant imports it:
 
 ```bash
-npm run build
-METRICS_PORT=9464 node scripts/prometheus-exporter.mjs
-# scrape http://localhost:9464/metrics
+node "$CLI" add-peer --data-dir "$PROFILE" --reply-file "$HOME/murmur-reply.txt"
 ```
 
-Exporter metrics include outbox depth by status, oldest pending age, inbound/outbound message totals, ack latency (avg/p95), retry rows, and dead-letter rows.
+```powershell
+node $Cli add-peer --data-dir $Profile --reply-file "$env:USERPROFILE\murmur-reply.txt"
+```
 
-### Send your first message
+All invitation/reply outputs must be new files **outside the profile**, with an
+existing parent directory. Existing files are refused, not overwritten.
 
-Add Murmur as an MCP server in your AI client (e.g., Claude Code):
+### 3. Start the service on both machines
 
 ```bash
-claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
+# macOS/Linux, in the user's normal session
+node "$CLI" service install --data-dir "$PROFILE" --json
+node "$CLI" service start --data-dir "$PROFILE" --json
 ```
 
-Then from your AI agent:
-
-```
-# Fire-and-forget
-murmur_send(to: "bob", text: "Hello from Alice!")
-
-# Or send-and-wait (blocks until reply arrives)
-murmur_request(to: "bob", text: "Review this code please", timeout_ms: 300000)
+```powershell
+# Windows, an elevated PowerShell opened as the same profile owner.
+# Restore the exact $Runtime, $Profile and $Cli values from step 1 first.
+node $Cli service install --data-dir $Profile --json
+node $Cli service start --data-dir $Profile --json
 ```
 
-For Phase N member-level addressing, configure a stable local `memberId` and the
-peer's `channelId` / `memberId`, or pass `channelId`, `senderMemberId`, and
-`addresseeMemberId` to `murmur_send` / `murmur_request`. Enable the same channel roster
-on every receiving daemon. See [the coordinated routing rollout](docs/phase-n-routing.md).
+Windows requires the matching prebuilt `runtime/bin/murmur-svc.exe`, or a source
+build at `spikes/windows-service-go/murmur-svc.exe`. The portable runtime alone
+does not include that platform binary. [Windows service installation](spikes/windows-onboarding/INSTALL-COMMAND.md)
+explains the explicit installer and elevation. Go is only needed to build the
+native helper from source. A foreground daemon is a separate diagnostic mode;
+do not run it alongside a service on the same profile.
 
-That's it. Alice and Bob can now exchange encrypted messages — no human relay needed.
+For an existing service that loaded older peer configuration, stop and start it
+explicitly after importing keys. No onboarding command silently restarts it.
+
+### 4. Connect the AI client and require a returned message
+
+```bash
+node "$CLI" clients detect --data-dir "$PROFILE"
+node "$CLI" clients configure --data-dir "$PROFILE" --client claude-code
+```
+
+```powershell
+node $Cli clients detect --data-dir $Profile
+node $Cli clients configure --data-dir $Profile --client claude-code
+```
+
+Do this on **both machines**, using the installed client ID returned by detection.
+Reload both clients after configuration, then have each agent call `murmur_peers`
+to confirm the other participant is listed. The shared writer binds an absolute Node executable, MCP entry and
+the selected profile; it preserves unrelated settings and saves a private backup.
+A conflicting existing Murmur entry requires an explicit `--replace` decision.
+
+Keep Bob's client active and ask Bob's agent to read `murmur_inbox` and reply using
+`murmur_send` to Alice in the incoming request's same `conversationId`. From
+**Alice's** client, ask her agent to make this request (Bob would target `alice`):
+
+```text
+murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 300000)
+```
+
+Only a returned answer completes the two-person exchange. Automatic AI wake is
+separate: see [wake-native.md](docs/wake-native.md). Delivery to the database,
+doctor roundtrip and a live LLM answer are different checks.
+
+For an optional signed diagnostic after the clients are ready, prepare Bob's
+agent to watch its inbox and reply with **exactly** the `MURMUR-DOCTOR-REPLY <nonce>`
+line supplied in the incoming diagnostic, to Alice in that same conversation.
+Then Alice runs `node "$CLI" doctor --data-dir "$PROFILE" --peer bob --timeout 60000 --json`
+(PowerShell: `node $Cli doctor --data-dir $Profile --peer bob --timeout 60000 --json`).
+For the reverse direction, prepare Alice's responder and use `--peer alice` on
+Bob's machine. The daemon does not automatically echo this challenge; without
+an active responder, the probe times out. Its signed, persisted reply proves the
+roundtrip, not automatic wake of a particular AI client.
+
+### Stopping and removal
+
+Use `service stop` with the same profile (and `--service-name` if customized).
+Windows also supports `service uninstall` with the same values and elevation;
+it retains private keys, message data and logs. Other platforms' service removal
+is not implemented by that CLI command yet. Closing a tray app does not stop the
+service. GUI, login and reboot behavior require their own platform acceptance.
+
+For a missing Node SQLite module, check Node.js 22.13.0+. In a source checkout only,
+run `npm.cmd run check:runtime` on Windows or `npm run check:runtime` on macOS/Linux.
+In a prebuilt runtime, use the `version --json` command from step 1 instead.
+For client peers unexpectedly empty, verify that the configured MCP descriptor
+uses this same profile, then reload the client.
+
+Optional Prometheus metrics are a source-only feature (`scripts/prometheus-exporter.mjs`);
+the minimal runtime bundle excludes observability and its native dependency.
 
 ---
 
@@ -320,7 +414,7 @@ This enables **fully autonomous overnight work** — launch 2-3 agents, they col
 ### Agent Integration
 - **MCP Server** — 7 tools for any MCP-compatible AI client
 - **`murmur_request`** — send-and-wait: no more manual polling
-- **Invite Flow** — 3 commands to connect two agents, zero JSON editing
+- **Invite Flow** — pairing by passing two blobs, no JSON editing; three commands across two machines
 - **Native Wake** — live-session wake via Claude asyncRewake / Codex app-server UDS with self-healing thread re-seed (always-on dead-session wake is an out-of-repo reference-deployment sidecar) (v2.1)
 - **A2A Bridge** — speaks the industry-standard A2A protocol into the Murmur mesh; live client→bridge→NATS→reply round-trip proven, real remote agent pending (v2.1)
 - **Telegram Notifications** — get notified when agents talk
@@ -372,20 +466,29 @@ Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
 
 ### Add to Claude Code
 
-```bash
-claude mcp add murmur -- node /path/to/murmur/packages/mcp-server/dist/src/index.js
-```
+Use `clients configure --client claude-code` with the selected profile as shown in
+[Quick Start step 4](#4-connect-the-ai-client-and-require-a-returned-message), then
+reload Claude Code. Do not add a second Murmur registration over the shared writer.
 
 ### Add to any MCP client
+
+For a client unsupported by `clients configure`, this is an **advanced manual
+alternative**. Replace every placeholder with an absolute path from the same
+runtime and profile selected in Quick Start. `command` must be the installed Node
+executable's absolute path, not a PATH lookup. `DATA_DIR` and `MURMUR_STORE_PATH`
+must refer to that same profile and its `murmur.db`. Do not apply this over an
+existing shared-writer registration. Use your client's configuration format and
+reload it afterward; the example below is JSON for macOS/Linux paths.
 
 ```json
 {
   "mcpServers": {
     "murmur": {
-      "command": "node",
-      "args": ["/path/to/murmur/packages/mcp-server/dist/src/index.js"],
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/runtime/packages/mcp-server/dist/src/index.js"],
       "env": {
-        "DATA_DIR": "/path/to/murmur/.data"
+        "DATA_DIR": "/absolute/path/to/selected-profile",
+        "MURMUR_STORE_PATH": "/absolute/path/to/selected-profile/murmur.db"
       }
     }
   }
@@ -609,7 +712,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 
 *Messaging & transport*
 - [x] E2E encryption — X25519 + XChaCha20-Poly1305 + Ed25519 signatures
-- [x] Invite-based peer setup — 3 commands, zero JSON editing
+- [x] Invite-based peer setup — three commands across two machines, no JSON editing
 - [x] `murmur_request` send-and-wait — wake-accelerated via a read-only ephemeral NATS tap; SQLite store-poll is the durable fallback (daemon stays source of truth for decrypt)
 - [x] Optional JetStream durability — finite `max_deliver`/`ack_wait`, consumer repair, advisory → DLQ; default-OFF, SQLite outbox stays source of truth; running live on the reference mesh
 - [x] Dead-letter queue + poison handling · SQLite WAL with optimistic locking
