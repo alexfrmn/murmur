@@ -67,14 +67,19 @@ test('install metadata and documented Node floors agree with the runtime policy'
 test('documentation gate names mismatched requirements before build', async t => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-node-docs-'));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));
-  for (const file of ['package.json', 'README.md', 'docs/wake-native.md', 'scripts/runtime-capability.mjs', 'scripts/check-node-requirements.mjs']) {
+  for (const file of ['package.json', 'README.md', 'CONTRIBUTING.md', 'docs/wake-native.md', 'scripts/runtime-capability.mjs', 'scripts/check-node-requirements.mjs']) {
     await fs.mkdir(path.dirname(path.join(temp, file)), { recursive: true });
     await fs.copyFile(path.join(root, file), path.join(temp, file));
   }
   const run = () => spawnSync(process.execPath, ['scripts/check-node-requirements.mjs'], { cwd: temp, encoding: 'utf8' });
   assert.equal(run().status, 0);
-  await fs.appendFile(path.join(temp, 'README.md'), '\nRequires Node.js 22+\n');
+  await fs.writeFile(path.join(temp, 'CONTRIBUTING.md'), 'Requires Node.js 22+\n');
   let result = run();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CONTRIBUTING\.md: Node\.js 22 disagrees/);
+  await fs.copyFile(path.join(root, 'CONTRIBUTING.md'), path.join(temp, 'CONTRIBUTING.md'));
+  await fs.appendFile(path.join(temp, 'README.md'), '\nRequires Node.js 22+\n');
+  result = run();
   assert.equal(result.status, 1);
   assert.match(result.stderr, /README\.md: Node\.js 22 disagrees/);
   await fs.copyFile(path.join(root, 'README.md'), path.join(temp, 'README.md'));
