@@ -14,7 +14,7 @@ func launchDetached(locale string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	cmd := exec.Command(file, "--lang", locale)
+	cmd := exec.Command(file, "--launcher-start", "--lang", locale)
 	cmd.Env = os.Environ() // The launcher already supplied the explicit binding.
 	// Do not retain the launcher's capture/console handles. A tray lives longer
 	// than its launcher; inheriting those handles keeps callers waiting for EOF.

@@ -64,7 +64,9 @@ public struct Verdict: Sendable {
     }
     public static func unavailable(_ error: any Error) -> Self {
         // Invalid responses cannot supply even an unread indicator.
-        Verdict(.unknown, code: (error as? ContractError)?.code ?? "status.unavailable", reason: error.localizedDescription)
+        let code = (error as? ContractError)?.code ?? "status.unavailable"
+        return Verdict(.unknown, code: code,
+                       reason: StatusReason.displayed(code: code, missing: [], fallback: L10n.text("Status is unavailable — copy diagnostics for details")))
     }
     public var color: String {
         switch indicator {
@@ -73,6 +75,44 @@ public struct Verdict: Sendable {
         case .offline: "yellow"
         default: "grey"
         }
+    }
+}
+
+/// Shared status-presentation selection. Protocol diagnostics stay in `missing`,
+/// `missingWhy`, and `diagnosticNotes`; the menu reason never interpolates them.
+private enum StatusReason {
+    private static let messages = [
+        "status.pairingUnknown": "Pairing has not been checked yet — run a check",
+        "status.schema": "The status response format is not supported — copy diagnostics for details",
+        "status.unavailable": "Status is unavailable — copy diagnostics for details",
+        "status.unmeasured": "Some status details were not measured — run a check",
+        "status.unpaired": "Pairing is not confirmed — run a check",
+        "status.wakeFault": "Wake failed — copy diagnostics for details",
+    ]
+
+    private static func isPeerPairingField(_ path: String) -> Bool {
+        let fields = path.split(separator: ".", omittingEmptySubsequences: false)
+        return fields.count == 4 && fields[0] == "peers" && fields[1] == "list"
+            && !fields[2].isEmpty && fields[3] == "paired"
+    }
+
+    private static func messageID(code: String, missing: [String]) -> String? {
+        switch code {
+        case "status.unavailable", "schema.unparsable", "schema.missing-key", "schema.wrong-type", "schema.invalid-value":
+            return "status.unavailable"
+        case "schema.unknown": return "status.schema"
+        case "wake.fault": return "status.wakeFault"
+        case "peers.unpaired": return "status.unpaired"
+        case "unmeasured":
+            return !missing.isEmpty && missing.allSatisfy(isPeerPairingField)
+                ? "status.pairingUnknown" : "status.unmeasured"
+        default: return nil
+        }
+    }
+
+    static func displayed(code: String, missing: [String], fallback: String) -> String {
+        guard let id = messageID(code: code, missing: missing), let key = messages[id] else { return fallback }
+        return L10n.text(key)
     }
 }
 
@@ -161,14 +201,14 @@ public struct StatusSnapshot: Decodable, Sendable {
         let unread = (inbox.unread ?? 0) > 0
         var missing: [String] = []
         var missingWhy: [String: String] = [:]
-        var missingDetail: [String: String] = [:]
         func note(_ path: String, _ reason: String? = nil) {
             missing.append(path)
             missingWhy[path] = reason?.isEmpty == false ? "source-unreadable" : "unmeasured"
-            if let reason, !reason.isEmpty { missingDetail[path] = reason }
         }
         func result(_ indicator: Indicator, _ code: String, _ reason: String) -> Verdict {
-            Verdict(indicator, unread: unread, code: code, missing: Array(Set(missing)).sorted(), missingWhy: missingWhy, reason: reason)
+            let exactMissing = Array(Set(missing)).sorted()
+            return Verdict(indicator, unread: unread, code: code, missing: exactMissing, missingWhy: missingWhy,
+                           reason: StatusReason.displayed(code: code, missing: exactMissing, fallback: reason))
         }
         guard let generated = timestamp(generatedAt) else { return result(.unknown, "snapshot.unparsable", L10n.text("Snapshot time unknown")) }
         if now.timeIntervalSince(generated) > 120 { return result(.unknown, "snapshot.stale", L10n.text("Data is more than two minutes old")) }
@@ -184,7 +224,7 @@ public struct StatusSnapshot: Decodable, Sendable {
         if (outbox.queue.failed ?? 0) > 0 || (outbox.queue.dlq ?? 0) > 0 {
             return result(.failed, "outbox.undelivered", L10n.text("Undelivered: %@; dead-letter queue: %@", String(describing: (outbox.queue.failed.map(String.init) ?? L10n.text("not measured"))), String(describing: (outbox.queue.dlq.map(String.init) ?? L10n.text("not measured")))))
         }
-        if wake.faults.lastFault?.isEmpty == false { return result(.failed, "wake.fault", L10n.text("Failed to deliver a message to the agent")) }
+        if wake.faults.lastFault?.isEmpty == false { return result(.failed, "wake.fault", "") }
         if wake.delivery.pendingUndelivered == nil { note("wake.delivery.pendingUndelivered") }
         if (wake.delivery.pendingUndelivered ?? 0) > 0 { return result(.failed, "wake.pending", L10n.text("Some messages have not reached the agent")) }
         for (path, reason) in [("outbox.faults", outbox.faults.unknownReason), ("wake.faults", wake.faults.unknownReason),
@@ -200,7 +240,7 @@ public struct StatusSnapshot: Decodable, Sendable {
         }
         if let list = peers.list {
             if list.isEmpty { return result(.offline, "peers.none", L10n.text("Connect your first agent")) }
-            if list.contains(where: { $0.paired == false }) { return result(.offline, "peers.unpaired", L10n.text("Some agents are not paired")) }
+            if list.contains(where: { $0.paired == false }) { return result(.offline, "peers.unpaired", "") }
             for peer in list where peer.paired == nil { note("peers.list.\(peer.agentId).paired") }
         } else { note("peers.list", peers.unknownReason) }
         if inbox.unread == nil { note("inbox.unread", inbox.unknownReason) }
@@ -210,10 +250,7 @@ public struct StatusSnapshot: Decodable, Sendable {
         if wake.config.enabled == nil && wake.config.unknownReason?.isEmpty != false { note("wake.config.enabled") }
         if wake.effective.enabled == nil && wake.effective.unknownReason?.isEmpty != false { note("wake.effective.enabled") }
         if !missing.isEmpty {
-            let details = Array(Set(missing)).sorted().map { path in
-                path + (missingDetail[path].map { " (\($0))" } ?? "")
-            }
-            return result(.unknown, "unmeasured", L10n.text("Not measured: ") + details.joined(separator: ", "))
+            return result(.unknown, "unmeasured", "")
         }
         let detail = wake.config.responder == "none" ? L10n.text("Connected; automatic replies are not configured")
             : (wake.effective.enabled == false ? L10n.text("Connected; agent delivery is paused") : L10n.text("Service, broker and connections are working"))

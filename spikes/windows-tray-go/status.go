@@ -16,7 +16,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -30,6 +29,43 @@ const (
 	// неизвестный возраст, как и непарсимая дата.
 	clockSkewTolerance = 5 * time.Second
 )
+
+var peerPairingMissing = regexp.MustCompile(`^peers\.list\.[^.]+\.paired$`)
+
+// missingPresentationKey is the shared presentation boundary: exact missing
+// paths remain diagnostic data, while the visible reason carries no path or ID.
+func missingPresentationKey(missing []string) string {
+	if len(missing) > 0 {
+		pairingOnly := true
+		for _, path := range missing {
+			if !peerPairingMissing.MatchString(path) {
+				pairingOnly = false
+				break
+			}
+		}
+		if pairingOnly {
+			return "status.pairingUnknown"
+		}
+	}
+	return "status.unmeasured"
+}
+
+func presentationMessageKey(code string, missing []string) string {
+	switch code {
+	case "status.unavailable", "schema.unparsable", "schema.missing-key", "schema.wrong-type", "schema.invalid-value":
+		return "status.unavailable"
+	case "schema.unknown":
+		return "status.schema"
+	case "wake.fault":
+		return "status.wakeFault"
+	case "peers.unpaired":
+		return "status.unpaired"
+	case "unmeasured":
+		return missingPresentationKey(missing)
+	default:
+		return ""
+	}
+}
 
 type Peer struct {
 	AgentID string `json:"agentId"`
@@ -218,10 +254,14 @@ func resolve(s *Status, err error) Verdict {
 		if errors.As(err, &se) {
 			code = se.code
 		}
-		return Verdict{Level: LevelGrey, Code: code, Reason: tr("status.unavailable", err)}
+		messageKey := presentationMessageKey(code, nil)
+		if messageKey == "" {
+			messageKey = "status.unavailable"
+		}
+		return Verdict{Level: LevelGrey, Code: code, Reason: tr(messageKey)}
 	}
 	if !schemaKnown(s.Schema, statusSchema) {
-		return Verdict{Level: LevelGrey, Code: "schema.unknown", Reason: tr("status.schema", s.Schema)}
+		return Verdict{Level: LevelGrey, Code: "schema.unknown", Reason: tr(presentationMessageKey("schema.unknown", nil))}
 	}
 
 	unread := s.Inbox.Unread != nil && *s.Inbox.Unread > 0
@@ -243,7 +283,7 @@ func resolve(s *Status, err error) Verdict {
 	age, ok := ageOf(s.GeneratedAt)
 	switch {
 	case !ok:
-		return out(LevelGrey, "snapshot.unparsable", tr("status.unparsableDate", s.GeneratedAt))
+		return out(LevelGrey, "snapshot.unparsable", tr("status.unparsableDate"))
 	case age > maxStatusAge:
 		return out(LevelGrey, "snapshot.stale", tr("status.stale", age.Round(time.Second)))
 	case age < -clockSkewTolerance:
@@ -276,7 +316,7 @@ func resolve(s *Status, err error) Verdict {
 		return out(LevelRed, "outbox.undelivered", tr("status.undelivered", num(s.Outbox.Queue.Failed), num(s.Outbox.Queue.DLQ)))
 	}
 	if fault := str(s.Wake.Faults.LastFault); fault != "" {
-		return out(LevelRed, "wake.fault", tr("status.wakeFault", fault))
+		return out(LevelRed, "wake.fault", tr(presentationMessageKey("wake.fault", nil)))
 	}
 	if pending, okPending := need("wake.delivery.pendingUndelivered", s.Wake.Delivery.PendingUndelivered); okPending && pending > 0 {
 		return out(LevelRed, "wake.pending", tr("status.pendingWake", messageCount(pending)))
@@ -306,11 +346,7 @@ func resolve(s *Status, err error) Verdict {
 	case "", "unknown":
 		missing = append(missing, "broker.state")
 	default:
-		reason := tr("status.brokerUnavailable")
-		if e := str(s.Broker.LastError); e != "" {
-			reason += ": " + e
-		}
-		return out(LevelYellow, "broker.unreachable", reason)
+		return out(LevelYellow, "broker.unreachable", tr("status.brokerUnavailable"))
 	}
 
 	if s.Peers.List == nil {
@@ -335,7 +371,7 @@ func resolve(s *Status, err error) Verdict {
 			}
 		}
 		if len(unpaired) > 0 {
-			return out(LevelYellow, "peers.unpaired", tr("status.unpaired", strings.Join(unpaired, ", ")))
+			return out(LevelYellow, "peers.unpaired", tr(presentationMessageKey("peers.unpaired", nil)))
 		}
 		for _, id := range unknownPair {
 			note("peers.list."+id+".paired", "unmeasured")
@@ -367,7 +403,7 @@ func resolve(s *Status, err error) Verdict {
 	}
 
 	if len(missing) > 0 {
-		return out(LevelGrey, "unmeasured", tr("status.unmeasured", strings.Join(missing, ", ")))
+		return out(LevelGrey, "unmeasured", tr(presentationMessageKey("unmeasured", missing)))
 	}
 	return out(LevelGreen, "ok", tr("status.healthy", peerCount(len(s.Peers.List))))
 }
@@ -390,13 +426,9 @@ func history(s *Status) []string {
 			return
 		}
 		line := label + ": "
-		if text != "" {
-			line += text
-		} else {
-			line += tr("history.happened")
-		}
+		line += tr("history.happened")
 		if at != "" {
-			line += ", " + at
+			line += ", " + displayEventTime(at)
 		}
 		out = append(out, line)
 	}
