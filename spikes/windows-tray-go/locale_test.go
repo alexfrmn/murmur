@@ -303,3 +303,29 @@ func TestLocalizedErrorPreservesCause(t *testing.T) {
 		t.Fatalf("localized error cannot be inspected: %#v", err)
 	}
 }
+
+func TestUnobservedInboxAndHostileTimeRemainVisibleAndSafe(t *testing.T) {
+	previous := currentLocale()
+	t.Cleanup(func() { setLocale(previous) })
+	for _, locale := range []string{localeEnglish, localeRussian} {
+		setLocale(locale)
+		for _, status := range []*Status{nil, {}} {
+			lines := recentLinesForStatus(status)
+			if len(lines) != 1 || lines[0] != tr("recent.unavailable") {
+				t.Fatalf("unobserved inbox disappeared: %q", lines)
+			}
+		}
+		zero := 0
+		empty := &Status{}
+		empty.Inbox.Total = &zero
+		if lines := recentLinesForStatus(empty); len(lines) != 1 || lines[0] != tr("recent.none") {
+			t.Fatalf("measured empty inbox: %q", lines)
+		}
+		hostile := &Status{Deliveries: []Delivery{{Direction: "inbound", Peer: "private-agent", At: "peers.list.private-agent.paired"}}}
+		for _, line := range recentLinesForStatus(hostile) {
+			if strings.Contains(line, "private-agent") || strings.Contains(line, "peers.list") {
+				t.Fatalf("raw time exposed: %q", line)
+			}
+		}
+	}
+}

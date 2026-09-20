@@ -95,6 +95,13 @@ func runStatusPresentationChecks(fixtures: URL, base: [String: Any], now: Date) 
               "Unavailable status must not display raw errors")
     count += 1
 
+    let hostileChain = try inLanguage(.english) {
+        Verdict.unavailable(ContractError.doctorChain(stage: "peers.list.private-agent.paired", blocker: "private-agent"))
+    }
+    try check(!hostileChain.reason.contains("private-agent") && !hostileChain.reason.contains("peers.list"),
+              "Unknown contract-error codes must not fall back to raw descriptions")
+    count += 1
+
     var wakeObject = presentationEdited(["wake", "faults", "lastFault"],
                                         value: "raw peer-agent / wake.secret", object: base)
     wakeObject = presentationEdited(["wake", "faults", "lastFaultAt"],

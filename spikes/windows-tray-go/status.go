@@ -428,7 +428,7 @@ func history(s *Status) []string {
 		line := label + ": "
 		line += tr("history.happened")
 		if at != "" {
-			line += ", " + at
+			line += ", " + displayEventTime(at)
 		}
 		out = append(out, line)
 	}

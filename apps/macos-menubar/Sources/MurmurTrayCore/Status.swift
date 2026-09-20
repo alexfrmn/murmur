@@ -66,7 +66,7 @@ public struct Verdict: Sendable {
         // Invalid responses cannot supply even an unread indicator.
         let code = (error as? ContractError)?.code ?? "status.unavailable"
         return Verdict(.unknown, code: code,
-                       reason: StatusReason.displayed(code: code, missing: [], fallback: error.localizedDescription))
+                       reason: StatusReason.displayed(code: code, missing: [], fallback: L10n.text("Status is unavailable — copy diagnostics for details")))
     }
     public var color: String {
         switch indicator {
