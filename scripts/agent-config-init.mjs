@@ -69,7 +69,7 @@ const run = async () => {
     keys: { encryption, signing },
     ackSecurity: {
       emitSigned: true,
-      requireSigned: false,
+      requireSigned: true,
       maxAgeMs: 300000,
     },
     peers: {},

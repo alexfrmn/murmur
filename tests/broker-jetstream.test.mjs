@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { StringCodec } from "nats";
 import { NatsBroker } from "../packages/broker-nats/dist/src/index.js";
-import { createAck } from "../packages/core/dist/src/index.js";
+import { createBoundAck, stableAckPayload } from "../packages/core/dist/src/index.js";
+import { createSigningKeyPair, signEnvelope, verifyEnvelopeSignature } from "../packages/security/dist/src/index.js";
 
 const sc = StringCodec();
 
@@ -255,13 +256,20 @@ test("JetStream existing durable consumer is repaired when delivery limits drift
 });
 
 test("restricted runtime uses pre-provisioned consumers without management writes", async () => {
-  const valid = { config: { filter_subject: "msg.agent-receiver", max_deliver: 5, ack_wait: 30_000_000_000 } };
+  const valid = { config: { filter_subject: "msg.agent-receiver", ack_policy: "explicit", deliver_policy: "all",
+    max_deliver: 5, ack_wait: 30_000_000_000 } };
   const runtime = makeJetStreamBroker({ streamInfoThrows: false, consumerInfo: valid, brokerConfig: { jetstreamProvisioning: "client" } });
   await runtime.broker.subscribeWithAck({ subject: "msg.agent-receiver", consumerId: "agent-receiver", dedupe: { seen: async () => false, markSeen: async () => {} }, onMessage: async () => {} });
   assert.deepEqual(runtime.streamsAdded, []);
   assert.deepEqual(runtime.consumersAdded, []);
   assert.deepEqual(runtime.consumersUpdated, []);
-  for (const consumerInfo of [undefined, { config: { ...valid.config, max_deliver: 99 } }]) {
+  for (const consumerInfo of [
+    undefined,
+    { config: { ...valid.config, max_deliver: 99 } },
+    { config: { ...valid.config, ack_policy: "none" } },
+    { config: { ...valid.config, deliver_policy: "new" } },
+    { config: { ...valid.config, deliver_subject: "push.inbox" } },
+  ]) {
     const invalid = makeJetStreamBroker({ streamInfoThrows: false, consumerInfo, brokerConfig: { jetstreamProvisioning: "client" } });
     await assert.rejects(invalid.broker.subscribeWithAck({ subject: "msg.agent-receiver", consumerId: "agent-receiver", dedupe: {}, onMessage: async () => {} }), /consumer-missing|policy-mismatch/);
     assert.deepEqual(invalid.consumersAdded, []);
@@ -326,17 +334,18 @@ test("JetStream poison-message terminal failure is acked", async () => {
 });
 
 test("JetStream ACK correlation consumes durable ack subject and updates outbox", async () => {
-  const ack = createAck(envelope.msgId, "agent-receiver", "ack");
+  const keys = await createSigningKeyPair();
+  const bound = createBoundAck(envelope, "agent-receiver", "ack");
+  const ack = { ...bound, signature: await signEnvelope(stableAckPayload(bound), keys.privateKey) };
   const { broker, consumersAdded, acked } = makeJetStreamBroker({
     messages: [sc.encode(JSON.stringify(ack))],
   });
   const marked = [];
   const outbox = {
-    async markAcked(msgId) {
-      marked.push(["acked", msgId]);
-    },
-    async markFailed(msgId, reason) {
-      marked.push(["failed", msgId, reason]);
+    async getOutboxRecord() { return { status: "sent", envelope }; },
+    async applyAckTransition(msgId, status) {
+      marked.push([status, msgId]);
+      return "applied";
     },
   };
 
@@ -344,13 +353,14 @@ test("JetStream ACK correlation consumes durable ack subject and updates outbox"
     outbox,
     ackSubject: "ack.agent-sender",
     consumerId: "agent-sender-ack",
+    verifyAck: (candidate) => verifyEnvelopeSignature(stableAckPayload(candidate), candidate.signature, keys.publicKey),
   });
 
   await new Promise((resolve) => setTimeout(resolve, 20));
 
   assert.equal(consumersAdded[0].config.durable_name, "agent-sender-ack");
   assert.equal(consumersAdded[0].config.filter_subject, "ack.agent-sender");
-  assert.deepEqual(marked, [["acked", envelope.msgId]]);
+  assert.deepEqual(marked, [["ack", envelope.msgId]]);
   assert.equal(acked.length, 1);
 });
 

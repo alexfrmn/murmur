@@ -70,6 +70,22 @@ export interface SignedAckV1 {
 
 export type UnsignedAckV1 = Omit<SignedAckV1, "signature">;
 
+/** Missing key material is not evidence of an invalid cryptographic signature. */
+export type AckVerificationResult = boolean | "key-unavailable";
+
+/** Shared by every transport. New typed outcomes must be handled explicitly. */
+export function ackVerificationFailure(result: AckVerificationResult): string | null {
+  switch (result) {
+    case true: return null;
+    case false: return "signature-invalid";
+    case "key-unavailable": return "signature-key-unavailable";
+  }
+  const exhaustive: never = result;
+  void exhaustive;
+  // JavaScript callers can violate the type. Never treat unknown truthy values as proof.
+  return "signature-verifier-result-invalid";
+}
+
 export const envelopeDigest = (envelope: EnvelopeV1): string =>
   `sha256:${createHash("sha256").update(stableEnvelopePayload(envelope)).digest("hex")}`;
 
@@ -567,6 +583,8 @@ export function isRecoverableRejection(reason: string): boolean {
 export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckReceiptStore {
   private readonly db: DatabaseSync;
 
+  close(): void { this.db.close(); }
+
   constructor(dbPath = ".data/murmur.db") {
     ensureDir(dbPath);
     this.db = new DatabaseSync(dbPath);
@@ -923,13 +941,14 @@ export type AppendedMessageRecord = LocalMessageRecord & { rowid: number; duplic
  *   inflight — a wake is running right now (claimed by exactly one worker)
  *   failed   — the wake threw or timed out; retried once `nextAttemptAt` passes
  *   handled  — the wake completed (and, for relay peers, the reply was queued)
+ *   stored-only — no responder configured; stored without any wake effect
  *   muted    — an intentional non-wake: policy, audit, lease, loop-breaker
  *   dlq      — gave up after `maxAttempts`, or the error was not retryable
  *
  * Legacy rows written before this state existed carry NULL: outside the queue, never
  * replayed — the same seeding rule wake-drain applies to a fresh cursor.
  */
-export type WakeDeliveryStatus = "pending" | "inflight" | "failed" | "handled" | "muted" | "dlq";
+export type WakeDeliveryStatus = "pending" | "inflight" | "failed" | "handled" | "stored-only" | "muted" | "dlq";
 
 export const OPEN_WAKE_STATUSES: ReadonlySet<WakeDeliveryStatus> = new Set<WakeDeliveryStatus>(["pending", "inflight", "failed"]);
 
@@ -1008,6 +1027,7 @@ export interface MessageEventRecord {
 }
 
 export class SQLiteMessageStore {
+  close(): void { this.db.close(); }
   private readonly db: DatabaseSync;
 
   constructor(dbPath = ".data/murmur.db") {

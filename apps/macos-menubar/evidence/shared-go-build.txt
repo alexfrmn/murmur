@@ -1,0 +1,2 @@
+/private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/apps/macos-menubar/go-shared/dist/Murmur Shared Go.app: replacing existing signature
+/private/tmp/murmur-product-review-20260919/.worktrees/mac-menubar-spike-0919/apps/macos-menubar/go-shared/dist/Murmur Shared Go.app

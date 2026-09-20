@@ -29,6 +29,41 @@ endpoints without it because nats.js does not otherwise perform an IP hostname
 check. The `serverName` field is optional for DNS URLs such as the example
 above. Never put credentials in the URL.
 
+## Shared client options contract
+
+Every package that connects to NATS must pass the same
+`SecureNatsClientConfig` shape to `buildSecureNatsConnectionOptions`:
+
+```ts
+{
+  url,
+  token,                  // token auth, or
+  user, password,         // the complete user/password pair
+  tls: {
+    caFile,
+    certFile, keyFile,    // the complete client-certificate pair
+    serverName,
+    handshakeFirst
+  }
+}
+```
+
+The profile mapping is mechanical: `natsUrl` becomes `url`, `natsToken` becomes
+`token`, `natsUser`/`natsPassword` become `user`/`password`, and `natsTls`
+becomes `tls`. Token and user/password authentication are mutually exclusive.
+Callers must not rebuild this validation or pass raw `nats.js` TLS options.
+
+Setup and packaging own filesystem validation: accept credentials and CA/client
+certificate material through private-file inputs, resolve file paths to absolute
+paths before writing the selected profile, and preserve the cert/key pairing.
+Core owns transport validation: remote plaintext fails with
+`nats-plaintext-non-loopback-rejected`; only exact loopback hosts may use
+`nats://`; TLS certificate and hostname validation cannot be disabled. A remote
+`tls://` token profile remains technically connectable for migration, but it
+does not satisfy the per-peer credential cutover policy. The current canonical
+setup CLI exposes token-file input only, so adding user/password and TLS-file
+inputs there is a merge gate for this cutover.
+
 ## Server policy
 
 TLS must be required; do not set `allow_non_tls`. A minimal two-peer core-NATS

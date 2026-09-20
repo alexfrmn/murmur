@@ -7,12 +7,107 @@ on:
     branches: [main]
 
 jobs:
+  runtime-bundle:
+    name: Build runtime ZIP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Build only from selected Git commit
+        run: node scripts/build-runtime-bundle.mjs --ref HEAD --out "$RUNNER_TEMP/runtime-output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-bundle
+          path: ${{ runner.temp }}/runtime-output/*
+
+  runtime-windows:
+    name: Runtime ZIP (Windows)
+    needs: runtime-bundle
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-bundle
+          path: runtime-download
+      - name: Extract without installing dependencies and probe CLI and MCP
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem runtime-download/murmur-runtime-*.zip
+          if ($archive.Count -ne 1) { throw 'Expected exactly one runtime archive' }
+          $sum = (Get-Content runtime-download/SHA256SUMS.txt).Split(' ')[0]
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLower() -ne $sum) { throw 'Archive checksum mismatch' }
+          Expand-Archive $archive.FullName -DestinationPath 'runtime with spaces'
+          node scripts/check-runtime-bundle.mjs 'runtime with spaces/runtime'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
+
+  windows-bundle:
+    name: Windows companion ZIP
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache-dependency-path: |
+            spikes/windows-tray-go/go.sum
+            spikes/windows-service-go/go.sum
+      - name: Verify packaging refusals and inventories
+        run: node --test tests/windows-bundle.test.mjs
+      - name: Build the complete companion from this exact commit
+        shell: pwsh
+        run: |
+          node scripts/build-windows-bundle.mjs --ref HEAD --out "$env:RUNNER_TEMP/windows-output"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows bundle build failed' }
+          $archive = @(Get-ChildItem "$env:RUNNER_TEMP/windows-output/Murmur-Windows-*-x64.zip")
+          if ($archive.Count -ne 1) { throw 'Expected one Windows bundle' }
+          Expand-Archive $archive[0].FullName -DestinationPath "$env:RUNNER_TEMP/windows extracted"
+          node "$env:RUNNER_TEMP/windows extracted/check-windows-bundle.mjs" "$env:RUNNER_TEMP/windows extracted"
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted Windows inventory or native version differs' }
+          node "$env:RUNNER_TEMP/windows extracted/runtime/packages/setup/bin/murmur.mjs" version --json
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted CLI failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-companion-bundle
+          path: ${{ runner.temp }}/windows-output/*
+          if-no-files-found: error
+
+  updates-windows:
+    name: Update CLI (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Check update CLI, cache and preferences without network
+        run: node --test tests/setup-updates.test.mjs
+      - name: Check Claude statusline native Windows composition
+        run: node --test tests/claude-statusline-windows.test.mjs
+
   build-and-test:
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: ['22.13.0', '22.x']
 
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +121,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check public workspace dependency versions
+        run: node scripts/prep-publish.mjs --check
+
+      - name: Check documented Node requirements
+        run: node scripts/check-node-requirements.mjs
+
       - name: Build
         run: npm run build
 
@@ -34,3 +135,91 @@ jobs:
 
       - name: Unit tests
         run: node --test tests/*.test.mjs
+
+  # Go-часть: значок и адаптер службы под Windows. Собирается и проверяется на Windows
+  # намеренно — оба модуля целиком платформенные, и проверка на Linux доказывала бы не то.
+  go:
+    name: Go (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/windows-tray-go/go.mod
+          cache-dependency-path: spikes/windows-tray-go/go.sum
+
+      - name: Formatting
+        shell: bash
+        run: |
+          bad=$(gofmt -l spikes)
+          if [ -n "$bad" ]; then
+            echo "Эти файлы не отформатированы:"
+            echo "$bad"
+            exit 1
+          fi
+
+      # Прогон по образцам — главное здесь. Он сверяет вердикты реализации с ожиданиями,
+      # записанными рядом со входом, и именно он не даёт двум нативным реализациям
+      # разъехаться незаметно.
+      - name: Tray — vet, build, conformance
+        shell: bash
+        working-directory: spikes/windows-tray-go
+        env:
+          MURMUR_TRAY_CLIPBOARD_TEST: '1'
+        run: |
+          go vet ./...
+          go build -ldflags "-H windowsgui" -o murmur-tray.exe .
+          go test ./... -v
+
+      - name: Tray launcher — real native binding and rejection checks
+        run: node --test tests/windows-tray-launcher.test.mjs
+
+      # Модуль службы появится в дереве вместе со своим PR; до тех пор шаг пропускается,
+      # чтобы задача жила в main самостоятельно.
+      - name: Service — vet, build, tests
+        shell: bash
+        working-directory: .
+        run: |
+          if [ ! -f spikes/windows-service-go/go.mod ]; then
+            echo "Модуль службы ещё не в дереве, шаг пропущен."
+            exit 0
+          fi
+          cd spikes/windows-service-go
+          go vet ./...
+          go build -o murmur-svc.exe .
+          go test ./...
+        env:
+          # Приёмка службы ставит настоящую службу Windows и по умолчанию не гоняется:
+          # на общих раннерах это долго и меняет состояние машины. Локально включается
+          # переменной MURMUR_SVC_E2E=1.
+          MURMUR_SVC_E2E: ''
+
+  windows-installer:
+    name: Windows installer preflight
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - run: node --test tests/windows-installer.test.mjs
+
+  windows-service-cli:
+    name: Windows CLI adapter
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: node --test tests/setup-windows.test.mjs

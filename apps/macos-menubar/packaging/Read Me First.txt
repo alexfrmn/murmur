@@ -1,0 +1,28 @@
+Murmur for Mac
+
+1. Move Murmur to Applications.
+2. Open Murmur from Applications.
+3. Use the Murmur icon in the menu bar to choose your profile folder.
+
+The app includes the Murmur engine. Opening it requires no Terminal commands or code build.
+Creating a profile, connecting your agent client and installing its background service
+still use Murmur CLI. The app does not create a profile or install a service automatically.
+
+A compatible Node.js installation is required. If it is missing or too old, Murmur
+shows a link to the official Node.js website and a Try again button.
+English is the default app language. Choose Language → Русский to switch to Russian.
+macOS dialogs use your system language.
+
+First opening
+
+This build has an ad-hoc signature, without Developer ID or Apple notarization.
+macOS may show a warning with no Open button. On macOS 26.6.2 with a Russian interface,
+the tested path was: open the installed app → Done (Готово) → right-click Murmur →
+Open (Открыть). No second dialog appeared in that test; no password or Touch ID was requested.
+
+Other macOS versions may require opening System Settings → Privacy & Security and
+allowing this specific app. Apple documents that route here:
+https://support.apple.com/102445
+
+Button names and the available route depend on your macOS version and language.
+A DMG does not remove macOS security warnings. Keep Gatekeeper enabled.

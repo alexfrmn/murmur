@@ -1,0 +1,221 @@
+import { constants } from 'node:fs';
+import { mkdir, open, rmdir, lstat, unlink, realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import { SQLiteDedupeOutboxStore } from '@murmurv2/core';
+import { createKeyPair, createSigningKeyPair } from '@murmurv2/security';
+import { loadConfig, readJsonSnapshot, validateConfig, validAgentId, type AgentConfig, type PeerConfig } from './config.js';
+import { readBrokerInputs, type BrokerInputFiles, type BrokerAuthConfig } from './broker-input.js';
+import { restoreExactBackup, writeExactBackup, writeState } from './state.js';
+import type { ServiceContext } from './types.js';
+
+async function privateText(file: string): Promise<string> {
+  if (!path.isAbsolute(file)) throw new Error('onboarding.file-must-be-absolute');
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > 16384) throw new Error('onboarding.file-invalid');
+    const bytes=Buffer.alloc(16385);let offset=0;
+    while(offset<bytes.length){const result=await handle.read(bytes,offset,bytes.length-offset,null);if(result.bytesRead===0)break;offset+=result.bytesRead;}
+    const after=await handle.stat();
+    if(offset>16384 || after.dev!==info.dev || after.ino!==info.ino || after.size!==info.size || offset!==info.size) throw new Error('onboarding.file-changed');
+    return bytes.subarray(0,offset).toString('utf8').trim();
+  } finally { await handle.close(); }
+}
+/** Resolve existing ancestors without erasing symlink/.. filesystem semantics. */
+async function canonicalPath(file: string): Promise<string> {
+  try { return await realpath(file); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const parent = path.dirname(file);
+    if (parent === file) throw error;
+    return path.join(await canonicalPath(parent), path.basename(file));
+  }
+}
+async function validateOutput(c: ServiceContext, file: string) {
+  if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
+  let parent: string;
+  try { parent = await realpath(path.dirname(file)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('onboarding.output-parent-required');
+    throw error;
+  }
+  if (!(await stat(parent)).isDirectory()) throw new Error('onboarding.output-parent-required');
+  // A nonexistent output parent must not become valid as a side effect of profile creation.
+  // On case-insensitive APFS, differently spelled missing paths can name that same directory.
+  const target = path.join(parent, path.basename(file)), profile = await canonicalPath(c.dataDir);
+  const relative = path.relative(profile, target);
+  if (!relative || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) {
+    throw new Error('onboarding.output-inside-profile');
+  }
+  const profileInfo = await stat(c.dataDir).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  });
+  // Existing path aliases are compared by filesystem identity, not by lowercasing names.
+  if (profileInfo) for (let ancestor = parent; ; ancestor = path.dirname(ancestor)) {
+    const info = await stat(ancestor);
+    if (info.dev === profileInfo.dev && info.ino === profileInfo.ino) throw new Error('onboarding.output-inside-profile');
+    if (path.dirname(ancestor) === ancestor) break;
+  }
+}
+async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<(() => Promise<void>) | void>) {
+  if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
+  const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+  let rollback: (() => Promise<void>) | undefined;
+  try {
+    const candidateRollback = await beforeWrite?.();
+    rollback = typeof candidateRollback === 'function' ? candidateRollback : undefined;
+    await handle.writeFile(prefix + Buffer.from(JSON.stringify(value)).toString('base64') + '\n'); await handle.sync();
+    await handle.close();
+  } catch (error) {
+    await handle.close().catch(() => {});
+    try { await rollback?.(); }
+    catch { await unlink(file).catch(() => {}); throw new Error('onboarding.rollback-uncertain'); }
+    await unlink(file).catch(() => {}); throw error;
+  }
+}
+async function locked<T>(c: ServiceContext, fn: () => Promise<T>) {
+  await mkdir(c.dataDir, { recursive: true, mode: 0o700 });
+  const lock = path.join(c.dataDir, '.setup-write.lock');
+  await mkdir(lock, { mode: 0o700 });
+  try { return await fn(); } finally { await rmdir(lock); }
+}
+interface ExistingConfig { config: AgentConfig; bytes: Buffer }
+async function existing(c: ServiceContext): Promise<ExistingConfig | null> {
+  try {
+    const snapshot = await readJsonSnapshot(c.configPath);
+    return { config: validateConfig(snapshot.value), bytes: snapshot.bytes };
+  } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
+}
+async function newConfig(agentId: string, url: string, auth: BrokerAuthConfig = {}): Promise<AgentConfig> {
+  if (!validAgentId(agentId)) throw new Error('config.identity-invalid');
+  return validateConfig({ agentId, subject: `msg.${agentId}`, natsUrl: url, ...auth,
+    keys: { encryption: await createKeyPair(), signing: await createSigningKeyPair() }, peers: {},
+    wake: { enabled: true }, ackSecurity: { emitSigned: true, requireSigned: true } });
+}
+async function saveChanged(c: ServiceContext, previous: ExistingConfig | null, next: AgentConfig) {
+  validateConfig(next);
+  if (previous && isDeepStrictEqual(previous.config, next)) return { backup:null, rollback:async()=>{} };
+  const backup = previous ? path.join(c.dataDir, `agent-config.backup-${randomUUID()}.json`) : null;
+  if (backup) await writeExactBackup(c, backup, previous!.bytes);
+  const rollback = async () => {
+    if (previous && backup) {
+      await restoreExactBackup(c, backup, c.configPath, previous.bytes);
+      if (!(await readJsonSnapshot(c.configPath)).bytes.equals(previous.bytes)) throw new Error('onboarding.restore-verification-failed');
+      await unlink(backup).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+    } else {
+      await unlink(c.configPath).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      await unlink(path.join(c.dataDir, 'read-state.json')).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+    }
+  };
+  try {
+    await writeState(c, c.configPath, next);
+    if (!previous) await writeState(c, path.join(c.dataDir, 'read-state.json'), { schema: 'murmur.read/1', agentId: next.agentId, rowid: 0 });
+  } catch {
+    try { await rollback(); } catch { throw new Error('onboarding.config-write-uncertain'); }
+    throw new Error('onboarding.config-write-failed');
+  }
+  return { backup, rollback };
+}
+const publicPeer = (c: AgentConfig) => ({ agentId: c.agentId, subject: c.subject,
+  encryption: { publicKey: c.keys.encryption.publicKey }, signing: { publicKey: c.keys.signing.publicKey } });
+async function readBlob(file: string, prefix: string, type: 'invite' | 'reply') {
+  const text = await privateText(file);
+  if (!text.startsWith(prefix)) throw new Error('onboarding.invalid-blob');
+  const encoded = text.slice(prefix.length);
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || Buffer.from(encoded, 'base64').toString('base64') !== encoded) throw new Error('onboarding.invalid-blob');
+  let value;
+  try { value = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')); } catch { throw new Error('onboarding.invalid-blob'); }
+  if (!value || value.v !== 1 || value.type !== type || !validAgentId(value.agentId) || value.subject !== `msg.${value.agentId}`) throw new Error('onboarding.invalid-peer');
+  const allowed = type === 'invite'
+    ? new Set(['v','type','agentId','subject','encryption','signing','natsUrl','natsToken'])
+    : new Set(['v','type','agentId','subject','encryption','signing']);
+  if (Object.keys(value).some(key => !allowed.has(key))
+    || !value.encryption || typeof value.encryption !== 'object' || Array.isArray(value.encryption) || Object.keys(value.encryption).some(key => key !== 'publicKey')
+    || !value.signing || typeof value.signing !== 'object' || Array.isArray(value.signing) || Object.keys(value.signing).some(key => key !== 'publicKey')) {
+    throw new Error('onboarding.invalid-blob-fields');
+  }
+  for (const key of [value.encryption?.publicKey, value.signing?.publicKey]) {
+    if (typeof key !== 'string' || Buffer.from(key, 'base64').length !== 32 || Buffer.from(key, 'base64').toString('base64') !== key) throw new Error('onboarding.invalid-peer-key');
+  }
+  if (type === 'invite' && (typeof value.natsUrl !== 'string' || (value.natsToken !== undefined && typeof value.natsToken !== 'string')
+    || value.natsUser !== undefined || value.natsPassword !== undefined || value.natsTls !== undefined)) throw new Error('onboarding.invalid-broker');
+  return value;
+}
+function addPeer(config: AgentConfig, peer: { agentId: string; subject: string; encryption: { publicKey: string }; signing: { publicKey: string } }): AgentConfig {
+  if (peer.agentId === config.agentId) throw new Error('onboarding.self-peer');
+  const previous = config.peers[peer.agentId];
+  if (previous && (previous.subject !== peer.subject || previous.encryption.publicKey !== peer.encryption.publicKey || previous.signing.publicKey !== peer.signing.publicKey)) throw new Error('onboarding.peer-key-conflict');
+  const next: PeerConfig = previous ?? { subject: peer.subject, encryption: { publicKey: peer.encryption.publicKey }, signing: { publicKey: peer.signing.publicKey } };
+  return { ...config, peers: { ...config.peers, [peer.agentId]: next } };
+}
+const brokerPart = (c: AgentConfig): BrokerAuthConfig => ({ ...(c.natsToken ? { natsToken: c.natsToken } : {}),
+  ...(c.natsUser ? { natsUser: c.natsUser } : {}), ...(c.natsPassword ? { natsPassword: c.natsPassword } : {}), ...(c.natsTls ? { natsTls: c.natsTls } : {}) });
+
+export async function initialize(c: ServiceContext, options: { agentId: string; brokerUrl: string } & BrokerInputFiles) {
+  const supplied = await readBrokerInputs(options);
+  return locked(c, async () => {
+    const previous = await existing(c);
+    if (previous) {
+      if (previous.config.agentId !== options.agentId || previous.config.natsUrl !== options.brokerUrl
+        || (Object.keys(supplied).length > 0 && !isDeepStrictEqual(brokerPart(previous.config), supplied))) throw new Error('onboarding.existing-profile-conflict');
+      // Re-running init never rotates keys or replaces credentials.
+      return { schema: 'murmur.init/1', agentId: previous.config.agentId, dataDir: c.dataDir, existing: true };
+    }
+    const config = await newConfig(options.agentId, options.brokerUrl, supplied);
+    await saveChanged(c, null, config);
+    return { schema: 'murmur.init/1', agentId: config.agentId, dataDir: c.dataDir, existing: false };
+  });
+}
+export async function invite(c: ServiceContext, outFile: string) {
+  await validateOutput(c, outFile);
+  const config = await loadConfig(c);
+  await outputBlob(outFile, { v: 1, type: 'invite', ...publicPeer(config), natsUrl: config.natsUrl }, 'MURMUR:');
+  return { schema: 'murmur.invite/1', file: outFile, containsBrokerCredential: false,
+    instruction: 'This file carries your identity and the broker address, but no broker credential. Send it through a channel you trust. Importing it does not prove pairing.' };
+}
+export async function join(c: ServiceContext, options: { agentId: string; inviteFile: string; replyOut: string } & BrokerInputFiles) {
+  await validateOutput(c, options.replyOut);
+  const incoming = await readBlob(options.inviteFile, 'MURMUR:', 'invite');
+  const supplied = await readBrokerInputs(options);
+  return locked(c, async () => {
+    const previous = await existing(c);
+    if (incoming.natsToken !== undefined && Object.keys(supplied).length) throw new Error('nats-auth-methods-conflict');
+    const auth = Object.keys(supplied).length ? supplied : (incoming.natsToken ? { natsToken: incoming.natsToken } : {});
+    if (previous && (previous.config.agentId !== options.agentId || previous.config.natsUrl !== incoming.natsUrl
+      || (Object.keys(auth).length > 0 && !isDeepStrictEqual(brokerPart(previous.config), auth)))) throw new Error('onboarding.existing-profile-conflict');
+    const config = previous?.config ?? await newConfig(options.agentId, incoming.natsUrl, auth);
+    const next = addPeer(config, incoming);
+    let backup: string | null = null;
+    // Reserve the reply path before changing config: an existing output must not half-import a profile.
+    await outputBlob(options.replyOut, { v: 1, type: 'reply', ...publicPeer(next) }, 'MURMUR-REPLY:', async () => {
+      const saved = await saveChanged(c, previous, next); backup = saved.backup; return saved.rollback;
+    });
+    return { schema: 'murmur.join/1', agentId: next.agentId, peerId: incoming.agentId, paired: null, replyFile: options.replyOut, backup,
+      legacyCredentialImported: incoming.natsToken !== undefined && Object.keys(supplied).length === 0, restartRequired: true };
+  });
+}
+async function clearPeerPoison(c: ServiceContext, peerId: string) {
+  try {
+    const info = await lstat(c.storePath);
+    if (!info.isFile()) throw new Error('onboarding.store-invalid');
+    const store = new SQLiteDedupeOutboxStore(c.storePath);
+    try { return { cleared: await store.clearPoisonedFrom(peerId), reason: null }; }
+    finally { store.close(); }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { cleared: 0, reason: null };
+    // Key import succeeded; an unreadable/locked store must not be reported as zero cleared.
+    return { cleared: null, reason: 'onboarding.poison-reset-failed' };
+  }
+}
+export async function importPeer(c: ServiceContext, replyFile: string) {
+  const incoming = await readBlob(replyFile, 'MURMUR-REPLY:', 'reply');
+  return locked(c, async () => {
+    const snapshot = await readJsonSnapshot(c.configPath), previous = { config:validateConfig(snapshot.value), bytes:snapshot.bytes }, next = addPeer(previous.config, incoming);
+    const saved = await saveChanged(c, previous, next);
+    return { schema: 'murmur.peer/1', peerId: incoming.agentId, paired: null, backup:saved.backup,
+      poisonReset: await clearPeerPoison(c, incoming.agentId), restartRequired: true };
+  });
+}

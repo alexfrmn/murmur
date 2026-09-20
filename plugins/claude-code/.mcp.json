@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "murmur": {
+      "command": "${user_config.node_command}",
+      "args": ["${user_config.murmur_entrypoint}", "mcp", "serve", "--data-dir", "${user_config.data_dir}"]
+    }
+  }
+}

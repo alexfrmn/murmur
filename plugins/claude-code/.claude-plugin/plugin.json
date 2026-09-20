@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "murmur",
+  "displayName": "Murmur",
+  "version": "0.1.0",
+  "description": "Read and send Murmur messages through MCP, with explicit inbox and terminal status helpers.",
+  "author": {
+    "name": "Murmur contributors"
+  },
+  "repository": "https://github.com/alexfrmn/murmur",
+  "license": "MIT",
+  "keywords": ["murmur", "mcp", "messaging", "statusline"],
+  "defaultEnabled": false,
+  "userConfig": {
+    "node_command": {
+      "type": "file",
+      "title": "Node.js command",
+      "description": "Absolute path to the Node.js executable used to run Murmur.",
+      "required": true
+    },
+    "murmur_entrypoint": {
+      "type": "file",
+      "title": "Murmur CLI entrypoint",
+      "description": "Absolute path to packages/setup/bin/murmur.mjs in an installed or runtime-bundle copy of Murmur.",
+      "required": true
+    },
+    "data_dir": {
+      "type": "directory",
+      "title": "Murmur profile",
+      "description": "Absolute path to the Murmur profile used by this Claude Code instance.",
+      "required": true
+    }
+  }
+}
