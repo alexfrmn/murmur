@@ -139,3 +139,34 @@ test('Windows launcher persists an explicit Russian tray locale', { skip: proces
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('Windows launcher does not overwrite locale while rejecting a profile', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Murmur invalid profile locale '));
+  try {
+    await cp(path.join(root, 'apps/windows-tray/packaging'), dir, { recursive: true });
+    await cp(binary, path.join(dir, 'murmur-tray.exe'));
+    const profile = path.join(dir, 'profile'), localAppData = path.join(dir, 'local-app-data');
+    const entry = path.join(dir, 'runtime/packages/setup/bin/murmur.mjs');
+    const preferencePath = path.join(localAppData, 'Murmur/tray-preferences.json');
+    await mkdir(profile);
+    await mkdir(path.dirname(entry), { recursive: true });
+    await mkdir(path.dirname(preferencePath), { recursive: true });
+    await writeFile(preferencePath, JSON.stringify({ schema: 'murmur.tray-preferences/1', locale: 'ru' }));
+    const status = structuredClone(fixture);
+    status.agentId = null;
+    await writeFile(entry, `
+      const args=process.argv.slice(2);
+      if(args[0]==='version') console.log(JSON.stringify({schema:'murmur.version/1',version:'2.9.0'}));
+      else { const status=${JSON.stringify(status)}; status.generatedAt=new Date().toISOString(); console.log(JSON.stringify(status)); }
+    `);
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(dir, 'Open-Murmur.ps1'),
+      '-NodePath', process.execPath, '-DataDir', profile, '-Check'], {
+      timeout: 20_000, encoding: 'utf8', windowsHide: true, env: { ...process.env, LOCALAPPDATA: localAppData },
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    const preference = JSON.parse(await readFile(preferencePath, 'utf8'));
+    assert.deepEqual(preference, { schema: 'murmur.tray-preferences/1', locale: 'ru' });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

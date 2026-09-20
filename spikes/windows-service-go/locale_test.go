@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -82,5 +83,17 @@ func TestHelperRejectsMissingOrUnknownLanguage(t *testing.T) {
 		if _, err := parseHelperArguments(args); err == nil || strings.TrimSpace(err.Error()) == "" {
 			t.Fatalf("accepted invalid arguments %q", args)
 		}
+	}
+}
+
+func TestLocalizedErrorPreservesCause(t *testing.T) {
+	cause := errors.New("sentinel")
+	err := trError("error.admin", cause, cause)
+	if !errors.Is(err, cause) {
+		t.Fatalf("localized error lost its cause: %v", err)
+	}
+	var localized *localizedError
+	if !errors.As(err, &localized) || localized.cause != cause {
+		t.Fatalf("localized error cannot be inspected: %#v", err)
 	}
 }

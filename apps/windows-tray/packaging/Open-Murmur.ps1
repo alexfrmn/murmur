@@ -4,7 +4,7 @@ param(
     [string]$DataDir,
     [string]$NodePath,
     [string]$ServiceName,
-    [ValidateSet('en','ru')][string]$Language = 'en',
+    [ValidateSet('en','ru')][string]$Language,
     [switch]$Check
 )
 $ErrorActionPreference='Stop'
@@ -66,14 +66,16 @@ try {
     if($ServiceName -and $ServiceName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$'){throw 'Invalid service name.'}
     $version=Start-Bound -file $NodePath -arguments @('--no-warnings',$cli,'version','--json') -ReadResult
     if($version.schema -ne 'murmur.version/1'){throw 'Use the matching current CLI runtime.'}
-    $probe=Start-Bound -file $tray -arguments @('--check-profile','--lang',$Language) -ReadResult
+    $languageArguments=@()
+    if($PSBoundParameters.ContainsKey('Language')){$languageArguments=@('--lang',$Language)}
+    $probe=Start-Bound -file $tray -arguments (@('--check-profile')+$languageArguments) -ReadResult
     if($probe.schema -ne 'murmur.tray-probe/1' -or -not $probe.agentId){throw 'The tray could not confirm a profile identity.'}
     $expectedAgent=$probe.agentId
     if($Check){@{schema='murmur.windows-launcher/1';version=$version.version;agentId=$probe.agentId;dataDir=$DataDir;probe=$probe} | ConvertTo-Json -Depth 20;exit 0}
     # Do not stop an existing app or replace its selected profile implicitly.
     $running=Get-CimInstance Win32_Process -Filter "Name='murmur-tray.exe'" | Where-Object { $_.ExecutablePath -eq $tray }
     if($running){throw 'This tray is already running. Quit it from its menu before choosing another profile.'}
-    $launched=Start-Bound -file $tray -arguments @('--launch','--lang',$Language) -ReadResult
+    $launched=Start-Bound -file $tray -arguments (@('--launch')+$languageArguments) -ReadResult
     if($launched.schema -ne 'murmur.tray-launch/1' -or $launched.pid -le 0){throw 'Tray launch was not confirmed.'}
     Write-Host "Murmur opened for $($probe.agentId). The service continues independently."
     exit 0

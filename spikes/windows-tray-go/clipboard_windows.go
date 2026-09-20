@@ -43,9 +43,9 @@ func toClipboard(data []byte) error {
 	hideConsole(cmd)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("%s", tr("clipboard.commandFailed", ctx.Err(), strings.TrimSpace(stderr.String())))
+			return trError("clipboard.commandFailed", ctx.Err(), ctx.Err(), strings.TrimSpace(stderr.String()))
 		}
-		return fmt.Errorf("%s", tr("clipboard.commandFailed", err, strings.TrimSpace(stderr.String())))
+		return trError("clipboard.commandFailed", err, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }

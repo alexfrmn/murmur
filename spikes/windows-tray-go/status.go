@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"regexp"
 	"sort"
@@ -472,7 +471,7 @@ func fetchStatus(ctx context.Context) (*Status, error) {
 		}
 		var err error
 		if buf, err = os.ReadFile(path); err != nil {
-			return nil, fmt.Errorf("%s", tr("status.fileFallback", cliErr, err))
+			return nil, trError("status.fileFallback", err, cliErr, err)
 		}
 	}
 	return parseStatus(buf)
@@ -506,7 +505,7 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 	// Ответ, нарушающий собственное правило цепочки, показывать нельзя: человек прочтёт
 	// этапы после отказа как измеренные.
 	if err := validateDoctor(&d); err != nil {
-		return nil, errors.New(tr("doctor.chain", err))
+		return nil, trError("doctor.chain", err, err)
 	}
 	return &d, nil
 }

@@ -164,11 +164,11 @@ func secureDir(path string) error {
 	}
 	sd, err := windows.SecurityDescriptorFromString("D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)")
 	if err != nil {
-		return errors.New(tr("acl.build", err))
+		return trError("acl.build", err, err)
 	}
 	dacl, _, err := sd.DACL()
 	if err != nil {
-		return errors.New(tr("acl.read", err))
+		return trError("acl.read", err, err)
 	}
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
@@ -315,7 +315,7 @@ func resolveSpec() (*launchSpec, error) {
 		}
 	}
 	if err := os.MkdirAll(data, 0o755); err != nil {
-		return nil, errors.New(tr("error.profileDir", data, err))
+		return nil, trError("error.profileDir", err, data, err)
 	}
 	return &launchSpec{Node: node, Entry: entry, WorkDir: workDir, DataDir: data, RestartsPerHourLimit: limit}, nil
 }
@@ -333,7 +333,7 @@ func install() error {
 	// работающую службу. Наличие проверки и её своевременность — разные вещи.
 	m, err := mgr.Connect()
 	if err != nil {
-		return errors.New(tr("error.admin", err))
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 
@@ -344,7 +344,7 @@ func install() error {
 		}
 		return errors.New(tr("error.alreadyInstalled", svcName()))
 	} else if !serviceAbsent(err) {
-		return errors.New(tr("error.existingCheck", err))
+		return trError("error.existingCheck", err, err)
 	}
 
 	spec, err := resolveSpec()
@@ -360,7 +360,7 @@ func install() error {
 
 	// Дальше начинаются изменения на диске.
 	if err := secureDir(dataDir()); err != nil {
-		return errors.New(tr("error.profileDir", dataDir(), err))
+		return trError("error.profileDir", err, dataDir(), err)
 	}
 	say("%s", tr("data.secured", dataDir()))
 
@@ -381,7 +381,7 @@ func install() error {
 		ErrorControl: mgr.ErrorNormal,
 	}, "run", svcName())
 	if err != nil {
-		return errors.New(tr("error.create", err))
+		return trError("error.create", err, err)
 	}
 	defer s.Close()
 	say("%s", tr("install.registered", svcName()))
@@ -406,7 +406,7 @@ func verifyStart(s *mgr.Service) error {
 	if before.State == svc.Stopped {
 		_ = os.Remove(daemonPIDPath())
 		if err := s.Start(); err != nil {
-			return errors.New(tr("error.start", err))
+			return trError("error.start", err, err)
 		}
 		if err := waitState(s, svc.Running, startTimeout); err != nil {
 			return err
@@ -429,7 +429,7 @@ func verifyStart(s *mgr.Service) error {
 		time.Sleep(500 * time.Millisecond)
 		q, err := s.Query()
 		if err != nil {
-			return errors.New(tr("error.serviceState", err))
+			return trError("error.serviceState", err, err)
 		}
 		if q.State != svc.Running {
 			return errors.New(tr("service.leftRunning", time.Until(deadline).Round(time.Second)))
@@ -450,7 +450,7 @@ func waitState(s *mgr.Service, want svc.State, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		q, err := s.Query()
 		if err != nil {
-			return errors.New(tr("error.serviceState", err))
+			return trError("error.serviceState", err, err)
 		}
 		last = q.State
 		if q.State == want {
@@ -504,13 +504,13 @@ func processAlive(pid int) bool {
 func uninstall() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return errors.New(tr("error.admin", err))
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
 		if !serviceAbsent(err) {
-			return errors.New(tr("error.uninstallState", err))
+			return trError("error.uninstallState", err, err)
 		}
 		// Службы в диспетчере нет — но файлы после отката установки есть, и это ровно
 		// та команда, на которую откат сослался. Отказаться здесь значит не выполнить
@@ -564,7 +564,7 @@ func removeLeftovers() {
 func startAndVerify() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return errors.New(tr("error.admin", err))
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
@@ -585,7 +585,7 @@ func startAndVerify() error {
 func stop() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return errors.New(tr("error.admin", err))
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
@@ -800,10 +800,10 @@ func readStateChecked() (runState, error) {
 	var st runState
 	buf, err := os.ReadFile(statePath())
 	if err != nil {
-		return st, errors.New(tr("error.readState", err))
+		return st, trError("error.readState", err, err)
 	}
 	if err := json.Unmarshal(buf, &st); err != nil {
-		return st, errors.New(tr("error.parseState", err))
+		return st, trError("error.parseState", err, err)
 	}
 	return st, nil
 }
@@ -814,7 +814,7 @@ func readStateChecked() (runState, error) {
 func ownService(s *mgr.Service) error {
 	cfg, err := s.Config()
 	if err != nil {
-		return errors.New(tr("error.readConfig", svcName(), err))
+		return trError("error.readConfig", err, svcName(), err)
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -949,18 +949,18 @@ func resolveSpecFromFile() (*launchSpec, error) {
 	// записью SYSTEM, и созданный кем-то ещё он означает подмену.
 	ok, why, err := trustedFile(specPath())
 	if err != nil {
-		return nil, errors.New(tr("spec.aclRead", specPath(), err))
+		return nil, trError("spec.aclRead", err, specPath(), err)
 	}
 	if !ok {
 		return nil, errors.New(tr("spec.insecure", why))
 	}
 	buf, err := os.ReadFile(specPath())
 	if err != nil {
-		return nil, errors.New(tr("spec.read", specPath(), err))
+		return nil, trError("spec.read", err, specPath(), err)
 	}
 	var spec launchSpec
 	if err := json.Unmarshal(buf, &spec); err != nil {
-		return nil, errors.New(tr("spec.parse", err))
+		return nil, trError("spec.parse", err, err)
 	}
 	if spec.Node == "" || spec.Entry == "" {
 		return nil, errors.New(tr("spec.required"))

@@ -76,7 +76,7 @@ func main() {
 		os.Exit(2)
 	}
 	preferencesPath := defaultPreferencesPath()
-	if options.localeExplicit {
+	if options.localeExplicit && options.mode != "--check-profile" {
 		if err := saveLocalePreference(preferencesPath, options.locale); err != nil {
 			fmt.Fprintln(os.Stderr, tr("language.saveFailed", err))
 			os.Exit(1)
@@ -101,6 +101,12 @@ func main() {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
+		}
+		if options.localeExplicit {
+			if err := saveLocalePreference(preferencesPath, options.locale); err != nil {
+				fmt.Fprintln(os.Stderr, tr("language.saveFailed", err))
+				os.Exit(1)
+			}
 		}
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": "murmur.tray-probe/1", "agentId": s.AgentID, "status": s})
 		return

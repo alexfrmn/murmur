@@ -89,7 +89,7 @@ func invokeCLI(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, errors.New(tr("binding.outputLarge"))
 	}
 	if err != nil {
-		return nil, errors.New(tr("binding.cliFailed", err))
+		return nil, trError("binding.cliFailed", err, err)
 	}
 	return stdout.Bytes(), nil
 }

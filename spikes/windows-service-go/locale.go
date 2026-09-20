@@ -106,6 +106,20 @@ func tr(key string, args ...any) string {
 	return fmt.Sprintf(value, args...)
 }
 
+// localizedError keeps the original error available to errors.Is/errors.As
+// while presenting the selected-language message to a person.
+type localizedError struct {
+	message string
+	cause   error
+}
+
+func (e *localizedError) Error() string { return e.message }
+func (e *localizedError) Unwrap() error { return e.cause }
+
+func trError(key string, cause error, args ...any) error {
+	return &localizedError{message: tr(key, args...), cause: cause}
+}
+
 type helperArguments struct {
 	locale      string
 	positionals []string
