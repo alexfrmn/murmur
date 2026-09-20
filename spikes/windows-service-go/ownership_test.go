@@ -25,7 +25,7 @@ func TestSCMImagePathKeepsQuotedExecutableAndServiceBinding(t *testing.T) {
 	if err := validateServiceImage(windows.ComposeCommandLine([]string{self, "run", name}), self, name); err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range []string{"", " ", windows.ComposeCommandLine([]string{self, "run", "OtherProfile"}), windows.ComposeCommandLine([]string{self, "status", name}), windows.ComposeCommandLine([]string{self, "run", name, "extra"}), `C:\missing.exe run MurmurOwnedTest`} {
+	for _, line := range []string{"", " ", windows.ComposeCommandLine([]string{self, "run", "OtherProfile"}), windows.ComposeCommandLine([]string{self, "status", name}), windows.ComposeCommandLine([]string{self, "run", name, "extra"}), windows.ComposeCommandLine([]string{self, "run", name, "--lang", "ru"}), `C:\missing.exe run MurmurOwnedTest`} {
 		if err := validateServiceImage(line, self, name); err == nil {
 			t.Errorf("accepted foreign or malformed ImagePath %q", line)
 		}

@@ -89,15 +89,15 @@ func holdersOf(path string) ([]uint32, error) {
 // молчания, потому что именно её потом прочитают как измеренный факт.
 func observedStore(dataDir string, daemonPID int) (string, string) {
 	if dataDir == "" {
-		return "", "каталог данных не задан в описании запуска"
+		return "", tr("store.missingData")
 	}
 	if daemonPID <= 0 {
-		return "", "демон не запущен, держать хранилище некому"
+		return "", tr("store.noDaemon")
 	}
 	store := filepath.Join(dataDir, "murmur.db")
 	pids, err := holdersOf(store)
 	if err != nil {
-		return "", "диспетчер перезапуска не ответил: " + err.Error()
+		return "", tr("store.manager", err)
 	}
 	for _, pid := range pids {
 		if int(pid) == daemonPID {
@@ -105,7 +105,7 @@ func observedStore(dataDir string, daemonPID int) (string, string) {
 		}
 	}
 	if len(pids) == 0 {
-		return "", "файл хранилища никто не держит открытым"
+		return "", tr("store.noHolder")
 	}
-	return "", "хранилище держит другой процесс, не наш демон"
+	return "", tr("store.otherHolder")
 }
