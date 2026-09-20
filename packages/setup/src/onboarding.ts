@@ -130,8 +130,13 @@ export async function invite(c: ServiceContext, outFile: string) {
   await validateOutput(c, outFile);
   const config = await loadConfig(c);
   await outputBlob(outFile, { v: 1, type: 'invite', ...publicPeer(config), natsUrl: config.natsUrl, ...(config.natsToken ? { natsToken: config.natsToken } : {}) }, 'MURMUR:');
-  return { schema: 'murmur.invite/1', file: outFile, containsBrokerCredential: !!config.natsToken,
-    instruction: 'Transfer this private invite file through a trusted channel; importing it does not prove pairing.' };
+  // The warning names what is actually inside. A person weighs "password" and "identity"
+  // differently, and the same sentence for both teaches them to ignore it.
+  const containsBrokerCredential = !!config.natsToken;
+  return { schema: 'murmur.invite/1', file: outFile, containsBrokerCredential,
+    instruction: containsBrokerCredential
+      ? 'This file carries the broker address and its credential. Treat it like a password: send it only through a channel you would trust with one. Importing it does not prove pairing.'
+      : 'This file carries your identity and the broker address. Send it through a channel you trust. Importing it does not prove pairing.' };
 }
 export async function join(c: ServiceContext, options: { agentId: string; inviteFile: string; replyOut: string }) {
   await validateOutput(c, options.replyOut);
