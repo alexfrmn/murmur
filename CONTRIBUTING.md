@@ -4,7 +4,7 @@ Thanks for your interest in contributing! This guide will help you get started.
 
 ## Prerequisites
 
-- **Node.js 22+** (LTS recommended)
+- **Node.js 22.13.0+** with working built-in `node:sqlite` (the minimum is defined by `engines.node` in the root manifest)
 - **NATS server** running locally (for integration tests)
 - A working knowledge of TypeScript
 
@@ -16,12 +16,14 @@ Thanks for your interest in contributing! This guide will help you get started.
 4. Install dependencies and verify everything works:
 
 ```bash
-npm install
+npm ci
 npm run build
 npm test
 ```
 
 ## Development Workflow
+
+See [AGENTS.md](AGENTS.md) for the shared implementation boundaries, native acceptance requirements and release evidence rules. They apply to human and automated contributions alike.
 
 - Run unit tests only: `npm run test:unit`
 - Type-check without emitting: `npm run typecheck`

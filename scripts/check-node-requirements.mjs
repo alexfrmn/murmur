@@ -6,6 +6,7 @@ import { MIN_NODE_VERSION } from './runtime-capability.mjs';
 // Windows/site documents join this check when their independent PRs are merged.
 const documents = [
   ['README.md', true],
+  ['CONTRIBUTING.md', true],
   ['docs/wake-native.md', true],
   ['site/index.html', false],
   ['spikes/windows-onboarding/Install-Murmur.ps1', false],
