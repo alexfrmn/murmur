@@ -1,6 +1,9 @@
-# assets/
+# contracts/visual/
 
 `murmur-mark.svg` — the status mark. One file, both platforms, four states.
+
+It sits next to `contracts/setup/v1/` because it is the same kind of thing: an
+agreement two implementations must not drift from.
 
 ## Why a single file
 
@@ -49,6 +52,20 @@ a 4 px edge merges with the nodes into one blob, large nodes without a frame
 swallow the edge, and a 3 px frame on a 40 × 40 square clips at 16 px. The
 failed state was first drawn with a cross on the edge; the cross merged into a
 block and was replaced by the stroke above the break.
+
+## What the file carries besides the paths
+
+`color` on the root gives `currentColor` a value, so opening the file shows the
+mark instead of nothing. `role="img"` with a `<title>` makes it readable by a
+screen reader. `data-schema` names the version, so a consumer can refuse a file
+it does not understand rather than draw something unexpected. The `<use>` at the
+end renders `murmur-ready` with the colour signal, which turns the source into
+its own preview.
+
+The colour signal is a 6 x 4 rectangle at `x 32 y 5`, `#D92027` — the same red
+the site already uses for the packet travelling along the edge. A template image
+drops it, because a template has no colour; the window header, About and the app
+icon keep it.
 
 ## Not for the menu bar
 
