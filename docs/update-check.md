@@ -3,14 +3,16 @@
 `murmur version --json` reports `murmur.version/1`:
 
 ```json
-{"schema":"murmur.version/1","product":"Murmur","version":"2.9.0","source":"root-package-json","comparison":"declared-release-version"}
+{"schema":"murmur.version/1","product":"Murmur","version":"2.10.0","source":"root-package-json","comparison":"declared-release-version"}
 ```
 
 The only version source is the installation's **root `package.json.version`**,
 which is the product release version. Package versions such as setup/core are
 independent. This reports the declared product version, not the revision of a
 source checkout, the contents of an installed artifact, or a live daemon's version.
-Today's source checkout can contain fixes made after the identically numbered tag.
+A modified source checkout can differ from the identically numbered release.
+Use the published release and its recorded source/payload manifest when exact
+installed bytes matter.
 No Git/package-version fallback is used if the root manifest cannot be validated.
 
 `murmur updates check --json` compares that version with the published stable

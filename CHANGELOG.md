@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Pending
+- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
+- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+
+## [2.10.0] - 2026-09-20
+
 ### Fixed
 - **Dependency audit**: update transitive `qs` to 6.16.0, clearing the moderate
   advisories reported by `npm audit` on the previous lockfile.
@@ -41,6 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SELECT`, and the cursor only ever passes a row that was reported or recorded.
 
 ### Added
+- **Prebuilt runtime and desktop companions**: locked portable runtime ZIP, Windows
+  x64 tray/service bundle, and a universal macOS DMG. Node.js remains external;
+  recipients do not need npm, Go, or a source build. Manifests record exact source
+  and payload hashes, and native package versions follow the product version.
+- **Shared onboarding and profile controls**: explicit init/invite/join/client
+  configuration, status/doctor, profile-bound service controls and configured log
+  paths. Desktop shells consume the common CLI and shared setup fixtures.
+- **Stable update notifications**: CLI and desktop companions share a six-hour
+  cache, visible unknown/failure state, explicit opt-out, and an official release
+  page action. Checking does not download, install, or restart anything.
+- **English and Russian interfaces**: English by default on the website and desktop
+  companions, with explicit persisted Russian selection. CLI diagnostics remain
+  English and stable machine codes stay unchanged.
+- **Terminal indicator and Claude Code plugin**: bounded `status --line`, read-only
+  inbox listing, an explicit-profile MCP entry, and a dry-run statusline composer
+  that preserves existing commands without writing user settings.
 - **Optional per-channel NATS subjects** (#90): explicit channel consumers share the
   existing stream, legacy durable cursor and application dedupe identity. Includes
   additive migration/rollback checks, sender opt-in, MCP bridge routing and an
@@ -72,10 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it; if the ledger cannot be written the cursor stays put. All three filters are off by
   default, so an installation that sets none of them behaves exactly as before. Documented
   in `docs/wake-native.md`.
-
-### Pending
-- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
-- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
 
 ## [2.9.0] - 2026-09-12
 
@@ -491,7 +509,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Durable unified notify queue with quick init presets ([e7069d0])
 - Invite-based peer setup -- 3 commands, zero JSON editing ([6a60294])
 
-[Unreleased]: https://github.com/alexfrmn/murmur/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/alexfrmn/murmur/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/alexfrmn/murmur/compare/v2.9.0...v2.10.0
 [2.0.0]: https://github.com/alexfrmn/murmur/compare/v0.2.0...v2.0.0
 [0.2.0]: https://github.com/alexfrmn/murmur/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/alexfrmn/murmur/releases/tag/v0.1.0

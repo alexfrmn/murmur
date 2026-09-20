@@ -34,9 +34,9 @@ Opening the app does not stop or reconfigure existing services.
 
 ## First opening
 
-This pilot app has an ad-hoc signature, without Developer ID or Apple notarization.
+The app has an ad-hoc signature, without Developer ID or Apple notarization.
 A DMG does not remove Gatekeeper warnings. `Read Me First.txt` inside the image
-includes the first-opening instructions; Russian instructions are also included.
+contains the first-opening instructions in English, followed by Russian.
 
 A GitHub download through Safari was tested on macOS 26.6.2 with a Russian interface:
 
@@ -67,7 +67,7 @@ From `apps/macos-menubar`, with a separately built and verified runtime:
 The build host needs Swift, Python 3 and compatible Node. The script validates the
 runtime inventory and hashes, builds both architectures, runs checks for the host
 architecture, packages the English and Russian resources, signs the app ad-hoc,
-and verifies the DMG. The image contains the app, Applications alias and both Read Me files.
+and verifies the DMG. The image contains the app, Applications alias and one bilingual Read Me file.
 Set an absolute `MURMUR_SWIFT_BUILD_ROOT` to reuse build caches; output must be new.
 The version is read from the runtime manifest, not from the filename or release tag.
 Both macOS version fields must match it before signing. The filename is

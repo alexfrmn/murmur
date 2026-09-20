@@ -35,3 +35,9 @@ jobs:
           test "${#archives[@]}" -eq 1
           ditto -x -k "${archives[0]}" "$RUNNER_TEMP/mac-runtime-extracted"
           apps/macos-menubar/packaging/build-dmg.sh "$RUNNER_TEMP/mac-dmg" "$RUNNER_TEMP/mac-runtime-extracted/runtime"
+      - name: Preserve the versioned Mac companion artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-companion-dmg
+          path: ${{ runner.temp }}/mac-dmg/Murmur-Mac-*-universal.dmg
+          if-no-files-found: error
