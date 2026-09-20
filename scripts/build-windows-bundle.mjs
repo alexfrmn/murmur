@@ -8,9 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { stageRuntime, writeZip } from './build-runtime-bundle.mjs';
+import { verifyWindowsBundle } from './check-windows-bundle.mjs';
 
 const HERE = fileURLToPath(import.meta.url);
 const RUNTIME_RECIPE = path.join(path.dirname(HERE), 'build-runtime-bundle.mjs');
+const CHECKER = path.join(path.dirname(HERE), 'check-windows-bundle.mjs');
 const MANIFEST_NAME = 'release-manifest.json';
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -56,11 +58,30 @@ export function parseBuildOptions(args) {
   return { ref: options['--ref'] ?? 'HEAD', output: path.resolve(options['--out']) };
 }
 
+export async function resolveNpmCli(nodeExecutable = process.execPath, environment = process.env) {
+  const explicit = environment.npm_execpath;
+  const candidate = explicit ?? path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (!path.isAbsolute(candidate)) throw new Error('npm_execpath must be an absolute npm-cli.js path');
+  if (path.basename(candidate).toLowerCase() !== 'npm-cli.js') throw new Error('npm_execpath must select npm-cli.js');
+  let stat;
+  try { stat = await fs.lstat(candidate); } catch (error) {
+    if (error.code === 'ENOENT') throw new Error(`npm-cli.js was not found beside Node: ${candidate}`);
+    throw error;
+  }
+  if (!stat.isFile()) throw new Error(`npm-cli.js must be a regular file: ${candidate}`);
+  return candidate;
+}
+
 function validateMetadata(metadata) {
   if (!VERSION_PATTERN.test(metadata.version ?? '')) throw new Error('Root product version must be stable three-component SemVer');
   if (!COMMIT_PATTERN.test(metadata.sourceCommit ?? '')) throw new Error('Exact source commit is required');
-  for (const key of ['recipeSha256', 'runtimeRecipeSha256', 'runtimeManifestSha256']) {
+  for (const key of ['recipeSha256', 'runtimeRecipeSha256', 'runtimeManifestSha256', 'checkerSha256']) {
     if (!SHA256_PATTERN.test(metadata[key] ?? '')) throw new Error(`Invalid ${key}`);
+  }
+  for (const key of ['buildNode', 'buildGo']) {
+    if (typeof metadata[key] !== 'string' || !metadata[key] || metadata[key].length > 256 || /[\u0000-\u001f\u007f]/.test(metadata[key])) {
+      throw new Error(`Invalid ${key}`);
+    }
   }
 }
 
@@ -79,7 +100,9 @@ export async function writeReleaseManifest(bundle, metadata) {
     sourceCommit: metadata.sourceCommit,
     platform: 'windows',
     architecture: 'x64',
+    build: { node: metadata.buildNode, go: metadata.buildGo },
     recipeSha256: metadata.recipeSha256,
+    checkerSha256: metadata.checkerSha256,
     runtime: {
       manifestSha256: metadata.runtimeManifestSha256,
       recipeSha256: metadata.runtimeRecipeSha256,
@@ -157,6 +180,7 @@ export async function buildWindowsBundle({ ref, output }) {
   if (!COMMIT_PATTERN.test(commit)) throw new Error('Git did not resolve an exact source commit');
   const recipeSha256 = await assertCommittedRecipe(repository, commit, HERE, 'scripts/build-windows-bundle.mjs');
   const runtimeRecipeSha256 = await assertCommittedRecipe(repository, commit, RUNTIME_RECIPE, 'scripts/build-runtime-bundle.mjs');
+  const checkerSha256 = await assertCommittedRecipe(repository, commit, CHECKER, 'scripts/check-windows-bundle.mjs');
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-windows-build-'));
   try {
     const source = path.join(temporary, 'source'); await fs.mkdir(source);
@@ -167,8 +191,9 @@ export async function buildWindowsBundle({ ref, output }) {
     if (root.name !== 'murmur' || !VERSION_PATTERN.test(root.version ?? '')) throw new Error('Selected root package has no stable Murmur product version');
     if (lock.version !== root.version || lock.packages?.['']?.version !== root.version) throw new Error('Root package and lockfile product versions differ');
     const environment = { ...process.env, NODE_OPTIONS: '', NODE_PATH: '' };
-    run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: source, env: environment, stdio: 'inherit' });
-    run('npm', ['run', 'build'], { cwd: source, env: environment, stdio: 'inherit' });
+    const npmCli = await resolveNpmCli(process.execPath, environment);
+    run(process.execPath, [npmCli, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: source, env: environment, stdio: 'inherit' });
+    run(process.execPath, [npmCli, 'run', 'build'], { cwd: source, env: environment, stdio: 'inherit' });
 
     const bundle = path.join(temporary, 'bundle'); await fs.mkdir(bundle);
     const runtime = path.join(bundle, 'runtime');
@@ -178,10 +203,13 @@ export async function buildWindowsBundle({ ref, output }) {
     for (const name of ['Open-Murmur.cmd', 'Open-Murmur.ps1', 'README-Windows.md']) {
       await copyRegularFile(path.join(source, 'apps/windows-tray/packaging', name), path.join(bundle, name));
     }
+    await copyRegularFile(path.join(source, 'scripts', 'check-windows-bundle.mjs'), path.join(bundle, 'check-windows-bundle.mjs'));
     await buildNative(source, bundle, root.version, commit);
+    const goVersion = run('go', ['version'], { env: { ...process.env, GOTOOLCHAIN: 'local', GOENV: 'off' } }).trim();
     const runtimeManifestSha256 = hash(await fs.readFile(path.join(runtime, 'runtime-manifest.json')));
     const manifest = await writeReleaseManifest(bundle, { version: root.version, sourceCommit: commit, recipeSha256,
-      runtimeRecipeSha256, runtimeManifestSha256 });
+      runtimeRecipeSha256, runtimeManifestSha256, checkerSha256, buildNode: process.versions.node, buildGo: goVersion });
+    await verifyWindowsBundle(bundle, { executeNative: false });
 
     const archive = `Murmur-Windows-${root.version}-x64.zip`;
     const prepared = path.join(temporary, 'prepared'); await fs.mkdir(prepared);
