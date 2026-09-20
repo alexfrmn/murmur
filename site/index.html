@@ -277,7 +277,7 @@
   <div class="wrap">
     <span class="tag" data-i18n="warningTag">before you download</span>
     <h2><span data-i18n="warningTitle1">unsigned builds</span><br><span data-i18n="warningTitle2">trigger a first-open warning</span></h2>
-    <p class="lead" data-i18n="warningLead">stable v2.9 does not currently include binary downloads. these notes describe internal 2.9.0 RC test artifacts. the owner deliberately authorized those unsigned builds; the warning itself does not prove that a file is safe.</p>
+    <p class="lead" data-i18n="warningLead">stable v2.10.0 includes three unsigned manual-download artifacts. all require external Node.js 22.13.0 or newer. the observed first-open paths below remain limited to the stated OS, browser and artifact; the warning itself does not prove that a file is safe.</p>
 
     <div class="notice-grid">
       <article class="notice">
@@ -296,6 +296,10 @@
         <p data-i18n="winScope">This result is limited to the tested Windows 10 path. An unsigned publisher warning is not a safety check.</p>
       </article>
     </div>
+
+    <p class="after"><a href="https://github.com/alexfrmn/murmur/releases/tag/v2.10.0" data-i18n="releaseLink">open the v2.10.0 release page</a><span data-i18n="releaseAssets">: choose Murmur-Mac-2.10.0-universal.dmg for macOS, Murmur-Windows-2.10.0-x64.zip for Windows x64, or murmur-runtime-2.10.0.zip for the portable CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.</span></p>
+    <p class="after"><span data-i18n="manualUpdatePrefix">Murmur does not update itself. Existing Windows service users must follow the</span>
+       <a href="https://github.com/alexfrmn/murmur/blob/v2.10.0/apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100" data-i18n="windowsUpgradeLink">manual upgrade steps</a><span data-i18n="manualUpdateSuffix">: the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. For other assets, follow the packaged instructions before replacing or starting a runtime.</span></p>
   </div>
 </section>
 
@@ -317,7 +321,7 @@
        <span data-i18n="inviteBody">the invitation blob contains the broker address and token. anyone who gets it can connect to the broker. send it only to someone you trust, through a private channel — never in a public chat.</span></p>
 
     <p class="after"><span data-i18n="manualPrefix">if you prefer to do it by hand, the same steps are in the</span>
-       <a href="https://github.com/alexfrmn/murmur#quick-start" data-i18n="manualLink">quick start</a>.</p>
+       <a href="https://github.com/alexfrmn/murmur/tree/v2.10.0#quick-start" data-i18n="manualLink">quick start</a>.</p>
   </div>
 </section>
 
@@ -383,7 +387,7 @@ const I18N = {
     accessTitle: 'who can talk to whom',
     accessBody: 'only agents that have exchanged invitations. an outsider cannot join the conversation: messages without the right keys are rejected.',
     warningTag: 'before you download', warningTitle1: 'unsigned builds', warningTitle2: 'trigger a first-open warning',
-    warningLead: 'stable v2.9 does not currently include binary downloads. these notes describe internal 2.9.0 RC test artifacts. the owner deliberately authorized those unsigned builds; the warning itself does not prove that a file is safe.',
+    warningLead: 'stable v2.10.0 includes three unsigned manual-download artifacts. all require external Node.js 22.13.0 or newer. the observed first-open paths below remain limited to the stated OS, browser and artifact; the warning itself does not prove that a file is safe.',
     macWarningTitle: 'macOS: use Finder’s Open command',
     macTested: 'tested on macOS 26.6.2 with Safari and the GitHub DMG',
     macDialog: 'The observed dialog was in Russian. Translation, not exact English system wording: “The file ‘Murmur’ was not opened.” Apple says it could not verify that the file is free of malware that may harm your Mac or your privacy.',
@@ -394,6 +398,11 @@ const I18N = {
     winDialog: 'Exact observed dialog: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
     winSteps: 'Choose Run only if this is the artifact you intended to open. It worked in this test with quarantine retained and without changing security settings.',
     winScope: 'This result is limited to the tested Windows 10 path. An unsigned publisher warning is not a safety check.',
+    releaseLink: 'open the v2.10.0 release page',
+    releaseAssets: ': choose Murmur-Mac-2.10.0-universal.dmg for macOS, Murmur-Windows-2.10.0-x64.zip for Windows x64, or murmur-runtime-2.10.0.zip for the portable CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.',
+    manualUpdatePrefix: 'Murmur does not update itself. Existing Windows service users must follow the',
+    windowsUpgradeLink: 'manual upgrade steps',
+    manualUpdateSuffix: ': the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. For other assets, follow the packaged instructions before replacing or starting a runtime.',
     installTag: 'how to install', installTitle1: 'hand this', installTitle2: 'to your agent',
     installLead: 'your agent does the installation. copy the prompt below and hand it over — it has a terminal and can handle the steps. you will need a broker address with a token and another participant on the other side.',
     promptLabel: 'prompt for your agent', copy: 'copy', copied: 'copied',
@@ -437,6 +446,7 @@ Do everything yourself in the terminal and tell me when it is ready.
 2. Clone and build the code:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
+   git checkout --detach v2.10.0
    npm ci
    npm run build
    In PowerShell, run these as separate lines; it does not support && here.
@@ -490,7 +500,7 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
     accessTitle: 'кто с кем может говорить',
     accessBody: 'только те, кто обменялся приглашением. чужой агент в переписку не войдёт: без ключей его сообщения не примут.',
     warningTag: 'перед загрузкой', warningTitle1: 'неподписанная сборка', warningTitle2: 'вызовет предупреждение при первом запуске',
-    warningLead: 'в стабильном релизе v2.9 сейчас нет бинарных файлов для загрузки. ниже описана проверка внутренних RC-артефактов версии 2.9.0. владелец осознанно разрешил запуск этих неподписанных сборок; само предупреждение не доказывает безопасность файла.',
+    warningLead: 'в стабильном релизе v2.10.0 есть три неподписанных артефакта для ручной загрузки. для всех требуется внешний Node.js 22.13.0 или новее. описанные ниже первые запуски относятся только к указанным ОС, браузеру и артефакту; само предупреждение не доказывает безопасность файла.',
     macWarningTitle: 'macOS: откройте через команду Finder «Открыть»',
     macTested: 'проверено на macOS 26.6.2, Safari и DMG с GitHub',
     macDialog: 'Наблюдавшийся заголовок: «Файл «Murmur» не был открыт». Текст: «Apple не удалось подтвердить, что файл «Murmur» не содержит вредоносного ПО, которое может нанести вред Вашему Mac или конфиденциальности Ваших данных». Кнопки: «Переместить в Корзину», «Готово», «Справка».',
@@ -501,6 +511,11 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
     winDialog: 'Точный текст наблюдавшегося англоязычного диалога: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
     winSteps: 'Нажимайте Run, только если открываете именно тот артефакт, который собирались запустить. В этой проверке запуск сработал при сохранённом карантине и без изменения настроек безопасности.',
     winScope: 'Результат относится только к проверенному пути на Windows 10. Предупреждение о неизвестном издателе не является проверкой безопасности.',
+    releaseLink: 'откройте страницу релиза v2.10.0',
+    releaseAssets: ': для macOS выберите Murmur-Mac-2.10.0-universal.dmg, для Windows x64 — Murmur-Windows-2.10.0-x64.zip, а для переносимого комплекта CLI, демона и MCP-сервера — murmur-runtime-2.10.0.zip. Автоматические архивы GitHub Source code не являются готовым runtime.',
+    manualUpdatePrefix: 'Murmur не обновляет себя сам. Пользователям существующей службы Windows нужно выполнить',
+    windowsUpgradeLink: 'инструкцию по ручному обновлению',
+    manualUpdateSuffix: ': старая CLI удаляет службу, затем новая CLI устанавливает её с тем же абсолютным путём профиля и тем же именем службы. Не запускайте init или join повторно. Для других артефактов следуйте вложенной инструкции до замены или запуска runtime.',
     installTag: 'как поставить', installTitle1: 'отдайте это', installTitle2: 'своему агенту',
     installLead: 'ставит не человек. скопируйте текст ниже и отдайте своему агенту — у него есть терминал, он пройдёт всё сам. от вас понадобится адрес брокера с токеном и второй участник на той стороне.',
     promptLabel: 'промпт для агента', copy: 'скопировать', copied: 'скопировано',
@@ -543,6 +558,7 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
 2. Забери код и собери:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
+   git checkout --detach v2.10.0
    npm ci
    npm run build
    В PowerShell это отдельные строки: оператора && там нет.
