@@ -94,9 +94,10 @@ test('missing database is not created by a status read', async t => {
   const s = await f.read(); assert.equal(s.outbox.queue.failed, null); assert.ok(s.outbox.faults.unknownReason);
   await assert.rejects(fs.stat(f.context.storePath), { code: 'ENOENT' });
 });
-test('Windows service and CLI resolve one machine installation root', () => {
-  const c = resolveContext({ platform: 'win32', home: 'C:\\Users\\SYSTEM', repoRoot: 'C:\\Murmur', nodePath: 'C:\\node.exe', env: { ProgramData: 'D:\\ProgramData', LOCALAPPDATA: 'C:\\inaccessible' } });
-  assert.equal(c.dataDir, 'D:\\ProgramData\\Murmur'); assert.equal(c.logDir, 'D:\\ProgramData\\Murmur\\logs');
+test('Windows private profile does not share the public service metadata directory', () => {
+  const c = resolveContext({ platform: 'win32', home: 'C:\\Users\\me', repoRoot: 'C:\\Murmur', nodePath: 'C:\\node.exe', env: { ProgramData: 'D:\\ProgramData', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' } });
+  assert.equal(c.dataDir, 'C:\\Users\\me\\AppData\\Local\\Murmur');
+  assert.equal(c.logDir, c.dataDir + '\\logs');
 });
 test('runtime observer captures only safe fault codes without command/output contents', async t => {
   const f = await fixture(t);

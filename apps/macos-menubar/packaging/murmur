@@ -1,0 +1,14 @@
+#!/bin/bash
+set -eu
+ROOT="$(cd -- "$(dirname -- "$0")" && pwd -P)"
+[ -f "$ROOT/.murmur-node" ] || { printf '%s\n' 'Open Murmur.command must select Node before using this CLI.' >&2; exit 1; }
+IFS= read -r NODE < "$ROOT/.murmur-node"
+case "$NODE" in /*) ;; *) printf '%s\n' 'Invalid Node binding. Open Murmur.command again.' >&2; exit 1 ;; esac
+[ -x "$NODE" ] || { printf '%s\n' 'Node moved or was removed. Open Murmur.command again.' >&2; exit 1; }
+CLI="$ROOT/runtime/packages/setup/bin/murmur.mjs"
+[ -f "$CLI" ] || { printf '%s\n' 'Murmur runtime is missing from this release folder.' >&2; exit 1; }
+SAFE_ENV=(/usr/bin/env -i "HOME=${HOME-}" "USER=${USER-}" "LOGNAME=${LOGNAME-}"
+  "TMPDIR=${TMPDIR-/tmp}" "LANG=${LANG-en_US.UTF-8}" "LC_ALL=${LC_ALL-}" "TZ=${TZ-}"
+  'PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin')
+if [ "${MURMUR_UPDATE_CHECK-}" = 0 ]; then SAFE_ENV+=('MURMUR_UPDATE_CHECK=0'); fi
+exec "${SAFE_ENV[@]}" "$NODE" "$CLI" "$@"
