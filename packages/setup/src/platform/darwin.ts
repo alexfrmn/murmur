@@ -160,11 +160,13 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
         if (pid === null || descriptor === null || type === null) {
           throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
         }
-        // Apple's process_netpolicy() sets NPOLICY but no name. It represents a
-        // numeric network-policy FD, not a vnode. A missing n field, empty name
-        // for any other type, or pseudo-FD must still fail closed.
+        // Apple's process_netpolicy() sets NPOLICY but no name. Native lsof also
+        // emits unnamed NEXUS FDs; XNU gives that Skywalk controller its own
+        // fileops, separate from vnodes. Only these exact numeric FD types may
+        // have an empty n; missing n, other empty types and pseudo-FDs refuse.
         // https://github.com/apple-opensource/lsof/blob/da09c8c6436286e5bd8c400b42e86b54404f12a7/lsof/dialects/darwin/libproc/dnetpolicy.c
-        if (line.length === 1 && !(type === "NPOLICY" && /^\d+$/.test(descriptor))) {
+        // https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/skywalk/nexus/nexus_syscalls.c
+        if (line.length === 1 && !((type === "NPOLICY" || type === "NEXUS") && /^\d+$/.test(descriptor))) {
           throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
         }
         records.push({ pid, descriptor, type, name: line.slice(1) });
@@ -247,7 +249,7 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
         let controlSeen = false, held = false;
         const filesystemTypes = new Set(["REG", "DIR", "LINK"]);
         const otherTypes = new Set(["ATALK", "BLK", "CHR", "FIFO", "FSEVENTS", "IPv4", "IPv6", "KQUEUE",
-          "NPOLICY", "PIPE", "PSXSEM", "PSXSHM", "key", "ndrv", "ppp", "rte", "sock", "systm", "unix",
+          "NPOLICY", "NEXUS", "PIPE", "PSXSEM", "PSXSHM", "key", "ndrv", "ppp", "rte", "sock", "systm", "unix",
           "vsock", "vsockp"]);
         const classifications = new Map<string, Promise<"inside" | "outside" | "unknown">>();
         for (const record of snapshot.records) {

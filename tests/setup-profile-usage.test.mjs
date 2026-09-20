@@ -298,20 +298,23 @@ test('Darwin profile usage fails closed for missing process coverage, churn, war
   }
 });
 
-test('Darwin profile usage accepts only an explicitly typed unnamed numeric NPOLICY descriptor', unixOnly, async t => {
+test('Darwin profile usage accepts only explicitly typed unnamed numeric network-policy and Nexus descriptors', unixOnly, async t => {
   const { home, context } = await contextFixture(t);
   const current = [{ pid: process.pid }];
   const control = regularRecord(process.pid, 9, context.configPath);
-  const valid = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
-    psReply(71032, current), lsofReply(control + 'f10\ntNPOLICY\nn\n'), psReply(71033, current),
-  ]) });
-  assert.deepEqual(await valid.profileUsage(context), { state: 'free', reason: 'profile-usage.no-open-files' });
+  for (const type of ['NPOLICY', 'NEXUS']) {
+    const valid = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
+      psReply(71032, current), lsofReply(control + `f10\nt${type}\nn\n`), psReply(71033, current),
+    ]) });
+    assert.deepEqual(await valid.profileUsage(context), { state: 'free', reason: 'profile-usage.no-open-files' }, type);
+  }
 
   // An empty filesystem name, unknown type, missing name field or pseudo-FD is
   // still incomplete evidence; the network-policy exception must not admit it.
   for (const record of ['f10\ntREG\nn\n', 'f10\ntDIR\nn\n', 'f10\ntunknown\nn\n',
     'f10\ntPIPE\nn\n', 'f10\ntNPOLICY\n', 'f10\ntNPOLICY\nn', 'fcwd\ntNPOLICY\nn\n',
-    'f10\ntREG\nnpermission denied\n']) {
+    'f10\ntREG\nnpermission denied\n', 'f10\ntNEXUS\n', 'f10\ntNEXUS\nn',
+    'fcwd\ntNEXUS\nn\n', 'f10\ntNEXUS_UNKNOWN\nn\n']) {
     const refused = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
       psReply(71034, current), lsofReply(control + record), psReply(71035, current),
     ]) });
@@ -329,7 +332,7 @@ test('Darwin profile usage accepts only an explicitly typed unnamed numeric NPOL
 
   const held = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
     psReply(71038, [...current, { pid: 42012 }]),
-    lsofReply(control + 'f10\ntNPOLICY\nn\n' + regularRecord(42012, 3, context.storePath)),
+    lsofReply(control + 'f10\ntNPOLICY\nn\nf11\ntNEXUS\nn\n' + regularRecord(42012, 3, context.storePath)),
     psReply(71039, [...current, { pid: 42012 }]),
   ]) });
   assert.deepEqual(await held.profileUsage(context), { state: 'in-use', reason: 'profile-usage.open-file' });
