@@ -100,10 +100,11 @@ test('Windows launcher gives actionable guidance when Node is missing', { skip: 
     await mkdir(path.join(dir, 'runtime/packages/setup/bin'), { recursive: true });
     await writeFile(path.join(dir, 'runtime/packages/setup/bin/murmur.mjs'), '// not reached');
     const powershell = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
-    const result = spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(dir, 'Open-Murmur.ps1'),
-      '-DataDir', dir, '-Check'], {
+    const psLiteral = value => `'${value.replaceAll("'", "''")}'`;
+    const command = `$env:PATH=${psLiteral(dir)}; & ${psLiteral(path.join(dir, 'Open-Murmur.ps1'))} -DataDir ${psLiteral(dir)} -Check`;
+    const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       timeout: 20_000, encoding: 'utf8', windowsHide: true,
-      env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, PATH: dir, TEMP: dir, TMP: dir, LOCALAPPDATA: dir },
+      env: { ...process.env, TEMP: dir, TMP: dir, LOCALAPPDATA: dir },
     });
     assert.equal(result.error, undefined, String(result.error));
     assert.equal(result.status, 1, result.stdout + result.stderr);
