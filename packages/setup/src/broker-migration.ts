@@ -57,6 +57,7 @@ async function assertProfileFree(c: ServiceContext, adapter: PlatformAdapter, co
   catch { throw new Error('migration.profile-usage-unavailable'); }
   if (!usage || !['free','in-use','unknown'].includes(usage.state) || typeof usage.reason !== 'string') throw new Error('migration.profile-usage-unavailable');
   if (usage.state === 'in-use') throw new Error('migration.profile-in-use');
+  if (usage.state === 'unknown' && usage.reason === 'profile-usage.profile-hard-linked') throw new Error('migration.profile-hard-linked');
   if (usage.state !== 'free') throw new Error('migration.profile-usage-unavailable');
 }
 

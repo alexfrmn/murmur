@@ -9,8 +9,45 @@ import { SQLiteMessageStore } from '../packages/core/dist/src/index.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 import { migrateBroker } from '../packages/setup/dist/src/broker-migration.js';
 import { main } from '../packages/setup/dist/src/cli.js';
+import { cliErrorText } from '../packages/setup/dist/src/cli-error.js';
 const root=new URL('../',import.meta.url).pathname;
 const profileFree=async()=>({state:'free',reason:'test.fixture-exclusive'});
+
+test('hard-linked profile refusal keeps state and explains inspection and retry without raw details', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-migrate-links-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const context = resolveContext({ dataDir: dir, repoRoot: root });
+  const config = { agentId: 'agent-a', subject: 'msg.agent-a', natsUrl: 'nats://127.0.0.1:4222',
+    keys: { encryption: await createKeyPair(), signing: await createSigningKeyPair() }, peers: {} };
+  const before = JSON.stringify(config);
+  await fs.writeFile(context.configPath, before, { mode: 0o600 });
+  const adapter = {
+    status: async () => ({ state: 'stopped', pid: null }),
+    profileUsage: async () => ({ state: 'unknown', reason: 'profile-usage.profile-hard-linked',
+      path: '/private/do-not-print', secret: 'DO_NOT_PRINT' }),
+  };
+  let refusal;
+  await assert.rejects(main(['broker', 'migrate', '--data-dir', dir, '--broker-url',
+    'tls://broker.example:4222', '--apply'], adapter), error => {
+    refusal = error;
+    return error.message === 'migration.profile-hard-linked';
+  });
+  assert.equal(await fs.readFile(context.configPath, 'utf8'), before);
+  assert.deepEqual(await fs.readdir(dir), ['agent-config.json']);
+  const text = cliErrorText(refusal);
+  assert.match(text, /^migration\.profile-hard-linked\n/);
+  assert.match(text, /another hard-link name/);
+  assert.match(text, /files were kept/);
+  assert.match(text, /same volume/);
+  assert.match(text, /retry migration/);
+  assert.match(text, /docs\/setup-onboarding\.md#files-with-more-than-one-name/);
+  for (const hidden of ['DO_NOT_PRINT', '/private/do-not-print', config.keys.encryption.privateKey]) assert.ok(!text.includes(hidden));
+  assert.equal(cliErrorText(new Error('DO_NOT_PRINT')), 'operation-failed');
+  const unavailable = cliErrorText(new Error('migration.profile-usage-unavailable'));
+  assert.match(unavailable, /could not inspect every process/);
+  assert.match(unavailable, /files were kept/);
+  assert.match(unavailable, /cannot force migration/);
+});
 
 test('broker migration dry-run is inert and apply preserves unrelated state with private backup', async t => {
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'murmur-migrate-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));

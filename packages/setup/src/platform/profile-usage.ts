@@ -23,9 +23,9 @@ export function isWithinProfile(root: string, candidate: string): boolean {
 
 /**
  * Require an owner-only selected root, then inspect its tree without following
- * aliases. The private root is what makes skipping processes with no matching
- * credential UID sound; aliases, mount crossings, unsupported entries, or
- * concurrent changes make the snapshot incomplete.
+ * aliases. Platform probes must still cover every visible process because a
+ * privileged foreign UID can traverse the root. Aliases, mount crossings,
+ * unsupported entries, hardlinks, or concurrent changes make the snapshot incomplete.
  */
 export async function verifiedProfileRoot(context: ServiceContext): Promise<VerifiedProfileRoot> {
   let root: string;
@@ -43,7 +43,7 @@ export async function verifiedProfileRoot(context: ServiceContext): Promise<Veri
       return unknown("profile-usage.profile-unverifiable");
     }
     const directories: Array<{ absolute: string; relative: string }> = [{ absolute: root, relative: "" }];
-    const proof = [["", rootInfo.dev, rootInfo.ino, rootInfo.mode, rootInfo.uid, rootInfo.gid]];
+    const proof = [["", rootInfo.dev, rootInfo.ino, rootInfo.mode, rootInfo.uid, rootInfo.gid, rootInfo.nlink]];
     let seen = 0;
     while (directories.length) {
       const directory = directories.pop()!;
@@ -58,7 +58,8 @@ export async function verifiedProfileRoot(context: ServiceContext): Promise<Veri
         const relative = path.join(directory.relative, name);
         const info = await fs.lstat(file);
         if (info.isSymbolicLink() || info.dev !== rootInfo.dev) return unknown("profile-usage.profile-unverifiable");
-        proof.push([relative, info.dev, info.ino, info.mode, info.uid, info.gid]);
+        if (info.isFile() && info.nlink !== 1) return unknown("profile-usage.profile-hard-linked");
+        proof.push([relative, info.dev, info.ino, info.mode, info.uid, info.gid, info.nlink]);
         if (info.isDirectory()) directories.push({ absolute: file, relative });
         else if (!info.isFile()) return unknown("profile-usage.profile-unverifiable");
       }

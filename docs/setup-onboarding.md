@@ -97,6 +97,41 @@ has released it. If the platform cannot inspect profile use, migration fails wit
 and daemon-observation checks are repeated under the setup write lock immediately
 before mutation; they are point-in-time evidence rather than a lifetime lock.
 
+Unix probes include visible processes belonging to other users, including root;
+private profile permissions do not exclude privileged holders. Missing process
+coverage, inaccessible file descriptors, process churn or truncated output leave
+usage unknown. Ordinary macOS/Linux accounts may therefore be unable to migrate
+an existing profile with this build. Keep the existing profile and configuration
+in that case; there is no forced apply or confirmation switch. Closing the tray
+icon does not stop the service or MCP processes inside configured clients. A
+supported privileged probe or a separate migration procedure is needed before
+that restriction can be lifted.
+
+### Files with more than one name
+
+`migration.profile-hard-linked` means a regular file in the selected profile has
+more than one hard-link name. All those names refer to the same file contents;
+renaming or deleting one name does not remove the others. Normal filesystem
+permissions still apply. Migration leaves the profile unchanged.
+
+First list affected files without reading their contents (macOS or Linux):
+
+```sh
+find '/absolute/path/to/selected/profile' -type f -links +1 -print
+```
+
+To find the other names, use `ls -li` on an affected file to obtain its inode,
+then `find '/known/folder/on/the/same/volume' -xdev -inum INODE_NUMBER -print`.
+Start with folders where you created copies or links. A permission error or an
+incomplete search does not prove that no other name exists. Ask the system
+administrator to inspect inaccessible locations if necessary.
+
+After confirming which names and files you own, remove only an unintended link,
+keeping the intended profile file. Do not delete the profile, regenerate its
+identity, or remove a link whose purpose is unknown. Repeat the first inspection,
+then retry migration. If both names are intentional, keep them and leave
+migration unapplied until you have a plan for separating those files safely.
+
 Linux/systemd, Darwin/launchd and Windows SCM adapters use the shared CLI.
 Windows additionally needs the matching native service helper and elevation for
 service mutations; see [Windows CLI](windows-service-cli.md). An already-running service must be restarted explicitly to load

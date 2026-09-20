@@ -7,10 +7,12 @@ import { randomUUID } from "node:crypto";
 import type { ServiceContext, ServiceSnapshot, ClientDetection, PlatformAdapter, ProfileUsageSnapshot } from "../types.js";
 import { classifyProfilePath, ProfileUsageUnknown, verifiedProfileRoot } from "./profile-usage.js";
 
-export interface CommandResult { code: number; stdout: string; stderr: string }
+export interface CommandResult { code: number; stdout: string; stderr: string; pid?: number }
 export type CommandRunner = (file: string, args: string[]) => Promise<CommandResult>;
 export interface DarwinOptions {
   homeDir?: string; uid?: number; env?: NodeJS.ProcessEnv; run?: CommandRunner;
+  /** Uses a larger, still bounded output buffer for the profile-wide lsof probe. */
+  profileRun?: CommandRunner;
   applicationDirs?: string[];
   /** Fully replaces executable search roots, primarily for hermetic tests. */
   executableDirs?: string[];
@@ -42,15 +44,17 @@ function validate(ctx: ServiceContext) {
     throw new Error("darwin-daemon-path-contract-mismatch");
   }
 }
-const defaultRun: CommandRunner = (file, args) => new Promise(resolve => {
-  execFile(file, args, {
-    encoding: "utf8", timeout: 8_000, maxBuffer: 512 * 1024,
+const commandRunner = (maxBuffer: number): CommandRunner => (file, args) => new Promise(resolve => {
+  const child = execFile(file, args, {
+    encoding: "utf8", timeout: 8_000, maxBuffer,
     env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
   }, (error, stdout, stderr) => resolve({
     code: error ? (typeof error.code === "number" ? error.code : -1) : 0,
-    stdout: String(stdout), stderr: String(stderr),
+    stdout: String(stdout), stderr: String(stderr), pid: child.pid,
   }));
 });
+const defaultRun = commandRunner(512 * 1024);
+const defaultProfileRun = commandRunner(8 * 1024 * 1024);
 const absent = (r: CommandResult) => r.code !== 0 &&
   /Could not find service|Could not find specified service/.test(r.stderr + r.stdout);
 const baseSnapshot = (): ServiceSnapshot => ({
@@ -68,6 +72,7 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
   if (!Number.isSafeInteger(uid) || uid! < 0) throw new Error("darwin-invalid-user-id");
   const env = options.env ?? process.env;
   const run = options.run ?? defaultRun;
+  const profileRun = options.profileRun ?? options.run ?? defaultProfileRun;
   const domain = `gui/${uid}`;
   const plistPath = (ctx: ServiceContext) => path.join(home, "Library", "LaunchAgents", `${ctx.serviceName}.plist`);
   const target = (ctx: ServiceContext) => `${domain}/${ctx.serviceName}`;
@@ -121,19 +126,20 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
     return null;
   }
   const usageUnknown = (reason = "profile-usage.probe-unavailable"): ProfileUsageSnapshot => ({ state: "unknown", reason });
-  interface LsofRecord { pid: number; descriptor: string; name: string }
-  function lsofRecords(output: string): LsofRecord[] {
+  interface LsofRecord { pid: number; descriptor: string; type: string; name: string }
+  interface LsofSnapshot { pids: Set<number>; records: LsofRecord[] }
+  function lsofSnapshot(output: string): LsofSnapshot {
     if (output.includes("\0")) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
     const lines = output.split("\n");
     if (lines.at(-1) === "") lines.pop();
     if (lines.some(line => line === "")) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
     const records: LsofRecord[] = [];
-    let pid: number | null = null, descriptor: string | null = null;
+    let pid: number | null = null, descriptor: string | null = null, type: string | null = null;
     let processHasRecord = false;
     const seen = new Set<number>();
     for (const line of lines) {
       if (line.startsWith("p")) {
-        if (descriptor !== null || pid !== null && !processHasRecord || !/^p[1-9]\d*$/.test(line)) {
+        if (descriptor !== null || type !== null || pid !== null && !processHasRecord || !/^p[1-9]\d*$/.test(line)) {
           throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
         }
         pid = Number(line.slice(1));
@@ -141,44 +147,132 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
         seen.add(pid);
         processHasRecord = false;
       } else if (line.startsWith("f")) {
-        if (pid === null || descriptor !== null || line.length < 2 || /[\0\r\n]/.test(line)) {
+        if (pid === null || descriptor !== null || type !== null || line.length < 2 || /[\0\r\n]/.test(line)) {
           throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
         }
         descriptor = line.slice(1);
+      } else if (line.startsWith("t")) {
+        if (pid === null || descriptor === null || type !== null || line.length < 2 || /[\0\r\n]/.test(line)) {
+          throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+        }
+        type = line.slice(1);
       } else if (line.startsWith("n")) {
-        if (pid === null || descriptor === null || line.length < 2) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
-        records.push({ pid, descriptor, name: line.slice(1) });
-        descriptor = null;
+        if (pid === null || descriptor === null || type === null || line.length < 2) {
+          throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+        }
+        records.push({ pid, descriptor, type, name: line.slice(1) });
+        descriptor = type = null;
         processHasRecord = true;
       } else {
         throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
       }
     }
-    if (descriptor !== null || pid !== null && !processHasRecord) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
-    return records;
+    if (descriptor !== null || type !== null || pid !== null && !processHasRecord) {
+      throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+    }
+    return { pids: seen, records };
+  }
+  interface ProcessObservation { uid: number; start: string; zombie: boolean }
+  function processSnapshot(result: CommandResult): Map<number, ProcessObservation> {
+    if (result.code !== 0 || result.stderr.trim() !== "" || !Number.isSafeInteger(result.pid) || result.pid! <= 0) {
+      throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+    }
+    const observations = new Map<number, ProcessObservation>();
+    const lines = result.stdout.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    for (const line of lines) {
+      const match = /^\s*([1-9]\d*)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line);
+      if (!match) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+      const pid = Number(match[1]), uid = Number(match[2]);
+      if (!Number.isSafeInteger(pid) || !Number.isSafeInteger(uid) || observations.has(pid)) {
+        throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+      }
+      observations.set(pid, { uid, start: match[4]!, zombie: match[3]!.startsWith("Z") });
+    }
+    // /bin/ps is setuid-root on macOS, so its exact child PID may have UID 0.
+    // Verify and remove only that exact observer from the full process set.
+    if (!observations.has(result.pid!) || !observations.has(process.pid)) {
+      throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+    }
+    observations.delete(result.pid!);
+    for (const anchor of new Set([1, process.ppid])) {
+      if (!observations.has(anchor)) throw new ProfileUsageUnknown("profile-usage.process-visibility-incomplete");
+    }
+    return observations;
   }
   async function profileUsage(ctx: ServiceContext): Promise<ProfileUsageSnapshot> {
     validate(ctx);
     try {
       const profile = await verifiedProfileRoot(ctx);
-      // -Q makes an empty selection successful while retaining non-zero status
-      // for unusual/unrecoverable errors, so an ordinary no-match is unambiguous.
-      const result = await run("/usr/sbin/lsof", ["-n", "-P", "-Q", "-Fpfn", "+D", profile.root]);
-      if (![0, 1].includes(result.code)) return usageUnknown();
-      const records = lsofRecords(result.stdout);
-      let held = false;
-      for (const record of records) {
-        const classification = await classifyProfilePath(profile.root, record.name);
-        if (classification !== "inside") return usageUnknown("profile-usage.process-unverifiable");
-        if (record.pid !== process.pid) held = true;
+      let control: Awaited<ReturnType<typeof fs.open>> | undefined;
+      try {
+        control = await fs.open(ctx.configPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+        const [opened, selected, canonical] = await Promise.all([
+          control.stat(), fs.lstat(ctx.configPath), fs.realpath(ctx.configPath),
+        ]);
+        const currentUid = process.getuid?.();
+        if (currentUid === undefined || !opened.isFile() || !selected.isFile() || selected.isSymbolicLink()
+          || opened.uid !== currentUid || selected.uid !== currentUid
+          || (opened.mode & 0o077) !== 0 || (selected.mode & 0o077) !== 0
+          || opened.dev !== selected.dev || opened.ino !== selected.ino || canonical !== ctx.configPath) return usageUnknown();
+
+        // Apple's lsof 4.91 makes every +D entry a required search argument,
+        // so an unopened entry forces exit 1. Scan all processes and prove
+        // lsof coverage with stable ps snapshots around the observation.
+        const psArgs = ["-axo", "pid=,uid=,stat=,lstart="];
+        const before = processSnapshot(await profileRun("/bin/ps", psArgs));
+        const result = await profileRun("/usr/sbin/lsof", ["-n", "-P", "-Fpftn"]);
+        if (result.code !== 0 || result.stderr.trim() !== "") return usageUnknown();
+        const snapshot = lsofSnapshot(result.stdout);
+        const after = processSnapshot(await profileRun("/bin/ps", psArgs));
+        const stable = new Set<number>();
+        if (before.size !== after.size) return usageUnknown("profile-usage.process-unverifiable");
+        for (const [pid, first] of before) {
+          const second = after.get(pid);
+          if (!second || first.uid !== second.uid || first.start !== second.start || first.zombie !== second.zombie) {
+            return usageUnknown("profile-usage.process-unverifiable");
+          }
+          if (!first.zombie) stable.add(pid);
+        }
+        if ([...stable].some(pid => !snapshot.pids.has(pid))) {
+          return usageUnknown("profile-usage.process-unverifiable");
+        }
+        let controlSeen = false, held = false;
+        const filesystemTypes = new Set(["REG", "DIR", "LINK"]);
+        const otherTypes = new Set(["ATALK", "BLK", "CHR", "FIFO", "FSEVENTS", "IPv4", "IPv6", "KQUEUE",
+          "NPOLICY", "PIPE", "PSXSEM", "PSXSHM", "key", "ndrv", "ppp", "rte", "sock", "systm", "unix",
+          "vsock", "vsockp"]);
+        const classifications = new Map<string, Promise<"inside" | "outside" | "unknown">>();
+        for (const record of snapshot.records) {
+          if (!filesystemTypes.has(record.type)) {
+            if (!otherTypes.has(record.type)) return usageUnknown("profile-usage.process-unverifiable");
+            continue;
+          }
+          let classificationPromise = classifications.get(record.name);
+          if (!classificationPromise) {
+            classificationPromise = classifyProfilePath(profile.root, record.name);
+            classifications.set(record.name, classificationPromise);
+          }
+          const classification = await classificationPromise;
+          if (classification === "unknown") return usageUnknown("profile-usage.process-unverifiable");
+          if (classification === "outside") continue;
+          if (record.pid === process.pid) {
+            const [recordPath, recordInfo] = await Promise.all([fs.realpath(record.name), fs.stat(record.name)]);
+            if (recordPath === canonical && recordInfo.dev === opened.dev && recordInfo.ino === opened.ino) controlSeen = true;
+          } else {
+            held = true;
+          }
+        }
+        if (!controlSeen) return usageUnknown("profile-usage.control-unobserved");
+        if (held) return { state: "in-use", reason: "profile-usage.open-file" };
+        const profileAfter = await verifiedProfileRoot(ctx);
+        if (profileAfter.root !== profile.root || profileAfter.proof !== profile.proof) {
+          return usageUnknown("profile-usage.profile-changed");
+        }
+        return { state: "free", reason: "profile-usage.no-open-files" };
+      } finally {
+        await control?.close();
       }
-      if (held) return { state: "in-use", reason: "profile-usage.open-file" };
-      if (result.code !== 0 || result.stderr.trim() !== "") return usageUnknown();
-      const profileAfter = await verifiedProfileRoot(ctx);
-      if (profileAfter.root !== profile.root || profileAfter.proof !== profile.proof) {
-        return usageUnknown("profile-usage.profile-changed");
-      }
-      return { state: "free", reason: "profile-usage.no-open-files" };
     } catch (error) {
       return usageUnknown(error instanceof ProfileUsageUnknown ? error.reason : undefined);
     }

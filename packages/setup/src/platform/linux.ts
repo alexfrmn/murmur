@@ -98,7 +98,7 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
       return processUnknown();
     }
   }
-  async function ownedProcesses(uid: number): Promise<Map<string, string>> {
+  async function visibleProcesses(): Promise<Map<string, string>> {
     let entries;
     try { entries = await readdir(procRoot, { withFileTypes: true }); }
     catch { return processUnknown(); }
@@ -108,7 +108,10 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
       if (!entry.isDirectory()) return processUnknown();
       if (entry.name === String(process.pid)) continue;
       const identity = await processIdentity(entry.name);
-      if (identity.uids.includes(uid)) result.set(entry.name, identity.proof);
+      result.set(entry.name, identity.proof);
+    }
+    for (const anchor of new Set(["1", String(process.ppid)])) {
+      if (!result.has(anchor)) return processUnknown("profile-usage.process-visibility-incomplete");
     }
     return result;
   }
@@ -120,7 +123,7 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
       const uid = process.getuid?.();
       if (!Number.isSafeInteger(uid) || uid! < 0) return usageUnknown();
       const profile = await verifiedProfileRoot(c);
-      const before = await ownedProcesses(uid!);
+      const before = await visibleProcesses();
       let held = false;
       for (const [pid, identity] of before) {
         if ((await processIdentity(pid)).proof !== identity) return usageUnknown("profile-usage.process-identity-changed");
@@ -141,7 +144,7 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
         if ((await processIdentity(pid)).proof !== identity) return usageUnknown("profile-usage.process-identity-changed");
       }
       if (held) return { state: "in-use", reason: "profile-usage.open-file" };
-      const after = await ownedProcesses(uid!);
+      const after = await visibleProcesses();
       if (!sameProcesses(before, after)) return usageUnknown("profile-usage.process-set-changed");
       const profileAfter = await verifiedProfileRoot(c);
       if (profileAfter.root !== profile.root || profileAfter.proof !== profile.proof) {
