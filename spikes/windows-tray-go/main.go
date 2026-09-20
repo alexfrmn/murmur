@@ -69,6 +69,13 @@ type app struct {
 }
 
 func main() {
+	if nativeVersionRequested(os.Args[1:]) {
+		if err := writeNativeVersion(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	options, err := parseTrayArguments(os.Args[1:])
 	setLocale(options.locale)
 	if err != nil {

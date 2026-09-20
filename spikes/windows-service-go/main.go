@@ -69,6 +69,13 @@ func svcName() string {
 }
 
 func main() {
+	if nativeVersionRequested(os.Args[1:]) {
+		if err := writeNativeVersion(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	options, parseErr := parseHelperArguments(os.Args[1:])
 	setLocale(options.locale)
 	if parseErr != nil {
