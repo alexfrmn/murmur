@@ -1,48 +1,12 @@
 #!/usr/bin/env node
 /**
- * murmur-invite.mjs — Generate invite blob for a remote peer.
- * The invite contains NATS connection info + your public keys.
- * Send the blob to your friend via any messenger.
+ * Deprecated compatibility entrypoint.
  *
- * Usage: node scripts/murmur-invite.mjs
- * Env: DATA_DIR (default: .data)
+ * Invitation material is file-only in the canonical setup CLI so broker
+ * credentials are not copied into terminal output or shell history.
  */
-import path from "node:path";
-import { readPrivateJson } from "./secure-state.mjs";
-
-const dataDir = process.env.DATA_DIR || ".data";
-const configPath = path.join(dataDir, "agent-config.json");
-
-let config;
-try {
-  config = await readPrivateJson(configPath);
-} catch (err) {
-  if (err?.code !== "ENOENT") throw err;
-  console.error("[invite] No agent config found. Run first: node scripts/agent-config-init.mjs");
-  process.exit(1);
-}
-
-const invite = {
-  v: 1,
-  type: "invite",
-  agentId: config.agentId,
-  natsUrl: config.natsUrl,
-  natsToken: config.natsToken || undefined,
-  subject: config.subject,
-  encryption: { publicKey: config.keys.encryption.publicKey },
-  signing: { publicKey: config.keys.signing.publicKey },
-};
-
-const blob = "MURMUR:" + Buffer.from(JSON.stringify(invite)).toString("base64");
-
-console.log("");
-console.log("=== Send this invite to your peer ===");
-console.log("");
-console.log(blob);
-console.log("");
-console.log(`Your agent: ${config.agentId}`);
-console.log(`NATS: ${config.natsUrl}`);
-console.log("");
-console.log("Peer should run: node scripts/murmur-join.mjs MURMUR:...");
-console.log("Then send you back the MURMUR-REPLY:... blob.");
-console.log("You finish with: node scripts/murmur-add-peer.mjs MURMUR-REPLY:...");
+console.error("[invite] This legacy command is deprecated and disabled.");
+console.error("[invite] Use private files with the canonical setup CLI:");
+console.error("node packages/setup/bin/murmur.mjs invite --out ABSOLUTE_FILE --data-dir ABSOLUTE_PROFILE");
+console.error("See docs/setup-onboarding.md for the complete invite/reply workflow.");
+process.exitCode = 1;

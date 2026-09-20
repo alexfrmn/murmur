@@ -2,6 +2,7 @@
 set -euo pipefail
 APP_ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$APP_ROOT"
+python3 scripts/generate-mark.py --check
 # Packaging is gated by the canonical cross-platform fixtures, not private copies.
 swift run MurmurProbeChecks "$APP_ROOT/../../contracts/setup/v1/fixtures"
 swift build -c release
