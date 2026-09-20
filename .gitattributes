@@ -3,3 +3,8 @@
 *.go     text eol=lf
 go.mod   text eol=lf
 go.sum   text eol=lf
+
+# Release recipes compare checkout bytes with Git blobs before packaging.
+scripts/build-windows-bundle.mjs text eol=lf
+scripts/build-runtime-bundle.mjs text eol=lf
+scripts/check-windows-bundle.mjs text eol=lf
