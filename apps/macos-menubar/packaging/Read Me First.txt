@@ -1,26 +1,30 @@
-Murmur для Mac — проверочная сборка
+Murmur for Mac
 
-1. Перетащите Murmur в Applications («Программы»).
-2. Откройте Murmur из папки «Программы».
-3. Значок Murmur появится в строке меню. Выберите папку профиля в его меню.
+1. Move Murmur to Applications.
+2. Open Murmur from Applications.
+3. Use the Murmur icon in the menu bar to choose your profile folder.
 
-Приложение содержит движок Murmur. Для открытия приложения Terminal и сборка кода не нужны.
-Создание профиля, подключение клиента и установка службы пока выполняются общим Murmur CLI.
-Требуется установленный Node.js подходящей для движка версии. Если версия не найдена,
-Murmur покажет, как перейти на официальный сайт Node.js и повторить проверку.
-Приложение не создаёт профиль и не устанавливает службу автоматически.
+The app includes the Murmur engine. Opening it requires no Terminal commands or code build.
+Creating a profile, connecting your agent client and installing its background service
+still use Murmur CLI. The app does not create a profile or install a service automatically.
 
-Первое открытие и macOS
+A compatible Node.js installation is required. If it is missing or too old, Murmur
+shows a link to the official Node.js website and a Try again button.
+English is the default app language. Choose Language → Русский to switch to Russian.
+macOS dialogs use your system language.
 
-Эта проверочная сборка не имеет подписи Developer ID и нотариального заверения Apple.
-macOS может показать предупреждение без кнопки «Открыть».
-На macOS 26.6.2 в проверке скачанного DMG сработал путь: обычное открытие → «Готово» →
-правый щелчок по установленному Murmur → «Открыть». Второго диалога не наблюдалось.
-Официальный путь Apple: попробуйте открыть приложение, затем откройте
-«Системные настройки» → «Конфиденциальность и безопасность» и разрешите открытие
-именно Murmur. macOS может запросить пароль или Touch ID и повторное подтверждение.
-Точное название кнопки зависит от версии macOS и языка системы.
+First opening
+
+This pilot build has an ad-hoc signature, without Developer ID or Apple notarization.
+macOS may show a warning with no Open button. On macOS 26.6.2 with a Russian interface,
+the tested path was: open the installed app → Done (Готово) → right-click Murmur →
+Open (Открыть). No second dialog appeared in that test; no password or Touch ID was requested.
+
+Other macOS versions may require opening System Settings → Privacy & Security and
+allowing this specific app. Apple documents that route here:
 https://support.apple.com/102445
 
-Образ DMG не отменяет предупреждения macOS. Не отключайте Gatekeeper целиком.
-Это предварительная сборка для проверки установки, а не стабильный выпуск.
+Button names and the available route depend on your macOS version and language.
+A DMG does not remove macOS security warnings. Keep Gatekeeper enabled.
+
+Русская инструкция: Read Me First (Русский).txt

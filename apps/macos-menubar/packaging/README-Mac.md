@@ -1,119 +1,102 @@
-# Murmur для macOS — пилотная сборка
+# Murmur for macOS
 
-Нужны macOS 13 или новее и установленный Node.js 22.13.0 или новее. Приложение
-содержит код для Intel и Apple Silicon. Компилятор, Git и npm для готового полного
-архива не нужны. Node пока устанавливается отдельно.
+Requires macOS 13 or newer and a Node.js version supported by the bundled engine.
+The app contains Intel and Apple Silicon code. A downloaded DMG requires no compiler,
+Git or npm. Node is installed separately; the app reads its minimum version from
+the bundled engine's `package.json → engines.node`.
 
-## Образ DMG
+[Русская инструкция](README-Mac.ru.md)
 
-Откройте образ, перетащите `Murmur.app` на ярлык `Applications`, затем откройте
-приложение из «Программ». Движок находится внутри бандла. Для открытия приложения
-Terminal, `.command`, соседняя папка `runtime` и файл привязки Node не нужны.
-Приложение само ищет Node в стандартных каталогах Homebrew/установщика Node.js,
-Volta, nvm и fnm; проверяет версию и открывает понятное окно при отсутствии Node.
-Установка Node, профиля и службы автоматически не выполняется.
+## Install the DMG
 
-После запуска выберите существующую папку профиля через значок в строке меню.
-Общий CLI находится в `/Applications/Murmur.app/Contents/MacOS/murmur`.
-Он использует только встроенный runtime и передаёт аргументы без shell.
-Перемещать или заменять установленное приложение, пока его runtime используется
-службой, нельзя: сначала остановите свою службу. Само приложение при открытии
-не останавливает и не перенастраивает службы.
+Open the image, move `Murmur.app` to the `Applications` alias, then open it from
+Applications. The engine is inside the app. Opening the app requires no Terminal
+commands, `.command` launcher, adjacent runtime folder or Node binding file.
 
-DMG не отменяет Gatekeeper: см. раздел первого открытия ниже и `Read Me First.txt`
-внутри образа. Ad-hoc подпись обеспечивает целостность, но не доверие Developer ID.
-Для сборки из уже принятого runtime:
+Murmur checks standard Node.js and Homebrew installation paths, Volta, nvm and fnm.
+If Node is missing or too old, a dialog links to the official download page and
+lets you retry. It does not install Node, create profiles or install services for you.
+
+Choose an existing profile folder from the menu bar icon. Profile creation, client
+connection and service installation still use the shared CLI at
+`/Applications/Murmur.app/Contents/MacOS/murmur`. See the
+[onboarding instructions](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md).
+The helper runs only the bundled engine and preserves literal arguments without a shell.
+
+English is the default app language, independently of macOS. Choose
+**Language → Русский** for Russian or **Язык → English** to switch back. The choice
+is saved and applies to the menu, status messages, diagnostics and Node errors.
+Native macOS dialogs continue to follow the system language. Protocol fields,
+agent IDs, file paths and diagnostic codes are not translated.
+
+Stop your service before replacing or moving an installed app whose engine it uses.
+Opening the app does not stop or reconfigure existing services.
+
+## First opening
+
+This pilot app has an ad-hoc signature, without Developer ID or Apple notarization.
+A DMG does not remove Gatekeeper warnings. `Read Me First.txt` inside the image
+includes the first-opening instructions; Russian instructions are also included.
+
+A GitHub download through Safari was tested on macOS 26.6.2 with a Russian interface:
+
+1. Select the installed Murmur in Applications and open it (⌘O).
+2. A warning titled «Файл «Murmur» не был открыт» appeared, with
+   «Переместить в Корзину», «Готово» and «Справка». Select «Готово» (Done).
+3. Right-click the installed Murmur and select «Открыть» (Open) in Finder's menu.
+
+In that test the app process started without a second dialog, password, Touch ID or
+security setting change. These observations apply to that exact downloaded build,
+not to every Mac. The four logical opening actions exclude download and installation.
+
+On other macOS versions Apple also describes allowing the specific app through
+System Settings → Privacy & Security → Open Anyway; authentication may be required.
+That button was not observed in this macOS 26.6.2 test.
+[Apple's instructions](https://support.apple.com/102445).
+Keep Gatekeeper enabled. A warning that an app is damaged or contains malware is
+not interchangeable with an unidentified-developer warning.
+
+## Build a DMG
+
+From `apps/macos-menubar`, with a separately built and verified runtime:
 
 ```sh
 ./packaging/build-dmg.sh /absolute/new-output /absolute/prebuilt-runtime
 ```
 
-Нужны Python 3 и совместимый Node на машине сборщика. Минимальную версию Node
-приложение читает из `engines.node` встроенного `package.json`; отдельного порога
-в Swift нет. Скрипт проверяет полный набор файлов и hashes, собирает universal app
-и native CLI bridge, запускает contract checks для архитектуры машины сборщика,
-подписывает их ad-hoc и создаёт проверяемый `Murmur-Mac-universal.dmg`. Внутрь попадают только
-приложение, ярлык `/Applications` и инструкция. Для повторной сборки можно задать
-абсолютный `MURMUR_SWIFT_BUILD_ROOT` с кешем предыдущей сборки; output должен быть новым.
-Версия берётся из runtime manifest. Называние файла RC не меняет версию движка.
+The build host needs Swift, Python 3 and compatible Node. The script validates the
+runtime inventory and hashes, builds both architectures, runs checks for the host
+architecture, packages the English and Russian resources, signs the app ad-hoc,
+and verifies the DMG. The image contains the app, Applications alias and both Read Me files.
+Set an absolute `MURMUR_SWIFT_BUILD_ROOT` to reuse build caches; output must be new.
+The version is read from the runtime manifest, not from the filename or release tag.
+Both macOS version fields must match it before signing. The filename is
+`Murmur-Mac-VERSION-universal.dmg`; a thin source build takes its version from the
+root `package.json`. Unsupported nonnumeric Apple version forms fail the build.
 
-Скрипт сборки также выполняет `packaging/manifest-checks.py` (контроли изменённых,
-потерянных и лишних файлов, symlink, Python `-O`) и
-`packaging/native-bridge-check.py /absolute/path/Murmur.app` (настоящий встроенный
-CLI, буквальные аргументы, сохранение PID, изоляция окружения, неполный runtime).
-Их можно повторить отдельно; они используют временные каталоги и не создают
-пользовательские профили или службы. Node probe проверяет совместимость исполняемого
-файла, а не удостоверяет его происхождение.
+Reproducible checks also run as part of the build:
 
-## Старый комплект ZIP
+- `python3 packaging/manifest-checks.py` checks missing, changed, extra and linked
+  payloads, including Python optimization mode.
+- `python3 packaging/localization-checks.py /absolute/path/Murmur.app` checks shipped
+  catalogs, default language, format placeholders and coverage of source keys.
+- `python3 packaging/native-bridge-check.py /absolute/path/Murmur.app` checks the actual
+  engine, literal arguments, PID preservation, environment isolation and incomplete bundles.
 
-Следующие шаги относятся только к прежней поставке с `Open Murmur.command`.
-На macOS 26.6.2 реальное скачивание через Safari было заблокировано Gatekeeper
-при обычном двойном щелчке; первый диалог не предлагал кнопку «Открыть».
+Checks use disposable fixtures and do not create user profiles or services.
+Node probing checks compatibility of an executable; it does not attest its origin.
+SwiftPM resources are copied inside the app before signing, so the distributed app
+uses its own catalogs rather than paths on the developer's machine.
 
-1. Распакуйте весь архив. Сохраните папку `Murmur-Mac` целиком, например в своей
-   папке Applications. Не отделяйте приложение от `runtime` и двух файлов запуска.
-2. Откройте `Open Murmur.command`. Он проверит Node и откроет значок Murmur в строке
-   меню. Если Node отсутствует или слишком старый, окно покажет причину.
-3. Выберите существующую папку профиля в меню Murmur. Создание личности, установка
-   службы и подключение клиента пока выполняются общим CLI — мастера первого
-   запуска в этой сборке нет. Это ограничение пилота.
+## Legacy ZIP
 
-Окна чата у значка нет. Число непрочитанных сообщений, состояние службы и обновления
-видны в его меню. Если приложение уже запущено, сначала закройте его через меню,
-затем откройте новую сборку.
+Older ZIPs use `Open Murmur.command`, a sibling `runtime` directory and a `murmur`
+launcher. Keep that folder together. On macOS 26.6.2 an ordinary opening of the
+`.command` file was blocked by Gatekeeper in the observed test.
+The launcher checks Node and creates a local `.murmur-node` binding. Rerun it after
+moving Node; an absolute `MURMUR_NODE` can select a nonstandard installation.
+`Open Murmur.command --check` checks the binding without launching the GUI.
+It refuses to change the binding while Murmur is running.
 
-## CLI в прежнем ZIP
-
-После первого запуска команды доступны как `./murmur` из папки комплекта:
-`./murmur --help`, `./murmur init`, `./murmur clients configure` и другие команды
-общего engine. При создании профиля используйте параметры из
-[инструкции onboarding](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md).
-Launcher не создаёт другой профиль и не устанавливает службу самостоятельно.
-Он сохраняет только выбранный путь Node в `.murmur-node` рядом с собой. Если Node
-перенесён или переустановлен, снова откройте `Open Murmur.command`.
-Для нестандартного расположения Node можно явно задать абсолютный `MURMUR_NODE`
-при запуске. Привязка сохраняет действительный `process.execPath`, не shell alias.
-
-Ссылка в `~/.local/bin`, изменение PATH, вход в аккаунт и перенос старых настроек
-не требуются. Ручное открытие только `.app` не передаёт связанный CLI: используйте
-файл запуска. Автоматический вход в систему и восстановление связи с CLI после
-перезагрузки ещё не приняты; для пилота открывайте комплект вручную.
-
-## Первое открытие неподписанного приложения
-
-Подпись локальная ad-hoc, notarization отсутствует. На macOS 26.6.2 для DMG,
-скачанного из GitHub через Safari, проверен следующий путь:
-
-1. Откройте установленный Murmur в «Программах».
-2. Если появится окно «Файл „Murmur“ не был открыт» с кнопками
-   «Переместить в Корзину» и «Готово», нажмите «Готово».
-3. В «Программах» нажмите правой кнопкой мыши на Murmur (или удерживайте Control
-   при щелчке), затем выберите «Открыть» в появившемся меню.
-
-В этой проверке приложение запустилось без второго диалога, пароля и изменения
-системных настроек. На других версиях macOS путь может отличаться. Apple также
-описывает разрешение открытия конкретного доверенного приложения через
-«Системные настройки» → «Конфиденциальность и безопасность» → «Открыть всё равно»;
-этот пункт может потребовать пароль или Touch ID. В проверке macOS 26.6.2 такой
-кнопки не наблюдалось. [Инструкция Apple](https://support.apple.com/ru-ru/102445).
-Защиту системы целиком отключать не нужно. Предупреждение о повреждённом или
-вредоносном файле не следует считать обычным сообщением о неизвестном разработчике.
-
-## Для сборщика
-
-`./packaging/build-universal.sh /absolute/output /absolute/prebuilt-runtime`
-собирает оба Mach-O slices, проверяет arm64 contract checks и подпись. Runtime
-должен быть уже собран и проверен отдельно для Mac с внешним Node; скрипт его
-не собирает и не меняет. В архив включайте только итоговую папку `Murmur-Mac`,
-без scratch build каталогов и без `.murmur-node` тестировавшего сборку.
-
-`Open Murmur.command --check` проверяет runtime/Node и готовит привязку без запуска
-GUI. Как и обычный запуск, он откажется менять привязку, пока Murmur уже открыт.
-Без работающего приложения проверка создаёт или заменяет `.murmur-node`.
-Это проверка поставки, а не доказательство видимого меню или успешного wake.
-
-Воспроизводимые проверки запуска: `python3 packaging/launcher-checks.py` из
-`apps/macos-menubar`. Нужен установленный Node; тест использует отдельный каталог
-и fixture CLI, не пользовательские профили. Настоящий runtime, transport и GUI
-проверяются отдельно.
+`packaging/build-universal.sh` builds this older layout. Launcher checks are available
+as `python3 packaging/launcher-checks.py`. The DMG is the current packaging path.

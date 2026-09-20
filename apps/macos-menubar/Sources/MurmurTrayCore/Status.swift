@@ -19,17 +19,17 @@ public enum ContractError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .schema: "Схема ответа незнакома"
-        case .timestamp: "Время снимка неизвестно"
-        case .missingOrInvalidFields: "В ответе отсутствуют обязательные данные"
-        case .duplicateStage: "В проверке повторяется один этап"
-        case .stageOrder: "Нарушен порядок этапов проверки"
-        case .stageState: "В проверке незнакомое состояние этапа"
-        case .unparsable: "Ответ не удалось разобрать"
-        case .missingKeys(let paths): "В ответе нет обязательных полей: " + paths.joined(separator: ", ")
-        case .wrongTypes(let paths): "В ответе неверный тип данных: " + paths.joined(separator: ", ")
-        case .invalidValue(let path): "Счётчик не может быть отрицательным: " + path
-        case .doctorChain(let stage, let blocker): "Некорректная проверка: этап \(stage) должен быть пропущен после отказа \(blocker)"
+        case .schema: L10n.text("Unknown response schema")
+        case .timestamp: L10n.text("Snapshot time unknown")
+        case .missingOrInvalidFields: L10n.text("Required data is missing from the response")
+        case .duplicateStage: L10n.text("A diagnostic step appears more than once")
+        case .stageOrder: L10n.text("Diagnostic steps are out of order")
+        case .stageState: L10n.text("A diagnostic step has an unknown state")
+        case .unparsable: L10n.text("Could not parse the response")
+        case .missingKeys(let paths): L10n.text("Required response fields are missing: ") + paths.joined(separator: ", ")
+        case .wrongTypes(let paths): L10n.text("Response fields have the wrong type: ") + paths.joined(separator: ", ")
+        case .invalidValue(let path): L10n.text("A counter cannot be negative: ") + path
+        case .doctorChain(let stage, let blocker): L10n.text("Invalid diagnostics: step %@ must be skipped after %@ failed", String(describing: (stage)), String(describing: (blocker)))
         }
     }
 }
@@ -153,8 +153,8 @@ public struct StatusSnapshot: Decodable, Sendable {
 
     public var modeMismatch: String? {
         guard let configured = wake.config.enabled, let effective = wake.effective.enabled, configured != effective else { return nil }
-        let reason = configured ? "Пробуждение включено в настройках и не действует" : "Пауза задана в настройках и не применена"
-        return reason + (wake.effective.needsRestart == true ? ", нужен перезапуск службы" : "")
+        let reason = configured ? L10n.text("Agent delivery is enabled in settings but is not active") : L10n.text("Agent delivery is paused in settings but the pause is not active")
+        return reason + (wake.effective.needsRestart == true ? L10n.text("; restart the service to apply") : "")
     }
 
     public func verdict(now: Date = Date()) -> Verdict {
@@ -170,37 +170,37 @@ public struct StatusSnapshot: Decodable, Sendable {
         func result(_ indicator: Indicator, _ code: String, _ reason: String) -> Verdict {
             Verdict(indicator, unread: unread, code: code, missing: Array(Set(missing)).sorted(), missingWhy: missingWhy, reason: reason)
         }
-        guard let generated = timestamp(generatedAt) else { return result(.unknown, "snapshot.unparsable", "Время снимка неизвестно") }
-        if now.timeIntervalSince(generated) > 120 { return result(.unknown, "snapshot.stale", "Данные старше двух минут") }
-        if generated.timeIntervalSince(now) > 5 { return result(.unknown, "snapshot.future", "Часы разошлись: снимок из будущего") }
+        guard let generated = timestamp(generatedAt) else { return result(.unknown, "snapshot.unparsable", L10n.text("Snapshot time unknown")) }
+        if now.timeIntervalSince(generated) > 120 { return result(.unknown, "snapshot.stale", L10n.text("Data is more than two minutes old")) }
+        if generated.timeIntervalSince(now) > 5 { return result(.unknown, "snapshot.future", L10n.text("Clocks disagree: the snapshot is in the future")) }
         switch service.state {
-        case .stopped: return result(.stopped, "service.stopped", "Служба остановлена")
-        case .unknown, nil: return result(.unknown, "service.unknown", "Состояние службы неизвестно")
-        case .failed: return result(.failed, "service.failed", "Служба завершилась с ошибкой")
+        case .stopped: return result(.stopped, "service.stopped", L10n.text("Service stopped"))
+        case .unknown, nil: return result(.unknown, "service.unknown", L10n.text("Service status unknown"))
+        case .failed: return result(.failed, "service.failed", L10n.text("Service failed"))
         case .running: break
         }
         if outbox.queue.failed == nil { note("outbox.queue.failed") }
         if outbox.queue.dlq == nil { note("outbox.queue.dlq") }
         if (outbox.queue.failed ?? 0) > 0 || (outbox.queue.dlq ?? 0) > 0 {
-            return result(.failed, "outbox.undelivered", "Не доставлено: \(outbox.queue.failed.map(String.init) ?? "не измерено"); DLQ: \(outbox.queue.dlq.map(String.init) ?? "не измерено")")
+            return result(.failed, "outbox.undelivered", L10n.text("Undelivered: %@; dead-letter queue: %@", String(describing: (outbox.queue.failed.map(String.init) ?? L10n.text("not measured"))), String(describing: (outbox.queue.dlq.map(String.init) ?? L10n.text("not measured")))))
         }
-        if wake.faults.lastFault?.isEmpty == false { return result(.failed, "wake.fault", "Ошибка передачи сообщения агенту") }
+        if wake.faults.lastFault?.isEmpty == false { return result(.failed, "wake.fault", L10n.text("Failed to deliver a message to the agent")) }
         if wake.delivery.pendingUndelivered == nil { note("wake.delivery.pendingUndelivered") }
-        if (wake.delivery.pendingUndelivered ?? 0) > 0 { return result(.failed, "wake.pending", "Есть сообщения, не переданные агенту") }
+        if (wake.delivery.pendingUndelivered ?? 0) > 0 { return result(.failed, "wake.pending", L10n.text("Some messages have not reached the agent")) }
         for (path, reason) in [("outbox.faults", outbox.faults.unknownReason), ("wake.faults", wake.faults.unknownReason),
                                ("outbox.queue", outbox.queue.unknownReason), ("wake.delivery", wake.delivery.unknownReason),
                                ("wake.config", wake.config.unknownReason), ("wake.effective", wake.effective.unknownReason)] {
             if let reason, !reason.isEmpty { note(path, reason) }
         }
         switch broker.state {
-        case .unauthorized: return result(.offline, "broker.unauthorized", "Брокер отклонил доступ")
-        case .disconnected: return result(.offline, "broker.unreachable", "Нет связи с брокером")
+        case .unauthorized: return result(.offline, "broker.unauthorized", L10n.text("Broker access denied"))
+        case .disconnected: return result(.offline, "broker.unreachable", L10n.text("Broker disconnected"))
         case .unknown, nil: missing.append("broker.state")
         case .connected: break
         }
         if let list = peers.list {
-            if list.isEmpty { return result(.offline, "peers.none", "Подключите первого агента") }
-            if list.contains(where: { $0.paired == false }) { return result(.offline, "peers.unpaired", "Не все агенты подключены друг к другу") }
+            if list.isEmpty { return result(.offline, "peers.none", L10n.text("Connect your first agent")) }
+            if list.contains(where: { $0.paired == false }) { return result(.offline, "peers.unpaired", L10n.text("Some agents are not paired")) }
             for peer in list where peer.paired == nil { note("peers.list.\(peer.agentId).paired") }
         } else { note("peers.list", peers.unknownReason) }
         if inbox.unread == nil { note("inbox.unread", inbox.unknownReason) }
@@ -213,10 +213,10 @@ public struct StatusSnapshot: Decodable, Sendable {
             let details = Array(Set(missing)).sorted().map { path in
                 path + (missingDetail[path].map { " (\($0))" } ?? "")
             }
-            return result(.unknown, "unmeasured", "Не измерено: " + details.joined(separator: ", "))
+            return result(.unknown, "unmeasured", L10n.text("Not measured: ") + details.joined(separator: ", "))
         }
-        let detail = wake.config.responder == "none" ? "Связь работает; автоматический ответ не настроен"
-            : (wake.effective.enabled == false ? "Связь работает; приём агентом на паузе" : "Служба, брокер и подключения работают")
+        let detail = wake.config.responder == "none" ? L10n.text("Connected; automatic replies are not configured")
+            : (wake.effective.enabled == false ? L10n.text("Connected; agent delivery is paused") : L10n.text("Service, broker and connections are working"))
         return result(.ready, "ok", detail)
     }
 
@@ -225,24 +225,24 @@ public struct StatusSnapshot: Decodable, Sendable {
         func bounded(_ value: String) -> String {
             String(String(value.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }).prefix(180))
         }
-        for (title, error, at) in [("Последняя ошибка отправки", outbox.faults.lastError, outbox.faults.lastErrorAt),
-                                    ("Последний сбой пробуждения", wake.faults.lastFault, wake.faults.lastFaultAt),
-                                    ("Последняя ошибка брокера", broker.lastError, broker.lastErrorAt)] {
+        for (title, error, at) in [(L10n.text("Last send error"), outbox.faults.lastError, outbox.faults.lastErrorAt),
+                                    (L10n.text("Last agent wake failure"), wake.faults.lastFault, wake.faults.lastFaultAt),
+                                    (L10n.text("Last broker error"), broker.lastError, broker.lastErrorAt)] {
             if error?.isEmpty == false || at?.isEmpty == false {
-                notes.append("\(title): \(error.map(bounded) ?? "был") · \(at.map(bounded) ?? "время неизвестно")")
+                notes.append("\(title): \(error.map(bounded) ?? L10n.text("recorded")) · \(at.map(bounded) ?? L10n.text("time unknown"))")
             }
         }
-        if let at = service.lastFailureAt { notes.append("Последний сбой службы: \(bounded(at))") }
-        if let code = service.lastExitCode, code != 0 { notes.append("Последний код завершения: \(code)") }
-        if let failed = outbox.queue.failed, failed > 0 { notes.append("Сохранённые ошибки доставки: \(failed)") }
-        if let dlq = outbox.queue.dlq, dlq > 0 { notes.append("В очереди недоставленных: \(dlq)") }
-        if let count = service.restartsLastHour { notes.append("Перезапусков за час: \(count)") }
-        else if let count = service.restartCount, let window = service.restartWindowMs { notes.append("Перезапусков за \(window / 1000) с: \(count)") }
-        else { notes.append("Число перезапусков за период не измерено") }
-        if let pending = wake.delivery.pendingUndelivered, pending > 0 { notes.append("Ожидают передачи агенту: \(pending)") }
-        if let stored = wake.delivery.storedOnly, stored > 0 { notes.append("Сохранено без автоматического ответа: \(stored)") }
-        if wake.config.responder == "none" { notes.append("Автоматический ответ не настроен") }
-        else if wake.effective.enabled == false { notes.append("Приём агентом на паузе") }
+        if let at = service.lastFailureAt { notes.append(L10n.text("Last service failure: %@", String(describing: (bounded(at))))) }
+        if let code = service.lastExitCode, code != 0 { notes.append(L10n.text("Last exit code: %@", String(describing: (code)))) }
+        if let failed = outbox.queue.failed, failed > 0 { notes.append(L10n.text("Recorded delivery failures: %@", String(describing: (failed)))) }
+        if let dlq = outbox.queue.dlq, dlq > 0 { notes.append(L10n.text("In the dead-letter queue: %@", String(describing: (dlq)))) }
+        if let count = service.restartsLastHour { notes.append(L10n.text("Restarts in the last hour: %@", String(describing: (count)))) }
+        else if let count = service.restartCount, let window = service.restartWindowMs { notes.append(L10n.text("Restarts in %@ seconds: %@", String(describing: (window / 1000)), String(describing: (count)))) }
+        else { notes.append(L10n.text("Restart count for this period is not measured")) }
+        if let pending = wake.delivery.pendingUndelivered, pending > 0 { notes.append(L10n.text("Waiting for agent delivery: %@", String(describing: (pending)))) }
+        if let stored = wake.delivery.storedOnly, stored > 0 { notes.append(L10n.text("Stored without an automatic reply: %@", String(describing: (stored)))) }
+        if wake.config.responder == "none" { notes.append(L10n.text("Automatic replies are not configured")) }
+        else if wake.effective.enabled == false { notes.append(L10n.text("Agent delivery is paused")) }
         return notes
     }
 }

@@ -113,14 +113,14 @@ struct ProbeChecks {
 
         try withCLI("printf 'SECRET_TOKEN=must-not-be-displayed' >&2; exit 7") { url in
             try expect("Failure output", probe: { _ = try CLIProbe(executable: url).run("status") }) {
-                $0.localizedDescription == "CLI завершился с кодом 7"
+                $0.localizedDescription == "CLI exited with code 7"
             }
         }
         print("PASS unstructured failure is not success; stderr is not disclosed")
 
         try withCLI("printf 'Permission denied while reading the selected profile\\nextra trace' >&2; exit 2") { url in
             try expect("Human error reason", probe: { _ = try CLIProbe(executable: url).run("status") }) {
-                $0.localizedDescription == "CLI завершился с кодом 2: Permission denied while reading the selected profile"
+                $0.localizedDescription == "CLI exited with code 2: Permission denied while reading the selected profile"
             }
         }
         print("PASS bounded actionable stderr reason is retained")
@@ -154,7 +154,7 @@ struct ProbeChecks {
                 try check(value.diagnosticNotes.first == value.modeMismatch, "Mode mismatch must be first diagnostic independently of color")
             }
             if actual.code == "service.stopped", let value {
-                try check(value.diagnosticNotes.contains(where: { $0.contains("ошибка отправки") }), "Stopped service must retain historical send failure")
+                try check(value.diagnosticNotes.contains(where: { $0.contains("send error") }), "Stopped service must retain historical send failure")
             }
             if file.lastPathComponent == "status-green.json" { base = try materialized(object, now: clock) }
             print("PASS canonical \(file.lastPathComponent): \(actual.color), \(actual.code), missing set + reasons")
@@ -281,6 +281,7 @@ struct ProbeChecks {
         let controlCount = try runControlChecks(fixtures: directory)
         let updateCount = try runUpdateChecks()
         let runtimeCount = try runBundledRuntimeChecks()
-        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount)")
+        let localizationCount = try runLocalizationChecks()
+        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount + localizationCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount), localization \(localizationCount)")
     }
 }

@@ -30,7 +30,7 @@ func runUpdateChecks() throws -> Int {
     var current = base; current["state"] = "up-to-date"; current["reason"] = "updates.no-newer-release"
     current["action"] = NSNull(); current["releaseUrl"] = NSNull()
     let currentSnapshot = try UpdateSnapshot.decode(updateData(current))
-    try check(currentSnapshot.releasePage(now: now) == nil && currentSnapshot.title(now: now).contains("не найдено"), "Current never opens a page")
+    try check(currentSnapshot.releasePage(now: now) == nil && currentSnapshot.title(now: now).contains("No newer stable release"), "Current never opens a page")
     pass("up-to-date consumes CLI decision without version comparison")
     for reason in ["updates.disabled", "updates.timeout", "updates.network-error", "updates.cache-invalid",
                    "updates.rate-limited", "updates.check-in-progress", "updates.current-version-invalid"] {
@@ -38,7 +38,7 @@ func runUpdateChecks() throws -> Int {
         unknown["latestVersion"] = NSNull(); unknown["stale"] = true; unknown["cached"] = true
         if reason == "updates.disabled" { unknown["enabled"] = false }
         let snapshot = try UpdateSnapshot.decode(updateData(unknown))
-        try check(snapshot.state == .unknown && snapshot.releasePage(now: now) == nil && !snapshot.title(now: now).contains("не найдено"), "Unknown is not current")
+        try check(snapshot.state == .unknown && snapshot.releasePage(now: now) == nil && !snapshot.title(now: now).contains("No newer stable release"), "Unknown is not current")
         try check(snapshot.lastSuccessAt == base["lastSuccessAt"] as? String, "Previous success timestamp preserved")
         pass("unknown remains visible: \(reason)")
     }
@@ -81,13 +81,13 @@ func runUpdateChecks() throws -> Int {
     try check(try UpdateSnapshot.decode(updateData(buildMetadata)).releasePage(now: now) != nil, "Canonical encoded build metadata")
     pass("canonical encoded build metadata URL")
     try check(available.releasePage(now: now.addingTimeInterval(21_601)) == nil, "Expired metadata loses actionable badge")
-    try check(available.title(now: now.addingTimeInterval(21_601)).contains("устарел"), "Expiry remains visible")
+    try check(available.title(now: now.addingTimeInterval(21_601)).contains("stale"), "Expiry remains visible")
     pass("expiry prevents stale available/current presentation")
     try check(available.releasePage(now: now.addingTimeInterval(-60)) == nil, "Future observation cannot drive a badge")
     pass("future observation is not actionable")
     var cached = base; cached["cached"] = true
     let cachedSnapshot = try UpdateSnapshot.decode(updateData(cached))
-    try check(cachedSnapshot.ageText(now: now.addingTimeInterval(120)).contains("2 мин.") && cachedSnapshot.checkedAt == available.checkedAt, "Cache retains original timestamp")
+    try check(cachedSnapshot.ageText(now: now.addingTimeInterval(120)).contains("2 minutes") && cachedSnapshot.checkedAt == available.checkedAt, "Cache retains original timestamp")
     pass("cache age and original timestamp")
     var extensionValue = base; extensionValue["futureExtension"] = ["x": true]
     _ = try UpdateSnapshot.decode(updateData(extensionValue)); pass("unknown additive fields")

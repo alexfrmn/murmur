@@ -25,7 +25,7 @@ public struct DoctorSnapshot: Decodable, Sendable {
         public let elapsedMs: Int?
     }
     public static let stageIDs = ["config", "daemon", "broker", "peers", "roundtrip", "wake"]
-    public static let titles = ["Настройки", "Служба", "Брокер", "Подключения", "Ответное сообщение", "Приём агентом"]
+    public static var titles: [String] { [L10n.text("Settings"), L10n.text("Service"), L10n.text("Broker"), L10n.text("Connections"), L10n.text("Reply"), L10n.text("Agent delivery")] }
     public let schema: String
     public let generatedAt: String
     public let stages: [Stage]
@@ -53,17 +53,17 @@ public struct DoctorSnapshot: Decodable, Sendable {
         var blocker: String?
         return Self.stageIDs.enumerated().map { index, id in
             guard let stage = stages.first(where: { $0.id == id }) else {
-                return DoctorRow(id: id, title: Self.titles[index], state: "unknown", detail: "Нет в ответе")
+                return DoctorRow(id: id, title: Self.titles[index], state: "unknown", detail: L10n.text("Missing from response"))
             }
             if let blocker, stage.state != "skip" || stage.reason != "blocked-by:\(blocker)" {
                 return DoctorRow(id: id, title: Self.titles[index], state: "unknown",
-                                 detail: "Некорректный ответ: после отказа \(blocker) ожидался пропуск")
+                                 detail: L10n.text("Invalid response: expected a skipped step after %@ failed", String(describing: (blocker))))
             }
             if stage.state == "fail" { blocker = id }
-            let names = ["ok": "Готово", "warn": "Предупреждение", "fail": "Ошибка", "skip": "Пропущено"]
+            let names = ["ok": L10n.text("Done"), "warn": L10n.text("Warning"), "fail": L10n.text("Error"), "skip": L10n.text("Skipped")]
             let state = names[stage.state] == nil ? "unknown" : stage.state
-            var detail = names[stage.state] ?? "Неизвестное состояние"
-            if let ms = stage.elapsedMs { detail += " · \(ms) мс" }
+            var detail = names[stage.state] ?? L10n.text("Unknown state")
+            if let ms = stage.elapsedMs { detail += L10n.text(" · %@ ms", String(describing: (ms))) }
             if state != "ok", !stage.detail.isEmpty { detail += ": " + stage.detail }
             if state == "skip", let reason = stage.reason { detail += " (\(reason))" }
             return DoctorRow(id: id, title: Self.titles[index], state: state, detail: detail)

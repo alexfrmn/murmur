@@ -6,13 +6,13 @@ public enum Indicator: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .unknown: "Состояние неизвестно"
-        case .stopped: "Служба остановлена"
-        case .offline: "Нет связи с брокером"
-        case .ready: "Murmur работает"
-        case .unread: "Есть непрочитанное"
-        case .failed: "Требуется внимание"
-        case .paused: "Приём на паузе"
+        case .unknown: L10n.text("Status unknown")
+        case .stopped: L10n.text("Service stopped")
+        case .offline: L10n.text("Broker disconnected")
+        case .ready: L10n.text("Murmur is running")
+        case .unread: L10n.text("Unread messages")
+        case .failed: L10n.text("Needs attention")
+        case .paused: L10n.text("Agent delivery paused")
         }
     }
 
@@ -34,13 +34,13 @@ public enum ProbeError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .missingCLI: "Murmur CLI пока не найден"
-        case .timedOut: "CLI не ответил вовремя"
-        case .outputLimit: "Ответ CLI превышает допустимый размер"
-        case .failed(let code): "CLI завершился с кодом \(code)"
-        case .failedWithReason(let code, let reason): "CLI завершился с кодом \(code): \(reason)"
-        case .invalidJSON: "CLI вернул некорректный JSON"
-        case .unsupportedSchema: "Ожидается общий контракт status / doctor"
+        case .missingCLI: L10n.text("Murmur CLI was not found")
+        case .timedOut: L10n.text("CLI did not respond in time")
+        case .outputLimit: L10n.text("CLI response exceeds the size limit")
+        case .failed(let code): L10n.text("CLI exited with code %@", String(describing: (code)))
+        case .failedWithReason(let code, let reason): L10n.text("CLI exited with code %@: %@", String(describing: (code)), String(describing: (reason)))
+        case .invalidJSON: L10n.text("CLI returned invalid JSON")
+        case .unsupportedSchema: L10n.text("The shared status / doctor contract is required")
         }
     }
 }

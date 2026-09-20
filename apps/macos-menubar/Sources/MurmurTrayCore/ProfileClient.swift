@@ -22,15 +22,15 @@ public enum ProfileError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .absoluteDirectoryRequired: "Выберите папку профиля по полному пути"
-        case .invalidServiceName: "Имя службы в выбранном профиле недопустимо"
-        case .invalidCLI: "Исполняемый файл Murmur CLI не выбран"
-        case .invalidTimeout: "Недопустимое время ожидания команды"
-        case .unsupportedCommand: "Эта команда не поддерживается значком"
-        case .unverified: "Профиль не подтверждён. Проверьте его настройки через Murmur CLI"
-        case .identityChanged: "Агент в этой папке изменился. Выберите профиль заново"
-        case .stale: "Нет свежего статуса выбранного профиля"
-        case .invalidResponse: "Результат команды не подтверждён. Обновите статус перед повторным действием"
+        case .absoluteDirectoryRequired: L10n.text("Choose a profile folder using its full path")
+        case .invalidServiceName: L10n.text("The selected profile has an invalid service name")
+        case .invalidCLI: L10n.text("No Murmur CLI executable was selected")
+        case .invalidTimeout: L10n.text("Invalid command timeout")
+        case .unsupportedCommand: L10n.text("This command is not supported by the menu app")
+        case .unverified: L10n.text("The profile is not verified. Check its settings with Murmur CLI")
+        case .identityChanged: L10n.text("The agent in this folder has changed. Select the profile again")
+        case .stale: L10n.text("No recent status is available for the selected profile")
+        case .invalidResponse: L10n.text("The command result was not confirmed. Refresh status before trying again")
         }
     }
 }
@@ -70,10 +70,10 @@ public enum ControlAction: String, CaseIterable, Sendable {
     }
     public var title: String {
         switch self {
-        case .pause: "Пауза"
-        case .resume: "Возобновить"
-        case .start: "Запустить службу"
-        case .stop: "Остановить службу"
+        case .pause: L10n.text("Pause agent delivery")
+        case .resume: L10n.text("Resume agent delivery")
+        case .start: L10n.text("Start service")
+        case .stop: L10n.text("Stop service")
         }
     }
 }
@@ -95,13 +95,13 @@ public struct ControlReceipt: Sendable {
             guard let value = try? JSONDecoder().decode(Wake.self, from: data),
                   schemaKnown(value.schema, name: "murmur.wake"), value.configuredEnabled == (action == .resume),
                   value.applyError == nil else { throw ProfileError.invalidResponse }
-            let message = action == .pause ? "Пауза записана в настройки" : "Возобновление записано в настройки"
-            return Self(message: message + ". Действующий режим показан в статусе", restartRequired: value.restartRequired)
+            let message = action == .pause ? L10n.text("Pause saved in settings") : L10n.text("Resume saved in settings")
+            return Self(message: message + L10n.text(". Status shows the effective mode"), restartRequired: value.restartRequired)
         case .start, .stop:
             guard let value = try? JSONDecoder().decode(Service.self, from: data),
                   schemaKnown(value.schema, name: "murmur.service"), value.action == action.rawValue,
                   value.service.state != nil else { throw ProfileError.invalidResponse }
-            return Self(message: "Команда «\(action.title.lowercased())» выполнена. Результат показан в статусе", restartRequired: nil)
+            return Self(message: L10n.text("Command %@ completed. Status shows the result", String(describing: (action.title.lowercased()))), restartRequired: nil)
         }
     }
 }

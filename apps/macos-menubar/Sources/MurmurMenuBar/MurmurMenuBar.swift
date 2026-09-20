@@ -7,15 +7,16 @@ private struct DoctorRead: Sendable { let value: DoctorSnapshot?; let error: Str
 
 @MainActor
 final class TrayModel: ObservableObject {
+    @Published var language = L10n.language()
     @Published var status: StatusSnapshot?
-    @Published var statusError = Verdict(.unknown, reason: "Выберите папку профиля Murmur")
+    @Published var statusError = Verdict(.unknown, reason: L10n.text("Choose a Murmur profile folder"))
     @Published var doctor: DoctorSnapshot?
     @Published var doctorError: String?
     @Published var operationError: String?
     @Published var operationMessage: String?
     @Published var operating = false
     @Published var profile: ProfileBinding?
-    @Published var profileError: String? = "Выберите папку профиля Murmur"
+    @Published var profileError: String? = L10n.text("Choose a Murmur profile folder")
     @Published var agentID: String?
     @Published var checkingStatus = false
     @Published var checkingDoctor = false
@@ -58,12 +59,12 @@ final class TrayModel: ObservableObject {
                 runtimeError = error.localizedDescription
                 statusError = Verdict(.unknown, reason: error.localizedDescription)
                 let alert = NSAlert()
-                alert.messageText = "Murmur пока не может запуститься"
+                alert.messageText = L10n.text("Murmur cannot start yet")
                 alert.informativeText = error.localizedDescription
                 if case RuntimeError.missingNode = error {
-                    alert.addButton(withTitle: "Открыть сайт Node.js")
-                    alert.addButton(withTitle: "Проверить снова")
-                    alert.addButton(withTitle: "Закрыть")
+                    alert.addButton(withTitle: L10n.text("Open Node.js website"))
+                    alert.addButton(withTitle: L10n.text("Try again"))
+                    alert.addButton(withTitle: L10n.text("Close"))
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     switch alert.runModal() {
                     case .alertFirstButtonReturn: NSWorkspace.shared.open(URL(string: "https://nodejs.org/en/download")!)
@@ -71,7 +72,7 @@ final class TrayModel: ObservableObject {
                     default: break
                     }
                 } else {
-                    alert.addButton(withTitle: "Закрыть")
+                    alert.addButton(withTitle: L10n.text("Close"))
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     alert.runModal()
                 }
@@ -99,11 +100,26 @@ final class TrayModel: ObservableObject {
     }
 
     var busy: Bool { preparingRuntime || operating || checkingStatus || checkingDoctor }
+    func selectLanguage(_ value: AppLanguage) {
+        guard !busy, !checkingUpdates, value != language else { return }
+        L10n.select(value)
+        language = value
+        operationError = nil; operationMessage = nil
+        doctorError = doctor == nil ? L10n.text("Not checked yet") : nil
+        if profile == nil {
+            profileError = L10n.text("Choose a Murmur profile folder")
+            statusError = Verdict(.unknown, reason: L10n.text("Choose a Murmur profile folder"))
+        } else {
+            refreshStatus()
+        }
+        if runtimeError != nil { prepareRuntime() }
+        refreshUpdates()
+    }
     // Update I/O never participates in profile/status/service command readiness.
     var canChangeUpdates: Bool { !isDemo && updatesClient != nil && !checkingUpdates }
     var updatesForcedOff: Bool { updatesClient?.forcedOff == true }
     var updateAvailable: Bool { updates?.releasePage() != nil }
-    var accessibleStatus: String { "Murmur: " + verdict.reason + (updateAvailable ? "; доступно обновление" : "") }
+    var accessibleStatus: String { "Murmur: " + verdict.reason + (updateAvailable ? L10n.text("; update available") : "") }
 
     func refreshUpdates(enabled: Bool? = nil) {
         guard !isDemo, !checkingUpdates, let updatesClient else { return }
@@ -134,19 +150,19 @@ final class TrayModel: ObservableObject {
     func openUpdateRelease() {
         guard !isDemo, let page = updates?.releasePage() else { return }
         // No download, installer or shell: an explicit click opens an allowed page.
-        if !NSWorkspace.shared.open(page) { updateError = "Не удалось открыть страницу релиза" }
+        if !NSWorkspace.shared.open(page) { updateError = L10n.text("Could not open the release page") }
     }
 
     var controlBlockReason: String? {
-        if isDemo { return "Демонстрационный режим" }
-        if preparingRuntime { return "Проверяем движок Murmur…" }
+        if isDemo { return L10n.text("Demo mode") }
+        if preparingRuntime { return L10n.text("Checking the Murmur engine…") }
         if let runtimeError { return runtimeError }
         if let profileError { return profileError }
-        guard let client, let status, let agentID else { return "Профиль ещё не подтверждён" }
+        guard let client, let status, let agentID else { return L10n.text("The profile has not been verified yet") }
         do {
             guard try client.verifiedAgent(in: status) == agentID else { return ProfileError.identityChanged.localizedDescription }
         } catch { return error.localizedDescription }
-        return busy ? "Дождитесь завершения текущей команды" : nil
+        return busy ? L10n.text("Wait for the current command to finish") : nil
     }
 
     var canControl: Bool { controlBlockReason == nil }
@@ -155,9 +171,9 @@ final class TrayModel: ObservableObject {
     func chooseProfile() {
         guard !busy, !isDemo, runtimeError == nil else { return }
         let picker = NSOpenPanel()
-        picker.title = "Папка профиля Murmur"
-        picker.message = "Выберите папку профиля, созданного через Murmur CLI"
-        picker.prompt = "Выбрать профиль"
+        picker.title = L10n.text("Murmur profile folder")
+        picker.message = L10n.text("Choose a profile folder created with Murmur CLI")
+        picker.prompt = L10n.text("Choose profile")
         picker.canChooseFiles = false; picker.canChooseDirectories = true
         picker.canCreateDirectories = false; picker.allowsMultipleSelection = false
         picker.showsHiddenFiles = true
@@ -175,8 +191,8 @@ final class TrayModel: ObservableObject {
         selectionID = UUID()
         profile = chosen; agentID = nil; status = nil; doctor = nil
         operationMessage = nil; operationError = nil
-        profileError = "Проверяем выбранный профиль…"
-        statusError = Verdict(.unknown, reason: "Проверяем выбранный профиль…")
+        profileError = L10n.text("Checking the selected profile…")
+        statusError = Verdict(.unknown, reason: L10n.text("Checking the selected profile…"))
         guard let executable = CLIProbe.locate() else {
             client = nil; profileError = ProbeError.missingCLI.localizedDescription
             statusError = .unavailable(ProbeError.missingCLI)
@@ -190,7 +206,7 @@ final class TrayModel: ObservableObject {
     var verdict: Verdict {
         if isDemo {
             return Verdict(demoState, unread: demoState == .unread,
-                           reason: "Демонстрация — \(demoState.title.lowercased())")
+                           reason: L10n.text("Demo — %@", String(describing: (demoState.title.lowercased()))))
         }
         return status?.verdict() ?? statusError
     }
@@ -209,7 +225,7 @@ final class TrayModel: ObservableObject {
             // no snapshot/counters and keeps the previous binding until reselect.
             status = result.status
             agentID = result.agentID
-            statusError = result.error ?? Verdict(.unknown, reason: "Состояние ещё не получено")
+            statusError = result.error ?? Verdict(.unknown, reason: L10n.text("Status has not been received yet"))
             profileError = result.error?.reason
             checkingStatus = false
         }
@@ -236,7 +252,7 @@ final class TrayModel: ObservableObject {
     func perform(_ action: ControlAction) {
         guard canControl, let client, let agentID else { return }
         operating = true; operationError = nil; operationMessage = nil
-        doctor = nil; doctorError = "После изменения запустите проверку заново"
+        doctor = nil; doctorError = L10n.text("Run diagnostics again after making changes")
         let selected = selectionID
         Task {
             let result = await Task.detached { () -> Result<ControlReceipt, Error> in
@@ -250,14 +266,14 @@ final class TrayModel: ObservableObject {
             // Do not turn configuration acknowledgement into effective runtime state.
             // Refresh after errors too: a timed-out mutation may already have applied.
             status = nil
-            statusError = Verdict(.unknown, reason: "Проверяем статус после команды…")
+            statusError = Verdict(.unknown, reason: L10n.text("Checking status after the command…"))
             operating = false
             refreshStatus()
         }
     }
 
     func wakeState(_ value: Bool?) -> String {
-        value.map { $0 ? "передача агенту включена" : "передача агенту на паузе" } ?? "не измерено"
+        value.map { $0 ? L10n.text("agent delivery enabled") : L10n.text("agent delivery paused") } ?? L10n.text("not measured")
     }
 
     func openLogs() {
@@ -272,7 +288,7 @@ final class TrayModel: ObservableObject {
             operating = false
             switch result {
             case .success(let directory):
-                if !NSWorkspace.shared.open(directory) { operationError = "Не удалось открыть папку логов" }
+                if !NSWorkspace.shared.open(directory) { operationError = L10n.text("Could not open the log folder") }
             case .failure(let error): operationError = error.localizedDescription
             }
         }
@@ -297,7 +313,7 @@ final class TrayModel: ObservableObject {
             else { try SMAppService.mainApp.unregister() }
             launchAtLogin = SMAppService.mainApp.status == .enabled
             if SMAppService.mainApp.status == .requiresApproval {
-                operationError = "Автозапуск ожидает разрешения в настройках macOS"
+                operationError = L10n.text("Launch at login needs approval in macOS settings")
                 SMAppService.openSystemSettingsLoginItems()
             }
         } catch { operationError = error.localizedDescription }
@@ -343,95 +359,106 @@ struct MurmurMenuBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text(model.isDemo ? "Murmur — демо" : "Murmur")
+            Text(model.isDemo ? L10n.text("Murmur — demo") : "Murmur")
             if model.runtimeError != nil {
-                Button("Проверить снова") { model.prepareRuntime() }.disabled(model.preparingRuntime)
+                Button(L10n.text("Try again")) { model.prepareRuntime() }.disabled(model.preparingRuntime)
             }
             if let profile = model.profile {
-                Text("Профиль: \(model.agentID ?? "не подтверждён")")
+                Text(L10n.text("Profile: %@", String(describing: (model.agentID ?? L10n.text("not verified")))))
                 Text(profile.dataDirectory)
-                if let service = profile.serviceName { Text("Служба: \(service)") }
+                if let service = profile.serviceName { Text(L10n.text("Service: %@", String(describing: (service)))) }
             }
-            Button("Выбрать папку профиля…") { model.chooseProfile() }
+            Button(L10n.text("Choose profile folder…")) { model.chooseProfile() }
                 .disabled(model.busy || model.isDemo || model.runtimeError != nil)
             if let reason = model.controlBlockReason { Text(reason) }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
             Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
             if let operationError = model.operationError { Text(operationError) }
             if let message = model.operationMessage { Text(message) }
-            Text("Непрочитанных: \(model.status?.inbox.unread.map(String.init) ?? "не измерено")")
-            Text("Ожидают передачи агенту: \(model.status?.wake.delivery.pendingUndelivered.map(String.init) ?? "не измерено")")
-            Text("В настройках: \(model.wakeState(model.status?.wake.config.enabled))")
-            Text("Сейчас: \(model.wakeState(model.status?.wake.effective.enabled))")
-            if model.status?.wake.effective.needsRestart == true { Text("Для применения настройки нужен перезапуск службы") }
+            Text(L10n.text("Unread: %@", String(describing: (model.status?.inbox.unread.map(String.init) ?? L10n.text("not measured")))))
+            Text(L10n.text("Waiting for agent delivery: %@", String(describing: (model.status?.wake.delivery.pendingUndelivered.map(String.init) ?? L10n.text("not measured")))))
+            Text(L10n.text("Configured: %@", String(describing: (model.wakeState(model.status?.wake.config.enabled)))))
+            Text(L10n.text("Effective now: %@", String(describing: (model.wakeState(model.status?.wake.effective.enabled)))))
+            if model.status?.wake.effective.needsRestart == true { Text(L10n.text("Restart the service to apply this setting")) }
             if let status = model.status {
                 ForEach(status.diagnosticNotes.filter { $0 != status.modeMismatch }, id: \.self) { note in Text(note) }
             }
             Divider()
             if model.isDemo {
-                Menu("Проверить состояния") {
+                Menu(L10n.text("Preview states")) {
                     ForEach(Indicator.allCases, id: \.self) { state in
                         Button(state.title) { model.demoState = state }
                     }
                 }
             }
-            Menu("Диагностика") {
+            Menu(L10n.text("Diagnostics")) {
                 if let doctor = model.doctor {
                     ForEach(doctor.rows()) { row in
                         Label("\(row.title): \(row.detail)", systemImage: row.symbol)
                     }
-                    Text("Проверено: \(doctor.generatedAt)")
+                    Text(L10n.text("Checked: %@", String(describing: (doctor.generatedAt))))
                 } else {
-                    Text(model.doctorError ?? "Ещё не проверялось")
+                    Text(model.doctorError ?? L10n.text("Not checked yet"))
                     ForEach(DoctorSnapshot.stageIDs.indices, id: \.self) { index in
-                        Text("\(DoctorSnapshot.titles[index]) — нет в ответе")
+                        Text(L10n.text("%@ — missing from response", String(describing: (DoctorSnapshot.titles[index]))))
                     }
                 }
-                Button(model.checkingDoctor ? "Проверяется…" : "Проверить сейчас") {
+                Button(model.checkingDoctor ? L10n.text("Checking…") : L10n.text("Check now")) {
                     model.refreshDoctor(); model.refreshStatus()
                 }.disabled(model.busy || model.isDemo || model.profile == nil)
             }
-            Button(model.operating ? "Выполняется…" : model.wakeAction.title) { model.perform(model.wakeAction) }
+            Button(model.operating ? L10n.text("Working…") : model.wakeAction.title) { model.perform(model.wakeAction) }
                 .disabled(!model.canControl || model.status?.wake.config.enabled == nil)
-            Button("Открыть inbox") {}.disabled(true)
-            Text("Просмотр inbox ещё не поддерживается Murmur CLI")
-            Button("Скопировать диагностику") { model.copyDiagnostics() }
-            Menu("Служба") {
-                Button("Запустить") { model.perform(.start) }.disabled(!model.canControl)
-                Button("Остановить") { model.perform(.stop) }.disabled(!model.canControl)
-                Button("Открыть настроенный каталог журналов") { model.openLogs() }.disabled(!model.canControl)
+            Button(L10n.text("Open inbox")) {}.disabled(true)
+            Text(L10n.text("Inbox viewing is not supported by Murmur CLI yet"))
+            Button(L10n.text("Copy diagnostics")) { model.copyDiagnostics() }
+            Menu(L10n.text("Service")) {
+                Button(L10n.text("Start")) { model.perform(.start) }.disabled(!model.canControl)
+                Button(L10n.text("Stop")) { model.perform(.stop) }.disabled(!model.canControl)
+                Button(L10n.text("Open configured log folder")) { model.openLogs() }.disabled(!model.canControl)
             }
-            Menu(model.updateAvailable ? "Доступно обновление Murmur" : "Обновления Murmur") {
+            Menu(model.updateAvailable ? L10n.text("Murmur update available") : L10n.text("Murmur updates")) {
                 if let updates = model.updates {
                     Text(updates.title())
-                    Text("Версия продукта: \(updates.currentVersion ?? "неизвестна")")
+                    Text(L10n.text("Product version: %@", String(describing: (updates.currentVersion ?? L10n.text("unknown.version")))))
                     Text(updates.reasonText)
-                    Text("Последняя попытка: \(updates.checkedAt ?? "не измерена")")
+                    Text(L10n.text("Last attempt: %@", String(describing: (updates.checkedAt ?? L10n.text("not-measured.time")))))
                     Text(updates.ageText())
-                    Text("Последняя успешная проверка: \(updates.lastSuccessAt ?? "не измерена")")
-                    if let next = updates.nextCheckAt { Text("Следующая проверка не раньше: \(next)") }
-                    if updates.stale { Text("Прежний успешный результат устарел") }
-                } else { Text("Обновления: результат неизвестен") }
-                if model.checkingUpdates { Text("Проверка обновлений…") }
+                    Text(L10n.text("Last successful check: %@", String(describing: (updates.lastSuccessAt ?? L10n.text("not-measured.time")))))
+                    if let next = updates.nextCheckAt { Text(L10n.text("Next check no earlier than: %@", String(describing: (next)))) }
+                    if updates.stale { Text(L10n.text("The previous successful result is stale")) }
+                } else { Text(L10n.text("Updates: result unknown")) }
+                if model.checkingUpdates { Text(L10n.text("Checking for updates…")) }
                 if let error = model.updateError { Text(error) }
-                Button("Открыть страницу релиза") { model.openUpdateRelease() }
+                Button(L10n.text("Open release page")) { model.openUpdateRelease() }
                     .disabled(!model.updateAvailable || model.isDemo)
                 Divider()
-                Text("Проверка — раз в 6 часов, общий кеш для пользователя")
-                Text("GitHub узнаёт ваш IP и факт использования Murmur")
-                if model.updatesForcedOff { Text("Проверка запрещена через MURMUR_UPDATE_CHECK=0") }
-                Button("Включить проверку обновлений") { model.refreshUpdates(enabled: true) }
+                Text(L10n.text("Checks every 6 hours; cache shared by this user"))
+                Text(L10n.text("GitHub receives your IP address and sees that you use Murmur"))
+                if model.updatesForcedOff { Text(L10n.text("Checks are blocked by MURMUR_UPDATE_CHECK=0")) }
+                Button(L10n.text("Enable update checks")) { model.refreshUpdates(enabled: true) }
                     .disabled(!model.canChangeUpdates || model.updatesForcedOff)
-                Button("Отключить проверку обновлений") { model.refreshUpdates(enabled: false) }
+                Button(L10n.text("Disable update checks")) { model.refreshUpdates(enabled: false) }
                     .disabled(!model.canChangeUpdates)
             }
             Divider()
-            Toggle("Запускать при входе", isOn: Binding(
+            Menu(L10n.text("Language")) {
+                ForEach(AppLanguage.allCases, id: \.self) { language in
+                    Button { model.selectLanguage(language) } label: {
+                        if model.language == language {
+                            Label(language.name, systemImage: "checkmark")
+                        } else {
+                            Text(language.name)
+                        }
+                    }.disabled(model.busy || model.checkingUpdates)
+                }
+            }
+            Toggle(L10n.text("Launch at login"), isOn: Binding(
                 get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }
             )).disabled(model.isDemo)
-            Button(model.checkingStatus ? "Обновляется…" : "Обновить статус") { model.refreshStatus() }
+            Button(model.checkingStatus ? L10n.text("Refreshing…") : L10n.text("Refresh status")) { model.refreshStatus() }
                 .disabled(model.busy || model.isDemo || model.profile == nil)
-            Button("Выход") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
+            Button(L10n.text("Quit")) { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         } label: {
             Image(nsImage: model.icon).accessibilityLabel(model.accessibleStatus)
         }

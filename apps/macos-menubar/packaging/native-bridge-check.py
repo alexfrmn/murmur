@@ -44,6 +44,9 @@ def main(app):
         binary = contents / "MacOS/murmur"
         binary.parent.mkdir(parents=True)
         shutil.copy2(helper, binary)
+        shutil.copy2(app / "Contents/Info.plist", contents / "Info.plist")
+        resources = "MurmurMenuBarSpike_MurmurTrayCore.bundle"
+        shutil.copytree(app / "Contents/Resources" / resources, contents / "Resources" / resources)
         runtime = contents / "Resources/runtime"
         for name in ["packages/setup/bin/murmur.mjs", "packages/setup/dist/src/cli.js",
                      "packages/mcp-server/dist/src/index.js", "scripts/murmur-daemon.mjs",

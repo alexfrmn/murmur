@@ -4,8 +4,8 @@ public enum UpdateError: Error, LocalizedError, Sendable {
     case invalidResponse, invalidReleasePage
     public var errorDescription: String? {
         switch self {
-        case .invalidResponse: "CLI вернул неподтверждённый результат проверки обновлений"
-        case .invalidReleasePage: "CLI не подтвердил официальную страницу релиза"
+        case .invalidResponse: L10n.text("CLI returned an unverified update result")
+        case .invalidReleasePage: L10n.text("CLI did not confirm the official release page")
         }
     }
 }
@@ -78,37 +78,37 @@ public struct UpdateSnapshot: Decodable, Sendable {
         return Self.officialReleasePage(releaseUrl)
     }
     public func title(now: Date = Date()) -> String {
-        if !enabled && reason == "updates.disabled" { return "Проверка обновлений отключена" }
-        if state != .unknown && expired(now: now) { return "Результат проверки обновлений устарел" }
+        if !enabled && reason == "updates.disabled" { return L10n.text("Update checks are disabled") }
+        if state != .unknown && expired(now: now) { return L10n.text("The update result is stale") }
         switch state {
-        case .available: return "Доступна версия \(latestVersion ?? "неизвестно")"
-        case .current: return "Более нового стабильного релиза не найдено"
-        case .unknown: return "Обновления: проверить не удалось"
+        case .available: return L10n.text("Version %@ is available", String(describing: (latestVersion ?? L10n.text("unknown"))))
+        case .current: return L10n.text("No newer stable release was found")
+        case .unknown: return L10n.text("Updates could not be checked")
         }
     }
     public var reasonText: String {
         switch reason {
-        case "updates.disabled": "Автоматическая проверка выключена"
-        case "updates.current-version-invalid": "CLI не определил версию продукта"
-        case "updates.preferences-unavailable": "Настройка проверки недоступна"
-        case "updates.cache-invalid": "Сохранённый результат некорректен"
-        case "updates.cache-unavailable": "Сохранённый результат недоступен"
-        case "updates.check-in-progress": "Проверка уже идёт в другом процессе"
-        case "updates.interrupted": "Предыдущая проверка была прервана"
-        case "updates.network-error": "Не удалось связаться с GitHub"
-        case "updates.timeout": "GitHub не ответил вовремя"
-        case "updates.rate-limited": "GitHub ограничил частоту запросов"
-        case "updates.http-error": "GitHub вернул ошибку"
-        case "updates.release-invalid": "Ответ GitHub не подтвердил стабильный релиз"
-        case "updates.newer-release": "Есть более новый стабильный релиз"
-        case "updates.no-newer-release": "Сравнение по объявленному номеру релиза"
-        default: "CLI сообщил: \(reason)"
+        case "updates.disabled": L10n.text("Automatic checks are disabled")
+        case "updates.current-version-invalid": L10n.text("CLI could not determine the product version")
+        case "updates.preferences-unavailable": L10n.text("The update preference is unavailable")
+        case "updates.cache-invalid": L10n.text("The saved result is invalid")
+        case "updates.cache-unavailable": L10n.text("The saved result is unavailable")
+        case "updates.check-in-progress": L10n.text("Another process is already checking")
+        case "updates.interrupted": L10n.text("The previous check was interrupted")
+        case "updates.network-error": L10n.text("Could not reach GitHub")
+        case "updates.timeout": L10n.text("GitHub did not respond in time")
+        case "updates.rate-limited": L10n.text("GitHub limited the request rate")
+        case "updates.http-error": L10n.text("GitHub returned an error")
+        case "updates.release-invalid": L10n.text("GitHub did not confirm a stable release")
+        case "updates.newer-release": L10n.text("A newer stable release is available")
+        case "updates.no-newer-release": L10n.text("Compared using the declared release version")
+        default: L10n.text("CLI reported: %@", String(describing: (reason)))
         }
     }
     public func ageText(now: Date = Date()) -> String {
-        guard let checkedAt, let date = timestamp(checkedAt) else { return "Сетевая проверка ещё не измерена" }
+        guard let checkedAt, let date = timestamp(checkedAt) else { return L10n.text("No network check has been recorded") }
         let age = max(0, Int(now.timeIntervalSince(date) / 60))
-        return "\(cached ? "Из кеша" : "Проверка") · \(age) мин. назад"
+        return L10n.text("%@ · %@ minutes ago", String(describing: (cached ? L10n.text("Cached") : L10n.text("Checked"))), String(describing: (age)))
     }
 }
 
