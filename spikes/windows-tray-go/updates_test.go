@@ -168,12 +168,12 @@ func TestUpdateBadgePreservesHealthAndUnread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, point := range [][2]int{{16, 16}, {24, 24}} {
+	for _, point := range [][2]int{{6, 20}, {26, 6}} {
 		if plain.At(point[0], point[1]) != updated.At(point[0], point[1]) {
 			t.Fatal("health/unread changed")
 		}
 	}
-	if plain.At(8, 8) == updated.At(8, 8) {
+	if plain.At(26, 26) == updated.At(26, 26) {
 		t.Fatal("no separate update badge")
 	}
 }

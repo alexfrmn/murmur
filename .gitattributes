@@ -8,3 +8,7 @@ go.sum   text eol=lf
 scripts/build-windows-bundle.mjs text eol=lf
 scripts/build-runtime-bundle.mjs text eol=lf
 scripts/check-windows-bundle.mjs text eol=lf
+
+# Both native mark generators verify the exact shared SVG bytes.
+contracts/visual/murmur-mark.svg text eol=lf
+scripts/generate-windows-mark.py text eol=lf

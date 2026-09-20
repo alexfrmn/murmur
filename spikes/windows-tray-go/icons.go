@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const iconSize = 32
@@ -26,81 +27,164 @@ var (
 	colUnread = color.NRGBA{R: 0x3d, G: 0x8b, B: 0xfd, A: 0xff}
 )
 
-// disc рисует круг с мягким краем: без сглаживания значок на 32px выглядит рваным.
-func disc(img *image.NRGBA, cx, cy, r float64, c color.NRGBA) {
-	minX, maxX := int(cx-r-1), int(cx+r+1)
-	minY, maxY := int(cy-r-1), int(cy+r+1)
-	for y := minY; y <= maxY; y++ {
-		for x := minX; x <= maxX; x++ {
-			if x < 0 || y < 0 || x >= iconSize || y >= iconSize {
-				continue
-			}
-			d := math.Hypot(float64(x)+0.5-cx, float64(y)+0.5-cy)
-			cover := r - d + 0.5
-			if cover <= 0 {
-				continue
-			}
-			if cover > 1 {
-				cover = 1
-			}
-			src := c
-			src.A = uint8(float64(c.A) * cover)
-			img.Set(x, y, blend(img.NRGBAAt(x, y), src))
+// Geometry and colours are generated from contracts/visual/murmur-mark.svg.
+//
+//go:generate python3 ../../scripts/generate-windows-mark.py
+type markPrimitive struct {
+	kind        string
+	values      [6]float64
+	first, last color.NRGBA
+}
+
+func (p markPrimitive) contains(x, y float64) bool {
+	v := p.values
+	switch p.kind {
+	case "circle":
+		dx, dy := x-v[0], y-v[1]
+		return dx*dx+dy*dy <= v[2]*v[2]
+	case "rect":
+		qx := math.Abs(x-(v[0]+v[2]/2)) - (v[2]/2 - v[4])
+		qy := math.Abs(y-(v[1]+v[3]/2)) - (v[3]/2 - v[4])
+		return math.Hypot(math.Max(qx, 0), math.Max(qy, 0))+math.Min(math.Max(qx, qy), 0) <= v[4]
+	case "line":
+		if x < math.Min(v[0], v[2])-v[4]/2 || x > math.Max(v[0], v[2])+v[4]/2 || y < math.Min(v[1], v[3])-v[4]/2 || y > math.Max(v[1], v[3])+v[4]/2 {
+			return false
 		}
+		dx, dy := v[2]-v[0], v[3]-v[1]
+		length := dx*dx + dy*dy
+		t := 0.0
+		if length > 0 {
+			t = math.Max(0, math.Min(1, ((x-v[0])*dx+(y-v[1])*dy)/length))
+		}
+		px, py := x-v[0]-t*dx, y-v[1]-t*dy
+		return px*px+py*py <= v[4]*v[4]/4
 	}
+	return false
 }
 
-func blend(dst, src color.NRGBA) color.NRGBA {
-	a := float64(src.A) / 255
-	out := color.NRGBA{
-		R: uint8(float64(src.R)*a + float64(dst.R)*(1-a)),
-		G: uint8(float64(src.G)*a + float64(dst.G)*(1-a)),
-		B: uint8(float64(src.B)*a + float64(dst.B)*(1-a)),
-		A: uint8(float64(src.A) + float64(dst.A)*(1-a)),
+func (p markPrimitive) ink(x, y float64) color.NRGBA {
+	if p.first == p.last {
+		return p.first
 	}
-	return out
+	// The schema's two-stop diagonal circle gradients use objectBoundingBox.
+	v := p.values
+	t := math.Max(0, math.Min(1, (x+y-(v[0]+v[1]-2*v[2]))/(4*v[2])))
+	channel := func(a, b uint8) uint8 { return uint8(math.Round(float64(a)*(1-t) + float64(b)*t)) }
+	return color.NRGBA{channel(p.first.R, p.last.R), channel(p.first.G, p.last.G), channel(p.first.B, p.last.B), 255}
 }
 
-func iconBytes(base color.NRGBA, unread bool, updateAvailable ...bool) []byte {
+func rasterMark(shapes []markPrimitive) *image.NRGBA {
+	const samples = 8
 	img := image.NewNRGBA(image.Rect(0, 0, iconSize, iconSize))
-	disc(img, 16, 16, 12, base)
-	if unread {
-		// Точку непрочитанного вырезаем из основного круга кольцом фона, иначе синее
-		// на зелёном читается как грязь, а не как отдельный признак.
-		disc(img, 24, 24, 8, color.NRGBA{})
-		clearDisc(img, 24, 24, 7.5)
-		disc(img, 24, 24, 6, colUnread)
-	}
-	// Update availability has its own upper-left arrow; delivery health and the
-	// lower-right unread marker keep their meanings and colors.
-	if len(updateAvailable) > 0 && updateAvailable[0] {
-		clearDisc(img, 8, 8, 7.5)
-		disc(img, 8, 8, 7, color.NRGBA{R: 0x84, G: 0x50, B: 0xcf, A: 0xff})
-		for y := 4; y <= 12; y++ {
-			for x := 4; x <= 12; x++ {
-				if (x >= 7 && x <= 8 && y >= 6) || (y <= 7 && int(math.Abs(float64(x-8))) <= y-4) {
-					img.SetNRGBA(x, y, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+	for y := 0; y < iconSize; y++ {
+		for x := 0; x < iconSize; x++ {
+			count, r, g, b := 0, 0, 0, 0
+			for sy := 0; sy < samples; sy++ {
+				for sx := 0; sx < samples; sx++ {
+					px := (float64(x) + (float64(sx)+0.5)/samples) * markViewBox / iconSize
+					py := (float64(y) + (float64(sy)+0.5)/samples) * markViewBox / iconSize
+					// All schema2 paints are opaque; the last covering primitive wins. Sampling
+					// the complete composition avoids seams at adjacent flattened curve pieces.
+					for i := len(shapes) - 1; i >= 0; i-- {
+						if shapes[i].contains(px, py) {
+							ink := shapes[i].ink(px, py)
+							count++
+							r += int(ink.R)
+							g += int(ink.G)
+							b += int(ink.B)
+							break
+						}
+					}
 				}
 			}
+			if count > 0 {
+				img.SetNRGBA(x, y, color.NRGBA{uint8(r / count), uint8(g / count), uint8(b / count), uint8((count*255 + samples*samples/2) / (samples * samples))})
+			}
 		}
 	}
+	return img
+}
+
+func renderMark(base color.NRGBA, unread, updateAvailable bool) *image.NRGBA {
+	name := "idle"
+	switch base {
+	case colRed:
+		name = "failed"
+	case colGreen:
+		name = "ready"
+	case colUnread:
+		name = "unread"
+	}
+	if unread && name == "ready" {
+		name = "unread"
+	}
+	shapes := markShapes[name]
+	if unread && name != "unread" {
+		// Unread never turns a failed/offline channel into a ready one.
+		shapes = append(append([]markPrimitive{}, shapes...), markShapes["unread-overlay"]...)
+	}
+	img := rasterMark(shapes)
+	if updateAvailable {
+		paintUpdateBadge(img)
+	}
+	return img
+}
+
+func paintUpdateBadge(img *image.NRGBA) {
+	// This separate release arrow occupies the lower-right corner, clear of the
+	// shared lock, waves and upper-right unread signal. It is not geometry
+	// copied from the product mark and never replaces a health state.
+	const cx, cy, r = 26.0, 26.0, 5.0
+	for y := 20; y < 32; y++ {
+		for x := 20; x < 32; x++ {
+			d := math.Hypot(float64(x)+0.5-cx, float64(y)+0.5-cy)
+			if d <= r+0.75 {
+				img.SetNRGBA(x, y, color.NRGBA{})
+			}
+			a := math.Max(0, math.Min(1, r-d+0.5))
+			if a > 0 {
+				img.SetNRGBA(x, y, color.NRGBA{R: 0x84, G: 0x50, B: 0xcf, A: uint8(math.Round(a * 255))})
+			}
+		}
+	}
+	for y := 23; y <= 28; y++ {
+		for x := 23; x <= 28; x++ {
+			if (x >= 25 && x <= 26 && y >= 24) || (y <= 25 && math.Abs(float64(x)-25.5) <= float64(y-22)) {
+				img.SetNRGBA(x, y, color.NRGBA{255, 255, 255, 255})
+			}
+		}
+	}
+}
+
+type iconKey struct {
+	state          byte
+	unread, update bool
+}
+
+var iconCache sync.Map
+
+func iconBytes(base color.NRGBA, unread bool, updateAvailable ...bool) []byte {
+	state := byte(0)
+	switch base {
+	case colRed:
+		state = 1
+	case colGreen:
+		state = 2
+	case colUnread:
+		state = 3
+	}
+	key := iconKey{state, unread, len(updateAvailable) > 0 && updateAvailable[0]}
+	if value, ok := iconCache.Load(key); ok {
+		return value.([]byte)
+	}
+	img := renderMark(base, unread, key.update)
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return nil
 	}
-	return wrapICO(buf.Bytes())
-}
-
-// clearDisc обнуляет пиксели под точкой непрочитанного: blend поверх полупрозрачного
-// края круга оставил бы ореол.
-func clearDisc(img *image.NRGBA, cx, cy, r float64) {
-	for y := 0; y < iconSize; y++ {
-		for x := 0; x < iconSize; x++ {
-			if math.Hypot(float64(x)+0.5-cx, float64(y)+0.5-cy) <= r {
-				img.SetNRGBA(x, y, color.NRGBA{})
-			}
-		}
-	}
+	result := wrapICO(buf.Bytes())
+	actual, _ := iconCache.LoadOrStore(key, result)
+	return actual.([]byte)
 }
 
 func wrapICO(pngData []byte) []byte {
