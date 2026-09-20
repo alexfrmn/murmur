@@ -30,13 +30,13 @@ const (
 
 // Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
 // меню существовали до первого успешного вызова и показывали «не проверялось».
-var doctorStages = []struct{ id, title string }{
-	{"config", "конфиг валиден"},
-	{"daemon", "демон жив и на этом store"},
-	{"broker", "брокер отвечает, токен принят"},
-	{"peers", "пиры спарены"},
-	{"roundtrip", "тестовое сообщение вернулось"},
-	{"wake", "wake-режим и кто отвечает"},
+var doctorStages = []struct{ id, messageKey string }{
+	{"config", "doctor.config"},
+	{"daemon", "doctor.daemon"},
+	{"broker", "doctor.broker"},
+	{"peers", "doctor.peers"},
+	{"roundtrip", "doctor.roundtrip"},
+	{"wake", "doctor.wake"},
 }
 
 type app struct {
@@ -45,6 +45,7 @@ type app struct {
 	statusErr                                                error
 	pinnedAgent                                              string
 	actionBusy                                               bool
+	actionResult                                             string
 	mActionStatus                                            *systray.MenuItem
 	mWakeStatus                                              *systray.MenuItem
 	doctor                                                   *Doctor
@@ -53,25 +54,43 @@ type app struct {
 	updateErr                                                error
 	updateBusy                                               bool
 	updateRequests                                           chan bool
+	preferencesPath                                          string
 	mUpdateState, mUpdateVersion, mUpdateTime, mUpdateReason *systray.MenuItem
 	mUpdatePage, mUpdateEnable, mUpdateDisable               *systray.MenuItem
+	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
-	mHeader  *systray.MenuItem
-	mHistory []*systray.MenuItem
-	mStages  map[string]*systray.MenuItem
-	mRecheck *systray.MenuItem
-	mPause   *systray.MenuItem
-	mRecent  []*systray.MenuItem
-	mCopy    *systray.MenuItem
-	mSvcStar *systray.MenuItem
-	mSvcStop *systray.MenuItem
-	mSvcLogs *systray.MenuItem
-	mQuit    *systray.MenuItem
+	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
+	mLanguageRoot, mLangEnglish, mLangRussian         *systray.MenuItem
+	mHistory                                          []*systray.MenuItem
+	mStages                                           map[string]*systray.MenuItem
+	mRecheck, mPause, mCopy                           *systray.MenuItem
+	mRecent                                           []*systray.MenuItem
+	mSvcStar, mSvcStop, mSvcLogs, mQuit               *systray.MenuItem
 }
 
 func main() {
-	if len(os.Args) == 2 && os.Args[1] == "--launch" {
-		pid, err := launchDetached()
+	if nativeVersionRequested(os.Args[1:]) {
+		if err := writeNativeVersion(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	options, err := parseTrayArguments(os.Args[1:])
+	setLocale(options.locale)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	preferencesPath := defaultPreferencesPath()
+	if options.localeExplicit && options.mode != "--check-profile" {
+		if err := saveLocalePreference(preferencesPath, options.locale); err != nil {
+			fmt.Fprintln(os.Stderr, tr("language.saveFailed", err))
+			os.Exit(1)
+		}
+	}
+	if options.mode == "--launch" {
+		pid, err := launchDetached(options.locale)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -79,7 +98,7 @@ func main() {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": "murmur.tray-launch/1", "pid": pid})
 		return
 	}
-	if len(os.Args) == 2 && os.Args[1] == "--check-profile" {
+	if options.mode == "--check-profile" {
 		ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 		defer cancel()
 		s, err := fetchStatus(ctx)
@@ -90,6 +109,12 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		if options.localeExplicit {
+			if err := saveLocalePreference(preferencesPath, options.locale); err != nil {
+				fmt.Fprintln(os.Stderr, tr("language.saveFailed", err))
+				os.Exit(1)
+			}
+		}
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": "murmur.tray-probe/1", "agentId": s.AgentID, "status": s})
 		return
 	}
@@ -98,30 +123,30 @@ func main() {
 	// единственный способ посмотреть на них в ревью, не заводя бинарников в репозитории.
 	// --stamp-now ставит свежую дату в файл статуса. Живёт ровно столько же, сколько
 	// файловый источник: образец с датой из будущего отключил бы проверку свежести.
-	if len(os.Args) == 3 && os.Args[1] == "--stamp-now" {
-		if err := stampNow(os.Args[2]); err != nil {
+	if options.mode == "--stamp-now" {
+		if err := stampNow(options.target); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		return
 	}
-	if len(os.Args) == 3 && os.Args[1] == "--dump-icons" {
-		if err := dumpIcons(os.Args[2]); err != nil {
+	if options.mode == "--dump-icons" {
+		if err := dumpIcons(options.target); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		return
 	}
-	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT")}
+	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT"), preferencesPath: preferencesPath, actionResult: "action.none"}
 	systray.Run(a.onReady, func() {})
 }
 
 func (a *app) onReady() {
 	systray.SetIcon(iconBytes(colGrey, false))
 	systray.SetTitle("Murmur")
-	systray.SetTooltip("Murmur: статус ещё не снят")
+	systray.SetTooltip(tr("menu.initialTooltip"))
 
-	a.mHeader = systray.AddMenuItem("статус не снят", "")
+	a.mHeader = systray.AddMenuItem(tr("menu.initialStatus"), "")
 	a.mHeader.Disable()
 	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
 	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
@@ -133,41 +158,45 @@ func (a *app) onReady() {
 	}
 	systray.AddSeparator()
 
-	doctorRoot := systray.AddMenuItem("Проверка (doctor)", "этапы последней проверки")
+	a.mDoctorRoot = systray.AddMenuItem(tr("menu.doctor"), tr("menu.doctorTooltip"))
 	for _, st := range doctorStages {
-		item := doctorRoot.AddSubMenuItem(st.title+" — не проверялось", "")
+		item := a.mDoctorRoot.AddSubMenuItem(tr(st.messageKey)+" — "+tr("doctor.notChecked"), "")
 		item.Disable()
 		a.mStages[st.id] = item
 	}
-	a.mRecheck = doctorRoot.AddSubMenuItem("Проверить сейчас", "doctor без peer: тестовое сообщение не отправляется")
+	a.mRecheck = a.mDoctorRoot.AddSubMenuItem(tr("menu.checkNow"), tr("menu.checkNowTooltip"))
 	systray.AddSeparator()
 
-	a.mPause = systray.AddMenuItem("Пауза", "меняет настройку wake; без автоматического перезапуска")
-	a.mWakeStatus = systray.AddMenuItem("Wake: не измерено", "")
+	a.mPause = systray.AddMenuItem(tr("menu.pause"), tr("menu.pauseTooltip"))
+	a.mWakeStatus = systray.AddMenuItem(tr("menu.wakeUnknown"), "")
 	a.mWakeStatus.Disable()
-	a.mActionStatus = systray.AddMenuItem("Действие ещё не выполнялось", "")
+	a.mActionStatus = systray.AddMenuItem(tr("action.none"), "")
 	a.mActionStatus.Disable()
 	// Вместо кнопки «Открыть inbox» — строки последних отправителей. Открыть переписку
 	// человеку сейчас нечем, а кнопка, ведущая не туда, куда обещает именем, хуже
 	// отсутствующей.
-	recentHeader := systray.AddMenuItem("Последние входящие", "")
-	recentHeader.Disable()
+	a.mRecentHeader = systray.AddMenuItem(tr("menu.recent"), "")
+	a.mRecentHeader.Disable()
 	for i := 0; i < recentLines; i++ {
 		item := systray.AddMenuItem("", "")
 		item.Disable()
 		item.Hide()
 		a.mRecent = append(a.mRecent, item)
 	}
-	a.mCopy = systray.AddMenuItem("Скопировать диагностику", "status и doctor в буфер обмена")
-	svc := systray.AddMenuItem("Служба", "")
-	a.mSvcStar = svc.AddSubMenuItem("Старт", "")
-	a.mSvcStop = svc.AddSubMenuItem("Стоп", "")
-	a.mSvcLogs = svc.AddSubMenuItem("Каталог журналов недоступен в CLI", "Windows logs path пока не подтверждает native-каталог")
+	a.mCopy = systray.AddMenuItem(tr("menu.copy"), tr("menu.copyTooltip"))
+	a.mServiceRoot = systray.AddMenuItem(tr("menu.service"), "")
+	a.mSvcStar = a.mServiceRoot.AddSubMenuItem(tr("menu.start"), "")
+	a.mSvcStop = a.mServiceRoot.AddSubMenuItem(tr("menu.stop"), "")
+	a.mSvcLogs = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceLogs"), tr("menu.serviceLogsTooltip"))
 	a.mSvcLogs.Disable()
 	systray.AddSeparator()
 	a.setupUpdates()
 	systray.AddSeparator()
-	a.mQuit = systray.AddMenuItem("Выход", "закрыть значок; служба продолжит работать")
+	a.mLanguageRoot = systray.AddMenuItem(tr("language.root"), tr("language.tooltip"))
+	a.mLangEnglish = a.mLanguageRoot.AddSubMenuItem(tr("language.english"), "")
+	a.mLangRussian = a.mLanguageRoot.AddSubMenuItem(tr("language.russian"), "")
+	a.mQuit = systray.AddMenuItem(tr("menu.quit"), tr("menu.quitTooltip"))
+	a.renderLanguageSelection()
 
 	go a.pollLoop()
 	go a.refreshDoctor()
@@ -223,7 +252,7 @@ func (a *app) render(v Verdict) {
 			n = *a.status.Inbox.Unread
 		}
 		a.mu.Unlock()
-		tip += fmt.Sprintf("; непрочитанных: %d", n)
+		tip += tr("tip.unread", n)
 	}
 	// Подсказка в трее обрезается системой на 127 символах — режем сами, иначе
 	// Windows молча покажет обрубок без многоточия.
@@ -252,9 +281,9 @@ func (a *app) render(v Verdict) {
 	_, bindingErr := selectedCLI()
 	ready := bindingErr == nil && a.status != nil && !a.actionBusy && a.pinnedAgent != ""
 	wakeKnown := a.status != nil && a.status.Wake.Config.Enabled != nil
-	wakeText := "Wake: не измерено"
+	wakeText := tr("menu.wakeUnknown")
 	if a.status != nil {
-		wakeText = fmt.Sprintf("Wake: настроено %s; действует %s; перезапуск %s", boolText(a.status.Wake.Config.Enabled), boolText(a.status.Wake.Effective.Enabled), boolText(a.status.Wake.Effective.NeedsRestart))
+		wakeText = tr("menu.wakeState", boolText(a.status.Wake.Config.Enabled), boolText(a.status.Wake.Effective.Enabled), boolText(a.status.Wake.Effective.NeedsRestart))
 	}
 	a.mu.Unlock()
 	a.mWakeStatus.SetTitle(wakeText)
@@ -270,14 +299,17 @@ func (a *app) render(v Verdict) {
 		a.mSvcStar.Disable()
 		a.mSvcStop.Disable()
 	}
-	if !serviceAdmin() {
-		a.mSvcStar.SetTitle("Старт: нужна повышенная CLI-консоль")
-		a.mSvcStop.SetTitle("Стоп: нужна повышенная CLI-консоль")
+	if serviceAdmin() {
+		a.mSvcStar.SetTitle(tr("menu.start"))
+		a.mSvcStop.SetTitle(tr("menu.stop"))
+	} else {
+		a.mSvcStar.SetTitle(tr("menu.serviceAdminStart"))
+		a.mSvcStop.SetTitle(tr("menu.serviceAdminStop"))
 	}
 	if paused {
-		a.mPause.SetTitle("Возобновить")
+		a.mPause.SetTitle(tr("menu.resume"))
 	} else {
-		a.mPause.SetTitle("Пауза")
+		a.mPause.SetTitle(tr("menu.pause"))
 	}
 }
 
@@ -298,7 +330,7 @@ func (a *app) refreshDoctor() {
 		d, err = fetchDoctor(ctx)
 	}
 	if err == nil && (d.AgentID != fresh.AgentID) {
-		err = fmt.Errorf("Личность doctor не совпадает с профилем")
+		err = fmt.Errorf("%s", tr("doctor.identityMismatch"))
 	}
 	cancel()
 
@@ -312,10 +344,10 @@ func (a *app) refreshDoctor() {
 	for _, st := range doctorStages {
 		item := a.mStages[st.id]
 		if err != nil {
-			item.SetTitle(st.title + " — проверка недоступна")
+			item.SetTitle(tr(st.messageKey) + " — " + tr("doctor.unavailable"))
 			continue
 		}
-		item.SetTitle(st.title + " — " + stageLabel(d, st.id))
+		item.SetTitle(tr(st.messageKey) + " — " + stageLabel(d, st.id))
 	}
 }
 
@@ -326,19 +358,19 @@ func stageLabel(d *Doctor, id string) string {
 		if s.ID != id {
 			continue
 		}
-		label := map[string]string{"ok": "ок", "warn": "предупреждение", "fail": "отказ", "skip": "пропущен"}[s.State]
+		label := map[string]string{"ok": tr("stage.ok"), "warn": tr("stage.warn"), "fail": tr("stage.fail"), "skip": tr("stage.skip")}[s.State]
 		if label == "" {
 			label = s.State
 		}
 		if s.ElapsedMs > 0 {
-			label = fmt.Sprintf("%s, %d мс", label, s.ElapsedMs)
+			label = tr("stage.elapsed", label, s.ElapsedMs)
 		}
 		if s.State != "ok" && s.Detail != "" {
 			label += ": " + s.Detail
 		}
 		return label
 	}
-	return "нет в ответе"
+	return tr("stage.missing")
 }
 
 func (a *app) handleClicks() {
@@ -360,6 +392,10 @@ func (a *app) handleClicks() {
 			a.requestUpdatePreference(true)
 		case <-a.mUpdateDisable.ClickedCh:
 			a.requestUpdatePreference(false)
+		case <-a.mLangEnglish.ClickedCh:
+			a.changeLocale(localeEnglish)
+		case <-a.mLangRussian.ClickedCh:
+			a.changeLocale(localeRussian)
 		case <-a.mQuit.ClickedCh:
 			systray.Quit()
 			return
@@ -369,12 +405,12 @@ func (a *app) handleClicks() {
 
 func boolText(v *bool) string {
 	if v == nil {
-		return "неизвестно"
+		return tr("bool.unknown")
 	}
 	if *v {
-		return "да"
+		return tr("bool.yes")
 	}
-	return "нет"
+	return tr("bool.no")
 }
 func (a *app) runCLI(args ...string) {
 	a.mu.Lock()
@@ -394,7 +430,7 @@ func (a *app) runCLI(args ...string) {
 	}
 	if err == nil && args[0] == "wake" {
 		if fresh.Wake.Config.Enabled == nil {
-			err = fmt.Errorf("Настройка wake не подтверждена")
+			err = fmt.Errorf("%s", tr("wake.settingUnknown"))
 		} else if *fresh.Wake.Config.Enabled {
 			args[1] = "pause"
 		} else {
@@ -409,10 +445,17 @@ func (a *app) runCLI(args ...string) {
 		}
 	}
 	if err != nil {
-		a.mActionStatus.SetTitle("Действие не подтверждено; повтор не выполнялся")
+		a.mu.Lock()
+		a.actionResult = "action.failed"
+		a.mu.Unlock()
+		a.mActionStatus.SetTitle(tr("action.failed"))
 		a.mActionStatus.SetTooltip(err.Error())
 	} else {
-		a.mActionStatus.SetTitle("Команда подтверждена; статус перечитывается")
+		a.mu.Lock()
+		a.actionResult = "action.success"
+		a.mu.Unlock()
+		a.mActionStatus.SetTitle(tr("action.success"))
+		a.mActionStatus.SetTooltip("")
 	}
 }
 
@@ -432,10 +475,10 @@ func (a *app) copyDiagnostics() {
 		return
 	}
 	if err := toClipboard(buf); err != nil {
-		systray.SetTooltip("буфер обмена недоступен: " + err.Error())
+		systray.SetTooltip(tr("clipboard.failed", err))
 		return
 	}
-	systray.SetTooltip("диагностика скопирована в буфер обмена")
+	systray.SetTooltip(tr("clipboard.copied"))
 }
 
 func errText(err error) string {
@@ -478,7 +521,7 @@ func (a *app) renderRecent() {
 			}
 		}
 		if len(lines) == 0 && a.status.Inbox.Total != nil && *a.status.Inbox.Total == 0 {
-			lines = append(lines, "входящих ещё не было")
+			lines = append(lines, tr("recent.none"))
 		}
 	}
 	a.mu.Unlock()
@@ -490,5 +533,74 @@ func (a *app) renderRecent() {
 			continue
 		}
 		item.Hide()
+	}
+}
+
+func (a *app) renderLanguageSelection() {
+	a.mLangEnglish.Uncheck()
+	a.mLangRussian.Uncheck()
+	if currentLocale() == localeRussian {
+		a.mLangRussian.Check()
+	} else {
+		a.mLangEnglish.Check()
+	}
+}
+
+func (a *app) changeLocale(locale string) {
+	if !validLocale(locale) || locale == currentLocale() {
+		return
+	}
+	if err := saveLocalePreference(a.preferencesPath, locale); err != nil {
+		systray.SetTooltip(tr("language.saveFailed", err))
+		return
+	}
+	setLocale(locale)
+	a.applyLocale()
+	go a.refreshStatus()
+	go a.refreshDoctor()
+}
+
+func (a *app) applyLocale() {
+	a.mDoctorRoot.SetTitle(tr("menu.doctor"))
+	a.mDoctorRoot.SetTooltip(tr("menu.doctorTooltip"))
+	a.mRecheck.SetTitle(tr("menu.checkNow"))
+	a.mRecheck.SetTooltip(tr("menu.checkNowTooltip"))
+	a.mPause.SetTooltip(tr("menu.pauseTooltip"))
+	a.mRecentHeader.SetTitle(tr("menu.recent"))
+	a.mCopy.SetTitle(tr("menu.copy"))
+	a.mCopy.SetTooltip(tr("menu.copyTooltip"))
+	a.mServiceRoot.SetTitle(tr("menu.service"))
+	a.mSvcLogs.SetTitle(tr("menu.serviceLogs"))
+	a.mSvcLogs.SetTooltip(tr("menu.serviceLogsTooltip"))
+	a.mUpdatesRoot.SetTitle(tr("updates.root"))
+	a.mUpdatesRoot.SetTooltip(tr("updates.rootTooltip"))
+	a.mUpdatePage.SetTitle(tr("updates.open"))
+	a.mUpdatePage.SetTooltip(tr("updates.openTooltip"))
+	a.mUpdateEnable.SetTitle(tr("updates.enable"))
+	a.mUpdateDisable.SetTitle(tr("updates.disable"))
+	a.mUpdatePrivacy.SetTitle(tr("updates.privacy"))
+	a.mUpdatePrivacy.SetTooltip(tr("updates.privacyTooltip"))
+	a.mLanguageRoot.SetTitle(tr("language.root"))
+	a.mLanguageRoot.SetTooltip(tr("language.tooltip"))
+	a.mLangEnglish.SetTitle(tr("language.english"))
+	a.mLangRussian.SetTitle(tr("language.russian"))
+	a.mQuit.SetTitle(tr("menu.quit"))
+	a.mQuit.SetTooltip(tr("menu.quitTooltip"))
+	a.renderLanguageSelection()
+
+	a.mu.Lock()
+	s, statusErr, actionResult := a.status, a.statusErr, a.actionResult
+	d, doctorErr := a.doctor, a.doctorErr
+	a.mu.Unlock()
+	a.mActionStatus.SetTitle(tr(actionResult))
+	a.render(resolve(s, statusErr))
+	for _, stage := range doctorStages {
+		label := tr("doctor.notChecked")
+		if doctorErr != nil {
+			label = tr("doctor.unavailable")
+		} else if d != nil {
+			label = stageLabel(d, stage.id)
+		}
+		a.mStages[stage.id].SetTitle(tr(stage.messageKey) + " — " + label)
 	}
 }

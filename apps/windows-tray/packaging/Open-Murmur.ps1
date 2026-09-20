@@ -1,9 +1,26 @@
 <# Requires Node.js 22.13.0 or newer. Opens an explicit existing profile using the adjacent prebuilt runtime. #>
 [CmdletBinding()]
-param([string]$DataDir, [string]$NodePath, [string]$ServiceName, [switch]$Check)
+param(
+    [string]$DataDir,
+    [string]$NodePath,
+    [string]$ServiceName,
+    [ValidateSet('en','ru')][string]$Language,
+    [switch]$Check
+)
 $ErrorActionPreference='Stop'
 function Quote-Argument([string]$value) {
     return '"' + [regex]::Replace([regex]::Replace($value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1') + '"'
+}
+function Find-NodeExecutable {
+    $pathValue=[Environment]::GetEnvironmentVariable('PATH','Process')
+    if([string]::IsNullOrWhiteSpace($pathValue)){return $null}
+    foreach($entry in @($pathValue -split ';')) {
+        $directory=[Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
+        if(-not $directory){continue}
+        try{$candidate=[IO.Path]::GetFullPath([IO.Path]::Combine($directory,'node.exe'))}catch{continue}
+        if([IO.File]::Exists($candidate)){return $candidate}
+    }
+    return $null
 }
 function Start-Bound([string]$file, [string[]]$arguments, [switch]$ReadResult) {
     $info=New-Object Diagnostics.ProcessStartInfo
@@ -39,7 +56,10 @@ try {
     $cli=Join-Path $runtime 'packages\setup\bin\murmur.mjs'
     $tray=Join-Path $PSScriptRoot 'murmur-tray.exe'
     foreach($file in @($cli,$tray)){if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'Extract the complete Windows bundle first: tray, launcher and runtime must remain together.'}}
-    if(-not $NodePath){$NodePath=(Get-Command node.exe -CommandType Application -ErrorAction Stop).Source}
+    if(-not $NodePath){
+        $NodePath=Find-NodeExecutable
+        if(-not $NodePath){throw 'Node.js is not installed or is not on PATH. Install Node.js 22.13.0 or newer, reopen PowerShell, and try again.'}
+    }
     if(-not [IO.Path]::IsPathRooted($NodePath) -or -not(Test-Path -LiteralPath $NodePath -PathType Leaf)){throw 'Select an installed Node executable using -NodePath.'}
     $NodePath=(Get-Item -LiteralPath $NodePath).FullName
     if(-not $DataDir){
@@ -56,14 +76,16 @@ try {
     if($ServiceName -and $ServiceName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$'){throw 'Invalid service name.'}
     $version=Start-Bound -file $NodePath -arguments @('--no-warnings',$cli,'version','--json') -ReadResult
     if($version.schema -ne 'murmur.version/1'){throw 'Use the matching current CLI runtime.'}
-    $probe=Start-Bound -file $tray -arguments @('--check-profile') -ReadResult
+    $languageArguments=@()
+    if($PSBoundParameters.ContainsKey('Language')){$languageArguments=@('--lang',$Language)}
+    $probe=Start-Bound -file $tray -arguments (@('--check-profile')+$languageArguments) -ReadResult
     if($probe.schema -ne 'murmur.tray-probe/1' -or -not $probe.agentId){throw 'The tray could not confirm a profile identity.'}
     $expectedAgent=$probe.agentId
     if($Check){@{schema='murmur.windows-launcher/1';version=$version.version;agentId=$probe.agentId;dataDir=$DataDir;probe=$probe} | ConvertTo-Json -Depth 20;exit 0}
     # Do not stop an existing app or replace its selected profile implicitly.
     $running=Get-CimInstance Win32_Process -Filter "Name='murmur-tray.exe'" | Where-Object { $_.ExecutablePath -eq $tray }
     if($running){throw 'This tray is already running. Quit it from its menu before choosing another profile.'}
-    $launched=Start-Bound -file $tray -arguments @('--launch') -ReadResult
+    $launched=Start-Bound -file $tray -arguments (@('--launch')+$languageArguments) -ReadResult
     if($launched.schema -ne 'murmur.tray-launch/1' -or $launched.pid -le 0){throw 'Tray launch was not confirmed.'}
     Write-Host "Murmur opened for $($probe.agentId). The service continues independently."
     exit 0

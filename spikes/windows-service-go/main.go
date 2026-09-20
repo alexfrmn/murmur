@@ -35,7 +35,6 @@ import (
 
 const (
 	defaultServiceName = "MurmurDaemon"
-	serviceDesc        = "Murmur: демон обмена сообщениями между агентами"
 
 	// Пауза перед перезапуском упавшего демона растёт до потолка: демон, падающий
 	// из-за отозванного токена, не чинится частыми перезапусками и не должен молотить
@@ -70,26 +69,41 @@ func svcName() string {
 }
 
 func main() {
+	if nativeVersionRequested(os.Args[1:]) {
+		if err := writeNativeVersion(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	options, parseErr := parseHelperArguments(os.Args[1:])
+	setLocale(options.locale)
+	if parseErr != nil {
+		fail("%v", parseErr)
+	}
+	args := options.positionals
 	isService, err := svc.IsWindowsService()
 	if err != nil {
-		fail("не удалось определить режим запуска: %v", err)
+		fail("%s", tr("error.mode", err))
 	}
 	if isService {
 		// SCM передаёт «run <имя>» из ImagePath. Без этого svc.Run получил бы имя по
 		// умолчанию, диспетчер отверг бы подключение, и служба молча не стартовала бы.
-		if len(os.Args) >= 3 && os.Args[1] == "run" {
+		// Сверяем исходные аргументы: языковой флаг намеренно не входит в доверенную
+		// строку SCM, поэтому фоновый журнал всегда остаётся английским.
+		if len(os.Args) == 3 && os.Args[1] == "run" {
 			runtimeName = os.Args[2]
 		}
 		mustDo(validateServiceName(svcName()))
 		mustDo(svc.Run(svcName(), &daemonHost{}))
 		return
 	}
-	if len(os.Args) < 2 {
+	if len(args) < 1 {
 		usage()
 		os.Exit(2)
 	}
 	mustDo(validateServiceName(svcName()))
-	switch os.Args[1] {
+	switch args[0] {
 	case "install":
 		mustDo(install())
 	case "uninstall":
@@ -107,8 +121,8 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "murmur-svc install|uninstall|start|stop|status")
-	fmt.Fprintln(os.Stderr, "install читает MURMUR_NODE, MURMUR_ENTRY, MURMUR_WORKDIR, MURMUR_SERVICE_NAME")
+	fmt.Fprintln(os.Stderr, tr("usage.line"))
+	fmt.Fprintln(os.Stderr, tr("usage.environment"))
 }
 
 func mustDo(err error) {
@@ -157,11 +171,11 @@ func secureDir(path string) error {
 	}
 	sd, err := windows.SecurityDescriptorFromString("D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)")
 	if err != nil {
-		return fmt.Errorf("не удалось собрать права каталога: %w", err)
+		return trError("acl.build", err, err)
 	}
 	dacl, _, err := sd.DACL()
 	if err != nil {
-		return fmt.Errorf("не удалось прочитать права каталога: %w", err)
+		return trError("acl.read", err, err)
 	}
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
@@ -211,7 +225,7 @@ func trustedFile(path string) (bool, string, error) {
 		return false, "", err
 	}
 	if dacl == nil {
-		return false, "у файла нет списка доступа", nil
+		return false, tr("acl.noList"), nil
 	}
 
 	system, _ := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
@@ -247,7 +261,7 @@ func trustedFile(path string) (bool, string, error) {
 		}
 		// Владелец файла получает права по ACE CREATOR OWNER; он администратор, раз
 		// файл лежит в закрытом каталоге, но назвать его поимённо честнее.
-		return false, "право записи есть у " + sid.String(), nil
+		return false, tr("acl.writer", sid.String()), nil
 	}
 	return true, "", nil
 }
@@ -272,13 +286,13 @@ func resolveSpec() (*launchSpec, error) {
 	if node == "" {
 		found, err := exec.LookPath("node")
 		if err != nil {
-			return nil, fmt.Errorf("node не найден в PATH, задайте MURMUR_NODE")
+			return nil, errors.New(tr("error.node"))
 		}
 		node = found
 	}
 	entry := os.Getenv("MURMUR_ENTRY")
 	if entry == "" {
-		return nil, fmt.Errorf("MURMUR_ENTRY не задан: нужен путь к scripts/murmur-daemon.mjs")
+		return nil, errors.New(tr("error.entry"))
 	}
 	workDir := os.Getenv("MURMUR_WORKDIR")
 	if workDir == "" {
@@ -301,14 +315,14 @@ func resolveSpec() (*launchSpec, error) {
 	// относительный путь там означает совсем другой файл.
 	for name, p := range map[string]string{"MURMUR_NODE": node, "MURMUR_ENTRY": entry, "MURMUR_WORKDIR": workDir, "MURMUR_DATA_DIR": data} {
 		if !filepath.IsAbs(p) {
-			return nil, fmt.Errorf("%s должен быть абсолютным путём, получено %q", name, p)
+			return nil, errors.New(tr("error.path", name, p))
 		}
 		if _, err := os.Stat(p); err != nil && name != "MURMUR_DATA_DIR" {
 			return nil, fmt.Errorf("%s: %v", name, err)
 		}
 	}
 	if err := os.MkdirAll(data, 0o755); err != nil {
-		return nil, fmt.Errorf("каталог данных %s: %w", data, err)
+		return nil, trError("error.profileDir", err, data, err)
 	}
 	return &launchSpec{Node: node, Entry: entry, WorkDir: workDir, DataDir: data, RestartsPerHourLimit: limit}, nil
 }
@@ -326,18 +340,18 @@ func install() error {
 	// работающую службу. Наличие проверки и её своевременность — разные вещи.
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("диспетчер служб недоступен (нужны права администратора): %w", err)
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 
 	if existing, err := m.OpenService(svcName()); err == nil {
 		defer existing.Close()
 		if ownErr := ownService(existing); ownErr != nil {
-			return fmt.Errorf("%v; ничего не тронуто", ownErr)
+			return errors.New(tr("error.unchanged", ownErr))
 		}
-		return fmt.Errorf("служба %s уже установлена; ничего не тронуто, снимите её командой uninstall", svcName())
+		return errors.New(tr("error.alreadyInstalled", svcName()))
 	} else if !serviceAbsent(err) {
-		return fmt.Errorf("не удалось проверить существующую службу; ничего не тронуто: %w", err)
+		return trError("error.existingCheck", err, err)
 	}
 
 	spec, err := resolveSpec()
@@ -348,14 +362,14 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	say("проверка путей: node %s, точка входа %s", spec.Node, spec.Entry)
-	say("каталог данных: %s", spec.DataDir)
+	say("%s", tr("install.paths", spec.Node, spec.Entry))
+	say("%s", tr("data.path", spec.DataDir))
 
 	// Дальше начинаются изменения на диске.
 	if err := secureDir(dataDir()); err != nil {
-		return fmt.Errorf("каталог данных %s: %w", dataDir(), err)
+		return trError("error.profileDir", err, dataDir(), err)
 	}
-	say("каталог данных закрыт от записи обычным пользователем: %s", dataDir())
+	say("%s", tr("data.secured", dataDir()))
 
 	_ = os.Remove(specPath())
 	buf, err := json.MarshalIndent(spec, "", "  ")
@@ -369,25 +383,25 @@ func install() error {
 
 	s, err := m.CreateService(svcName(), exePath, mgr.Config{
 		DisplayName:  svcName(),
-		Description:  serviceDesc,
+		Description:  tr("service.description"),
 		StartType:    mgr.StartAutomatic,
 		ErrorControl: mgr.ErrorNormal,
 	}, "run", svcName())
 	if err != nil {
-		return fmt.Errorf("создать службу не удалось: %w", err)
+		return trError("error.create", err, err)
 	}
 	defer s.Close()
-	say("служба %s зарегистрирована, автозапуск включён", svcName())
+	say("%s", tr("install.registered", svcName()))
 
 	if err := verifyStart(s); err != nil {
-		say("установка не подтвердилась, откатываю")
+		say("%s", tr("install.rollback"))
 		_ = stopService(s)
 		if derr := s.Delete(); derr != nil {
-			return fmt.Errorf("%v; откат не удался, служба осталась в SCM: %v", err, derr)
+			return errors.New(tr("install.rollbackFailed", err, derr))
 		}
-		return fmt.Errorf("%v. Служба удалена из диспетчера. Намеренно остались: файл запуска %s, состояние %s и журнал %s, они нужны для разбора. Убрать целиком: murmur-svc uninstall", err, specPath(), statePath(), logDir())
+		return errors.New(tr("install.rollbackEvidence", err, specPath(), statePath(), logDir()))
 	}
-	say("демон живёт дольше %s, установка подтверждена", settleTime)
+	say("%s", tr("daemon.settled", settleTime))
 	return nil
 }
 
@@ -399,7 +413,7 @@ func verifyStart(s *mgr.Service) error {
 	if before.State == svc.Stopped {
 		_ = os.Remove(daemonPIDPath())
 		if err := s.Start(); err != nil {
-			return fmt.Errorf("диспетчер отказался запускать службу: %w", err)
+			return trError("error.start", err, err)
 		}
 		if err := waitState(s, svc.Running, startTimeout); err != nil {
 			return err
@@ -409,29 +423,29 @@ func verifyStart(s *mgr.Service) error {
 	}
 	// Repeated start observes the existing process; it must not remove its PID
 	// witness before discovering that SCM already has a running service.
-	say("служба в состоянии Running")
+	say("%s", tr("service.running"))
 
 	pid, err := waitDaemonPID(startTimeout)
 	if err != nil {
 		return err
 	}
-	say("демон запущен, pid %d", pid)
+	say("%s", tr("daemon.pid", pid))
 
 	deadline := time.Now().Add(settleTime)
 	for time.Now().Before(deadline) {
 		time.Sleep(500 * time.Millisecond)
 		q, err := s.Query()
 		if err != nil {
-			return fmt.Errorf("состояние службы прочитать не удалось: %w", err)
+			return trError("error.serviceState", err, err)
 		}
 		if q.State != svc.Running {
-			return fmt.Errorf("служба ушла из Running через %s после старта", time.Until(deadline).Round(time.Second))
+			return errors.New(tr("service.leftRunning", time.Until(deadline).Round(time.Second)))
 		}
 		if !processAlive(pid) {
 			if newPID, err := readDaemonPID(); err == nil && newPID != pid {
-				return fmt.Errorf("демон перезапустился в первые секунды (pid %d сменился на %d): он падает по кругу", pid, newPID)
+				return errors.New(tr("daemon.restartEarly", pid, newPID))
 			}
-			return fmt.Errorf("демон с pid %d не прожил и нескольких секунд", pid)
+			return errors.New(tr("daemon.didNotLive", pid))
 		}
 	}
 	return nil
@@ -443,19 +457,18 @@ func waitState(s *mgr.Service, want svc.State, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		q, err := s.Query()
 		if err != nil {
-			return fmt.Errorf("состояние службы прочитать не удалось: %w", err)
+			return trError("error.serviceState", err, err)
 		}
 		last = q.State
 		if q.State == want {
 			return nil
 		}
 		if q.State == svc.Stopped && want == svc.Running {
-			return fmt.Errorf("служба остановилась сразу после запуска (код %d, служебный код %d). Журнал: %s",
-				q.Win32ExitCode, q.ServiceSpecificExitCode, logDir())
+			return errors.New(tr("error.startStopped", q.Win32ExitCode, q.ServiceSpecificExitCode, logDir()))
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return fmt.Errorf("служба не дошла до нужного состояния за %s, осталась в %d", timeout, last)
+	return errors.New(tr("error.startTimeout", timeout, last))
 }
 
 func waitDaemonPID(timeout time.Duration) (int, error) {
@@ -466,7 +479,7 @@ func waitDaemonPID(timeout time.Duration) (int, error) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return 0, fmt.Errorf("демон не поднялся за %s. Журнал: %s", timeout, logDir())
+	return 0, errors.New(tr("daemon.didNotStart", timeout, logDir()))
 }
 
 func readDaemonPID() (int, error) {
@@ -498,13 +511,13 @@ func processAlive(pid int) bool {
 func uninstall() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("диспетчер служб недоступен (нужны права администратора): %w", err)
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
 		if !serviceAbsent(err) {
-			return fmt.Errorf("состояние службы недоступно; файлы не тронуты: %w", err)
+			return trError("error.uninstallState", err, err)
 		}
 		// Службы в диспетчере нет — но файлы после отката установки есть, и это ровно
 		// та команда, на которую откат сослался. Отказаться здесь значит не выполнить
@@ -520,7 +533,7 @@ func uninstall() error {
 		} else if !os.IsNotExist(err) {
 			return err
 		}
-		say("службы %s в диспетчере нет, убираю оставшиеся файлы", svcName())
+		say("%s", tr("service.noEntryCleanup", svcName()))
 		removeLeftovers()
 		return nil
 	}
@@ -534,7 +547,7 @@ func uninstall() error {
 	if err := s.Delete(); err != nil {
 		return err
 	}
-	say("служба %s удалена", svcName())
+	say("%s", tr("service.removed", svcName()))
 	removeLeftovers()
 	return nil
 }
@@ -545,25 +558,25 @@ func removeLeftovers() {
 	removed := 0
 	for _, p := range []string{specPath(), statePath(), daemonPIDPath()} {
 		if err := os.Remove(p); err == nil {
-			say("убран %s", p)
+			say("%s", tr("service.fileRemoved", p))
 			removed++
 		}
 	}
 	if removed == 0 {
-		say("убирать нечего")
+		say("%s", tr("service.noFiles"))
 	}
-	say("журнал оставлен: %s", logDir())
+	say("%s", tr("service.logsRetained", logDir()))
 }
 
 func startAndVerify() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("диспетчер служб недоступен (нужны права администратора): %w", err)
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
-		return fmt.Errorf("служба %s не установлена", svcName())
+		return errors.New(tr("error.notInstalled", svcName()))
 	}
 	defer s.Close()
 	if err := ownService(s); err != nil {
@@ -572,19 +585,19 @@ func startAndVerify() error {
 	if err := verifyStart(s); err != nil {
 		return err
 	}
-	say("служба запущена и подтверждена")
+	say("%s", tr("service.started"))
 	return nil
 }
 
 func stop() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("диспетчер служб недоступен (нужны права администратора): %w", err)
+		return trError("error.admin", err, err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
-		return fmt.Errorf("служба %s не установлена", svcName())
+		return errors.New(tr("error.notInstalled", svcName()))
 	}
 	defer s.Close()
 	if err := ownService(s); err != nil {
@@ -593,7 +606,7 @@ func stop() error {
 	if err := stopService(s); err != nil {
 		return err
 	}
-	say("служба остановлена")
+	say("%s", tr("service.stopped"))
 	return nil
 }
 
@@ -794,10 +807,10 @@ func readStateChecked() (runState, error) {
 	var st runState
 	buf, err := os.ReadFile(statePath())
 	if err != nil {
-		return st, fmt.Errorf("файл состояния не прочитан: %w", err)
+		return st, trError("error.readState", err, err)
 	}
 	if err := json.Unmarshal(buf, &st); err != nil {
-		return st, fmt.Errorf("файл состояния не разобран: %w", err)
+		return st, trError("error.parseState", err, err)
 	}
 	return st, nil
 }
@@ -808,7 +821,7 @@ func readStateChecked() (runState, error) {
 func ownService(s *mgr.Service) error {
 	cfg, err := s.Config()
 	if err != nil {
-		return fmt.Errorf("конфигурацию службы %s прочитать не удалось: %w", svcName(), err)
+		return trError("error.readConfig", err, svcName(), err)
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -886,12 +899,12 @@ func (h *daemonHost) Execute(args []string, r <-chan svc.ChangeRequest, s chan<-
 
 	spec, err := resolveSpecFromFile()
 	if err != nil {
-		logLine("старт невозможен: %v", err)
+		logLine("%s", tr("service.cannotStart", err))
 		recordFailure(ecSpecFailed)
 		return true, ecSpecFailed
 	}
 	if err := os.MkdirAll(logDir(), 0o755); err != nil {
-		logLine("каталог логов недоступен: %v", err)
+		logLine("%s", tr("logs.directory", err))
 		recordFailure(ecLogDirFailure)
 		return true, ecLogDirFailure
 	}
@@ -943,21 +956,21 @@ func resolveSpecFromFile() (*launchSpec, error) {
 	// записью SYSTEM, и созданный кем-то ещё он означает подмену.
 	ok, why, err := trustedFile(specPath())
 	if err != nil {
-		return nil, fmt.Errorf("права файла службы не прочитаны (%s): %w", specPath(), err)
+		return nil, trError("spec.aclRead", err, specPath(), err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("файл службы доступен на запись не только системе и администраторам (%s) — исполнять его нельзя", why)
+		return nil, errors.New(tr("spec.insecure", why))
 	}
 	buf, err := os.ReadFile(specPath())
 	if err != nil {
-		return nil, fmt.Errorf("файл службы не прочитан (%s): %w", specPath(), err)
+		return nil, trError("spec.read", err, specPath(), err)
 	}
 	var spec launchSpec
 	if err := json.Unmarshal(buf, &spec); err != nil {
-		return nil, fmt.Errorf("файл службы не разобран: %w", err)
+		return nil, trError("spec.parse", err, err)
 	}
 	if spec.Node == "" || spec.Entry == "" {
-		return nil, fmt.Errorf("в файле службы нет node или entry")
+		return nil, errors.New(tr("spec.required"))
 	}
 	return &spec, nil
 }
@@ -995,7 +1008,7 @@ func (h *daemonHost) supervise(spec *launchSpec, fatal chan<- uint32, done chan<
 		h.mu.Unlock()
 
 		if startErr != nil {
-			logLine("демон не запустился: %v", startErr)
+			logLine("%s", tr("daemon.failedStart", startErr))
 			if out != nil {
 				out.Close()
 			}
@@ -1026,7 +1039,7 @@ func (h *daemonHost) supervise(spec *launchSpec, fatal chan<- uint32, done chan<
 		writeState(st)
 
 		if n := st.restartsLastHour(); n >= limitOf(spec) {
-			logLine("демон поднимался %d раз за час — это падение по кругу, не работа", n)
+			logLine("%s", tr("daemon.restartStorm", n))
 			fatal <- ecRestartStorm
 			return
 		}
@@ -1034,7 +1047,7 @@ func (h *daemonHost) supervise(spec *launchSpec, fatal chan<- uint32, done chan<
 		if time.Since(startedAt) >= healthyRun {
 			delay = restartDelayMin
 		}
-		logLine("демон завершился (%v), перезапуск через %s, подъёмов за час: %d", waitErr, delay, st.restartsLastHour())
+		logLine("%s", tr("daemon.exited", waitErr, delay, st.restartsLastHour()))
 		time.Sleep(delay)
 		if delay *= 2; delay > restartDelayMax {
 			delay = restartDelayMax

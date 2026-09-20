@@ -28,6 +28,18 @@ function Full-Path([string]$value, [string]$label) {
     }
     return [IO.Path]::GetFullPath($value)
 }
+function Find-NodeExecutable {
+    $pathValue = [Environment]::GetEnvironmentVariable('PATH', 'Process')
+    if ([string]::IsNullOrWhiteSpace($pathValue)) { return $null }
+    foreach ($entry in @($pathValue -split ';')) {
+        $directory = [Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
+        if (-not $directory) { continue }
+        try { $candidate = [IO.Path]::GetFullPath([IO.Path]::Combine($directory, 'node.exe')) }
+        catch { continue }
+        if ([IO.File]::Exists($candidate)) { return $candidate }
+    }
+    return $null
+}
 function Invoke-Murmur([string[]]$CommandArgs) {
     $output = & $NodePath --no-warnings $cli @CommandArgs --data-dir $DataDir --service-name $ServiceName --json
     if ($LASTEXITCODE -ne 0) { throw "Murmur $($CommandArgs[0]) failed. Read the CLI error above; no retry was made." }
@@ -44,7 +56,10 @@ try {
     $DataDir = Full-Path $DataDir 'DataDir'
     $cli = Join-Path $RuntimeRoot 'packages\setup\bin\murmur.mjs'
     if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw 'RuntimeRoot must contain the extracted, prebuilt runtime. Do not select the ZIP or the bundle parent.' }
-    if (-not $NodePath) { $NodePath = (Get-Command node.exe -CommandType Application -ErrorAction Stop).Source }
+    if (-not $NodePath) {
+        $NodePath = Find-NodeExecutable
+        if (-not $NodePath) { throw 'Node.js is not installed or is not on PATH. Install Node.js 22.13.0 or newer, reopen PowerShell, and try again.' }
+    }
     $NodePath = Full-Path $NodePath 'NodePath'
     if (-not (Test-Path -LiteralPath $NodePath -PathType Leaf)) { throw 'Node moved or is missing. Install Node.js 22.13.0 or newer and reopen PowerShell.' }
     $helper = Join-Path $RuntimeRoot 'bin\murmur-svc.exe'

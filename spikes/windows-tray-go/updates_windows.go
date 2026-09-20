@@ -12,21 +12,21 @@ import (
 )
 
 func (a *app) setupUpdates() {
-	root := systray.AddMenuItem("Updates", "Declared stable release; separate from message delivery health")
-	a.mUpdateState = root.AddSubMenuItem("Updates: not checked", "")
+	a.mUpdatesRoot = systray.AddMenuItem(tr("updates.root"), tr("updates.rootTooltip"))
+	a.mUpdateState = a.mUpdatesRoot.AddSubMenuItem(tr("updates.notChecked"), "")
 	a.mUpdateState.Disable()
-	a.mUpdateVersion = root.AddSubMenuItem("Declared version: unknown", "")
+	a.mUpdateVersion = a.mUpdatesRoot.AddSubMenuItem(tr("updates.current", tr("updates.unknown")), "")
 	a.mUpdateVersion.Disable()
-	a.mUpdateTime = root.AddSubMenuItem("No network check recorded", "")
+	a.mUpdateTime = a.mUpdatesRoot.AddSubMenuItem(tr("updates.noCheck"), "")
 	a.mUpdateTime.Disable()
-	a.mUpdateReason = root.AddSubMenuItem("", "")
+	a.mUpdateReason = a.mUpdatesRoot.AddSubMenuItem("", "")
 	a.mUpdateReason.Disable()
-	a.mUpdatePage = root.AddSubMenuItem("Open release page", "Opens GitHub only on this click; nothing is installed")
+	a.mUpdatePage = a.mUpdatesRoot.AddSubMenuItem(tr("updates.open"), tr("updates.openTooltip"))
 	a.mUpdatePage.Disable()
-	a.mUpdateEnable = root.AddSubMenuItem("Enable update checks", "")
-	a.mUpdateDisable = root.AddSubMenuItem("Disable update checks", "")
-	privacy := root.AddSubMenuItem("Checks contact GitHub and reveal your IP", "No profile, keys or credentials are sent; at most every six hours")
-	privacy.Disable()
+	a.mUpdateEnable = a.mUpdatesRoot.AddSubMenuItem(tr("updates.enable"), "")
+	a.mUpdateDisable = a.mUpdatesRoot.AddSubMenuItem(tr("updates.disable"), "")
+	a.mUpdatePrivacy = a.mUpdatesRoot.AddSubMenuItem(tr("updates.privacy"), tr("updates.privacyTooltip"))
+	a.mUpdatePrivacy.Disable()
 	a.updateRequests = make(chan bool, 1)
 }
 
@@ -82,27 +82,27 @@ func (a *app) renderUpdateState() {
 	now := time.Now()
 	title := s.title(now)
 	if err != nil {
-		title = "Updates: unable to check"
+		title = tr("updates.failed")
 	}
 	if busy {
-		title = "Checking updates…"
+		title = tr("updates.checking")
 	}
 	a.mUpdateState.SetTitle(title)
-	version := "unknown"
+	version := tr("updates.unknown")
 	if s != nil && s.CurrentVersion != nil {
 		version = *s.CurrentVersion
 	}
-	a.mUpdateVersion.SetTitle("Declared version: " + version)
+	a.mUpdateVersion.SetTitle(tr("updates.current", version))
 	a.mUpdateTime.SetTitle(s.observation(now))
 	reason := ""
 	if s != nil {
-		reason = s.Reason
+		reason = updateReasonLabel(s.Reason)
 	}
 	if err != nil {
-		reason = "CLI result unavailable; no automatic retry"
+		reason = tr("updates.unavailable")
 	}
 	if os.Getenv("MURMUR_UPDATE_CHECK") == "0" {
-		reason = "Disabled by MURMUR_UPDATE_CHECK=0"
+		reason = tr("updates.disabledEnv")
 	}
 	a.mUpdateReason.SetTitle(reason)
 	if reason == "" {
@@ -149,6 +149,6 @@ func (a *app) openUpdatePage() {
 	verb, _ := windows.UTF16PtrFromString("open")
 	target, _ := windows.UTF16PtrFromString(page)
 	if err := windows.ShellExecute(0, verb, target, nil, nil, windows.SW_SHOWNORMAL); err != nil {
-		a.mUpdateState.SetTitle("Could not open the release page")
+		a.mUpdateState.SetTitle(tr("updates.openFailed"))
 	}
 }

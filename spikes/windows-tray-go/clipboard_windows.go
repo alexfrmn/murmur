@@ -21,7 +21,7 @@ import (
 // The script is fixed; payload bytes travel as base64 on stdin, never as code.
 func toClipboard(data []byte) error {
 	if !json.Valid(data) {
-		return fmt.Errorf("diagnostics are not valid JSON")
+		return fmt.Errorf("%s", tr("clipboard.invalid"))
 	}
 	systemDir, err := windows.GetSystemDirectory()
 	if err != nil {
@@ -43,9 +43,9 @@ func toClipboard(data []byte) error {
 	hideConsole(cmd)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("copy diagnostics: %w: %s", ctx.Err(), strings.TrimSpace(stderr.String()))
+			return trError("clipboard.commandFailed", ctx.Err(), ctx.Err(), strings.TrimSpace(stderr.String()))
 		}
-		return fmt.Errorf("copy diagnostics: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return trError("clipboard.commandFailed", err, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }

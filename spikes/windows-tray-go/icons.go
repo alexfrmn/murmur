@@ -140,7 +140,7 @@ func dumpIcons(dir string) error {
 	for _, it := range set {
 		ico := iconBytes(it.col, it.unread)
 		if ico == nil {
-			return fmt.Errorf("иконка %s не собралась", it.name)
+			return fmt.Errorf("%s", tr("icons.failed", it.name))
 		}
 		if err := os.WriteFile(filepath.Join(dir, it.name+".ico"), ico, 0o644); err != nil {
 			return err

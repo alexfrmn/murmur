@@ -91,3 +91,84 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
     }
   });
 }
+
+test('Windows launcher gives actionable guidance when Node is missing', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Murmur missing Node '));
+  try {
+    await cp(path.join(root, 'apps/windows-tray/packaging'), dir, { recursive: true });
+    await cp(binary, path.join(dir, 'murmur-tray.exe'));
+    await mkdir(path.join(dir, 'runtime/packages/setup/bin'), { recursive: true });
+    await writeFile(path.join(dir, 'runtime/packages/setup/bin/murmur.mjs'), '// not reached');
+    const powershell = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const psLiteral = value => `'${value.replaceAll("'", "''")}'`;
+    const command = `$env:PATH=${psLiteral(dir)}; & ${psLiteral(path.join(dir, 'Open-Murmur.ps1'))} -DataDir ${psLiteral(dir)} -Check`;
+    const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+      timeout: 20_000, encoding: 'utf8', windowsHide: true,
+      env: { ...process.env, TEMP: dir, TMP: dir, LOCALAPPDATA: dir },
+    });
+    assert.equal(result.error, undefined, String(result.error));
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /Install Node\.js 22\.13\.0 or newer/);
+    assert.doesNotMatch(result.stdout, /Get-Command/i);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Windows launcher persists an explicit Russian tray locale', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Murmur Russian locale '));
+  try {
+    await cp(path.join(root, 'apps/windows-tray/packaging'), dir, { recursive: true });
+    await cp(binary, path.join(dir, 'murmur-tray.exe'));
+    const profile = path.join(dir, 'profile'), localAppData = path.join(dir, 'local-app-data');
+    const entry = path.join(dir, 'runtime/packages/setup/bin/murmur.mjs');
+    await mkdir(profile);
+    await mkdir(path.dirname(entry), { recursive: true });
+    const status = structuredClone(fixture);
+    await writeFile(entry, `
+      const args=process.argv.slice(2);
+      if(args[0]==='version') console.log(JSON.stringify({schema:'murmur.version/1',version:'2.9.0'}));
+      else { const status=${JSON.stringify(status)}; status.generatedAt=new Date().toISOString(); console.log(JSON.stringify(status)); }
+    `);
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(dir, 'Open-Murmur.ps1'),
+      '-NodePath', process.execPath, '-DataDir', profile, '-Language', 'ru', '-Check'], {
+      timeout: 20_000, encoding: 'utf8', windowsHide: true, env: { ...process.env, LOCALAPPDATA: localAppData },
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const preference = JSON.parse(await readFile(path.join(localAppData, 'Murmur/tray-preferences.json'), 'utf8'));
+    assert.deepEqual(preference, { schema: 'murmur.tray-preferences/1', locale: 'ru' });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Windows launcher does not overwrite locale while rejecting a profile', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Murmur invalid profile locale '));
+  try {
+    await cp(path.join(root, 'apps/windows-tray/packaging'), dir, { recursive: true });
+    await cp(binary, path.join(dir, 'murmur-tray.exe'));
+    const profile = path.join(dir, 'profile'), localAppData = path.join(dir, 'local-app-data');
+    const entry = path.join(dir, 'runtime/packages/setup/bin/murmur.mjs');
+    const preferencePath = path.join(localAppData, 'Murmur/tray-preferences.json');
+    await mkdir(profile);
+    await mkdir(path.dirname(entry), { recursive: true });
+    await mkdir(path.dirname(preferencePath), { recursive: true });
+    await writeFile(preferencePath, JSON.stringify({ schema: 'murmur.tray-preferences/1', locale: 'ru' }));
+    const status = structuredClone(fixture);
+    status.agentId = null;
+    await writeFile(entry, `
+      const args=process.argv.slice(2);
+      if(args[0]==='version') console.log(JSON.stringify({schema:'murmur.version/1',version:'2.9.0'}));
+      else { const status=${JSON.stringify(status)}; status.generatedAt=new Date().toISOString(); console.log(JSON.stringify(status)); }
+    `);
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(dir, 'Open-Murmur.ps1'),
+      '-NodePath', process.execPath, '-DataDir', profile, '-Check'], {
+      timeout: 20_000, encoding: 'utf8', windowsHide: true, env: { ...process.env, LOCALAPPDATA: localAppData },
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    const preference = JSON.parse(await readFile(preferencePath, 'utf8'));
+    assert.deepEqual(preference, { schema: 'murmur.tray-preferences/1', locale: 'ru' });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

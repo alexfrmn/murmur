@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"regexp"
 	"sort"
@@ -211,7 +210,7 @@ func resolve(s *Status, err error) Verdict {
 	// Independent startup work (such as a cached update check) can render before
 	// the first status arrives. No observation is unknown, never healthy.
 	if s == nil && err == nil {
-		return Verdict{Level: LevelGrey, Code: "status.unavailable", Reason: "статус ещё не снят"}
+		return Verdict{Level: LevelGrey, Code: "status.unavailable", Reason: tr("status.notCollected")}
 	}
 	if err != nil {
 		code := "status.unavailable"
@@ -219,10 +218,10 @@ func resolve(s *Status, err error) Verdict {
 		if errors.As(err, &se) {
 			code = se.code
 		}
-		return Verdict{Level: LevelGrey, Code: code, Reason: "статус недоступен: " + err.Error()}
+		return Verdict{Level: LevelGrey, Code: code, Reason: tr("status.unavailable", err)}
 	}
 	if !schemaKnown(s.Schema, statusSchema) {
-		return Verdict{Level: LevelGrey, Code: "schema.unknown", Reason: "схема ответа незнакома: " + s.Schema}
+		return Verdict{Level: LevelGrey, Code: "schema.unknown", Reason: tr("status.schema", s.Schema)}
 	}
 
 	unread := s.Inbox.Unread != nil && *s.Inbox.Unread > 0
@@ -244,20 +243,20 @@ func resolve(s *Status, err error) Verdict {
 	age, ok := ageOf(s.GeneratedAt)
 	switch {
 	case !ok:
-		return out(LevelGrey, "snapshot.unparsable", "дата снимка не разобрана: "+s.GeneratedAt)
+		return out(LevelGrey, "snapshot.unparsable", tr("status.unparsableDate", s.GeneratedAt))
 	case age > maxStatusAge:
-		return out(LevelGrey, "snapshot.stale", fmt.Sprintf("снимок устарел на %s", age.Round(time.Second)))
+		return out(LevelGrey, "snapshot.stale", tr("status.stale", age.Round(time.Second)))
 	case age < -clockSkewTolerance:
-		return out(LevelGrey, "snapshot.future", fmt.Sprintf("снимок из будущего на %s, часы разъехались", (-age).Round(time.Second)))
+		return out(LevelGrey, "snapshot.future", tr("status.future", (-age).Round(time.Second)))
 	}
 
 	switch s.Service.State {
 	case "stopped":
-		return out(LevelGrey, "service.stopped", "служба остановлена")
+		return out(LevelGrey, "service.stopped", tr("status.serviceStopped"))
 	case "unknown", "":
-		return out(LevelGrey, "service.unknown", "состояние службы неизвестно")
+		return out(LevelGrey, "service.unknown", tr("status.serviceUnknown"))
 	case "failed":
-		return out(LevelRed, "service.failed", "служба в состоянии failed")
+		return out(LevelRed, "service.failed", tr("status.serviceFailed"))
 	}
 
 	// missing копит поля, без которых цвет не выводится. Разница между нулём и
@@ -274,13 +273,13 @@ func resolve(s *Status, err error) Verdict {
 	failed, okFailed := need("outbox.queue.failed", s.Outbox.Queue.Failed)
 	dlq, okDLQ := need("outbox.queue.dlq", s.Outbox.Queue.DLQ)
 	if (okFailed && failed > 0) || (okDLQ && dlq > 0) {
-		return out(LevelRed, "outbox.undelivered", fmt.Sprintf("недоставленные: failed %s, DLQ %s", num(s.Outbox.Queue.Failed), num(s.Outbox.Queue.DLQ)))
+		return out(LevelRed, "outbox.undelivered", tr("status.undelivered", num(s.Outbox.Queue.Failed), num(s.Outbox.Queue.DLQ)))
 	}
 	if fault := str(s.Wake.Faults.LastFault); fault != "" {
-		return out(LevelRed, "wake.fault", "wake не сработал: "+fault)
+		return out(LevelRed, "wake.fault", tr("status.wakeFault", fault))
 	}
 	if pending, okPending := need("wake.delivery.pendingUndelivered", s.Wake.Delivery.PendingUndelivered); okPending && pending > 0 {
-		return out(LevelRed, "wake.pending", "wake не доставил "+plural(pending, "сообщение", "сообщения", "сообщений"))
+		return out(LevelRed, "wake.pending", tr("status.pendingWake", messageCount(pending)))
 	}
 	// Журнал отказов — отдельный источник от очереди: null в поле последней ошибки
 	// означает «отказа не было», и отличить его от «не смотрел» можно только признаком
@@ -302,12 +301,12 @@ func resolve(s *Status, err error) Verdict {
 
 	switch s.Broker.State {
 	case "unauthorized":
-		return out(LevelYellow, "broker.unauthorized", "брокер отверг токен")
+		return out(LevelYellow, "broker.unauthorized", tr("status.brokerUnauthorized"))
 	case "connected":
 	case "", "unknown":
 		missing = append(missing, "broker.state")
 	default:
-		reason := "брокер недоступен"
+		reason := tr("status.brokerUnavailable")
 		if e := str(s.Broker.LastError); e != "" {
 			reason += ": " + e
 		}
@@ -324,7 +323,7 @@ func resolve(s *Status, err error) Verdict {
 		if len(s.Peers.List) == 0 {
 			// Ноль пиров — это «ещё не настроено», а не «всё хорошо»: новому участнику
 			// писать некому, и зелёный значок сказал бы ему прямую неправду.
-			return out(LevelYellow, "peers.none", "пиров нет, обмен ещё не настроен")
+			return out(LevelYellow, "peers.none", tr("status.noPeers"))
 		}
 		var unpaired, unknownPair []string
 		for _, p := range s.Peers.List {
@@ -336,7 +335,7 @@ func resolve(s *Status, err error) Verdict {
 			}
 		}
 		if len(unpaired) > 0 {
-			return out(LevelYellow, "peers.unpaired", "пиры без пары: "+strings.Join(unpaired, ", "))
+			return out(LevelYellow, "peers.unpaired", tr("status.unpaired", strings.Join(unpaired, ", ")))
 		}
 		for _, id := range unknownPair {
 			note("peers.list."+id+".paired", "unmeasured")
@@ -357,44 +356,29 @@ func resolve(s *Status, err error) Verdict {
 	// не только за доставку: «пиров нет» жёлтый по той же причине — обмен исправен,
 	// система не в том состоянии, которое человек считает установленным.
 	if c, e := s.Wake.Config.Enabled, s.Wake.Effective.Enabled; c != nil && e != nil && *c != *e {
-		reason := "пауза задана в настройках и не применена"
+		reason := tr("status.modePause")
 		if *c {
-			reason = "пробуждение включено в настройках и не действует"
+			reason = tr("status.modeWake")
 		}
 		if r := s.Wake.Effective.NeedsRestart; r != nil && *r {
-			reason += ", нужен перезапуск службы"
+			reason += tr("status.modeRestart")
 		}
 		return out(LevelYellow, "wake.mode-mismatch", reason)
 	}
 
 	if len(missing) > 0 {
-		return out(LevelGrey, "unmeasured", "не измерено: "+strings.Join(missing, ", "))
+		return out(LevelGrey, "unmeasured", tr("status.unmeasured", strings.Join(missing, ", ")))
 	}
-	return out(LevelGreen, "ok", "демон, брокер и "+plural(len(s.Peers.List), "пир", "пира", "пиров")+" в порядке")
+	return out(LevelGreen, "ok", tr("status.healthy", peerCount(len(s.Peers.List))))
 }
 
 // num печатает число либо «не измерено»: подставлять ноль вместо неизвестного значит
 // успокаивать ложно.
 func num(p *int) string {
 	if p == nil {
-		return "не измерено"
+		return tr("status.numberUnknown")
 	}
 	return strconv.Itoa(*p)
-}
-
-// plural — русские формы числительных. Конкатенация «0 пира» выдаёт машину там, где
-// человек ждёт языка.
-func plural(n int, one, few, many string) string {
-	form := many
-	if mod100 := n % 100; mod100 < 11 || mod100 > 14 {
-		switch n % 10 {
-		case 1:
-			form = one
-		case 2, 3, 4:
-			form = few
-		}
-	}
-	return strconv.Itoa(n) + " " + form
 }
 
 // history собирает то, чего цвет сказать не может: последние отказы с временем. В сером
@@ -409,34 +393,34 @@ func history(s *Status) []string {
 		if text != "" {
 			line += text
 		} else {
-			line += "был"
+			line += tr("history.happened")
 		}
 		if at != "" {
 			line += ", " + at
 		}
 		out = append(out, line)
 	}
-	add("последняя ошибка отправки", str(s.Outbox.Faults.LastError), str(s.Outbox.Faults.LastErrorAt))
-	add("последний сбой пробуждения", str(s.Wake.Faults.LastFault), str(s.Wake.Faults.LastFaultAt))
-	add("последняя ошибка брокера", str(s.Broker.LastError), str(s.Broker.LastErrorAt))
+	add(tr("history.send"), str(s.Outbox.Faults.LastError), str(s.Outbox.Faults.LastErrorAt))
+	add(tr("history.wake"), str(s.Wake.Faults.LastFault), str(s.Wake.Faults.LastFaultAt))
+	add(tr("history.broker"), str(s.Broker.LastError), str(s.Broker.LastErrorAt))
 	if at := str(s.Service.LastFailureAt); at != "" {
-		add("служба падала", "", at)
+		add(tr("history.service"), "", at)
 	}
 	// Расхождение записанного и действующего — то, о чём человек обязан узнать сам:
 	// он нажал паузу, она принята настройками и не работает.
 	if c, e := s.Wake.Config.Enabled, s.Wake.Effective.Enabled; c != nil && e != nil && *c != *e {
-		line := "пауза задана в настройках и не применена"
+		line := tr("status.modePause")
 		if *c {
-			line = "пробуждение включено в настройках и не действует"
+			line = tr("status.modeWake")
 		}
 		if r := s.Wake.Effective.NeedsRestart; r != nil && *r {
-			line += ", нужен перезапуск службы"
+			line += tr("status.modeRestart")
 		}
 		// Первой строкой: действие человека не применилось, и это важнее прошлых отказов.
 		out = append([]string{line}, out...)
 	}
 	if n := s.Service.RestartsLastHour; n != nil && *n > 0 {
-		out = append(out, "подъёмов демона за час: "+strconv.Itoa(*n))
+		out = append(out, tr("history.daemonRestart", *n))
 	}
 	return out
 }
@@ -487,7 +471,7 @@ func fetchStatus(ctx context.Context) (*Status, error) {
 		}
 		var err error
 		if buf, err = os.ReadFile(path); err != nil {
-			return nil, fmt.Errorf("murmur status --json недоступен (%v) и файл не прочитан (%w)", cliErr, err)
+			return nil, trError("status.fileFallback", err, cliErr, err)
 		}
 	}
 	return parseStatus(buf)
@@ -513,15 +497,15 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 	// у doctor её не играет никто другой.
 	age, validTime := ageOf(d.GeneratedAt)
 	if !validTime || age > maxStatusAge || age < -clockSkewTolerance {
-		return nil, errors.New("Статус doctor устарел или датирован будущим")
+		return nil, errors.New(tr("doctor.stale"))
 	}
 	if !schemaKnown(d.Schema, doctorSchema) {
-		return nil, errors.New("схема doctor незнакома: " + d.Schema)
+		return nil, errors.New(tr("doctor.schema", d.Schema))
 	}
 	// Ответ, нарушающий собственное правило цепочки, показывать нельзя: человек прочтёт
 	// этапы после отказа как измеренные.
 	if err := validateDoctor(&d); err != nil {
-		return nil, fmt.Errorf("ответ doctor нарушает правило цепочки: %w", err)
+		return nil, trError("doctor.chain", err, err)
 	}
 	return &d, nil
 }

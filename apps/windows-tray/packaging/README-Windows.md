@@ -21,6 +21,11 @@ change the machine policy. `-NodePath` explicitly selects another installed Node
 window. Ordinary users can inspect status and change the configured wake pause;
 SCM start/stop requires an elevated CLI terminal. The tray does not elevate itself.
 
+The tray is English on a fresh profile regardless of the Windows display language. Use
+`-Language ru` to open it in Russian; `-Language en` switches back to English. The
+choice is saved in `%LOCALAPPDATA%\Murmur\tray-preferences.json`, reused when
+`-Language` is omitted, and can also be changed from the tray's **Language** menu.
+
 The app consumes the CLI's selected profile. It pins agent identity across refresh
 and before actions, checks response freshness, and discards a changed identity
 until explicit app restart/reselection. It never consumes inbox unread state.
