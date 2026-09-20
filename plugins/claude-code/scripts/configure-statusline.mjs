@@ -15,10 +15,17 @@ for (let i = 2; i < process.argv.length; i++) {
   values[name] = process.argv[++i];
 }
 if (!dryRun) throw new Error('dry-run-required');
+const canonicalAbsolute = value => {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || /[\x00-\x1f\x7f]/.test(value)) return null;
+  const localSeparators = process.platform === 'win32' ? value.replaceAll('/', '\\') : value;
+  const normalized = path.normalize(localSeparators);
+  return normalized === localSeparators ? normalized : null;
+};
 const absolute = (name) => {
   const value = values[name];
-  if (typeof value !== 'string' || !path.isAbsolute(value) || path.normalize(value) !== value || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`${name.slice(2)}-invalid`);
-  return value;
+  const canonical = canonicalAbsolute(value);
+  if (canonical === null) throw new Error(`${name.slice(2)}-invalid`);
+  return canonical;
 };
 const settingsPath = absolute('--settings'), dataDir = absolute('--data-dir');
 const nodeBin = absolute('--node-bin'), murmurEntrypoint = absolute('--murmur-entrypoint');
@@ -47,9 +54,9 @@ if (process.platform === 'win32' && current && requestedShell === undefined) thr
 if (process.platform !== 'win32' && requestedShell !== undefined) throw new Error('existing-shell-windows-only');
 if (!current && requestedShellPath !== undefined) throw new Error('existing-shell-path-without-command');
 const validateShellPath = async (value, kind = 'shell') => {
-  if (typeof value !== 'string' || !path.isAbsolute(value) || path.normalize(value) !== value
-    || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`${kind}-path-invalid`);
-  const resolved = await fs.realpath(value).catch(() => { throw new Error(`${kind}-path-unavailable`); });
+  const canonical = canonicalAbsolute(value);
+  if (canonical === null) throw new Error(`${kind}-path-invalid`);
+  const resolved = await fs.realpath(canonical).catch(() => { throw new Error(`${kind}-path-unavailable`); });
   const stat = await fs.stat(resolved);
   if (!stat.isFile()) throw new Error(`${kind}-path-unavailable`);
   return resolved;

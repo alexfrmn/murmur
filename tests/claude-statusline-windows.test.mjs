@@ -83,6 +83,13 @@ test('Windows Claude statusline executes encoded paths and preserves stdin and s
   assert.match(malformed.stderr, /data-dir-invalid/);
   assert.equal(hash(await fs.readFile(settings)), beforeHash);
   assert.equal(await fs.readFile(marker, 'utf8'), 'run\n');
+  const traversal = run(process.execPath, [configure, '--dry-run', '--settings', settings,
+    '--data-dir', `${dataDir.replaceAll('\\', '/')}/../escaped`, '--node-bin', process.execPath,
+    '--murmur-entrypoint', entrypoint, '--existing-shell', 'powershell']);
+  assert.notEqual(traversal.status, 0);
+  assert.match(traversal.stderr, /data-dir-invalid/);
+  assert.equal(hash(await fs.readFile(settings)), beforeHash);
+  assert.equal(await fs.readFile(marker, 'utf8'), 'run\n');
   const manifest = JSON.parse(await fs.readFile(path.join(root, 'plugins', 'claude-code', '.claude-plugin', 'plugin.json'), 'utf8'));
   assert.equal(manifest.defaultEnabled, false);
 });

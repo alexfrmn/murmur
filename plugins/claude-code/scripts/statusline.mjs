@@ -15,12 +15,17 @@ for (let i = 2; i < process.argv.length; i += 2) {
   }
   options[name] = value;
 }
+const canonicalAbsolute = value => {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || /[\x00-\x1f\x7f]/.test(value)) return null;
+  const localSeparators = process.platform === 'win32' ? value.replaceAll('/', '\\') : value;
+  const normalized = path.normalize(localSeparators);
+  return normalized === localSeparators ? normalized : null;
+};
 const absolute = (name) => {
   const value = options[name];
-  if (typeof value !== 'string' || !path.isAbsolute(value) || path.normalize(value) !== value || /[\x00-\x1f\x7f]/.test(value)) {
-    throw new Error(`${name.slice(2)}-invalid`);
-  }
-  return value;
+  const canonical = canonicalAbsolute(value);
+  if (canonical === null) throw new Error(`${name.slice(2)}-invalid`);
+  return canonical;
 };
 const dataDir = absolute('--data-dir');
 const murmurNode = absolute('--murmur-node');
