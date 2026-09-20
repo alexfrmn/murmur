@@ -39,5 +39,6 @@ export interface PlatformAdapter {
   install(context: ServiceContext): Promise<void>;
   start(context: ServiceContext): Promise<void>;
   stop(context: ServiceContext): Promise<void>;
+  uninstall?(context: ServiceContext): Promise<void>;
   detectClients(context: ServiceContext): Promise<ClientDetection[]>;
 }
