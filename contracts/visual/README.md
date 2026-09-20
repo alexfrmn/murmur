@@ -64,6 +64,21 @@ understand rather than draw something unexpected. The glyph lives once in a
 waves cannot apply to three states out of four. The `<use>` at the end renders
 `murmur-ready`, which turns the source into its own preview.
 
+## A known overlap, left on purpose
+
+The unread dot covers part of the outer right wave. That is the source, not a
+rendering fault, and it stays: the dot has to be the loudest thing on the icon,
+and an unread mark that yields to decoration is not a mark.
+
+Measured at 32 px, the overlap costs nothing legible. In the box the right wave
+occupies, `ready` has 45 white pixels and `unread` has 52 — the dot's white ring
+puts back more than the red circle takes. The lock and the inner wave are
+untouched and are tested separately.
+
+A smaller dot was tried (`r 18`, moved outward): it clears the wave but drops
+from 72 red pixels to 47, which is the wrong trade. Do not "fix" this overlap
+without re-running both numbers.
+
 ## Acceptance before a release
 
 Render every state at 18 and 32 px, read the pixels, and look at the numbers —
