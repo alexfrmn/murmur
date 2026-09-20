@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "murmur",
+  "displayName": "Murmur",
+  "version": "0.1.0",
+  "description": "Read and send Murmur messages through MCP, with explicit inbox and terminal status helpers.",
+  "author": {
+    "name": "Murmur contributors"
+  },
+  "repository": "https://github.com/alexfrmn/murmur",
+  "license": "MIT",
+  "keywords": ["murmur", "mcp", "messaging", "statusline"],
+  "defaultEnabled": false,
+  "userConfig": {
+    "murmur_command": {
+      "type": "file",
+      "title": "Murmur command",
+      "description": "Absolute path to the installed Murmur CLI executable.",
+      "required": true
+    },
+    "data_dir": {
+      "type": "directory",
+      "title": "Murmur profile",
+      "description": "Absolute path to the Murmur profile used by this Claude Code instance.",
+      "required": true
+    }
+  }
+}

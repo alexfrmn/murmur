@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "murmur": {
+      "command": "${user_config.murmur_command}",
+      "args": ["mcp", "serve", "--data-dir", "${user_config.data_dir}"]
+    }
+  }
+}
