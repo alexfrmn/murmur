@@ -43,6 +43,25 @@ test('repeat init/add-peer preserves existing identity and rejects a peer key ch
   await assert.rejects(f.command('agent-a', ['add-peer', '--reply-file', reply]), /peer-key-conflict/);
   assert.equal((await f.config('agent-a')).peers['agent-b'].signing.publicKey, before.keys.signing.publicKey);
 });
+test('the invite warning names what is inside, and says password only when a credential is there', async t => {
+  const f = await fixture(t);
+  await f.init('agent-a');
+  const plain = await f.command('agent-a', ['invite', '--out', path.join(f.root, 'plain-invite')]);
+  assert.equal(plain.containsBrokerCredential, false);
+  assert.ok(!/password/i.test(plain.instruction), 'a profile without a broker credential must not be called a password');
+  assert.match(plain.instruction, /identity/i);
+
+  const token = path.join(f.root, 'token'); await fs.writeFile(token, 'broker-secret');
+  await f.command('agent-b', ['init', '--agent-id', 'agent-b', '--broker-url', 'nats://127.0.0.1:4222', '--token-file', token]);
+  const secret = await f.command('agent-b', ['invite', '--out', path.join(f.root, 'secret-invite')]);
+  assert.equal(secret.containsBrokerCredential, true);
+  assert.match(secret.instruction, /password/i, 'an invite carrying a broker credential must say so in the words a person acts on');
+  assert.match(secret.instruction, /credential/i);
+
+  assert.notEqual(plain.instruction, secret.instruction, 'one sentence for both cases teaches people to ignore it');
+  for (const r of [plain, secret]) assert.match(r.instruction, /does not prove pairing/);
+});
+
 test('malformed invite fails before profile creation and never overwrites an output file', async t => {
   const f = await fixture(t), file = path.join(f.root, 'bad.txt'); await fs.writeFile(file, 'MURMUR:broken');
   await assert.rejects(f.command('agent-a', ['join', '--agent-id', 'agent-a', '--invite-file', file, '--reply-out', path.join(f.root, 'reply')]), /invalid-blob/);
