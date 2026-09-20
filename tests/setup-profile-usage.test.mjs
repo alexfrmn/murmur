@@ -298,6 +298,43 @@ test('Darwin profile usage fails closed for missing process coverage, churn, war
   }
 });
 
+test('Darwin profile usage accepts only an explicitly typed unnamed numeric NPOLICY descriptor', unixOnly, async t => {
+  const { home, context } = await contextFixture(t);
+  const current = [{ pid: process.pid }];
+  const control = regularRecord(process.pid, 9, context.configPath);
+  const valid = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
+    psReply(71032, current), lsofReply(control + 'f10\ntNPOLICY\nn\n'), psReply(71033, current),
+  ]) });
+  assert.deepEqual(await valid.profileUsage(context), { state: 'free', reason: 'profile-usage.no-open-files' });
+
+  // An empty filesystem name, unknown type, missing name field or pseudo-FD is
+  // still incomplete evidence; the network-policy exception must not admit it.
+  for (const record of ['f10\ntREG\nn\n', 'f10\ntDIR\nn\n', 'f10\ntunknown\nn\n',
+    'f10\ntPIPE\nn\n', 'f10\ntNPOLICY\n', 'f10\ntNPOLICY\nn', 'fcwd\ntNPOLICY\nn\n',
+    'f10\ntREG\nnpermission denied\n']) {
+    const refused = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
+      psReply(71034, current), lsofReply(control + record), psReply(71035, current),
+    ]) });
+    assert.equal((await refused.profileUsage(context)).state, 'unknown', record);
+  }
+  const missingProcess = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
+    psReply(71036, [...current, { pid: 42011 }]), lsofReply(control + 'f10\ntNPOLICY\nn\n'),
+    psReply(71037, [...current, { pid: 42011 }]),
+  ]) });
+  assert.equal((await missingProcess.profileUsage(context)).state, 'unknown');
+  const denied = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
+    psReply(71040, current), lsofReply(control + 'f10\ntNPOLICY\nn\n', 71999, 0, 'lsof: permission denied'),
+  ]) });
+  assert.equal((await denied.profileUsage(context)).state, 'unknown');
+
+  const held = createDarwinAdapter({ homeDir: home, uid: process.getuid(), env: { PATH: '' }, profileRun: scriptedProfileRun([
+    psReply(71038, [...current, { pid: 42012 }]),
+    lsofReply(control + 'f10\ntNPOLICY\nn\n' + regularRecord(42012, 3, context.storePath)),
+    psReply(71039, [...current, { pid: 42012 }]),
+  ]) });
+  assert.deepEqual(await held.profileUsage(context), { state: 'in-use', reason: 'profile-usage.open-file' });
+});
+
 test('Darwin profile usage detects a hardlink appearing during the probe', unixOnly, async t => {
   const { home, context } = await contextFixture(t);
   const alias = path.join(home, 'appearing-store-hardlink');

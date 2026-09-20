@@ -83,8 +83,11 @@ node packages/setup/bin/murmur.mjs broker migrate --data-dir ABSOLUTE_PROFILE --
 
 The preview does not write state or report credential values. It identifies only
 the endpoint scheme and redacted authentication kind (`none`, `token`, or
-`user-password`). Repeat with `--apply` to write an atomic private config plus a
-byte-exact private backup of the reviewed config. The migration
+`user-password`). A successful preview does not mean apply will succeed: it
+validates the proposed configuration, but does not check whether the service or
+other processes are using the profile. Apply checks that live state immediately
+before writing and refuses if it cannot verify it. Repeat with `--apply` to write
+an atomic private config plus a byte-exact private backup of the reviewed config. The migration
 changes only `natsUrl`, `natsToken`, `natsUser`, `natsPassword`, and `natsTls`;
 identity keys, peers, wake settings, custom keys, database history, and cursors are
 preserved. Applying an unchanged target is a no-op. Restart the service explicitly

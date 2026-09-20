@@ -129,7 +129,7 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
   interface LsofRecord { pid: number; descriptor: string; type: string; name: string }
   interface LsofSnapshot { pids: Set<number>; records: LsofRecord[] }
   function lsofSnapshot(output: string): LsofSnapshot {
-    if (output.includes("\0")) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+    if (output.includes("\0") || !output.endsWith("\n")) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
     const lines = output.split("\n");
     if (lines.at(-1) === "") lines.pop();
     if (lines.some(line => line === "")) throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
@@ -157,7 +157,14 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
         }
         type = line.slice(1);
       } else if (line.startsWith("n")) {
-        if (pid === null || descriptor === null || type === null || line.length < 2) {
+        if (pid === null || descriptor === null || type === null) {
+          throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
+        }
+        // Apple's process_netpolicy() sets NPOLICY but no name. It represents a
+        // numeric network-policy FD, not a vnode. A missing n field, empty name
+        // for any other type, or pseudo-FD must still fail closed.
+        // https://github.com/apple-opensource/lsof/blob/da09c8c6436286e5bd8c400b42e86b54404f12a7/lsof/dialects/darwin/libproc/dnetpolicy.c
+        if (line.length === 1 && !(type === "NPOLICY" && /^\d+$/.test(descriptor))) {
           throw new ProfileUsageUnknown("profile-usage.process-unverifiable");
         }
         records.push({ pid, descriptor, type, name: line.slice(1) });
