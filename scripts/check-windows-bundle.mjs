@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 
 const HERE = fileURLToPath(import.meta.url);
 const MANIFEST_NAME = 'release-manifest.json';
-const REQUIRED = ['Open-Murmur.cmd', 'Open-Murmur.ps1', 'README-Windows.md', 'check-windows-bundle.mjs', 'murmur-tray.exe',
+const REQUIRED = ['Open-Murmur.cmd', 'Open-Murmur.ps1', 'README-Windows.md', 'check-windows-bundle.mjs', 'murmur-tray.exe', 'murmur.ico',
   'runtime/runtime-manifest.json', 'runtime/bin/murmur-svc.exe'];
 const COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;

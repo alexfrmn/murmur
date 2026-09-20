@@ -109,7 +109,7 @@ test('Windows checker accepts the declared service overlay and rejects any undec
   const payload = {
     'Open-Murmur.cmd': 'cmd', 'Open-Murmur.ps1': 'ps1', 'README-Windows.md': 'readme',
     'check-windows-bundle.mjs': 'checker', 'murmur-tray.exe': 'tray', 'runtime/package.json': 'package',
-    'runtime/bin/murmur-svc.exe': 'service',
+    'runtime/bin/murmur-svc.exe': 'service', 'murmur.ico': 'icon',
   };
   for (const [name, contents] of Object.entries(payload)) {
     await fs.mkdir(path.dirname(path.join(bundle, name)), { recursive: true });

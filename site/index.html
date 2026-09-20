@@ -321,7 +321,7 @@
        <span data-i18n="inviteBody">the invitation blob contains the broker address and token. anyone who gets it can connect to the broker. send it only to someone you trust, through a private channel — never in a public chat.</span></p>
 
     <p class="after"><span data-i18n="manualPrefix">if you prefer to do it by hand, the same steps are in the</span>
-       <a href="https://github.com/alexfrmn/murmur/tree/v2.10.0#quick-start" data-i18n="manualLink">quick start</a>.</p>
+       <a href="https://github.com/alexfrmn/murmur/blob/v2.10.0/docs/setup-onboarding.md" data-i18n="manualLink">canonical onboarding guide</a>.</p>
   </div>
 </section>
 
@@ -412,7 +412,7 @@ const I18N = {
     promptLabel: 'prompt for your agent', copy: 'copy', copied: 'copied',
     inviteWarning: 'treat an invitation like a password.',
     inviteBody: 'the invitation blob contains the broker address and token. anyone who gets it can connect to the broker. send it only to someone you trust, through a private channel — never in a public chat.',
-    manualPrefix: 'if you prefer to do it by hand, the same steps are in the', manualLink: 'quick start',
+    manualPrefix: 'if you prefer to do it by hand, the same steps are in the', manualLink: 'canonical onboarding guide',
     troubleTag: 'if it doesn’t work', troubleTitle1: 'start with', troubleTitle2: 'the symptom you can see',
     troubleLead: 'do not reinstall blindly. each symptom points to a different layer, and a healthy transport does not prove that automatic wake is working.',
     dataTroubleTitle: 'no identity, empty peers, or silence',
@@ -456,28 +456,39 @@ Do everything yourself in the terminal and tell me when it is ready.
    npm ci
    npm run build
    In PowerShell, run these as separate lines; it does not support && here.
-3. Create my identity. Fill in the AGENT_ID, NATS_URL, and NATS_TOKEN values I
-   give you, and keep using the DATA_DIR from step 1:
-   node scripts/agent-config-init.mjs
-   Set variables in the syntax of your shell. In bash, use command prefixes.
-   In PowerShell, use $env:AGENT_ID = '...'; command prefixes do not work there.
-4. Start the daemon with the same DATA_DIR:
+3. Create my identity with the canonical setup CLI. Put the NATS_TOKEN I give
+   you in a new private absolute file without printing it, then fill in these
+   values and keep using the DATA_DIR from step 1:
+   node packages/setup/bin/murmur.mjs init --agent-id <AGENT_ID> --broker-url <NATS_URL> --token-file <ABSOLUTE_TOKEN_FILE> --data-dir <DATA_DIR>
+   Do not put the token itself in a command argument. Keep the token file private.
+4. Complete pairing before starting either daemon. Create a new private invitation
+   file outside DATA_DIR; its parent directory
+   must already exist and the output file must not:
+   node packages/setup/bin/murmur.mjs invite --out <ABSOLUTE_INVITE_FILE> --data-dir <DATA_DIR>
+   Give me the file through a trusted private channel. Do not print its blob or
+   paste it into a shell argument or public chat: it can contain the broker
+   address and token, so treat it like a password.
+   The other participant must use their own absolute profile and reply paths:
+   node packages/setup/bin/murmur.mjs join --agent-id <THEIR_AGENT_ID> --invite-file <ABSOLUTE_INVITE_FILE> --reply-out <ABSOLUTE_REPLY_FILE> --data-dir <THEIR_DATA_DIR>
+   For a first installation, THEIR_DATA_DIR must be a fresh profile. If a profile
+   already exists, join accepts only the same agent ID and broker; do not overwrite
+   or reinitialize it to force the command through.
+   They send the private reply file back. Complete our side with:
+   node packages/setup/bin/murmur.mjs add-peer --reply-file <ABSOLUTE_REPLY_FILE> --data-dir <DATA_DIR>
+5. Only after both profiles contain the peer, start the daemon on each side with
+   that side's DATA_DIR:
    node scripts/murmur-daemon.mjs
    It runs only while that terminal window stays open. Closing it stops message
-   exchange, and there will be no warning.
-5. Connect yourself to it over MCP and pass the data directory explicitly:
-   claude mcp add murmur -e DATA_DIR=<path>/murmur/.data -- node <path>/murmur/packages/mcp-server/dist/src/index.js
-   On Windows, quote both paths because they may contain backslashes and spaces.
-   Without DATA_DIR, the server uses .data relative to the directory from which
-   the client starts. It can create an empty store and report no identity or
-   peers even though the real profile exists in the clone.
-6. Print the invitation and give it to me:
-   node scripts/murmur-invite.mjs
-   I will send it to the other participant and bring you the reply blob. Add it
-   with node scripts/murmur-add-peer.mjs '<blob>'.
-   Warn me that the invitation blob can contain the broker address and token.
-   Treat it like a password: send it only through a trusted private channel,
-   never in a public chat.
+   exchange, and there will be no warning. If a daemon was started earlier, restart
+   it now so it loads the completed peer configuration.
+6. Detect my installed clients and configure the one I use through the shared CLI:
+   node packages/setup/bin/murmur.mjs clients detect --data-dir <DATA_DIR>
+   node packages/setup/bin/murmur.mjs clients configure --client <CLIENT_ID> --data-dir <DATA_DIR>
+   Keep the returned backup. Reload the selected client when the command reports
+   restartRequired; configuration on the other machine is a separate step there.
+7. From the reloaded client, list Murmur peers, send a synthetic test message to
+   the new peer, and require an actual message back. Report the returned message
+   separately from transport delivery or local key import.
 
 One easy detail to miss: importing the reply blob confirms only our side of the
 pair. Only a message received back proves that the other side finished setup.
@@ -527,7 +538,7 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
     promptLabel: 'промпт для агента', copy: 'скопировать', copied: 'скопировано',
     inviteWarning: 'приглашение передавайте как пароль.',
     inviteBody: 'в блобе приглашения лежит адрес брокера вместе с токеном: тот, кому блоб попадёт, сможет подключиться к брокеру. отправляйте его только тому, кому доверяете, по личному каналу — не в общий чат.',
-    manualPrefix: 'если хочется руками — те же шаги расписаны в', manualLink: 'быстром старте',
+    manualPrefix: 'если хочется руками — те же шаги расписаны в', manualLink: 'канонической инструкции по подключению',
     troubleTag: 'если не заработало', troubleTitle1: 'начните с', troubleTitle2: 'видимого симптома',
     troubleLead: 'не переустанавливайте всё вслепую. каждый симптом указывает на свой слой, а исправный транспорт ещё не доказывает, что автоматическое пробуждение работает.',
     dataTroubleTitle: 'нет личности, список пиров пуст или в ответ тишина',
@@ -570,28 +581,39 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
    npm ci
    npm run build
    В PowerShell это отдельные строки: оператора && там нет.
-3. Создай мою личность. Подставь AGENT_ID, NATS_URL и NATS_TOKEN, которые я
-   тебе дам, и продолжай использовать DATA_DIR из первого шага:
-   node scripts/agent-config-init.mjs
-   Переменные задай способом своей оболочки. В bash это префикс перед командой,
-   в PowerShell — $env:AGENT_ID = '...'. Префикс перед командой в PowerShell
-   не работает.
-4. Запусти демон с тем же DATA_DIR:
+3. Создай мою личность канонической setup CLI. Запиши NATS_TOKEN, который я
+   дам, в новый приватный файл по абсолютному пути, не печатая токен. Подставь
+   значения и продолжай использовать DATA_DIR из первого шага:
+   node packages/setup/bin/murmur.mjs init --agent-id <AGENT_ID> --broker-url <NATS_URL> --token-file <ABSOLUTE_TOKEN_FILE> --data-dir <DATA_DIR>
+   Не передавай сам токен аргументом команды. Файл с токеном оставь приватным.
+4. Заверши связывание до запуска любого из демонов. Создай новый приватный файл
+   приглашения вне DATA_DIR. Родительский каталог
+   должен уже существовать, а самого выходного файла ещё не должно быть:
+   node packages/setup/bin/murmur.mjs invite --out <ABSOLUTE_INVITE_FILE> --data-dir <DATA_DIR>
+   Передай мне файл по доверенному личному каналу. Не печатай блоб и не вставляй
+   его в аргумент оболочки или общий чат: внутри могут быть адрес брокера и токен,
+   поэтому обращайся с ним как с паролем.
+   Второй участник использует свои абсолютные пути профиля и ответа:
+   node packages/setup/bin/murmur.mjs join --agent-id <THEIR_AGENT_ID> --invite-file <ABSOLUTE_INVITE_FILE> --reply-out <ABSOLUTE_REPLY_FILE> --data-dir <THEIR_DATA_DIR>
+   Для первой установки THEIR_DATA_DIR должен быть свежим профилем. Если профиль
+   уже существует, join примет только те же ID агента и брокер; не перезаписывай
+   и не переинициализируй профиль, чтобы обойти отказ.
+   Он вернёт приватный файл ответа. Заверши нашу сторону командой:
+   node packages/setup/bin/murmur.mjs add-peer --reply-file <ABSOLUTE_REPLY_FILE> --data-dir <DATA_DIR>
+5. Только когда в обоих профилях появился пир, запусти демон на каждой стороне
+   с её DATA_DIR:
    node scripts/murmur-daemon.mjs
-   Он живёт, пока открыто окно терминала. Закроешь — обмен встанет, и
-   предупреждения об этом не будет.
-5. Подключи себя к нему по MCP и обязательно передай каталог данных:
-   claude mcp add murmur -e DATA_DIR=<путь>/murmur/.data -- node <путь>/murmur/packages/mcp-server/dist/src/index.js
-   На Windows оба пути возьми в кавычки: там обратные слеши и пробелы.
-   Без DATA_DIR сервер возьмёт .data от каталога, из которого его запустил
-   клиент, заведёт пустое хранилище и скажет, что личности и пиров нет,
-   хотя профиль лежит в клоне.
-6. Напечатай приглашение и отдай мне:
-   node scripts/murmur-invite.mjs
-   Я передам его второму участнику и принесу тебе ответный блоб — добавишь
-   его командой node scripts/murmur-add-peer.mjs '<блоб>'.
-   Предупреди меня, что в блобе приглашения могут лежать адрес брокера и токен.
-   Передавать его надо как пароль: по доверенному личному каналу, не в общий чат.
+   Он живёт, пока открыто окно терминала. Закроешь — обмен встанет без предупреждения.
+   Если демон запустили раньше, перезапусти его сейчас, чтобы он прочитал готовую
+   конфигурацию пиров.
+6. Найди установленные клиенты и настрой используемый через общую CLI:
+   node packages/setup/bin/murmur.mjs clients detect --data-dir <DATA_DIR>
+   node packages/setup/bin/murmur.mjs clients configure --client <CLIENT_ID> --data-dir <DATA_DIR>
+   Сохрани созданную резервную копию. Перезагрузи выбранный клиент, если команда
+   вернула restartRequired; клиент на второй машине настраивается отдельно там.
+7. В перезагруженном клиенте запроси список пиров Murmur, отправь новому пиру
+   синтетическое тестовое сообщение и обязательно дождись реального сообщения
+   в ответ. Отдели этот ответ от факта доставки и локального импорта ключей.
 
 Важное, о чём легко забыть: импорт ответного блоба подтверждает только нашу
 сторону пары. Что вторая сторона довела дело до конца, докажет только

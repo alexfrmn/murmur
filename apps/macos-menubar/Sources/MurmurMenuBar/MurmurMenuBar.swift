@@ -27,6 +27,7 @@ final class TrayModel: ObservableObject {
     @Published var preparingRuntime = false
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published var demoState: Indicator = .unknown
+    @Published var shortcutAvailable = false
     let isDemo: Bool
     private var timer: Timer?
     private var updateTimer: Timer?
@@ -119,7 +120,11 @@ final class TrayModel: ObservableObject {
     var canChangeUpdates: Bool { !isDemo && updatesClient != nil && !checkingUpdates }
     var updatesForcedOff: Bool { updatesClient?.forcedOff == true }
     var updateAvailable: Bool { updates?.releasePage() != nil }
-    var accessibleStatus: String { "Murmur: " + verdict.reason + (updateAvailable ? L10n.text("; update available") : "") }
+    var accessibleStatus: String {
+        "Murmur: " + verdict.reason
+            + (verdict.unread ? "; " + L10n.text("Unread messages") : "")
+            + (updateAvailable ? L10n.text("; update available") : "")
+    }
 
     func refreshUpdates(enabled: Bool? = nil) {
         guard !isDemo, !checkingUpdates, let updatesClient else { return }
@@ -320,148 +325,7 @@ final class TrayModel: ObservableObject {
     }
 
     var icon: NSImage {
-        let current = verdict
-        let color: NSColor = switch current.indicator {
-        case .unknown, .stopped, .paused: .secondaryLabelColor
-        case .offline: .systemYellow
-        case .ready, .unread: .systemGreen
-        case .failed: .systemRed
-        }
-        let unread = current.unread
-        let hasUpdate = updateAvailable
-        let image = NSImage(size: NSSize(width: 20, height: 20), flipped: false) { _ in
-            color.setFill()
-            NSBezierPath(ovalIn: NSRect(x: 3, y: 3, width: 14, height: 14)).fill()
-            if unread {
-                NSColor.systemBlue.setFill()
-                NSBezierPath(ovalIn: NSRect(x: 13, y: 12, width: 7, height: 7)).fill()
-            }
-            if hasUpdate {
-                NSColor.systemPurple.setFill()
-                NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: 8, height: 8)).fill()
-                NSColor.white.setStroke()
-                let arrow = NSBezierPath(); arrow.lineWidth = 1.2
-                arrow.move(to: NSPoint(x: 4, y: 1.5)); arrow.line(to: NSPoint(x: 4, y: 6))
-                arrow.move(to: NSPoint(x: 2, y: 4)); arrow.line(to: NSPoint(x: 4, y: 6)); arrow.line(to: NSPoint(x: 6, y: 4))
-                arrow.stroke()
-            }
-            return true
-        }
-        image.isTemplate = false
-        image.accessibilityDescription = accessibleStatus
-        return image
-    }
-}
-
-@main
-struct MurmurMenuBarApp: App {
-    @StateObject private var model = TrayModel()
-
-    var body: some Scene {
-        MenuBarExtra {
-            Text(model.isDemo ? L10n.text("Murmur — demo") : "Murmur")
-            if model.runtimeError != nil {
-                Button(L10n.text("Try again")) { model.prepareRuntime() }.disabled(model.preparingRuntime)
-            }
-            if let profile = model.profile {
-                Text(L10n.text("Profile: %@", String(describing: (model.agentID ?? L10n.text("not verified")))))
-                Text(profile.dataDirectory)
-                if let service = profile.serviceName { Text(L10n.text("Service: %@", String(describing: (service)))) }
-            }
-            Button(L10n.text("Choose profile folder…")) { model.chooseProfile() }
-                .disabled(model.busy || model.isDemo || model.runtimeError != nil)
-            if let reason = model.controlBlockReason { Text(reason) }
-            if let mismatch = model.status?.modeMismatch { Text(mismatch) }
-            Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
-            if let operationError = model.operationError { Text(operationError) }
-            if let message = model.operationMessage { Text(message) }
-            Text(L10n.text("Unread: %@", String(describing: (model.status?.inbox.unread.map(String.init) ?? L10n.text("not measured")))))
-            Text(L10n.text("Waiting for agent delivery: %@", String(describing: (model.status?.wake.delivery.pendingUndelivered.map(String.init) ?? L10n.text("not measured")))))
-            Text(L10n.text("Configured: %@", String(describing: (model.wakeState(model.status?.wake.config.enabled)))))
-            Text(L10n.text("Effective now: %@", String(describing: (model.wakeState(model.status?.wake.effective.enabled)))))
-            if model.status?.wake.effective.needsRestart == true { Text(L10n.text("Restart the service to apply this setting")) }
-            if let status = model.status {
-                ForEach(status.diagnosticNotes.filter { $0 != status.modeMismatch }, id: \.self) { note in Text(note) }
-            }
-            Divider()
-            if model.isDemo {
-                Menu(L10n.text("Preview states")) {
-                    ForEach(Indicator.allCases, id: \.self) { state in
-                        Button(state.title) { model.demoState = state }
-                    }
-                }
-            }
-            Menu(L10n.text("Diagnostics")) {
-                if let doctor = model.doctor {
-                    ForEach(doctor.rows()) { row in
-                        Label("\(row.title): \(row.detail)", systemImage: row.symbol)
-                    }
-                    Text(L10n.text("Checked: %@", String(describing: (doctor.generatedAt))))
-                } else {
-                    Text(model.doctorError ?? L10n.text("Not checked yet"))
-                    ForEach(DoctorSnapshot.stageIDs.indices, id: \.self) { index in
-                        Text(L10n.text("%@ — missing from response", String(describing: (DoctorSnapshot.titles[index]))))
-                    }
-                }
-                Button(model.checkingDoctor ? L10n.text("Checking…") : L10n.text("Check now")) {
-                    model.refreshDoctor(); model.refreshStatus()
-                }.disabled(model.busy || model.isDemo || model.profile == nil)
-            }
-            Button(model.operating ? L10n.text("Working…") : model.wakeAction.title) { model.perform(model.wakeAction) }
-                .disabled(!model.canControl || model.status?.wake.config.enabled == nil)
-            Button(L10n.text("Open inbox")) {}.disabled(true)
-            Text(L10n.text("Inbox viewing is not available in this Mac app yet"))
-            Button(L10n.text("Copy diagnostics")) { model.copyDiagnostics() }
-            Menu(L10n.text("Service")) {
-                Button(L10n.text("Start")) { model.perform(.start) }.disabled(!model.canControl)
-                Button(L10n.text("Stop")) { model.perform(.stop) }.disabled(!model.canControl)
-                Button(L10n.text("Open configured log folder")) { model.openLogs() }.disabled(!model.canControl)
-            }
-            Menu(model.updateAvailable ? L10n.text("Murmur update available") : L10n.text("Murmur updates")) {
-                if let updates = model.updates {
-                    Text(updates.title())
-                    Text(L10n.text("Product version: %@", String(describing: (updates.currentVersion ?? L10n.text("unknown.version")))))
-                    Text(updates.reasonText)
-                    Text(L10n.text("Last attempt: %@", String(describing: (updates.checkedAt ?? L10n.text("not-measured.time")))))
-                    Text(updates.ageText())
-                    Text(L10n.text("Last successful check: %@", String(describing: (updates.lastSuccessAt ?? L10n.text("not-measured.time")))))
-                    if let next = updates.nextCheckAt { Text(L10n.text("Next check no earlier than: %@", String(describing: (next)))) }
-                    if updates.stale { Text(L10n.text("The previous successful result is stale")) }
-                } else { Text(L10n.text("Updates: result unknown")) }
-                if model.checkingUpdates { Text(L10n.text("Checking for updates…")) }
-                if let error = model.updateError { Text(error) }
-                Button(L10n.text("Open release page")) { model.openUpdateRelease() }
-                    .disabled(!model.updateAvailable || model.isDemo)
-                Divider()
-                Text(L10n.text("Checks every 6 hours; cache shared by this user"))
-                Text(L10n.text("GitHub receives your IP address and sees that you use Murmur"))
-                if model.updatesForcedOff { Text(L10n.text("Checks are blocked by MURMUR_UPDATE_CHECK=0")) }
-                Button(L10n.text("Enable update checks")) { model.refreshUpdates(enabled: true) }
-                    .disabled(!model.canChangeUpdates || model.updatesForcedOff)
-                Button(L10n.text("Disable update checks")) { model.refreshUpdates(enabled: false) }
-                    .disabled(!model.canChangeUpdates)
-            }
-            Divider()
-            Menu(L10n.text("Language")) {
-                ForEach(AppLanguage.allCases, id: \.self) { language in
-                    Button { model.selectLanguage(language) } label: {
-                        if model.language == language {
-                            Label(language.name, systemImage: "checkmark")
-                        } else {
-                            Text(language.name)
-                        }
-                    }.disabled(model.busy || model.checkingUpdates)
-                }
-            }
-            Toggle(L10n.text("Launch at login"), isOn: Binding(
-                get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }
-            )).disabled(model.isDemo)
-            Button(model.checkingStatus ? L10n.text("Refreshing…") : L10n.text("Refresh status")) { model.refreshStatus() }
-                .disabled(model.busy || model.isDemo || model.profile == nil)
-            Button(L10n.text("Quit")) { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
-        } label: {
-            Image(nsImage: model.icon).accessibilityLabel(model.accessibleStatus)
-        }
-        .menuBarExtraStyle(.menu)
+        MurmurMark.image(state: MarkState(indicator: verdict.indicator), unread: verdict.unread,
+                         update: updateAvailable, description: accessibleStatus)
     }
 }

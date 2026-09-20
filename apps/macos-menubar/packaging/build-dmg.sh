@@ -15,6 +15,7 @@ python3 "$SOURCE/packaging/version-checks.py"
 python3 "$SOURCE/packaging/verify-runtime.py" "$RUNTIME"
 mkdir -p "$OUTPUT"
 cd "$SOURCE"
+python3 scripts/generate-mark.py --check
 for arch in arm64 x86_64; do
   swift build -c release --triple "$arch-apple-macosx13.0" --scratch-path "$BUILD_ROOT/swift-$arch"
 done

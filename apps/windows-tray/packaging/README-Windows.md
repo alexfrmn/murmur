@@ -1,6 +1,6 @@
 # Windows companion bundle
 
-Keep `Open-Murmur.cmd`, `Open-Murmur.ps1`, `murmur-tray.exe` and `runtime/` together.
+Keep `Open-Murmur.cmd`, `Open-Murmur.ps1`, `murmur-tray.exe`, `murmur.ico` and `runtime/` together.
 The runtime is the prebuilt portable engine; Windows adds its matching native
 `runtime/bin/murmur-svc.exe`. Node.js 22.13.0 or newer is external. No Go/npm/build is
 needed on the recipient's machine. Unsigned binaries may trigger Windows warnings.
@@ -9,7 +9,7 @@ Initialize/join and install the service through the CLI first, using one explici
 profile. Double-click `Open-Murmur.cmd`, then select that existing profile folder.
 The launcher checks the local runtime and actual tray-to-CLI identity before
 opening the menu. It neither creates a profile nor writes client config or login
-startup. A custom service name must be supplied every time:
+startup. A custom service name must be supplied for the initial selection:
 
 ```powershell
 .\Open-Murmur.cmd -DataDir 'C:\Users\you\AppData\Local\Murmur' -ServiceName MurmurDaemon
@@ -28,7 +28,7 @@ choice is saved in `%LOCALAPPDATA%\Murmur\tray-preferences.json`, reused when
 
 The app consumes the CLI's selected profile. It pins agent identity across refresh
 and before actions, checks response freshness, and discards a changed identity
-until explicit app restart/reselection. It never consumes inbox unread state.
+until explicit app restart/reselection. It never marks inbox messages as read.
 Pause/resume changes the setting without applying a service restart; configured,
 effective and needs-restart are shown separately. Pending/unread remain visible.
 The unsupported Windows log-path menu is disabled with a reason, without inventing
@@ -41,6 +41,35 @@ The native service helper separately checks profile ownership.
 
 This wrapper is not an updater, an installer or a GUI onboarding wizard. Login,
 reboot, browser warnings and actual GUI clicks have separate acceptance records.
+
+## Finding and reopening Murmur
+
+After a successful first launch, the launcher creates **Murmur** shortcuts on your
+Desktop and in your per-user Start menu. Both remember the selected Node, bundle,
+profile and service name. Open either shortcut to show the controls of the same
+running tray, including when Windows has put its icon under the hidden-icons arrow.
+The shortcuts carry the same purple logo as the tray.
+
+Windows controls which icons appear directly on the taskbar. Murmur keeps its icon
+registered while running, but cannot reserve visible taskbar space. To keep it in
+view, expand the hidden-icons arrow and drag Murmur onto the taskbar, or choose it
+in Windows taskbar notification-area settings. The shortcuts remain another way in.
+
+The purple logo means ready, grey means not ready or not yet measured, a red dot
+means unread messages, and a red circle means a failure. Hover for **Murmur** and
+the state in words; the first menu item explains the reason. The separate arrow
+at the lower right announces an update. Unread and update badges preserve the
+underlying health state.
+
+**Quit** asks for confirmation, with **Cancel** selected by default. It closes the
+tray only and explains how to reopen it; the service continues independently.
+There is no automatic hiding or login-startup change.
+
+The launcher refuses to replace another target's shortcuts. To choose another
+bundle/profile, quit the old tray, remove its two Murmur shortcuts, and open the
+new bundle with the explicit selection. Keep the old bundle until client bindings
+and a returned message are verified. `-Check` does not create shortcuts, change the
+saved launch binding or activate a running tray.
 
 ## Manual upgrade from 2.9.0 to 2.10.0
 

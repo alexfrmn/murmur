@@ -6,6 +6,12 @@ No environment assignment syntax is required. Every profile-specific command
 accepts `--data-dir ABSOLUTE_PATH`; the service, daemon and MCP entry use this one
 profile. This is a source-checkout workflow, not a published npm installation.
 
+The older `scripts/murmur-invite.mjs`, `scripts/murmur-join.mjs` and
+`scripts/murmur-add-peer.mjs` entrypoints are disabled compatibility notices.
+They exit without reading or changing a profile and name the equivalent command
+below. Invitation and reply material stays in private files instead of terminal
+output and shell arguments.
+
 1. `init --agent-id ID --broker-url URL [private broker file options]` creates a
    private identity. Repeating it with the same ID and broker preserves the keys
    and credentials. It never rotates an existing broker credential. Conflicting
