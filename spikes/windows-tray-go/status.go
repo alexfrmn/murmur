@@ -283,7 +283,7 @@ func resolve(s *Status, err error) Verdict {
 	age, ok := ageOf(s.GeneratedAt)
 	switch {
 	case !ok:
-		return out(LevelGrey, "snapshot.unparsable", tr("status.unparsableDate", s.GeneratedAt))
+		return out(LevelGrey, "snapshot.unparsable", tr("status.unparsableDate"))
 	case age > maxStatusAge:
 		return out(LevelGrey, "snapshot.stale", tr("status.stale", age.Round(time.Second)))
 	case age < -clockSkewTolerance:

@@ -321,6 +321,11 @@ func TestUnobservedInboxAndHostileTimeRemainVisibleAndSafe(t *testing.T) {
 		if lines := recentLinesForStatus(empty); len(lines) != 1 || lines[0] != tr("recent.none") {
 			t.Fatalf("measured empty inbox: %q", lines)
 		}
+		invalidTime := load(t, "status-green.json")
+		invalidTime.GeneratedAt = "private-agent / profile.token\r\nInjected"
+		if reason := resolve(invalidTime, nil).Reason; strings.Contains(reason, "private-agent") || strings.Contains(reason, "profile.token") {
+			t.Fatalf("malformed snapshot time exposed: %q", reason)
+		}
 		hostile := &Status{Deliveries: []Delivery{{Direction: "inbound", Peer: "private-agent", At: "peers.list.private-agent.paired"}}}
 		for _, line := range recentLinesForStatus(hostile) {
 			if strings.Contains(line, "private-agent") || strings.Contains(line, "peers.list") {
