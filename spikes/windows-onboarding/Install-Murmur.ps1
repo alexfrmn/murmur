@@ -44,7 +44,11 @@ try {
     $DataDir = Full-Path $DataDir 'DataDir'
     $cli = Join-Path $RuntimeRoot 'packages\setup\bin\murmur.mjs'
     if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw 'RuntimeRoot must contain the extracted, prebuilt runtime. Do not select the ZIP or the bundle parent.' }
-    if (-not $NodePath) { $NodePath = (Get-Command node.exe -CommandType Application -ErrorAction Stop).Source }
+    if (-not $NodePath) {
+        $nodeCommand = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue
+        if (-not $nodeCommand) { throw 'Node.js is not installed or is not on PATH. Install Node.js 22.13.0 or newer, reopen PowerShell, and try again.' }
+        $NodePath = $nodeCommand.Source
+    }
     $NodePath = Full-Path $NodePath 'NodePath'
     if (-not (Test-Path -LiteralPath $NodePath -PathType Leaf)) { throw 'Node moved or is missing. Install Node.js 22.13.0 or newer and reopen PowerShell.' }
     $helper = Join-Path $RuntimeRoot 'bin\murmur-svc.exe'

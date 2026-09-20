@@ -96,7 +96,7 @@ func lookup(doc map[string]any, path string) (any, bool) {
 func parseStatus(buf []byte) (*Status, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(buf, &doc); err != nil {
-		return nil, &statusError{"schema.unparsable", "ответ не разобран: " + err.Error()}
+		return nil, &statusError{"schema.unparsable", tr("schema.unparsable", err)}
 	}
 
 	var absent, wrong []string
@@ -107,16 +107,16 @@ func parseStatus(buf []byte) (*Status, error) {
 			continue
 		}
 		if got := kindOf(v); got != "null" && got != k.kind {
-			wrong = append(wrong, fmt.Sprintf("%s: %s вместо %s", k.path, got, k.kind))
+			wrong = append(wrong, fmt.Sprintf("%s: %s != %s", k.path, got, k.kind))
 		}
 	}
 	if len(absent) > 0 {
 		return nil, &statusError{"schema.missing-key",
-			"в ответе нет обязательных ключей: " + strings.Join(absent, ", ")}
+			tr("schema.missing", strings.Join(absent, ", "))}
 	}
 	if len(wrong) > 0 {
 		return nil, &statusError{"schema.wrong-type",
-			"тип значения не тот: " + strings.Join(wrong, ", ")}
+			tr("schema.wrongType", strings.Join(wrong, ", "))}
 	}
 
 	for _, k := range counterPaths {
@@ -126,13 +126,13 @@ func parseStatus(buf []byte) (*Status, error) {
 		}
 		if n, isNum := v.(float64); isNum && n < 0 {
 			return nil, &statusError{"schema.invalid-value",
-				fmt.Sprintf("счётчик %s отрицательный (%v): ответ сломан", k, v)}
+				tr("schema.counter", k, v)}
 		}
 	}
 
 	var s Status
 	if err := json.Unmarshal(buf, &s); err != nil {
-		return nil, &statusError{"schema.unparsable", "ответ не разобран: " + err.Error()}
+		return nil, &statusError{"schema.unparsable", tr("schema.unparsable", err)}
 	}
 	return &s, nil
 }
@@ -145,12 +145,11 @@ func validateDoctor(d *Doctor) error {
 	for _, st := range d.Stages {
 		if failedAt != "" {
 			if st.State != "skip" {
-				return fmt.Errorf("этап %s идёт после отказа %s в состоянии %q: отказ обязан останавливать цепочку",
-					st.ID, failedAt, st.State)
+				return fmt.Errorf("%s", tr("schema.doctorAfterFailure", st.ID, failedAt, st.State))
 			}
 			want := "blocked-by:" + failedAt
 			if st.Reason != want {
-				return fmt.Errorf("этап %s пропущен с причиной %q вместо %q", st.ID, st.Reason, want)
+				return fmt.Errorf("%s", tr("schema.doctorSkip", st.ID, st.Reason, want))
 			}
 			continue
 		}

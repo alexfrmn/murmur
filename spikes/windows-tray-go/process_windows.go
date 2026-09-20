@@ -9,12 +9,12 @@ import (
 	"syscall"
 )
 
-func launchDetached() (int, error) {
+func launchDetached(locale string) (int, error) {
 	file, err := os.Executable()
 	if err != nil {
 		return 0, err
 	}
-	cmd := exec.Command(file)
+	cmd := exec.Command(file, "--lang", locale)
 	cmd.Env = os.Environ() // The launcher already supplied the explicit binding.
 	// Do not retain the launcher's capture/console handles. A tray lives longer
 	// than its launcher; inheriting those handles keeps callers waiting for EOF.

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,17 +19,17 @@ func selectedCLI() (cliBinding, error) {
 	b := cliBinding{os.Getenv("MURMUR_BIN"), os.Getenv("MURMUR_CLI"), os.Getenv("MURMUR_PROFILE"), os.Getenv("MURMUR_SERVICE_NAME")}
 	for _, p := range []string{b.Node, b.Entry, b.Profile} {
 		if !filepath.IsAbs(p) || strings.ContainsAny(p, "\x00\r\n") {
-			return b, errors.New("Выберите Node, runtime и профиль через Open Murmur")
+			return b, errors.New(tr("binding.select"))
 		}
 	}
 	for _, p := range []string{b.Node, b.Entry} {
 		info, err := os.Stat(p)
 		if err != nil || !info.Mode().IsRegular() {
-			return b, errors.New("Node или CLI перемещён: откройте Open Murmur снова")
+			return b, errors.New(tr("binding.moved"))
 		}
 	}
 	if b.Service != "" && !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$`).MatchString(b.Service) {
-		return b, errors.New("Имя службы недопустимо")
+		return b, errors.New(tr("binding.invalidService"))
 	}
 	return b, nil
 }
@@ -87,10 +86,10 @@ func invokeCLI(ctx context.Context, args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	err = cmd.Run()
 	if stdout.exceeded || stderr.exceeded {
-		return nil, errors.New("Ответ CLI превышает допустимый размер")
+		return nil, errors.New(tr("binding.outputLarge"))
 	}
 	if err != nil {
-		return nil, fmt.Errorf("CLI не подтвердил команду: %w; проверьте профиль и права в терминале", err)
+		return nil, errors.New(tr("binding.cliFailed", err))
 	}
 	return stdout.Bytes(), nil
 }
@@ -99,14 +98,14 @@ func invokeCLI(ctx context.Context, args ...string) ([]byte, error) {
 // Never publish it as the previously selected agent or use it for mutation.
 func validatePinnedStatus(s *Status, expected string) error {
 	if s == nil || !schemaKnown(s.Schema, statusSchema) || s.AgentID == "" {
-		return errors.New("Личность профиля не подтверждена")
+		return errors.New(tr("binding.identityUnconfirmed"))
 	}
 	age, ok := ageOf(s.GeneratedAt)
 	if !ok || age > maxStatusAge || age < -clockSkewTolerance {
-		return errors.New("Статус профиля устарел или датирован будущим")
+		return errors.New(tr("binding.statusAge"))
 	}
 	if expected != "" && s.AgentID != expected {
-		return errors.New("Личность профиля изменилась; выберите профиль заново")
+		return errors.New(tr("binding.identityChanged"))
 	}
 	return nil
 }
@@ -121,7 +120,7 @@ func validateAction(buf []byte, command, action string) error {
 	if command == "wake" && v["schema"] == "murmur.wake/1" && v["configuredEnabled"] == (action == "resume") {
 		return nil
 	}
-	return errors.New("Результат команды не подтверждён")
+	return errors.New(tr("binding.actionUnconfirmed"))
 }
 
 var mutationTimeout = 60 * time.Second

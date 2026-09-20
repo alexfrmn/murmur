@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -16,7 +15,7 @@ import (
 
 const updateInterval = 6 * time.Hour
 
-var errUpdateResponse = errors.New("The CLI did not confirm the update result")
+var errUpdateResponse = errors.New("update response was not confirmed")
 var releaseTag = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 var updateReason = regexp.MustCompile(`^updates\.[a-z0-9.-]{1,100}$`)
 
@@ -116,37 +115,48 @@ func (s *updateSnapshot) page(now time.Time) string {
 }
 func (s *updateSnapshot) title(now time.Time) string {
 	if s == nil {
-		return "Updates: not checked"
+		return tr("updates.notChecked")
 	}
 	if !s.Enabled && s.Reason == "updates.disabled" {
-		return "Update checks are disabled"
+		return tr("updates.disabled")
 	}
 	if s.State != "unknown" && s.expired(now) {
-		return "Updates: the last result has expired"
+		return tr("updates.expired")
 	}
 	switch s.State {
 	case "available":
-		return "Update available: " + *s.LatestVersion
+		return tr("updates.available", *s.LatestVersion)
 	case "up-to-date":
-		return "No newer stable release found"
+		return tr("updates.none")
 	default:
-		return "Updates: unable to check"
+		return tr("updates.failed")
 	}
 }
 func (s *updateSnapshot) observation(now time.Time) string {
 	if s == nil || s.CheckedAt == nil {
-		return "No network check recorded"
+		return tr("updates.noCheck")
 	}
 	at, _ := time.Parse(time.RFC3339Nano, *s.CheckedAt)
 	age := int(now.Sub(at) / time.Minute)
 	if age < 0 {
 		age = 0
 	}
-	label := "Checked"
+	label := tr("updates.checked")
 	if s.Cached {
-		label = "Cached"
+		label = tr("updates.cached")
 	}
-	return fmt.Sprintf("%s: %s (%d min ago)", label, at.UTC().Format("2006-01-02 15:04:05 UTC"), age)
+	return tr("updates.observation", label, at.UTC().Format("2006-01-02 15:04:05 UTC"), age)
+}
+
+func updateReasonLabel(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	key := "updates.reason." + strings.TrimPrefix(reason, "updates.")
+	if value, ok := catalogs[currentLocale()][key]; ok {
+		return value
+	}
+	return reason
 }
 
 func fetchUpdates(ctx context.Context) (*updateSnapshot, error) {

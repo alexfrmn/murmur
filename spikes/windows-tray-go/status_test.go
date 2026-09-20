@@ -115,7 +115,7 @@ func TestEmptyIsNotUnknown(t *testing.T) {
 	if unknown.Level != LevelGrey {
 		t.Errorf("неизмеренные поля должны быть серыми, получен %v (%s)", unknown.Level, unknown.Reason)
 	}
-	if !strings.Contains(unknown.Reason, "не измерено") {
+	if !strings.Contains(unknown.Reason, "Not measured") {
 		t.Errorf("серый обязан назвать, чего он не измерил: %s", unknown.Reason)
 	}
 }
@@ -186,18 +186,9 @@ func TestGreyKeepsHistory(t *testing.T) {
 		t.Fatal("в сером состоянии история отказов обязана остаться")
 	}
 	joined := strings.Join(v.History, " | ")
-	for _, want := range []string{"ошибка отправки", "сбой пробуждения"} {
+	for _, want := range []string{"send error", "wake failure"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("в истории нет %q: %s", want, joined)
-		}
-	}
-}
-
-func TestPlural(t *testing.T) {
-	cases := map[int]string{0: "0 пиров", 1: "1 пир", 2: "2 пира", 5: "5 пиров", 11: "11 пиров", 21: "21 пир", 104: "104 пира"}
-	for n, want := range cases {
-		if got := plural(n, "пир", "пира", "пиров"); got != want {
-			t.Errorf("plural(%d) = %q, ожидалось %q", n, got, want)
 		}
 	}
 }
@@ -222,10 +213,10 @@ func TestIconsBuild(t *testing.T) {
 func TestPauseConfiguredButNotEffective(t *testing.T) {
 	v := resolve(load(t, "status-pause-not-applied.json"), nil)
 	joined := strings.Join(v.History, " | ")
-	if !strings.Contains(joined, "не применена") {
+	if !strings.Contains(joined, "not effective") {
 		t.Errorf("расхождение настроек и действующего состояния должно быть названо: %v", v.History)
 	}
-	if !strings.Contains(joined, "перезапуск") {
+	if !strings.Contains(joined, "restart") {
 		t.Errorf("нужное действие должно быть названо: %v", v.History)
 	}
 }

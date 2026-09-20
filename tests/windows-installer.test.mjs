@@ -55,3 +55,25 @@ for (const scenario of ['ok', 'wrong-agent', 'wrong-action', 'no-store']) test(`
     if (scenario === 'ok') assert.deepEqual(calls.map(c => c.args.slice(0, 2)), [['version', '--data-dir'], ['status', '--data-dir'], ['service', 'install'], ['status', '--data-dir']]);
   } finally { f.cleanup(); }
 });
+
+test('PowerShell installer gives actionable guidance when Node is missing', { skip: !windows }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'murmur installer missing Node '));
+  try {
+    const runtime = path.join(dir, 'runtime'), profile = path.join(dir, 'profile');
+    mkdirSync(path.join(runtime, 'packages/setup/bin'), { recursive: true });
+    mkdirSync(path.join(runtime, 'bin'));
+    writeFileSync(path.join(runtime, 'packages/setup/bin/murmur.mjs'), '// not reached');
+    writeFileSync(path.join(runtime, 'bin/murmur-svc.exe'), 'not reached');
+    const powershell = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const result = spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', installer,
+      '-AgentId', 'fixture', '-RuntimeRoot', runtime, '-DataDir', profile], {
+      encoding: 'utf8', timeout: 30_000,
+      env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, PATH: dir, TEMP: dir, TMP: dir, LOCALAPPDATA: dir },
+    });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /Install Node\.js 22\.13\.0 or newer/);
+    assert.doesNotMatch(result.stdout, /Get-Command/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
