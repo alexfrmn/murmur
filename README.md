@@ -51,6 +51,11 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 
 ---
 
+## What's New in v2.10
+
+- **Three stable release assets.** Choose `murmur-runtime-2.10.0.zip` for the portable CLI, daemon and MCP runtime, `Murmur-Windows-2.10.0-x64.zip` for the Windows x64 companion, or `Murmur-Mac-2.10.0-universal.dmg` for macOS on Intel or Apple Silicon. Node.js 22.13.0 or newer remains an external prerequisite for every asset.
+- **Updates remain manual.** Murmur can open the stable release page after an explicit click. It does not download, install, replace or restart the runtime, native app, service or profile.
+
 ## What's New in v2.9
 
 - **Exactly-once wake delivery.** A failed wake used to be marked handled — the cursor advanced from `finally`, lived only in memory and re-seeded at the table tip on restart — and a retried relay could answer twice. Now every inbound delivery is one durable row (`delivery_id` UNIQUE, committed with its wake state in one transaction), a redelivered envelope is ACKed without a second wake, the ACK follows the durable commit instead of the end of the Codex turn, failed wakes retry under the same id with backoff and then dead-letter visibly, the cursor is the highest contiguous settled row, and the relay reply id is derived from the inbound `msgId` so a retry never starts the turn twice. Design by @alexanderyswork in #96. (v2.9.0)
@@ -110,7 +115,7 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 - **Validated: real cross-host A2A.** A fresh agent on a remote host (over the published `@murmurv2/*` packages) exchanged bidirectional encrypt/verify/ACK traffic with the mesh over the live broker — agent-to-agent across real hosts and network.
 - **Single canonical signing payload.** `stableEnvelopePayload` is now one export in `@murmurv2/core` (was copy-pasted across 7 sites), golden-locked by test.
 
-> Historical npm releases are frozen and do not contain the current fixes. Use the [source installation path](#install) below.
+> Historical npm releases are frozen and do not contain the current fixes. Use a stable [GitHub release asset or pinned source checkout](#install) below.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, WebSocket adapter, roster auth tokens, JetStream durability, federation, A2A bridge, native wake).
 
@@ -121,18 +126,28 @@ npm while this notice is present.** The registry still serves older code, includ
 `@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 from the 2.6.x era, without
 subsequent ACK-storm and delivery fixes. Publishing is blocked by account-security
 restrictions; there is no confirmed resume date. Follow [GitHub releases](https://github.com/alexfrmn/murmur/releases)
-for an explicit announcement after the account is unblocked and packages are verified.
+for stable assets; the v2.10.0 assets below do not install the obsolete registry packages.
 
-**Source path: build current `main` and record its commit.** You need Git and Node.js
-22.13.0+. The old `v2.9.0` tag predates the September 19 delivery and onboarding
-changes; use the current checkout for the commands below. `main` is a development
-snapshot, not a signed installer. Do not substitute the old tag just because its
-version matches the CLI's declared release version.
+**Choose the v2.10.0 asset for the way you run Murmur.** All three require an
+external Node.js 22.13.0 or newer with working unflagged `node:sqlite`. Download
+them from the [v2.10.0 release page](https://github.com/alexfrmn/murmur/releases/tag/v2.10.0):
+
+| Asset | Choose it for | Start here |
+|---|---|---|
+| `murmur-runtime-2.10.0.zip` | Portable CLI, daemon and MCP runtime on macOS, Linux or Windows | Extract the complete `runtime` directory and continue with [Quick Start](#quick-start). The receiving machine does not need Git, npm or a build. |
+| `Murmur-Windows-2.10.0-x64.zip` | Windows x64 tray and native service companion | Extract the whole ZIP and keep its launchers, executables and `runtime` together. New installations continue with the bundled README; existing 2.9.0 installations must follow the [manual Windows upgrade](apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100). |
+| `Murmur-Mac-2.10.0-universal.dmg` | macOS 13+ on Intel or Apple Silicon | Follow the first-open instructions in the image and the [Mac packaging guide](apps/macos-menubar/packaging/README-Mac.md). Profile creation and service installation still use the bundled CLI. |
+
+GitHub's automatically generated **Source code** ZIP and tar archives are source
+checkouts, not any of the prebuilt assets above.
+
+**Source path: build the pinned v2.10.0 tag.** You need Git and Node.js 22.13.0+.
+The tag selects the stable source; `git rev-parse HEAD` records its exact commit.
 
 ```text
 git clone https://github.com/alexfrmn/murmur.git
 cd murmur
-git checkout main
+git checkout --detach v2.10.0
 git rev-parse HEAD
 ```
 
@@ -142,12 +157,19 @@ On macOS/Linux, run `npm ci` then `npm run build`. On Windows PowerShell, run
 install the checkout's locked dependencies and local workspaces, not the obsolete
 published Murmur packages.
 
-A prebuilt runtime ZIP, when offered as a release asset, already contains those
-outputs and dependencies: extract it and use its `runtime` directory without npm,
-Git or a build. It still needs external Node.js 22.13.0+. GitHub's automatic
-**Source code** ZIP/tar archives are source checkouts, not prebuilt runtime assets.
-The CLI update action opens the release page; it does not install anything or
-promise that the selected release has executable assets.
+Murmur does not update an existing installation automatically. In particular, a
+Windows service owns paths into its installed bundle: use the old CLI to uninstall
+that service before installing it with the new CLI, retain the same absolute profile
+path and service name, and do not run `init` or `join` again. The complete sequence,
+including rollback, is in the [manual Windows upgrade](apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100).
+Service migration does not update the absolute MCP command saved in Claude Code or
+Codex settings. Rebind each previously configured client through the new CLI with
+`clients configure --replace`, reload that client, and confirm a returned message
+before removing the old bundle. The maintained guide includes this step; the
+original 2.10.0 ZIP's bundled instructions omit it.
+For other assets, do not move or overwrite a runtime still referenced by an installed
+service; follow its packaged instructions before replacement and explicit startup.
+The CLI update action only opens the release page.
 
 Continue with [Quick Start](#quick-start) in the same checkout or extracted runtime.
 Do not clone a second copy.
@@ -751,7 +773,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [ ] **Phase N tail** — N4 chat-session presence (#89), N5 subject scoping (#90).
 
 *Distribution*
-- [ ] **npm publication remains paused** — the registry lacks the current delivery fixes. Account recovery has no confirmed deadline; deprecation commands are prepared but not executed. Use the reviewed source snapshot in [Install](#install) until a verified release announcement.
+- [ ] **npm publication remains paused** — the registry lacks the current delivery fixes. Account recovery has no confirmed deadline; deprecation commands are prepared but not executed. Use the v2.10.0 release assets or pinned source tag in [Install](#install), not the registry packages.
 
 ### Needs a real external counterpart (mechanism done, gated on a partner)
 - [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**. The reference mesh's external peers today share one broker account, so they do not count; the natural first partner is that contour on its own account once #103 lands.
