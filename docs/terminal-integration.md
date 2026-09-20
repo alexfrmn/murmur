@@ -87,10 +87,20 @@ from the Murmur segment. It terminates owned subprocess trees on timeout and whe
 Claude cancels a refresh. Apply the proposed object manually only after reviewing
 it. The dry run never creates, replaces, or backs up the settings file.
 
+On POSIX systems, an existing command runs through `/bin/sh -lc` by default. If
+the command uses Bash-only syntax such as arrays or `[[ ... ]]`, pass its actual
+absolute interpreter with `--existing-shell-path /absolute/path/to/bash`. The
+composer preserves the command text and stdin; shell-specific syntax remains the
+responsibility of the selected interpreter.
+
 On Windows, Claude Code uses Git Bash when installed and otherwise PowerShell.
 When wrapping an existing Windows status line, specify the shell Claude uses with
 `--existing-shell bash` or `--existing-shell powershell`; the dry run refuses to
-guess. The proposed outer command is an ASCII-only PowerShell `-EncodedCommand`
+guess. For Bash, the composer uses `--existing-shell-path`, the documented
+`CLAUDE_CODE_GIT_BASH_PATH`, or `bash.exe` next to a discovered Git-for-Windows
+installation, in that order. It rejects WSL-shaped Bash paths and fails rather
+than selecting an unrelated `bash.exe` from `PATH`. The proposed outer command is
+an ASCII-only PowerShell `-EncodedCommand`
 launcher whose Node and Murmur paths are encoded data rather than shell text. It
 therefore works when launched by either documented shell and does not expand `%`,
 `$`, or other path characters. Existing status commands still run through the

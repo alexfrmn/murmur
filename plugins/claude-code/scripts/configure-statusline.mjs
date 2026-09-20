@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,7 +10,7 @@ let dryRun = false;
 for (let i = 2; i < process.argv.length; i++) {
   const name = process.argv[i];
   if (name === '--dry-run') { dryRun = true; continue; }
-  if (!['--settings', '--data-dir', '--node-bin', '--murmur-entrypoint', '--existing-shell'].includes(name)
+  if (!['--settings', '--data-dir', '--node-bin', '--murmur-entrypoint', '--existing-shell', '--existing-shell-path'].includes(name)
     || process.argv[i + 1] === undefined) throw new Error('arguments-invalid');
   values[name] = process.argv[++i];
 }
@@ -39,14 +40,66 @@ if (current !== undefined && (!current || typeof current !== 'object' || Array.i
 if (current?.refreshInterval !== undefined
   && (!Number.isInteger(current.refreshInterval) || current.refreshInterval < 1)) throw new Error('statusline-refresh-interval-invalid');
 const requestedShell = values['--existing-shell'];
+const requestedShellPath = values['--existing-shell-path'];
 if (requestedShell !== undefined && !['bash', 'powershell'].includes(requestedShell)) throw new Error('existing-shell-invalid');
+if (!current && requestedShell !== undefined) throw new Error('existing-shell-without-command');
 if (process.platform === 'win32' && current && requestedShell === undefined) throw new Error('existing-shell-required-on-windows');
 if (process.platform !== 'win32' && requestedShell !== undefined) throw new Error('existing-shell-windows-only');
+if (!current && requestedShellPath !== undefined) throw new Error('existing-shell-path-without-command');
+const validateShellPath = async (value, kind = 'shell') => {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || path.normalize(value) !== value
+    || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`${kind}-path-invalid`);
+  const resolved = await fs.realpath(value).catch(() => { throw new Error(`${kind}-path-unavailable`); });
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) throw new Error(`${kind}-path-unavailable`);
+  return resolved;
+};
+const validGitBash = async (value, required) => {
+  try {
+    const resolved = await validateShellPath(value, 'git-bash');
+    const lower = resolved.toLowerCase().replaceAll('/', '\\');
+    if (path.basename(resolved).toLowerCase() !== 'bash.exe'
+      || lower.includes('\\windows\\system32\\') || lower.includes('\\windowsapps\\')) {
+      throw new Error('git-bash-path-not-git-for-windows');
+    }
+    return resolved;
+  } catch (error) {
+    if (required) throw error;
+    return null;
+  }
+};
+const resolveGitBash = async () => {
+  if (requestedShellPath !== undefined) return validGitBash(requestedShellPath, true);
+  if (process.env.CLAUDE_CODE_GIT_BASH_PATH !== undefined) {
+    return validGitBash(process.env.CLAUDE_CODE_GIT_BASH_PATH, true);
+  }
+  const candidates = [];
+  const located = spawnSync('where.exe', ['git.exe'], { encoding: 'utf8', windowsHide: true });
+  if (located.status === 0) {
+    for (const git of located.stdout.split(/\r?\n/).filter(Boolean)) {
+      candidates.push(path.join(path.dirname(git), '..', 'bin', 'bash.exe'));
+      candidates.push(path.join(path.dirname(git), 'bash.exe'));
+    }
+  }
+  if (process.env.ProgramFiles) candidates.push(path.join(process.env.ProgramFiles, 'Git', 'bin', 'bash.exe'));
+  if (process.env.LOCALAPPDATA) candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'));
+  for (const candidate of candidates) {
+    const resolved = await validGitBash(path.normalize(candidate), false);
+    if (resolved) return resolved;
+  }
+  throw new Error('git-bash-path-unavailable');
+};
+let shellPath;
+if (current && requestedShellPath !== undefined && !(process.platform === 'win32' && requestedShell === 'bash')) {
+  shellPath = await validateShellPath(requestedShellPath);
+}
+if (current && process.platform === 'win32' && requestedShell === 'bash') shellPath = await resolveGitBash();
 const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'statusline.mjs');
 const wrapperArgs = ['--data-dir', dataDir, '--murmur-node', nodeBin, '--murmur-entrypoint', murmurEntrypoint];
 if (current) {
   wrapperArgs.push('--existing-command-base64', Buffer.from(current.command).toString('base64'));
   wrapperArgs.push('--existing-shell', process.platform === 'win32' ? requestedShell : 'posix');
+  if (shellPath) wrapperArgs.push('--existing-shell-path', shellPath);
 }
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
 let command;

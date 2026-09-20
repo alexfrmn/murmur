@@ -8,9 +8,9 @@ const INPUT_TIMEOUT = 2_000;
 const options = {};
 for (let i = 2; i < process.argv.length; i += 2) {
   const name = process.argv[i], value = process.argv[i + 1];
-  if (!['--data-dir', '--murmur-node', '--murmur-entrypoint', '--existing-command-base64', '--existing-shell'].includes(name)
+  if (!['--data-dir', '--murmur-node', '--murmur-entrypoint', '--existing-command-base64', '--existing-shell', '--existing-shell-path'].includes(name)
     || value === undefined) {
-    process.stderr.write('usage: statusline.mjs --data-dir ABSOLUTE --murmur-node ABSOLUTE --murmur-entrypoint ABSOLUTE [--existing-command-base64 BASE64 --existing-shell posix|bash|powershell]\n');
+    process.stderr.write('usage: statusline.mjs --data-dir ABSOLUTE --murmur-node ABSOLUTE --murmur-entrypoint ABSOLUTE [--existing-command-base64 BASE64 --existing-shell posix|bash|powershell --existing-shell-path ABSOLUTE]\n');
     process.exit(2);
   }
   options[name] = value;
@@ -33,10 +33,15 @@ if (options['--existing-command-base64'] !== undefined) {
   if (!existingCommand || existingCommand.length > 65_536 || existingCommand.includes('\0')) throw new Error('existing-command-invalid');
 }
 const existingShell = options['--existing-shell'] ?? (process.platform === 'win32' ? null : 'posix');
+const existingShellPath = options['--existing-shell-path'] === undefined ? null : absolute('--existing-shell-path');
 if (existingCommand === null && options['--existing-shell'] !== undefined) throw new Error('existing-shell-without-command');
+if (existingCommand === null && existingShellPath !== null) throw new Error('existing-shell-path-without-command');
 if (existingCommand !== null && !['posix', 'bash', 'powershell'].includes(existingShell)) throw new Error('existing-shell-required');
 if (process.platform === 'win32' && existingCommand !== null && !['bash', 'powershell'].includes(existingShell)) {
   throw new Error('existing-shell-required-on-windows');
+}
+if (existingShell === 'bash' && existingShellPath === null) {
+  throw new Error('bash-shell-path-required');
 }
 
 function readInput() {
@@ -179,10 +184,10 @@ async function existing(inputState) {
   if (existingCommand === null) return '';
   if (!inputState.ok) return 'Existing status line unavailable';
   const invocation = existingShell === 'posix'
-    ? ['/bin/sh', ['-lc', existingCommand]]
+    ? [existingShellPath ?? '/bin/sh', ['-lc', existingCommand]]
     : existingShell === 'bash'
-      ? ['bash.exe', ['-lc', existingCommand]]
-      : ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', existingCommand]];
+      ? [existingShellPath, ['-lc', existingCommand]]
+      : [existingShellPath ?? 'powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', existingCommand]];
   const result = await run(invocation[0], invocation[1], { stdin: inputState.input, timeout: 5_000 });
   return result.ok ? result.stdout.trimEnd() : 'Existing status line unavailable';
 }
