@@ -69,3 +69,31 @@ export async function markInboxRead(context: ServiceContext) {
     return state;
   } finally { db.close(); }
 }
+
+/** Return durable inbound rows without advancing the independent read cursor. */
+export async function readInbox(context: ServiceContext, limit = 20) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('inbox.limit-invalid');
+  const { DatabaseSync } = await import('node:sqlite');
+  const config = await loadConfig(context);
+  const db = new DatabaseSync(context.storePath, { readOnly: true });
+  try {
+    db.exec('PRAGMA busy_timeout=1000; BEGIN');
+    const tip = Number((db.prepare("SELECT COALESCE(MAX(rowid),0) AS rowid FROM local_messages WHERE direction='inbound'").get() as any).rowid);
+    let cursor: number | null = null;
+    try {
+      const state = await readJson(path.join(context.dataDir, 'read-state.json'));
+      if (state.schema !== 'murmur.read/1' || state.agentId !== config.agentId || !Number.isSafeInteger(state.rowid)
+        || state.rowid < 0 || state.rowid > tip) throw new Error('inbox.cursor-invalid');
+      cursor = state.rowid;
+    } catch { /* Reading messages must not invent or repair read state. */ }
+    const unread = cursor === null ? null : Number((db.prepare("SELECT COUNT(*) AS n FROM local_messages WHERE direction='inbound' AND rowid>?").get(cursor) as any).n);
+    const rows = db.prepare(`SELECT rowid,conversation_id AS conversationId,msg_id AS msgId,sender,text,
+      created_at AS createdAt,transport,channel_id AS channelId,sender_member_id AS senderMemberId,
+      addressee_member_id AS addresseeMemberId FROM local_messages WHERE direction='inbound'
+      ORDER BY created_at DESC,rowid DESC LIMIT ?`).all(limit) as Array<Record<string, unknown>>;
+    db.exec('COMMIT');
+    return { schema: 'murmur.inbox/1', agentId: config.agentId, readCursor: cursor,
+      unread,
+      messages: rows.map(({ rowid, ...row }) => ({ ...row, unread: cursor === null ? null : Number(rowid) > cursor })) };
+  } finally { db.close(); }
+}

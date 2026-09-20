@@ -114,6 +114,7 @@ export async function stageRuntime(source, output, { sourceCommit, recipeSha256 
     }
     await copyTree(path.join(source, 'packages/core/schema'), path.join(staging, 'packages/core/schema'));
     await copyFile(path.join(source, 'packages/setup/bin/murmur.mjs'), path.join(staging, 'packages/setup/bin/murmur.mjs'));
+    await copyTree(path.join(source, 'plugins/claude-code'), path.join(staging, 'plugins/claude-code'));
     for (const script of SCRIPTS) await copyFile(path.join(source, 'scripts', script), path.join(staging, 'scripts', script));
     for (const workspace of WORKSPACES) await dependency(source, `@murmurv2/${workspace}`);
     // ws is also a direct dependency of the daemon's Codex wake transport.

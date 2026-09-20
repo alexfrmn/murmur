@@ -63,6 +63,8 @@ jobs:
       - run: npm run build
       - name: Check update CLI, cache and preferences without network
         run: node --test tests/setup-updates.test.mjs
+      - name: Check Claude statusline native Windows composition
+        run: node --test tests/claude-statusline-windows.test.mjs
 
   build-and-test:
     runs-on: ubuntu-latest

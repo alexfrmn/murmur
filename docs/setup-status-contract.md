@@ -101,11 +101,18 @@ names missing responders or paused wake, without claiming a successful wake test
 ## Source checkout CLI
 
 After `npm ci && npm run build`, run `node packages/setup/bin/murmur.mjs`.
-Supported now: `status --json`, `doctor --json [--peer AGENT] [--timeout MS]`, `logs path --json`,
+Supported now: `status --json|--line`, `doctor --json [--peer AGENT] [--timeout MS]`, `logs path --json`,
 `clients detect`, `service install|start|stop`, `wake pause|resume [--apply]`, and
-`inbox mark-read`. Every command accepts absolute `--data-dir` and optional
+`inbox read [--limit 1..100]` plus `inbox mark-read`. Every command accepts absolute `--data-dir` and optional
 `--service-name`. Status/doctor form JSON even for a missing configuration or
 stopped service. Unknown CLI arguments fail without a fabricated status.
+
+`status --line` is the raw, JSON-free terminal segment documented in
+[terminal integration](terminal-integration.md). It returns empty stdout only for
+a fully measured healthy snapshot with zero unread messages. Unknown, degraded,
+and failed measurements always return a fixed visible segment. `inbox read`
+returns durable inbound message JSON without changing the read cursor;
+`inbox mark-read` is the only CLI operation that advances that cursor.
 
 ### Log directory lookup
 

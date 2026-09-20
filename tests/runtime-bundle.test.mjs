@@ -22,6 +22,9 @@ test('staged runtime is self-contained, uses locked dependencies and works outsi
   assert.ok(manifest.dependencies.some(x => x.name === '@iarna/toml'));
   assert.ok(!manifest.dependencies.some(x => x.name === 'better-sqlite3'));
   assert.ok(!Object.keys(manifest.files).some(x => /tsbuildinfo|__pycache__|\.node$/.test(x)));
+  assert.ok(Object.hasOwn(manifest.files, 'plugins/claude-code/.claude-plugin/plugin.json'));
+  assert.ok(Object.hasOwn(manifest.files, 'plugins/claude-code/.mcp.json'));
+  assert.ok(Object.hasOwn(manifest.files, 'plugins/claude-code/scripts/statusline.mjs'));
   for (const file of Object.keys(manifest.files)) assert.equal((await fs.lstat(path.join(output, file))).isSymbolicLink(), false);
   const cli = path.join(output, 'packages/setup/bin/murmur.mjs');
   const run = args => JSON.parse(execFileSync(process.execPath, [cli, ...args], {
