@@ -37,8 +37,9 @@ test('Windows Claude statusline executes encoded paths and preserves stdin and s
   const entrypoint = path.join(special, "fixture cli's entrypoint.mjs");
   await fs.writeFile(entrypoint, [
     "import fs from 'node:fs';",
+    "import path from 'node:path';",
     "const args = process.argv.slice(2);",
-    "if (args.length !== 4 || args[0] !== 'status' || args[1] !== '--line' || args[2] !== '--data-dir' || args[3] !== process.env.MURMUR_NATIVE_EXPECTED_DATA) process.exit(3);",
+    "if (args.length !== 4 || args[0] !== 'status' || args[1] !== '--line' || args[2] !== '--data-dir' || path.resolve(args[3]) !== path.resolve(process.env.MURMUR_NATIVE_EXPECTED_DATA)) process.exit(3);",
     "fs.appendFileSync(process.env.MURMUR_NATIVE_MARKER, 'run\\n');",
     "process.stdout.write('Murmur: 7 unread\\n');",
   ].join('\n'));
@@ -82,7 +83,7 @@ test('Windows Claude statusline executes encoded paths and preserves stdin and s
   assert.match(malformed.stderr, /data-dir-invalid/);
   assert.equal(hash(await fs.readFile(settings)), beforeHash);
   assert.equal(await fs.readFile(marker, 'utf8'), 'run\n');
-  const manifest = JSON.parse(await fs.readFile(path.join(root, 'plugins', 'claude-code', '.claude-plugin', 'plugin.json')));
+  const manifest = JSON.parse(await fs.readFile(path.join(root, 'plugins', 'claude-code', '.claude-plugin', 'plugin.json'), 'utf8'));
   assert.equal(manifest.defaultEnabled, false);
 });
 
