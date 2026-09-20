@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -43,11 +41,15 @@ var doctorStages = []struct{ id, title string }{
 }
 
 type app struct {
-	mu        sync.Mutex
-	status    *Status
-	statusErr error
-	doctor    *Doctor
-	doctorErr error
+	mu            sync.Mutex
+	status        *Status
+	statusErr     error
+	pinnedAgent   string
+	actionBusy    bool
+	mActionStatus *systray.MenuItem
+	mWakeStatus   *systray.MenuItem
+	doctor        *Doctor
+	doctorErr     error
 
 	mHeader  *systray.MenuItem
 	mHistory []*systray.MenuItem
@@ -63,6 +65,30 @@ type app struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--launch" {
+		pid, err := launchDetached()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": "murmur.tray-launch/1", "pid": pid})
+		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "--check-profile" {
+		ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+		defer cancel()
+		s, err := fetchStatus(ctx)
+		if err == nil {
+			err = validatePinnedStatus(s, "")
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": "murmur.tray-probe/1", "agentId": s.AgentID, "status": s})
+		return
+	}
+
 	// --dump-icons кладёт пять состояний значка файлами: иконки собираются кодом, и это
 	// единственный способ посмотреть на них в ревью, не заводя бинарников в репозитории.
 	// --stamp-now ставит свежую дату в файл статуса. Живёт ровно столько же, сколько
@@ -81,7 +107,7 @@ func main() {
 		}
 		return
 	}
-	a := &app{mStages: map[string]*systray.MenuItem{}}
+	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT")}
 	systray.Run(a.onReady, func() {})
 }
 
@@ -108,10 +134,14 @@ func (a *app) onReady() {
 		item.Disable()
 		a.mStages[st.id] = item
 	}
-	a.mRecheck = doctorRoot.AddSubMenuItem("Проверить сейчас", "гоняет doctor, включая тестовое сообщение")
+	a.mRecheck = doctorRoot.AddSubMenuItem("Проверить сейчас", "doctor без peer: тестовое сообщение не отправляется")
 	systray.AddSeparator()
 
-	a.mPause = systray.AddMenuItem("Пауза", "приостановить доставку wake")
+	a.mPause = systray.AddMenuItem("Пауза", "меняет настройку wake; без автоматического перезапуска")
+	a.mWakeStatus = systray.AddMenuItem("Wake: не измерено", "")
+	a.mWakeStatus.Disable()
+	a.mActionStatus = systray.AddMenuItem("Действие ещё не выполнялось", "")
+	a.mActionStatus.Disable()
 	// Вместо кнопки «Открыть inbox» — строки последних отправителей. Открыть переписку
 	// человеку сейчас нечем, а кнопка, ведущая не туда, куда обещает именем, хуже
 	// отсутствующей.
@@ -127,7 +157,8 @@ func (a *app) onReady() {
 	svc := systray.AddMenuItem("Служба", "")
 	a.mSvcStar = svc.AddSubMenuItem("Старт", "")
 	a.mSvcStop = svc.AddSubMenuItem("Стоп", "")
-	a.mSvcLogs = svc.AddSubMenuItem("Логи", "открыть папку с логами")
+	a.mSvcLogs = svc.AddSubMenuItem("Каталог журналов недоступен в CLI", "Windows logs path пока не подтверждает native-каталог")
+	a.mSvcLogs.Disable()
 	systray.AddSeparator()
 	a.mQuit = systray.AddMenuItem("Выход", "закрыть значок; служба продолжит работать")
 
@@ -136,17 +167,26 @@ func (a *app) onReady() {
 	go a.handleClicks()
 }
 
+func (a *app) refreshStatus() {
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	s, err := fetchStatus(ctx)
+	cancel()
+	a.mu.Lock()
+	if err == nil {
+		err = validatePinnedStatus(s, a.pinnedAgent)
+	}
+	if err != nil {
+		s = nil
+	} else if a.pinnedAgent == "" {
+		a.pinnedAgent = s.AgentID
+	}
+	a.status, a.statusErr = s, err
+	a.mu.Unlock()
+	a.render(resolve(s, err))
+}
 func (a *app) pollLoop() {
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
-		s, err := fetchStatus(ctx)
-		cancel()
-
-		a.mu.Lock()
-		a.status, a.statusErr = s, err
-		a.mu.Unlock()
-
-		a.render(resolve(s, err))
+		a.refreshStatus()
 		time.Sleep(statusInterval)
 	}
 }
@@ -179,7 +219,10 @@ func (a *app) render(v Verdict) {
 		tip = string([]rune(tip)[:117]) + "..."
 	}
 	systray.SetTooltip(tip)
-	a.mHeader.SetTitle(v.Reason)
+	a.mu.Lock()
+	agentID := a.pinnedAgent
+	a.mu.Unlock()
+	a.mHeader.SetTitle(agentID + ": " + v.Reason)
 
 	a.renderRecent()
 
@@ -193,8 +236,32 @@ func (a *app) render(v Verdict) {
 	}
 
 	a.mu.Lock()
-	paused := a.status != nil && a.status.Wake.Effective.Enabled != nil && !*a.status.Wake.Effective.Enabled
+	paused := a.status != nil && a.status.Wake.Config.Enabled != nil && !*a.status.Wake.Config.Enabled
+	_, bindingErr := selectedCLI()
+	ready := bindingErr == nil && a.status != nil && !a.actionBusy && a.pinnedAgent != ""
+	wakeKnown := a.status != nil && a.status.Wake.Config.Enabled != nil
+	wakeText := "Wake: не измерено"
+	if a.status != nil {
+		wakeText = fmt.Sprintf("Wake: настроено %s; действует %s; перезапуск %s", boolText(a.status.Wake.Config.Enabled), boolText(a.status.Wake.Effective.Enabled), boolText(a.status.Wake.Effective.NeedsRestart))
+	}
 	a.mu.Unlock()
+	a.mWakeStatus.SetTitle(wakeText)
+	if ready && wakeKnown {
+		a.mPause.Enable()
+	} else {
+		a.mPause.Disable()
+	}
+	if ready && serviceAdmin() {
+		a.mSvcStar.Enable()
+		a.mSvcStop.Enable()
+	} else {
+		a.mSvcStar.Disable()
+		a.mSvcStop.Disable()
+	}
+	if !serviceAdmin() {
+		a.mSvcStar.SetTitle("Старт: нужна повышенная CLI-консоль")
+		a.mSvcStop.SetTitle("Стоп: нужна повышенная CLI-консоль")
+	}
 	if paused {
 		a.mPause.SetTitle("Возобновить")
 	} else {
@@ -204,10 +271,29 @@ func (a *app) render(v Verdict) {
 
 func (a *app) refreshDoctor() {
 	ctx, cancel := context.WithTimeout(context.Background(), doctorTimeout)
-	d, err := fetchDoctor(ctx)
+	fresh, err := fetchStatus(ctx)
+	a.mu.Lock()
+	expected := a.pinnedAgent
+	if err == nil {
+		err = validatePinnedStatus(fresh, expected)
+	}
+	if err == nil && a.pinnedAgent == "" {
+		a.pinnedAgent = fresh.AgentID
+	}
+	a.mu.Unlock()
+	var d *Doctor
+	if err == nil {
+		d, err = fetchDoctor(ctx)
+	}
+	if err == nil && (d.AgentID != fresh.AgentID) {
+		err = fmt.Errorf("Личность doctor не совпадает с профилем")
+	}
 	cancel()
 
 	a.mu.Lock()
+	if err != nil {
+		d = nil
+	}
 	a.doctor, a.doctorErr = d, err
 	a.mu.Unlock()
 
@@ -249,24 +335,13 @@ func (a *app) handleClicks() {
 		case <-a.mRecheck.ClickedCh:
 			go a.refreshDoctor()
 		case <-a.mPause.ClickedCh:
-			// Кнопка живёт, но в приёмку не идёт: drain() в wake-monitor не смотрит на
-			// enabled, поэтому отложенное доезжает и на паузе.
-			a.mu.Lock()
-			paused := a.status != nil && a.status.Wake.Effective.Enabled != nil && !*a.status.Wake.Effective.Enabled
-			a.mu.Unlock()
-			verb := "pause"
-			if paused {
-				verb = "resume"
-			}
-			go a.runCLI("wake", verb)
+			go a.runCLI("wake", "toggle")
 		case <-a.mCopy.ClickedCh:
 			go a.copyDiagnostics()
 		case <-a.mSvcStar.ClickedCh:
 			go a.runCLI("service", "start")
 		case <-a.mSvcStop.ClickedCh:
 			go a.runCLI("service", "stop")
-		case <-a.mSvcLogs.ClickedCh:
-			go openPath(logDir())
 		case <-a.mQuit.ClickedCh:
 			systray.Quit()
 			return
@@ -274,18 +349,52 @@ func (a *app) handleClicks() {
 	}
 }
 
-func (a *app) runCLI(args ...string) {
-	bin := os.Getenv("MURMUR_BIN")
-	if bin == "" {
-		bin = "murmur"
+func boolText(v *bool) string {
+	if v == nil {
+		return "неизвестно"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	if *v {
+		return "да"
+	}
+	return "нет"
+}
+func (a *app) runCLI(args ...string) {
+	a.mu.Lock()
+	if a.actionBusy || a.pinnedAgent == "" {
+		a.mu.Unlock()
+		return
+	}
+	a.actionBusy = true
+	expected := a.pinnedAgent
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.actionBusy = false; a.mu.Unlock(); a.refreshStatus() }()
+	ctx, cancel := context.WithTimeout(context.Background(), mutationTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
+	fresh, err := fetchStatus(ctx)
+	if err == nil {
+		err = validatePinnedStatus(fresh, expected)
+	}
+	if err == nil && args[0] == "wake" {
+		if fresh.Wake.Config.Enabled == nil {
+			err = fmt.Errorf("Настройка wake не подтверждена")
+		} else if *fresh.Wake.Config.Enabled {
+			args[1] = "pause"
+		} else {
+			args[1] = "resume"
+		}
+	}
+	if err == nil {
+		var out []byte
+		out, err = runRaw(ctx, append(args, "--json")...)
+		if err == nil {
+			err = validateAction(out, args[0], args[1])
+		}
+	}
 	if err != nil {
-		// Старт и стоп службы требуют прав администратора. Без них команда вернёт
-		// отказ, и значок обязан сказать об этом, а не промолчать.
-		systray.SetTooltip(fmt.Sprintf("murmur %s: %v — %s", strings.Join(args, " "), err, firstLine(out)))
+		a.mActionStatus.SetTitle("Действие не подтверждено; повтор не выполнялся")
+		a.mActionStatus.SetTooltip(err.Error())
+	} else {
+		a.mActionStatus.SetTitle("Команда подтверждена; статус перечитывается")
 	}
 }
 
@@ -351,22 +460,6 @@ func utf16LEWithBOM(s string) []byte {
 		out = append(out, byte(r), byte(r>>8))
 	}
 	return out
-}
-
-// logDir — один каталог логов на продукт: %ProgramData%\Murmur\logs. Человек, которому
-// сказали «пришли журнал», должен идти в одно место; два каталога означают, что в момент
-// разбора он посмотрит не туда и сделает вывод о продукте.
-func logDir() string {
-	base := os.Getenv("ProgramData")
-	if base == "" {
-		base = os.TempDir()
-	}
-	return filepath.Join(base, "Murmur", "logs")
-}
-
-func openPath(path string) {
-	_ = os.MkdirAll(path, 0o755)
-	_ = exec.Command("explorer", path).Start()
 }
 
 func stampNow(path string) error {

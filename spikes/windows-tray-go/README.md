@@ -10,7 +10,10 @@ go build -ldflags "-H windowsgui -s -w" -o murmur-tray.exe .
 murmur-tray.exe
 ```
 
-Бинарь 3.18 МБ, внешних зависимостей при запуске нет.
+Для рабочего запуска нужны внешний Node.js 22.13.0+ и собранный CLI runtime.
+Используйте [лаунчер комплекта](../../apps/windows-tray/packaging/README-Windows.md)
+с явно выбранным существующим профилем. Лаунчер проверяет CLI и передаёт значку
+абсолютные пути Node, entry point, профиля и необязательное имя службы.
 
 Для отладки значок может читать сохранённые ответы CLI:
 
@@ -20,8 +23,12 @@ set MURMUR_DOCTOR_FILE=C:\murmur-debug\doctor.json
 murmur-tray.exe
 ```
 
-Переменные: `MURMUR_BIN` — путь к CLI (по умолчанию `murmur` из PATH),
-`MURMUR_STATUS_FILE` и `MURMUR_DOCTOR_FILE` — отладочный файловый источник.
+Прямая привязка: `MURMUR_BIN` — абсолютный путь к Node, `MURMUR_CLI` — к
+`packages/setup/bin/murmur.mjs`, `MURMUR_PROFILE` — к выбранному профилю,
+`MURMUR_SERVICE_NAME` — необязательное имя службы. Поиск CLI через PATH не выполняется.
+`MURMUR_STATUS_FILE` и `MURMUR_DOCTOR_FILE` — отладочный файловый источник, доступный
+только без выбранного профиля; действия для него выключены. В рабочем режиме ошибка
+CLI не заменяется снимком с диска.
 
 Сохранённый ответ должен содержать действительное время измерения: устаревший
 снимок будет серым. Тестовые образцы находятся в

@@ -107,6 +107,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -133,6 +137,9 @@ jobs:
           go vet ./...
           go build -ldflags "-H windowsgui" -o murmur-tray.exe .
           go test ./... -v
+
+      - name: Tray launcher — real native binding and rejection checks
+        run: node --test tests/windows-tray-launcher.test.mjs
 
       # Модуль службы появится в дереве вместе со своим PR; до тех пор шаг пропускается,
       # чтобы задача жила в main самостоятельно.

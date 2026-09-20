@@ -14,7 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -445,19 +445,12 @@ func schemaKnown(got, want string) bool {
 }
 
 func splitSchema(s string) (name string, major int, ok bool) {
-	i := strings.LastIndex(s, "/")
-	if i < 0 {
+	parts := regexp.MustCompile(`^([^/]+)/([1-9][0-9]*)(?:\.[0-9]+)?$`).FindStringSubmatch(s)
+	if parts == nil {
 		return "", 0, false
 	}
-	name, version := s[:i], s[i+1:]
-	if j := strings.Index(version, "."); j >= 0 {
-		version = version[:j]
-	}
-	major, err := strconv.Atoi(version)
-	if err != nil || name == "" {
-		return "", 0, false
-	}
-	return name, major, true
+	value, err := strconv.Atoi(parts[2])
+	return parts[1], value, err == nil
 }
 
 func ageOf(ts string) (time.Duration, bool) {
@@ -468,51 +461,23 @@ func ageOf(ts string) (time.Duration, bool) {
 	return time.Since(t), true
 }
 
-// runJSON: при ненулевом коде движок пишет причину в stderr по контракту. Выбросить её
-// значит показать человеку «exit status 1» вместо добытого объяснения.
-func runRaw(ctx context.Context, args ...string) ([]byte, error) {
-	bin := os.Getenv("MURMUR_BIN")
-	if bin == "" {
-		bin = "murmur"
-	}
-	buf, err := exec.CommandContext(ctx, bin, args...).Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
-				return nil, fmt.Errorf("%s %s: %s", bin, strings.Join(args, " "), firstLine([]byte(msg)))
-			}
-		}
-		return nil, err
-	}
-	return buf, nil
-}
-
+// Both JSON and raw calls use the same bounded, explicit runtime binding.
+func runRaw(ctx context.Context, args ...string) ([]byte, error) { return invokeCLI(ctx, args...) }
 func runJSON(ctx context.Context, out any, args ...string) error {
-	bin := os.Getenv("MURMUR_BIN")
-	if bin == "" {
-		bin = "murmur"
-	}
-	buf, err := exec.CommandContext(ctx, bin, args...).Output()
+	buf, err := runRaw(ctx, args...)
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
-				return fmt.Errorf("%s %s: %s", bin, strings.Join(args, " "), firstLine([]byte(msg)))
-			}
-		}
 		return err
 	}
 	return json.Unmarshal(buf, out)
 }
 
-// fetchStatus: сначала CLI, при его отсутствии — файл той же формы. Файловый путь живёт
-// ровно до появления команды status --json и уходит вместе с этой строкой.
+// Debug snapshots are permitted only without a bound profile; they never mask a
+// failure of the selected live CLI or authorize profile mutations.
 func fetchStatus(ctx context.Context) (*Status, error) {
 	buf, cliErr := runRaw(ctx, "status", "--json")
 	if cliErr != nil {
 		path := os.Getenv("MURMUR_STATUS_FILE")
-		if path == "" {
+		if path == "" || os.Getenv("MURMUR_PROFILE") != "" {
 			return nil, cliErr
 		}
 		var err error
@@ -528,7 +493,7 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 	cliErr := runJSON(ctx, &d, "doctor", "--json")
 	if cliErr != nil {
 		path := os.Getenv("MURMUR_DOCTOR_FILE")
-		if path == "" {
+		if path == "" || os.Getenv("MURMUR_PROFILE") != "" {
 			return nil, cliErr
 		}
 		buf, err := os.ReadFile(path)
@@ -541,6 +506,10 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 	}
 	// Проверка версии стоит после обоих путей: у status эту роль играет правило цвета,
 	// у doctor её не играет никто другой.
+	age, validTime := ageOf(d.GeneratedAt)
+	if !validTime || age > maxStatusAge || age < -clockSkewTolerance {
+		return nil, errors.New("Статус doctor устарел или датирован будущим")
+	}
 	if !schemaKnown(d.Schema, doctorSchema) {
 		return nil, errors.New("схема doctor незнакома: " + d.Schema)
 	}
@@ -550,17 +519,4 @@ func fetchDoctor(ctx context.Context) (*Doctor, error) {
 		return nil, fmt.Errorf("ответ doctor нарушает правило цепочки: %w", err)
 	}
 	return &d, nil
-}
-
-// firstLine живёт здесь, а не в коде значка: её зовёт runJSON, а main.go собирается
-// только под Windows — тесты на другой ОС иначе не собрались бы.
-func firstLine(b []byte) string {
-	s := strings.TrimSpace(string(b))
-	if i := strings.IndexByte(s, 10); i >= 0 {
-		s = s[:i]
-	}
-	if r := []rune(s); len(r) > 80 {
-		s = string(r[:80])
-	}
-	return s
 }
