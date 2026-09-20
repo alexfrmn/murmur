@@ -244,22 +244,13 @@ func (a *app) render(v Verdict) {
 	systray.SetIcon(iconBytes(base, v.Unread, available))
 	a.renderUpdateState()
 
-	tip := "Murmur — " + v.Reason
-	if v.Unread {
-		a.mu.Lock()
-		n := 0
-		if a.status != nil && a.status.Inbox.Unread != nil {
-			n = *a.status.Inbox.Unread
-		}
-		a.mu.Unlock()
-		tip += tr("tip.unread", n)
+	a.mu.Lock()
+	n := 0
+	if a.status != nil && a.status.Inbox.Unread != nil {
+		n = *a.status.Inbox.Unread
 	}
-	// Подсказка в трее обрезается системой на 127 символах — режем сами, иначе
-	// Windows молча покажет обрубок без многоточия.
-	if len([]rune(tip)) > 120 {
-		tip = string([]rune(tip)[:117]) + "..."
-	}
-	systray.SetTooltip(tip)
+	a.mu.Unlock()
+	systray.SetTooltip(statusTooltip(v, n, available))
 	a.mu.Lock()
 	agentID := a.pinnedAgent
 	a.mu.Unlock()
@@ -397,8 +388,10 @@ func (a *app) handleClicks() {
 		case <-a.mLangRussian.ClickedCh:
 			a.changeLocale(localeRussian)
 		case <-a.mQuit.ClickedCh:
-			systray.Quit()
-			return
+			if confirmTrayExit() {
+				systray.Quit()
+				return
+			}
 		}
 	}
 }

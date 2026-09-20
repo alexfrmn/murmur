@@ -205,6 +205,10 @@ export async function buildWindowsBundle({ ref, output }) {
     }
     await copyRegularFile(path.join(source, 'scripts', 'check-windows-bundle.mjs'), path.join(bundle, 'check-windows-bundle.mjs'));
     await buildNative(source, bundle, root.version, commit);
+    // Shortcuts use the same runtime-rendered mark as the tray, never a second drawing.
+    const icons = path.join(temporary, 'icons');
+    run(path.join(bundle, 'murmur-tray.exe'), ['--dump-icons', icons], { timeout: 30_000 });
+    await copyRegularFile(path.join(icons, 'green.ico'), path.join(bundle, 'murmur.ico'));
     const goVersion = run('go', ['version'], { env: { ...process.env, GOTOOLCHAIN: 'local', GOENV: 'off' } }).trim();
     const runtimeManifestSha256 = hash(await fs.readFile(path.join(runtime, 'runtime-manifest.json')));
     const manifest = await writeReleaseManifest(bundle, { version: root.version, sourceCommit: commit, recipeSha256,

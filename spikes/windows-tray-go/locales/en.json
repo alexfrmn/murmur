@@ -156,5 +156,12 @@
   "updates.unavailable": "CLI result unavailable; no automatic retry",
   "updates.unknown": "unknown",
   "updates.available": "Update available: %s",
-  "wake.settingUnknown": "The wake setting was not confirmed"
+  "wake.settingUnknown": "The wake setting was not confirmed",
+  "tip.unknown": "Status unknown",
+  "tip.failed": "Action needed",
+  "tip.attention": "Not ready",
+  "tip.ready": "Ready",
+  "tip.update": "; update available",
+  "quit.title": "Quit Murmur?",
+  "quit.confirm": "This removes the Murmur icon. The service keeps running.\n\nTo open the controls again, use the Murmur shortcut on your desktop or in Start. You can also open Open-Murmur.cmd from this bundle.\n\nQuit the tray?"
 }
