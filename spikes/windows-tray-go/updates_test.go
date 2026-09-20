@@ -177,3 +177,19 @@ func TestUpdateBadgePreservesHealthAndUnread(t *testing.T) {
 		t.Fatal("no separate update badge")
 	}
 }
+
+func TestCachedUpdateBeforeFirstStatusIsUnmeasured(t *testing.T) {
+	// A cached check can finish before the initial status subprocess. This is the
+	// real startup ordering that crashed the tray during native acceptance.
+	s, err := decodeUpdates(updateJSON(t, updateFixture(time.Now())))
+	if err != nil || s.page(time.Now()) == "" {
+		t.Fatal(s, err)
+	}
+	v := resolve(nil, nil)
+	if v.Level != LevelGrey || v.Code != "status.unavailable" || v.Unread {
+		t.Fatal(v)
+	}
+	if len(iconBytes(colGrey, v.Unread, s.page(time.Now()) != "")) == 0 {
+		t.Fatal("startup icon absent")
+	}
+}
