@@ -163,5 +163,5 @@
   "tip.ready": "Ready",
   "tip.update": "; update available",
   "quit.title": "Quit Murmur?",
-  "quit.confirm": "This removes the Murmur icon. The service keeps running.\n\nTo open the controls again, use the Murmur shortcut on your desktop or in Start. You can also open Open-Murmur.cmd from this bundle.\n\nQuit the tray?"
+  "quit.confirm": "This removes the Murmur icon. The service keeps running.\n\nTo open the controls again, open Open-Murmur.cmd from this bundle. After a successful launch, you can also use the Murmur shortcut on your desktop or in Start.\n\nQuit the tray?"
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, cp, readFile, rm, stat, realpath } from 'node:fs/promises';
+import { watch } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, cp, readFile, rm, stat, realpath, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const binary = path.join(root, 'spikes/windows-tray-go/murmur-tray.exe');
 const fixture = JSON.parse(await readFile(path.join(root, 'contracts/setup/v1/fixtures/status-green.json'), 'utf8'));
+const doctorFixture = JSON.parse(await readFile(path.join(root, 'contracts/setup/v1/fixtures/doctor-broker-fail.json'), 'utf8'));
 const psLiteral = value => `'${value.replaceAll("'", "''")}'`;
 const systemPowerShell = process.platform === 'win32'
   ? path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe')
@@ -46,6 +48,52 @@ function runPowerShell(command) {
 
 function parsePowerShellJson(text) {
   return JSON.parse(text.replace(/^\uFEFF/, '').trim());
+}
+
+async function commandTraces(tracePrefix, command) {
+  const prefix = `${path.basename(tracePrefix)}.${command}.`;
+  const names = (await readdir(path.dirname(tracePrefix))).filter(name => name.startsWith(prefix) && name.endsWith('.json'));
+  assert.ok(names.length <= 64, `too many ${command} fixture traces: ${names.length}`);
+  const records = [];
+  for (const name of names) {
+    const recordPath = path.join(path.dirname(tracePrefix), name);
+    assert.ok((await stat(recordPath)).size <= 8192, `oversized fixture trace: ${recordPath}`);
+    records.push(JSON.parse(await readFile(recordPath, 'utf8')));
+  }
+  return records;
+}
+
+async function waitForCommandTrace(tracePrefix, command) {
+  const directory = path.dirname(tracePrefix);
+  const prefix = `${path.basename(tracePrefix)}.${command}.`;
+  return await new Promise((resolve, reject) => {
+    let settled = false;
+    const watcher = watch(directory, { persistent: false }, (_event, filename) => {
+      if (filename && filename.toString().startsWith(prefix)) void check();
+    });
+    const timer = setTimeout(
+      () => finish(new Error(`tray did not invoke ${command} within the bounded fixture deadline`)),
+      5000,
+    );
+    const finish = (error, records) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      watcher.close();
+      if (error) reject(error);
+      else resolve(records);
+    };
+    const check = async () => {
+      try {
+        const records = await commandTraces(tracePrefix, command);
+        if (records.length) finish(undefined, records);
+      } catch (error) {
+        finish(error);
+      }
+    };
+    watcher.on('error', error => finish(error));
+    void check();
+  });
 }
 
 function userShortcutPaths() {
@@ -108,16 +156,18 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       const status = structuredClone(fixture);
       if (mode === 'null-identity') status.agentId = null;
       if (mode === 'missing-field') delete status.service;
+      const doctor = structuredClone(doctorFixture);
+      delete doctor.$stamp;
+      delete doctor.$expect;
       await writeFile(entry, `
         import assert from 'node:assert/strict';
-        import { writeFileSync, statSync } from 'node:fs';
+        import { writeFileSync, renameSync, statSync } from 'node:fs';
         const args=process.argv.slice(2);
-        writeFileSync(${JSON.stringify(trace)},JSON.stringify({args,dataDir:process.env.DATA_DIR,node:process.execPath}));
         assert.equal(process.env.NODE_OPTIONS, undefined);
         assert.equal(process.env.MURMUR_STORE_PATH, undefined);
         if(args[0]==='version') console.log(JSON.stringify({schema:'murmur.version/1',version:'2.9.0'}));
         else {
-          assert.equal(args[0],'status');
+          assert.ok(args[0]==='status'||args[0]==='doctor',args[0]);
           const selected=args[args.indexOf('--data-dir')+1];
           const actual=statSync(selected), expected=statSync(${JSON.stringify(profile)});
           // PowerShell expands the runner's RUNNER~1 parent to runneradmin.
@@ -125,10 +175,19 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
           assert.equal(actual.dev,expected.dev); assert.equal(actual.ino,expected.ino);
           assert.equal(args[args.indexOf('--service-name')+1],'ChosenService');
           assert.equal(process.env.DATA_DIR,selected);
-          writeFileSync(${JSON.stringify(trace)},JSON.stringify({stage:'validated',args,dataDir:process.env.DATA_DIR}));
-          const status=${JSON.stringify(status)};
-          status.generatedAt=new Date(Date.now()+${mode === 'future' ? 3_600_000 : 0}).toISOString();
-          console.log(JSON.stringify(status));
+          const record=JSON.stringify({stage:'validated',command:args[0],args,dataDir:process.env.DATA_DIR,node:process.execPath});
+          assert.ok(record.length<=8192,record.length);
+          const recordPath=${JSON.stringify(trace)}+'.'+args[0]+'.'+process.pid+'-'+Date.now()+'.json';
+          writeFileSync(recordPath+'.tmp',record);renameSync(recordPath+'.tmp',recordPath);
+          if(args[0]==='status'){
+            const status=${JSON.stringify(status)};
+            status.generatedAt=new Date(Date.now()+${mode === 'future' ? 3_600_000 : 0}).toISOString();
+            console.log(JSON.stringify(status));
+          }else{
+            const doctor=${JSON.stringify(doctor)},now=new Date().toISOString();
+            doctor.generatedAt=now;for(const stage of doctor.stages)stage.measuredAt=now;
+            console.log(JSON.stringify(doctor));
+          }
         }
       `);
       const launcher = path.join(canonicalDir, 'Open-Murmur.ps1');
@@ -186,7 +245,9 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       }
       const result = spawnSync('powershell.exe', launchArgs, launchOptions);
       assert.equal(result.error, undefined);
-      const observed = JSON.parse(await readFile(trace, 'utf8'));
+      const statusRecords = await commandTraces(trace, 'status');
+      const observed = statusRecords.find(record => record.stage === 'validated');
+      assert.ok(observed, JSON.stringify(statusRecords));
       assert.equal(observed.args[0], 'status', JSON.stringify(observed));
       assert.equal(observed.stage, 'validated', JSON.stringify(observed));
       if (mode === 'normal-return') {
@@ -218,6 +279,8 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         const reopened = spawnSync('powershell.exe', launchArgs, launchOptions);
         assert.equal(reopened.status, 0, reopened.stdout + reopened.stderr);
         assert.match(reopened.stdout, /Murmur controls opened/);
+        const doctorRecords = await waitForCommandTrace(trace, 'doctor');
+        assert.ok(doctorRecords.some(record => record.stage === 'validated' && record.command === 'doctor'), JSON.stringify(doctorRecords));
         const processesAfterReopen = exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe'));
         assert.deepEqual(processesAfterReopen.map(value => value.ProcessId), [state.pid]);
 
