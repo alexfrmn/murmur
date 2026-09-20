@@ -280,6 +280,7 @@ struct ProbeChecks {
         let canonicalCount = files.count + doctorFiles.count
         let controlCount = try runControlChecks(fixtures: directory)
         let updateCount = try runUpdateChecks()
-        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount)")
+        let runtimeCount = try runBundledRuntimeChecks()
+        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount)")
     }
 }

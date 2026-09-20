@@ -61,7 +61,7 @@ func blend(dst, src color.NRGBA) color.NRGBA {
 	return out
 }
 
-func iconBytes(base color.NRGBA, unread bool) []byte {
+func iconBytes(base color.NRGBA, unread bool, updateAvailable ...bool) []byte {
 	img := image.NewNRGBA(image.Rect(0, 0, iconSize, iconSize))
 	disc(img, 16, 16, 12, base)
 	if unread {
@@ -70,6 +70,19 @@ func iconBytes(base color.NRGBA, unread bool) []byte {
 		disc(img, 24, 24, 8, color.NRGBA{})
 		clearDisc(img, 24, 24, 7.5)
 		disc(img, 24, 24, 6, colUnread)
+	}
+	// Update availability has its own upper-left arrow; delivery health and the
+	// lower-right unread marker keep their meanings and colors.
+	if len(updateAvailable) > 0 && updateAvailable[0] {
+		clearDisc(img, 8, 8, 7.5)
+		disc(img, 8, 8, 7, color.NRGBA{R: 0x84, G: 0x50, B: 0xcf, A: 0xff})
+		for y := 4; y <= 12; y++ {
+			for x := 4; x <= 12; x++ {
+				if (x >= 7 && x <= 8 && y >= 6) || (y <= 7 && int(math.Abs(float64(x-8))) <= y-4) {
+					img.SetNRGBA(x, y, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+				}
+			}
+		}
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
