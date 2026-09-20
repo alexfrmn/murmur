@@ -104,6 +104,7 @@ test('Windows Git Bash resolver uses configured or adjacent Git Bash and rejects
   await fs.writeFile(path.join(gitCmd, 'git.exe'), 'fixture');
   const bash = path.join(gitBin, 'bash.exe');
   await fs.writeFile(bash, 'fixture');
+  const resolvedBash = (await fs.realpath(bash)).replaceAll('\\', '/');
   const settings = path.join(base, 'settings.json'), dataDir = path.join(base, 'data');
   const entrypoint = path.join(base, 'fixture.mjs');
   await fs.mkdir(dataDir);
@@ -116,14 +117,14 @@ test('Windows Git Bash resolver uses configured or adjacent Git Bash and rejects
   const configured = run(process.execPath, common, { env: { ...process.env, CLAUDE_CODE_GIT_BASH_PATH: bash } });
   assert.equal(configured.status, 0, configured.stderr);
   const configuredArgs = decodeLauncher(JSON.parse(configured.stdout).proposedStatusLine.command).args;
-  assert.deepEqual(configuredArgs.slice(-2), ['--existing-shell-path', bash.replaceAll('\\', '/')]);
+  assert.deepEqual(configuredArgs.slice(-2), ['--existing-shell-path', resolvedBash]);
 
   const adjacentEnv = { ...process.env, PATH: `${gitCmd}${path.delimiter}${process.env.PATH ?? ''}` };
   delete adjacentEnv.CLAUDE_CODE_GIT_BASH_PATH;
   const adjacent = run(process.execPath, common, { env: adjacentEnv });
   assert.equal(adjacent.status, 0, adjacent.stderr);
   const adjacentArgs = decodeLauncher(JSON.parse(adjacent.stdout).proposedStatusLine.command).args;
-  assert.deepEqual(adjacentArgs.slice(-2), ['--existing-shell-path', bash.replaceAll('\\', '/')]);
+  assert.deepEqual(adjacentArgs.slice(-2), ['--existing-shell-path', resolvedBash]);
 
   const emptyConfigured = run(process.execPath, common, { env: { ...process.env, CLAUDE_CODE_GIT_BASH_PATH: '' } });
   assert.notEqual(emptyConfigured.status, 0, 'an explicitly empty Claude Git Bash path must fail instead of falling through');
