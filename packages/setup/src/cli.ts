@@ -2,6 +2,7 @@ import { configureClient } from './clients.js';
 import { initialize, invite, join, importPeer } from './onboarding.js';
 import { runDoctor } from './doctor.js';
 import { parseArgs } from 'node:util';
+import path from 'node:path';
 import { resolveContext } from './paths.js';
 import { createLinuxAdapter } from './platform/linux.js';
 import { createWindowsAdapter } from './platform/windows.js';
@@ -60,6 +61,7 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
     process.env.DATA_DIR = context.dataDir;
     process.env.MURMUR_DATA_DIR = context.dataDir;
     process.env.MURMUR_STORE_PATH = context.storePath;
+    process.env.MURMUR_CHANNEL_ROSTER_PATH = path.join(context.dataDir, 'channel-roster.db');
     await import('@murmurv2/mcp-server');
     return rawCliOutput('');
   }

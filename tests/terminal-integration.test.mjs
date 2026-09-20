@@ -82,8 +82,11 @@ test('inbox read returns durable messages without marking them and mark-read sta
 
 test('explicit-profile mcp serve starts the existing server without contaminating JSON-RPC stdout', async t => {
   const f = await profile(t); f.messages.close();
+  const poisoned = await temporary(t);
+  const poisonedStore = path.join(poisoned, 'messages.db'), poisonedRoster = path.join(poisoned, 'roster.db');
   const child = spawn(process.execPath, ['packages/setup/bin/murmur.mjs', 'mcp', 'serve', '--data-dir', f.dataDir], {
-    cwd: root, env: { ...process.env, MURMUR_UPDATE_CHECK: '0' }, stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: root, env: { ...process.env, MURMUR_UPDATE_CHECK: '0', DATA_DIR: poisoned, MURMUR_DATA_DIR: poisoned,
+      MURMUR_STORE_PATH: poisonedStore, MURMUR_CHANNEL_ROSTER_PATH: poisonedRoster }, stdio: ['pipe', 'pipe', 'pipe'],
   });
   t.after(() => { if (child.exitCode === null) child.kill(); });
   let buffer = '';
@@ -103,22 +106,95 @@ test('explicit-profile mcp serve starts the existing server without contaminatin
   assert.equal(messages[0].result.serverInfo.name, 'murmur-v2-mcp');
   assert.ok(messages[1].result.tools.some(tool => tool.name === 'murmur_inbox'));
   child.kill();
+  assert.equal(await fs.stat(path.join(f.dataDir, 'channel-roster.db')).then(() => true), true);
+  assert.equal(await fs.stat(poisonedStore).then(() => true, () => false), false);
+  assert.equal(await fs.stat(poisonedRoster).then(() => true, () => false), false);
 });
 
 test('Claude statusline dry run preserves the existing command, writes nothing and strips Murmur escapes', async t => {
   if (process.platform === 'win32') { t.skip('POSIX shell fixture'); return; }
-  const dir = await temporary(t), settings = path.join(dir, 'settings.json'), fake = path.join(dir, 'fake murmur');
+  const dir = await temporary(t), settings = path.join(dir, 'settings.json'), fake = path.join(dir, 'fake-murmur.mjs');
   const original = JSON.stringify({ statusLine: { type: 'command', command: "printf 'legacy'", padding: 2 }, unrelated: { keep: true } }, null, 2);
   await fs.writeFile(settings, original);
-  await fs.writeFile(fake, "#!/bin/sh\nprintf '\\033]52;c;payload\\007Murmur: 3 unread\\n'\n", { mode: 0o700 });
+  await fs.writeFile(fake, "process.stdout.write('\\u001b]52;c;payload\\u0007Murmur: 3 unread\\n');\n");
   const configure = path.join(root, 'plugins/claude-code/scripts/configure-statusline.mjs');
   const proposal = JSON.parse(execFileSync(process.execPath, [configure, '--dry-run', '--settings', settings,
-    '--data-dir', dir, '--murmur-bin', fake], { encoding: 'utf8' }));
+    '--data-dir', dir, '--node-bin', process.execPath, '--murmur-entrypoint', fake], { encoding: 'utf8' }));
   assert.equal(proposal.writesPerformed, false); assert.equal(proposal.preservedExistingCommand, true);
   assert.equal(proposal.proposedStatusLine.padding, 2); assert.equal(proposal.proposedStatusLine.refreshInterval, 5);
   assert.equal(await fs.readFile(settings, 'utf8'), original);
   const rendered = execFileSync('/bin/sh', ['-lc', proposal.proposedStatusLine.command], { input: '{}', encoding: 'utf8' });
   assert.match(rendered, /^legacy\n/); assert.match(rendered, /Murmur: 3 unread/); assert.doesNotMatch(rendered, /\x1b|\x07/);
+});
+
+const statuslineArgs = (dir, entrypoint, existingCommand) => {
+  const args = [path.join(root, 'plugins/claude-code/scripts/statusline.mjs'), '--data-dir', dir,
+    '--murmur-node', process.execPath, '--murmur-entrypoint', entrypoint];
+  if (existingCommand !== undefined) args.push('--existing-command-base64', Buffer.from(existingCommand).toString('base64'),
+    '--existing-shell', 'posix');
+  return args;
+};
+
+test('Claude statusline bounds a TERM-resistant existing command and its descendants', async t => {
+  if (process.platform === 'win32') { t.skip('POSIX process-group fixture'); return; }
+  const dir = await temporary(t), fake = path.join(dir, 'fake-murmur.mjs'), pidfile = path.join(dir, 'descendant.pid');
+  await fs.writeFile(fake, "process.stdout.write('Murmur: 1 unread\\n');\n");
+  const command = `trap '' TERM; sh -c 'trap "" TERM; echo $$ > "${pidfile}"; while :; do sleep 1; done' & wait`;
+  const started = Date.now();
+  const result = spawnSync(process.execPath, statuslineArgs(dir, fake, command), { input: '{}', encoding: 'utf8', timeout: 7_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(Date.now() - started < 6_500, `elapsed ${Date.now() - started}ms`);
+  assert.match(result.stdout, /^Existing status line unavailable\nMurmur: 1 unread\n$/);
+  const pid = Number(await fs.readFile(pidfile, 'utf8'));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.throws(() => process.kill(pid, 0), error => error.code === 'ESRCH');
+});
+
+test('Claude statusline handles early stdin closure without unhandled EPIPE', async t => {
+  if (process.platform === 'win32') { t.skip('POSIX shell fixture'); return; }
+  const dir = await temporary(t), fake = path.join(dir, 'fake-murmur.mjs');
+  await fs.writeFile(fake, "process.stdout.write('Murmur: 1 unread\\n');\n");
+  const input = Buffer.alloc(1024 * 1024, 0x78);
+  for (let i = 0; i < 10; i++) {
+    const result = spawnSync(process.execPath, statuslineArgs(dir, fake, 'true'), { input, encoding: 'utf8', timeout: 5_000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'Murmur: 1 unread\n');
+  }
+});
+
+test('Claude statusline input and cancellation are bounded and leave no descendant', async t => {
+  if (process.platform === 'win32') { t.skip('POSIX process-group fixture'); return; }
+  const dir = await temporary(t), fake = path.join(dir, 'fake-murmur.mjs'), pidfile = path.join(dir, 'cancel.pid');
+  await fs.writeFile(fake, "process.stdout.write('Murmur: 1 unread\\n');\n");
+
+  const hangingInput = spawn(process.execPath, statuslineArgs(dir, fake, "printf 'legacy'"), { stdio: ['pipe', 'pipe', 'pipe'] });
+  hangingInput.stdin.write('{');
+  const bounded = await new Promise((resolve, reject) => {
+    let stdout = '', stderr = '';
+    hangingInput.stdout.on('data', chunk => { stdout += chunk; });
+    hangingInput.stderr.on('data', chunk => { stderr += chunk; });
+    const timer = setTimeout(() => reject(new Error('input deadline did not fire')), 4_000);
+    hangingInput.on('close', code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+  });
+  assert.equal(bounded.code, 0, bounded.stderr);
+  assert.equal(bounded.stdout, 'Existing status line unavailable\nMurmur: 1 unread\n');
+
+  const command = `trap '' TERM; sh -c 'trap "" TERM; echo $$ > "${pidfile}"; while :; do sleep 1; done' & wait`;
+  const child = spawn(process.execPath, statuslineArgs(dir, fake, command), { stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.end('{}');
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline && !await fs.stat(pidfile).then(() => true, () => false)) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const pid = Number(await fs.readFile(pidfile, 'utf8'));
+  child.kill('SIGTERM');
+  const exit = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('wrapper cancellation timed out')), 2_500);
+    child.on('close', (code, signal) => { clearTimeout(timer); resolve({ code, signal }); });
+  });
+  assert.ok(exit.code === 143 || exit.signal === 'SIGTERM');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.throws(() => process.kill(pid, 0), error => error.code === 'ESRCH');
 });
 
 test('Claude plugin manifest uses supported components and an explicit-profile MCP command', async () => {
@@ -128,5 +204,9 @@ test('Claude plugin manifest uses supported components and an explicit-profile M
   assert.equal(manifest.name, 'murmur'); assert.equal(manifest.defaultEnabled, false);
   assert.equal(Object.hasOwn(manifest, 'statusLine'), false);
   assert.equal(manifest.userConfig.data_dir.required, true);
-  assert.deepEqual(mcp.mcpServers.murmur.args, ['mcp', 'serve', '--data-dir', '${user_config.data_dir}']);
+  assert.equal(manifest.userConfig.node_command.required, true);
+  assert.equal(manifest.userConfig.murmur_entrypoint.required, true);
+  assert.equal(mcp.mcpServers.murmur.command, '${user_config.node_command}');
+  assert.deepEqual(mcp.mcpServers.murmur.args,
+    ['${user_config.murmur_entrypoint}', 'mcp', 'serve', '--data-dir', '${user_config.data_dir}']);
 });

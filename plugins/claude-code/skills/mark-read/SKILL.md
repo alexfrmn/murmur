@@ -5,8 +5,9 @@ disable-model-invocation: true
 
 # Mark the Murmur inbox read
 
-This is an explicit local cursor mutation. Tell the user the exact command before running it:
+This is an explicit local cursor mutation. Tell the user the exact configured invocation before running it. Invoke it directly, without a shell, using this argument vector:
 
-`murmur inbox mark-read --data-dir /absolute/path/to/profile`
+- command: `${user_config.node_command}`
+- arguments: `${user_config.murmur_entrypoint}`, `inbox`, `mark-read`, `--data-dir`, `${user_config.data_dir}`
 
-Use the profile configured for this plugin. Do not substitute another profile, do not run this while merely displaying status, and do not describe `murmur_inbox` as marking messages read.
+Treat every substituted value as one literal argument. Do not substitute another profile, do not run this while merely displaying status, and do not describe `murmur_inbox` as marking messages read.

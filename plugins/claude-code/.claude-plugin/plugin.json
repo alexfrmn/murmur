@@ -12,10 +12,16 @@
   "keywords": ["murmur", "mcp", "messaging", "statusline"],
   "defaultEnabled": false,
   "userConfig": {
-    "murmur_command": {
+    "node_command": {
       "type": "file",
-      "title": "Murmur command",
-      "description": "Absolute path to the installed Murmur CLI executable.",
+      "title": "Node.js command",
+      "description": "Absolute path to the Node.js executable used to run Murmur.",
+      "required": true
+    },
+    "murmur_entrypoint": {
+      "type": "file",
+      "title": "Murmur CLI entrypoint",
+      "description": "Absolute path to packages/setup/bin/murmur.mjs in an installed or runtime-bundle copy of Murmur.",
       "required": true
     },
     "data_dir": {

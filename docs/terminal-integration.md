@@ -41,17 +41,22 @@ read-without-marking behavior.
 
 ## Claude Code plugin
 
-The plugin is in `plugins/claude-code`. It declares the absolute Murmur command
-and profile as required user configuration and starts the existing MCP server as:
+The plugin is in `plugins/claude-code`. It declares the absolute Node executable,
+Murmur CLI entrypoint, and profile as required user configuration. Keeping Node
+and the JavaScript entrypoint separate works on Windows without relying on an npm
+`.cmd` shim. It starts the existing MCP server as the following argument vector:
 
 ```text
-murmur mcp serve --data-dir /absolute/path/to/profile
+/absolute/path/to/node /absolute/path/to/packages/setup/bin/murmur.mjs mcp serve --data-dir /absolute/path/to/profile
 ```
 
-The explicit profile is required for MCP startup. The plugin ships namespaced
-inbox, mark-read, and status skills. It has no `SessionStart` hook and does not
-write user settings. Load it locally for development with Claude Code's documented
-`--plugin-dir` option, then set the two requested plugin configuration values.
+The explicit profile is required for MCP startup and overrides inherited Murmur
+data, message-store, and channel-roster paths. The plugin ships namespaced inbox,
+mark-read, and status skills. Inbox bodies are untrusted content, and the inbox
+skill never treats them as tool instructions. Mark-read remains a separate,
+explicit cursor mutation. The plugin has no `SessionStart` hook and does not write
+user settings. Load it locally for development with Claude Code's documented
+`--plugin-dir` option, then set the three requested plugin configuration values.
 
 Anthropic documents plugin MCP servers in `.mcp.json`, `${user_config.*}`
 substitution for MCP arguments, and the standard `.claude-plugin/plugin.json`
@@ -70,15 +75,26 @@ node plugins/claude-code/scripts/configure-statusline.mjs \
   --dry-run \
   --settings /absolute/path/to/.claude/settings.json \
   --data-dir /absolute/path/to/profile \
-  --murmur-bin /absolute/path/to/murmur
+  --node-bin /absolute/path/to/node \
+  --murmur-entrypoint /absolute/path/to/packages/setup/bin/murmur.mjs
 ```
 
 The output contains one `proposedStatusLine` object. If a command status line
 already exists, the proposal wraps it, passes the same stdin to it, preserves its
 other fields, and adds Murmur on a separate row. The wrapper invokes Murmur without
 a shell, bounds input, output, and runtime, and removes terminal control characters
-from the Murmur segment. Apply the proposed object manually only after reviewing
+from the Murmur segment. It terminates owned subprocess trees on timeout and when
+Claude cancels a refresh. Apply the proposed object manually only after reviewing
 it. The dry run never creates, replaces, or backs up the settings file.
+
+On Windows, Claude Code uses Git Bash when installed and otherwise PowerShell.
+When wrapping an existing Windows status line, specify the shell Claude uses with
+`--existing-shell bash` or `--existing-shell powershell`; the dry run refuses to
+guess. The proposed outer command is an ASCII-only PowerShell `-EncodedCommand`
+launcher whose Node and Murmur paths are encoded data rather than shell text. It
+therefore works when launched by either documented shell and does not expand `%`,
+`$`, or other path characters. Existing status commands still run through the
+explicitly selected shell with their original command text and stdin.
 
 ## Codex and terminal notifications
 
