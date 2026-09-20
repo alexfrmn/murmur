@@ -17,20 +17,36 @@ Murmur checks standard Node.js and Homebrew installation paths, Volta, nvm and f
 If Node is missing or too old, a dialog links to the official download page and
 lets you retry. It does not install Node, create profiles or install services for you.
 
-Choose an existing profile folder from the menu bar icon. Profile creation, client
+Murmur opens a window with one first step: choose an existing profile folder.
+After selection, the window shows status and available controls. The menu bar icon
+toggles this window; right-click it for quick actions. Before profile selection,
+that menu contains only **Choose profile folder…** and **Quit**. Profile creation, client
 connection and service installation still use the shared CLI at
 `/Applications/Murmur.app/Contents/MacOS/murmur`. See the
 [onboarding instructions](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md).
 The helper runs only the bundled engine and preserves literal arguments without a shell.
 
 English is the default app language, independently of macOS. Choose
-**Language → Русский** for Russian or **Язык → English** to switch back. The choice
+**Settings → Language → Русский** for Russian or **Настройки → Язык → English** to switch back. The choice
 is saved and applies to the menu, status messages, diagnostics and Node errors.
 Native macOS dialogs continue to follow the system language. Protocol fields,
 agent IDs, file paths and diagnostic codes are not translated.
 
 Stop your service before replacing or moving an installed app whose engine it uses.
 Opening the app does not stop or reconfigure existing services.
+
+## If the menu bar icon is missing
+
+Murmur can be running while macOS hides its icon behind the camera notch or other
+menu bar items. Open Murmur again from Applications, or press **⌃⌥⌘M**
+(Control–Option–Command–M), to bring up its window. The shortcut also hides the
+window. If another app has reserved it, Murmur shows a fallback message in the footer.
+
+To recover the icon, first free some menu bar space in System Settings → Menu Bar.
+Once the icon is visible, hold Command and drag it toward the right. Murmur saves
+that position. macOS also has advanced `NSStatusItemSpacing` and
+`NSStatusItemSelectionPadding` preferences that affect all menu bar items; Murmur
+does not change them.
 
 ## First opening
 

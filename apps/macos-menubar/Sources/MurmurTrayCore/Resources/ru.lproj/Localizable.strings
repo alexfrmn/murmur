@@ -188,3 +188,11 @@
 "time unknown" = "время неизвестно";
 "unknown" = "неизвестно";
 "unknown.version" = "неизвестна";
+
+"Open Murmur" = "Открыть Murmur";
+"Open Murmur: Control–Option–Command–M" = "Открыть Murmur: Control–Option–Command–M";
+"Open or hide: ⌃⌥⌘M" = "Открыть или скрыть: ⌃⌥⌘M";
+"Shortcut unavailable. Open Murmur from Finder." = "Горячая клавиша недоступна. Откройте Murmur через Finder.";
+"Right-click the menu bar icon for quick actions." = "Нажмите значок в строке меню правой кнопкой для быстрых действий.";
+"Connect your agents" = "Подключите своих агентов";
+"Select the Murmur profile you want to manage on this Mac." = "Выберите профиль Murmur, которым хотите управлять на этом Mac.";

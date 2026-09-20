@@ -8,6 +8,7 @@ STAGE="$OUTPUT/Murmur-Mac"
 [ ! -e "$STAGE" ] || { printf '%s\n' 'Output already contains Murmur-Mac; choose a new output directory.' >&2; exit 1; }
 mkdir -p "$OUTPUT"
 cd "$SOURCE"
+python3 scripts/generate-mark.py --check
 for arch in arm64 x86_64; do
   swift build -c release --triple "$arch-apple-macosx13.0" --scratch-path "$OUTPUT/swift-$arch"
 done
