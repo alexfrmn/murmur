@@ -36,7 +36,7 @@ public struct CLIProbe: Sendable {
         return try invoke([command])
     }
 
-    // Mutating argv is built only by ProfileClient after a fresh identity check.
+    // Mutating argv comes from identity-checked ProfileClient or an explicit NewProfilePlan.
     func invoke(_ arguments: [String]) throws -> ProbeSummary {
         guard timeout.isFinite, timeout > 0, timeout <= 60 else { throw ProfileError.invalidTimeout }
         guard executable.isFileURL, executable.path.hasPrefix("/") else { throw ProfileError.invalidCLI }

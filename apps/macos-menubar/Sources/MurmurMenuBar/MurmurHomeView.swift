@@ -20,7 +20,9 @@ struct MurmurHomeView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if model.profile == nil && !model.isDemo {
+                    if model.hasPendingSetup {
+                        savedSetup
+                    } else if model.profile == nil && !model.isDemo {
                         firstRun
                     } else {
                         profileContent
@@ -36,13 +38,13 @@ struct MurmurHomeView: View {
                 Spacer()
                 Button(L10n.text("Quit")) { NSApp.terminate(nil) }.keyboardShortcut("q")
             }.padding(16)
-        }
+        }.sheet(isPresented: $model.showCreateProfileSheet) { CreateProfileSheet(model: model) }
     }
 
     private var firstRun: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(L10n.text("Connect your agents")).font(.title2.weight(.semibold))
-            Text(L10n.text("Select the Murmur profile you want to manage on this Mac."))
+            Text(L10n.text("Join with an invitation, or create a profile for your own server."))
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if model.preparingRuntime {
                 ProgressView(L10n.text("Checking the Murmur engine…"))
@@ -50,9 +52,68 @@ struct MurmurHomeView: View {
                 Text(error).foregroundStyle(.red).textSelection(.enabled)
                 Button(L10n.text("Try again")) { model.prepareRuntime() }
             } else {
-                Button(L10n.text("Choose profile folder…")) { model.chooseProfile() }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(model.busy).keyboardShortcut(.defaultAction)
+                if model.creatingProfile {
+                    ProgressView(L10n.text("Creating your profile…"))
+                } else if model.needsExistingProfileChoice {
+                    Text(model.requiresRecoveryChoice ? L10n.text("Choose how to continue") : L10n.text("Profiles already on this Mac")).font(.headline)
+                    Text(model.requiresRecoveryChoice ? L10n.text("The saved record was reset. The earlier setup outcome is still unknown. Choose an existing profile or create a separate one.") : L10n.text("Choose an existing profile to continue. These folders may contain profiles from an earlier setup attempt."))
+                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    ForEach(model.savedProfiles, id: \.dataDirectory) { profile in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(profile.dataDirectory).font(.caption).textSelection(.enabled)
+                            Button(L10n.text("Choose this profile")) { model.chooseSavedProfile(profile) }.disabled(model.busy)
+                        }
+                    }
+                    if model.requiresRecoveryChoice {
+                        Button(L10n.text("Choose profile folder…")) { model.chooseProfile() }.disabled(model.busy)
+                        if model.archivedSetupRecord != nil {
+                            Button(L10n.text("Show saved record copy")) { model.showArchivedSetupRecord() }.disabled(model.busy)
+                        }
+                    }
+                    Button(L10n.text("Create a separate profile…")) { model.allowNewSeparateProfile() }.disabled(model.busy)
+                } else {
+                    Button(L10n.text("I have an invitation…")) { model.useInvitation() }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                        .disabled(model.busy).keyboardShortcut(.defaultAction)
+                    Button(L10n.text("Create a profile for my server…")) { model.beginOwnProfile() }
+                        .disabled(model.busy)
+                    Text(L10n.text("No invitation yet? Ask someone in your team to send one."))
+                        .font(.callout).foregroundStyle(.secondary)
+                    Divider()
+                    Button(L10n.text("Already configured? Choose a profile folder…")) { model.chooseProfile() }
+                        .buttonStyle(.link).disabled(model.busy)
+                }
+                if let error = model.creationError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            }
+        }.padding(.vertical, 24)
+    }
+
+    private var savedSetup: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(model.pendingTitle).font(.title2.weight(.semibold))
+            if let pending = model.pendingCreation {
+                Text(pending.plan.agentID).font(.headline)
+                Text(pending.plan.profile.dataDirectory).font(.caption).textSelection(.enabled)
+                if pending.kind == .invitation {
+                    Text(L10n.text("Reply file: %@", pending.plan.replyFile.path)).font(.caption).textSelection(.enabled)
+                }
+                if model.pendingCanRetryCreation {
+                    Text(L10n.text("No profile or reply files were found. You can try the setup again."))
+                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button(L10n.text("Try setup again")) { model.discardEmptySetup() }.disabled(model.busy)
+                } else {
+                    Text(L10n.text("Your files were kept. Check this same profile to continue; no new identity will be created."))
+                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button(model.creatingProfile ? L10n.text("Checking…") : L10n.text("Check saved profile and continue")) {
+                        model.resumeSavedSetup()
+                    }.buttonStyle(.borderedProminent).disabled(model.busy || model.runtimeError != nil)
+                }
+            }
+            if let error = model.savedSetupError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = model.creationError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            Button(L10n.text("Show saved files")) { model.showSavedSetupFiles() }.disabled(model.busy)
+            if model.canResetSavedSetup {
+                Button(L10n.text("Reset saved setup record…")) { model.resetSavedSetupRecord() }.buttonStyle(.link)
             }
         }.padding(.vertical, 24)
     }
@@ -66,6 +127,7 @@ struct MurmurHomeView: View {
                 Text(profile.dataDirectory).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 if let service = profile.serviceName { Text(L10n.text("Service: %@", service)).font(.caption) }
             }
+            if model.hasSetupSteps { setupSteps }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
             if let error = model.operationError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             if let message = model.operationMessage { Text(message) }
@@ -91,6 +153,34 @@ struct MurmurHomeView: View {
             DisclosureGroup(L10n.text("Diagnostics")) { diagnostics.padding(.top, 10) }
             DisclosureGroup(L10n.text("Murmur updates")) { updateDetails.padding(.top, 10) }
         }
+    }
+
+
+    private var setupSteps: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L10n.text("Next steps")).font(.headline)
+            if model.setupReplyFile != nil {
+                Text(L10n.text("Send the reply file to the person who invited you so they can finish pairing."))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(L10n.text("Show reply file")) { model.showReplyFile() }.disabled(model.busy)
+            }
+            if model.status?.service.state == .running {
+                Text(L10n.text("Murmur is running. Check the connection after exchanging reply files."))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(L10n.text("Check connection")) { model.refreshDoctor(); model.refreshStatus() }
+                    .disabled(model.busy || !model.canControl)
+            } else {
+                Text(L10n.text("Start Murmur to keep delivery running when this window is closed."))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(model.operating ? L10n.text("Working…") : L10n.text("Start Murmur on this Mac")) { model.startNewProfile() }
+                    .buttonStyle(.borderedProminent).disabled(!model.canStartNewProfile)
+            }
+            if model.status?.service.state == .running {
+                Button(L10n.text("Hide setup steps")) { model.hideSetupSteps() }
+                    .buttonStyle(.link).font(.caption).disabled(model.busy)
+            }
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var service: some View {
