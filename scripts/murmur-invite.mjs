@@ -36,14 +36,42 @@ const invite = {
 
 const blob = "MURMUR:" + Buffer.from(JSON.stringify(invite)).toString("base64");
 
-// A credential can reach the blob two ways: as natsToken, or as userinfo inside
-// the URL. Both make this output a password, so both must reach the warning.
-const urlCarriesCredential = /^[a-z]+:\/\/[^/@]*@/i.test(config.natsUrl || "");
-const carriesCredential = !!config.natsToken || urlCarriesCredential;
+// The address is parsed, not pattern-matched. A regex over the raw string reads
+// what the string looks like; the client reads what the address means, and the
+// two differ on leading whitespace, on a credential that is not at the start,
+// and on anything malformed. Review found exactly that: two spaces in front of
+// the URL defeated an anchored regex and the password was printed in the clear.
+//
+// The accepted shape is the one packages/setup/src/config.ts enforces: nats: or
+// tls:, no query, no fragment. A credential in the URL is not rejected here —
+// legacy profiles have them and refusing would only push people to read the raw
+// file — but it is named and masked. Anything else stops before any output.
+function inspectBrokerUrl(raw) {
+  const text = String(raw ?? "").trim();
+  let url;
+  try { url = new URL(text); } catch { return { fatal: "not a valid URL" }; }
+  if (!["nats:", "tls:"].includes(url.protocol)) return { fatal: `unsupported scheme ${url.protocol}` };
+  if (url.search) return { fatal: "query string in the broker URL" };
+  if (url.hash) return { fatal: "fragment in the broker URL" };
+  const carries = !!(url.username || url.password);
+  const masked = new URL(text);
+  if (carries) { masked.username = "***"; masked.password = ""; }
+  return { carries, masked: masked.href };
+}
+
+const address = inspectBrokerUrl(config.natsUrl);
+if (address.fatal) {
+  // Refuse before printing anything: the blob would carry this address onward,
+  // and an address we cannot read is one we cannot promise to have masked.
+  console.error(`[invite] Broker URL in ${configPath} is not usable: ${address.fatal}.`);
+  console.error("[invite] Fix the profile, or create the invite with: murmur invite --out FILE");
+  process.exit(1);
+}
+const carriesCredential = !!config.natsToken || address.carries;
 
 // The broker URL is already inside the blob. Printing it again only adds a copy
-// to the shell history, and with userinfo in it that copy is the credential.
-const safeUrl = String(config.natsUrl || "").replace(/^([a-z]+:\/\/)[^/@]*@/i, "$1***@");
+// to the shell history, and with a credential in it that copy is the password.
+const safeUrl = address.masked;
 
 console.log("");
 console.log("=== Send this invite to your peer ===");
