@@ -140,11 +140,13 @@ const crcTable = Array.from({ length: 256 }, (_, i) => {
   let c = i; for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0;
 });
 function crc32(bytes) { let c = 0xffffffff; for (const b of bytes) c = crcTable[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
-export async function writeZip(root, output) {
+export async function writeZip(root, output, prefix = 'runtime') {
+  if (prefix !== '' && (typeof prefix !== 'string' || prefix.startsWith('/') || prefix.endsWith('/') || prefix.includes('\\') ||
+      prefix.split('/').some(part => !part || part === '.' || part === '..'))) throw new Error('ZIP prefix must be empty or a safe relative path');
   await absent(output);
   const local = [], central = []; let offset = 0;
   for (const file of await files(root)) {
-    const name = Buffer.from(`runtime/${file}`), bytes = await fs.readFile(path.join(root, file)), data = deflateRawSync(bytes, { level: 9 });
+    const name = Buffer.from(prefix ? `${prefix}/${file}` : file), bytes = await fs.readFile(path.join(root, file)), data = deflateRawSync(bytes, { level: 9 });
     if (name.length > 65535 || offset + data.length > 0xffffffff) throw new Error('Runtime exceeds ZIP32 limits');
     const crc = crc32(bytes), header = Buffer.alloc(30), directory = Buffer.alloc(46);
     header.writeUInt32LE(0x04034b50); header.writeUInt16LE(20, 4); header.writeUInt16LE(0x800, 6);
