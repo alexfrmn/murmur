@@ -33,7 +33,7 @@ func toClipboard(data []byte) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	const script = `$ErrorActionPreference='Stop'; [Console]::Error.WriteLine('clipboard: initialize'); Add-Type -AssemblyName System.Windows.Forms; [Console]::Error.WriteLine('clipboard: input'); $text=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd())); [Console]::Error.WriteLine('clipboard: write'); [Windows.Forms.Clipboard]::SetText($text,[Windows.Forms.TextDataFormat]::UnicodeText); [Console]::Error.WriteLine('clipboard: complete')`
+	const script = `$ErrorActionPreference='Stop'; [Console]::Error.WriteLine('clipboard: initialize'); [void][Reflection.Assembly]::Load('System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'); [Console]::Error.WriteLine('clipboard: input'); $text=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd())); [Console]::Error.WriteLine('clipboard: write'); [Windows.Forms.Clipboard]::SetText($text,[Windows.Forms.TextDataFormat]::UnicodeText); [Console]::Error.WriteLine('clipboard: complete')`
 	cmd := exec.CommandContext(ctx, filepath.Join(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-STA", "-Command", script)
 	cmd.Env = []string{"SystemRoot=" + windowsDir, "WINDIR=" + windowsDir}
 	cmd.Stdin = strings.NewReader(base64.StdEncoding.EncodeToString(data))
