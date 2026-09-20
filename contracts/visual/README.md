@@ -1,74 +1,78 @@
 # contracts/visual/
 
-`murmur-mark.svg` — the status mark. One file, both platforms, four states.
+`murmur-mark.svg` — the status mark for the menu bar and the tray. One file,
+both platforms, four states.
 
 It sits next to `contracts/setup/v1/` because it is the same kind of thing: an
 agreement two implementations must not drift from.
 
-## Why a single file
+## It is the product logo, not a new drawing
 
-The mark is drawn once here and never redrawn inside a product. A product that
-keeps its own copy of the paths drifts from this one silently, and the drift is
-only noticed when the two sit side by side on a screenshot.
+The mark is derived from `docs/images/murmur-logo.svg` and keeps what makes the
+logo recognisable: the indigo-to-violet circle, the two signal waves, the lock
+between them. Two things changed, both forced by measurement at tray sizes:
 
-## Geometry
+- **The wordmark is gone.** At 18 px `MURMUR` renders as a smear of noise along
+  the bottom edge, and it reads no better at 32 px. A wordmark that cannot be
+  read is dirt on the glyph.
+- **The strokes are thicker and the shapes larger.** With the original 3 px
+  strokes only 1.6 % of the icon's pixels came out bright at 18 px — the lock
+  and the waves were effectively invisible inside a flat purple disc. At 6 px
+  the same drawing reaches 8 %, and both the lock and the waves survive.
 
-Frame 38 × 38 in a 48 viewBox, `rx 8`, stroke 2.5, no fill. Two filled nodes,
-`r 4.5`, at `cx 15` and `cx 33`. Edge between them, stroke 3.
+The logo file itself is untouched; it stays as the full lockup for the README
+and the web page.
 
-The glyph says what the product is: two agents and the channel between them.
+## A coloured mark is a deliberate choice
 
-## States are carried by shape, not colour
+macOS also accepts template images, which the system tints to match the menu
+bar. That route was considered and rejected: a template has no colour, so every
+state collapses into one silhouette, and the mark loses the one thing that makes
+it findable among thirty neighbours — being the purple one. Coloured menu bar
+items are ordinary; a typical bar already carries several.
 
-On macOS the mark ships as a template image, so the system decides the colour
-and every state would otherwise collapse into the same silhouette. Shape has to
-answer the question on its own:
+The cost is that a coloured mark does not adapt to light and dark bars, which is
+why the circle is a filled disc: it carries its own background and reads on both.
 
-| symbol | shape | reads as |
+## States
+
+| symbol | what changes | reads as |
 |---|---|---|
-| `murmur-ready` | solid edge | connected |
-| `murmur-idle` | no edge | not connected |
-| `murmur-unread` | solid edge, dot above it | something new arrived |
-| `murmur-failed` | broken edge, stroke above the break | the channel is broken |
+| `murmur-ready` | indigo to violet | connected |
+| `murmur-idle` | the same drawing in grey | not connected |
+| `murmur-unread` | red dot on the upper right, white outline | something new arrived |
+| `murmur-failed` | the whole circle turns red | the channel is broken |
 
-On Windows there is no template mode, so colour stays a legal carrier and runs
-alongside shape. Both channels together, not colour alone: a person who cannot
-separate the hues and a person with thirty icons in the tray read the same mark.
+Measured at 18 px: `ready` has no red pixels at all, `unread` has 30 of 275,
+`failed` has 243 of 261. The three are not confusable at a glance, which is the
+only test that matters here.
 
-Four shapes cover more than four internal states. `unknown`, `stopped`, `paused`
-and `offline` all map to `murmur-idle`, because the difference between "no edge"
-and "edge with a gap" is one pixel at 18 pt and nobody sees it. The exact state
-is spelled out in words in the first menu item; the mark answers only the
-coarse question.
+Four states cover seven internal ones on purpose. `unknown`, `stopped`, `paused`
+and `offline` all map to `murmur-idle`: the mark answers the coarse question,
+and the exact state is spelled out in words in the first menu item.
 
-## Acceptance before a release
-
-Render every state at 16 and 18 px, read the alpha per pixel, and look at the
-result — not at the source. A glyph whose inner strokes merge is simplified
-here and regenerated; it is never patched inside the product.
-
-That test already rejected four candidates: ring-shaped nodes fill in at 18 px,
-a 4 px edge merges with the nodes into one blob, large nodes without a frame
-swallow the edge, and a 3 px frame on a 40 × 40 square clips at 16 px. The
-failed state was first drawn with a cross on the edge; the cross merged into a
-block and was replaced by the stroke above the break.
+On Windows the same four are used directly, since colour is the native carrier
+there. The hover tooltip must still name the product and the state in words —
+colour alone is not a message.
 
 ## What the file carries besides the paths
 
-`color` on the root gives `currentColor` a value, so opening the file shows the
-mark instead of nothing. `role="img"` with a `<title>` makes it readable by a
-screen reader. `data-schema` names the version, so a consumer can refuse a file
-it does not understand rather than draw something unexpected. The `<use>` at the
-end renders `murmur-ready` with the colour signal, which turns the source into
-its own preview.
+`role="img"` with a `<title>` makes it readable by a screen reader.
+`data-schema` names the version, so a consumer can refuse a file it does not
+understand rather than draw something unexpected. The glyph lives once in a
+`<g>` and is referenced by all four symbols, so a change to the lock or the
+waves cannot apply to three states out of four. The `<use>` at the end renders
+`murmur-ready`, which turns the source into its own preview.
 
-The colour signal is a 6 x 4 rectangle at `x 32 y 5`, `#D92027` — the same red
-the site already uses for the packet travelling along the edge. A template image
-drops it, because a template has no colour; the window header, About and the app
-icon keep it.
+## Acceptance before a release
 
-## Not for the menu bar
+Render every state at 18 and 32 px, read the pixels, and look at the numbers —
+not at the source, and not at a 120 px preview where everything always looks
+fine. A shape whose strokes disappear is thickened here and regenerated; it is
+never patched inside the product.
 
-`docs/images/murmur-logo.svg` is a filled gradient circle. It stays for the
-README and the web page. In a template image it collapses into a solid blot,
-so it never goes into the menu bar or the tray.
+That test already rejected four candidates: the logo with its wordmark (1.6 %
+bright pixels at 18 px, nothing legible), a lock-only variant (legible but it
+drops the waves, and with them the idea of two parties), outline nodes instead
+of a filled circle (no background of its own, so it disappears on a matching
+bar), and a thin-stroke version of this same drawing.
