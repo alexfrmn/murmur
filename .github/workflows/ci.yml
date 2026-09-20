@@ -90,6 +90,8 @@ jobs:
       - name: Tray — vet, build, conformance
         shell: bash
         working-directory: spikes/windows-tray-go
+        env:
+          MURMUR_TRAY_CLIPBOARD_TEST: '1'
         run: |
           go vet ./...
           go build -ldflags "-H windowsgui" -o murmur-tray.exe .

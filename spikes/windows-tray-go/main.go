@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"sync"
 	"time"
 
@@ -425,41 +424,6 @@ func errText(err error) string {
 		return ""
 	}
 	return err.Error()
-}
-
-// toClipboard кладёт текст через clip.exe. Кодировка здесь не мелочь: clip.exe читает
-// stdin как UTF-16LE только при наличии BOM, иначе разбирает байты кодовой страницей
-// консоли и кириллица приезжает мусором.
-func toClipboard(utf8 []byte) error {
-	cmd := exec.Command("cmd", "/c", "clip")
-	in, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	if _, err := in.Write(utf16LEWithBOM(string(utf8))); err != nil {
-		in.Close()
-		return err
-	}
-	in.Close()
-	return cmd.Wait()
-}
-
-func utf16LEWithBOM(s string) []byte {
-	out := []byte{0xff, 0xfe}
-	for _, r := range s {
-		if r > 0xffff {
-			r -= 0x10000
-			hi := 0xd800 + (r >> 10)
-			lo := 0xdc00 + (r & 0x3ff)
-			out = append(out, byte(hi), byte(hi>>8), byte(lo), byte(lo>>8))
-			continue
-		}
-		out = append(out, byte(r), byte(r>>8))
-	}
-	return out
 }
 
 func stampNow(path string) error {
