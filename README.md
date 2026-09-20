@@ -162,6 +162,11 @@ Windows service owns paths into its installed bundle: use the old CLI to uninsta
 that service before installing it with the new CLI, retain the same absolute profile
 path and service name, and do not run `init` or `join` again. The complete sequence,
 including rollback, is in the [manual Windows upgrade](apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100).
+Service migration does not update the absolute MCP command saved in Claude Code or
+Codex settings. Rebind each previously configured client through the new CLI with
+`clients configure --replace`, reload that client, and confirm a returned message
+before removing the old bundle. The maintained guide includes this step; the
+original 2.10.0 ZIP's bundled instructions omit it.
 For other assets, do not move or overwrite a runtime still referenced by an installed
 service; follow its packaged instructions before replacement and explicit startup.
 The CLI update action only opens the release page.

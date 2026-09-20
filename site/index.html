@@ -299,7 +299,7 @@
 
     <p class="after"><a href="https://github.com/alexfrmn/murmur/releases/tag/v2.10.0" data-i18n="releaseLink">open the v2.10.0 release page</a><span data-i18n="releaseAssets">: choose Murmur-Mac-2.10.0-universal.dmg for macOS, Murmur-Windows-2.10.0-x64.zip for Windows x64, or murmur-runtime-2.10.0.zip for the portable CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.</span></p>
     <p class="after"><span data-i18n="manualUpdatePrefix">Murmur does not update itself. Existing Windows service users must follow the</span>
-       <a href="https://github.com/alexfrmn/murmur/blob/v2.10.0/apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100" data-i18n="windowsUpgradeLink">manual upgrade steps</a><span data-i18n="manualUpdateSuffix">: the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. For other assets, follow the packaged instructions before replacing or starting a runtime.</span></p>
+       <a href="https://github.com/alexfrmn/murmur/blob/main/apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100" data-i18n="windowsUpgradeLink">manual upgrade steps</a><span data-i18n="manualUpdateSuffix">: the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. Rebind each configured MCP client with the new CLI and --replace, reload it, and confirm a returned message before removing the old bundle. The linked guide includes this step; the original 2.10.0 ZIP omits it. For other assets, follow the packaged instructions before replacing or starting a runtime.</span></p>
   </div>
 </section>
 
@@ -402,7 +402,7 @@ const I18N = {
     releaseAssets: ': choose Murmur-Mac-2.10.0-universal.dmg for macOS, Murmur-Windows-2.10.0-x64.zip for Windows x64, or murmur-runtime-2.10.0.zip for the portable CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.',
     manualUpdatePrefix: 'Murmur does not update itself. Existing Windows service users must follow the',
     windowsUpgradeLink: 'manual upgrade steps',
-    manualUpdateSuffix: ': the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. For other assets, follow the packaged instructions before replacing or starting a runtime.',
+    manualUpdateSuffix: ': the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. Rebind each configured MCP client with the new CLI and --replace, reload it, and confirm a returned message before removing the old bundle. The linked guide includes this step; the original 2.10.0 ZIP omits it. For other assets, follow the packaged instructions before replacing or starting a runtime.',
     installTag: 'how to install', installTitle1: 'hand this', installTitle2: 'to your agent',
     installLead: 'your agent does the installation. copy the prompt below and hand it over — it has a terminal and can handle the steps. you will need a broker address with a token and another participant on the other side.',
     promptLabel: 'prompt for your agent', copy: 'copy', copied: 'copied',
@@ -515,7 +515,7 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
     releaseAssets: ': для macOS выберите Murmur-Mac-2.10.0-universal.dmg, для Windows x64 — Murmur-Windows-2.10.0-x64.zip, а для переносимого комплекта CLI, демона и MCP-сервера — murmur-runtime-2.10.0.zip. Автоматические архивы GitHub Source code не являются готовым runtime.',
     manualUpdatePrefix: 'Murmur не обновляет себя сам. Пользователям существующей службы Windows нужно выполнить',
     windowsUpgradeLink: 'инструкцию по ручному обновлению',
-    manualUpdateSuffix: ': старая CLI удаляет службу, затем новая CLI устанавливает её с тем же абсолютным путём профиля и тем же именем службы. Не запускайте init или join повторно. Для других артефактов следуйте вложенной инструкции до замены или запуска runtime.',
+    manualUpdateSuffix: ': старая CLI удаляет службу, затем новая CLI устанавливает её с тем же абсолютным путём профиля и тем же именем службы. Не запускайте init или join повторно. Перепривяжите каждый настроенный MCP-клиент новой CLI с --replace, перезагрузите его и дождитесь вернувшегося сообщения до удаления старого комплекта. В инструкции по ссылке этот шаг есть, в исходном ZIP 2.10.0 он пропущен. Для других артефактов следуйте вложенной инструкции до замены или запуска runtime.',
     installTag: 'как поставить', installTitle1: 'отдайте это', installTitle2: 'своему агенту',
     installLead: 'ставит не человек. скопируйте текст ниже и отдайте своему агенту — у него есть терминал, он пройдёт всё сам. от вас понадобится адрес брокера с токеном и второй участник на той стороне.',
     promptLabel: 'промпт для агента', copy: 'скопировать', copied: 'скопировано',
