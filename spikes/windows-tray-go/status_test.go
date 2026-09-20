@@ -115,8 +115,8 @@ func TestEmptyIsNotUnknown(t *testing.T) {
 	if unknown.Level != LevelGrey {
 		t.Errorf("неизмеренные поля должны быть серыми, получен %v (%s)", unknown.Level, unknown.Reason)
 	}
-	if !strings.Contains(unknown.Reason, "Not measured") {
-		t.Errorf("серый обязан назвать, чего он не измерил: %s", unknown.Reason)
+	if strings.Contains(unknown.Reason, "peers.list") {
+		t.Errorf("в человеческом тексте не должно быть внутреннего пути: %s", unknown.Reason)
 	}
 }
 
@@ -133,8 +133,11 @@ func TestZeroIsNotNull(t *testing.T) {
 	if v.Level != LevelGrey {
 		t.Errorf("неизмеренный счётчик отказов должен гасить в серый, получен %v (%s)", v.Level, v.Reason)
 	}
-	if !strings.Contains(v.Reason, "outbox.queue.failed") {
-		t.Errorf("в причине должно быть названо поле: %s", v.Reason)
+	if strings.Contains(v.Reason, "outbox.queue.failed") {
+		t.Errorf("в человеческом тексте не должно быть внутреннего пути: %s", v.Reason)
+	}
+	if len(v.Missing) != 1 || v.Missing[0] != "outbox.queue.failed" {
+		t.Fatalf("диагностический контракт потерял точный путь: %v", v.Missing)
 	}
 }
 
@@ -150,6 +153,8 @@ func TestPairingUnknownIsNotPaired(t *testing.T) {
 	s.Peers.List[0].Paired = &no
 	if v := resolve(s, nil); v.Level != LevelYellow {
 		t.Errorf("подтверждённое отсутствие пары — жёлтый, получен %v (%s)", v.Level, v.Reason)
+	} else if strings.Contains(v.Reason, s.Peers.List[0].AgentID) {
+		t.Errorf("человеческая причина раскрыла идентификатор пира: %s", v.Reason)
 	}
 }
 

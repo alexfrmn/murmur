@@ -282,7 +282,8 @@ struct ProbeChecks {
         let updateCount = try runUpdateChecks()
         let runtimeCount = try runBundledRuntimeChecks()
         let localizationCount = try runLocalizationChecks()
+        let presentationCount = try runStatusPresentationChecks(fixtures: directory, base: base, now: clock)
         let markCount = try runMarkChecks(fixtures: directory)
-        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount + localizationCount + markCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount), localization \(localizationCount), mark \(markCount)")
+        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount + localizationCount + presentationCount + markCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount), localization \(localizationCount), presentation \(presentationCount), mark \(markCount)")
     }
 }

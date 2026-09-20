@@ -46,6 +46,7 @@ type app struct {
 	pinnedAgent                                              string
 	actionBusy                                               bool
 	actionResult                                             string
+	actionErr                                                error
 	mActionStatus                                            *systray.MenuItem
 	mWakeStatus                                              *systray.MenuItem
 	doctor                                                   *Doctor
@@ -55,12 +56,13 @@ type app struct {
 	updateBusy                                               bool
 	updateRequests                                           chan bool
 	preferencesPath                                          string
+	guideSignal                                              *launcherGuideSignal
 	mUpdateState, mUpdateVersion, mUpdateTime, mUpdateReason *systray.MenuItem
 	mUpdatePage, mUpdateEnable, mUpdateDisable               *systray.MenuItem
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
 	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
-	mLanguageRoot, mLangEnglish, mLangRussian         *systray.MenuItem
+	mLanguageRoot, mLangEnglish, mLangRussian, mGuide *systray.MenuItem
 	mHistory                                          []*systray.MenuItem
 	mStages                                           map[string]*systray.MenuItem
 	mRecheck, mPause, mCopy                           *systray.MenuItem
@@ -137,7 +139,12 @@ func main() {
 		}
 		return
 	}
-	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT"), preferencesPath: preferencesPath, actionResult: "action.none"}
+	guideSignal, err := newLauncherGuideSignal(options.launcherStart)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, tr("guide.failed"))
+		os.Exit(1)
+	}
+	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT"), preferencesPath: preferencesPath, actionResult: "action.none", guideSignal: guideSignal}
 	systray.Run(a.onReady, func() {})
 }
 
@@ -195,6 +202,7 @@ func (a *app) onReady() {
 	a.mLanguageRoot = systray.AddMenuItem(tr("language.root"), tr("language.tooltip"))
 	a.mLangEnglish = a.mLanguageRoot.AddSubMenuItem(tr("language.english"), "")
 	a.mLangRussian = a.mLanguageRoot.AddSubMenuItem(tr("language.russian"), "")
+	a.mGuide = systray.AddMenuItem(tr("guide.menu"), tr("guide.tooltip"))
 	a.mQuit = systray.AddMenuItem(tr("menu.quit"), tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
 
@@ -202,6 +210,13 @@ func (a *app) onReady() {
 	go a.refreshDoctor()
 	go a.handleClicks()
 	go a.updateLoop()
+	if a.guideSignal != nil {
+		go func() {
+			if a.guideSignal.wait() && !guideSeenPreference(a.preferencesPath) {
+				a.showGuide()
+			}
+		}()
+	}
 }
 
 func (a *app) refreshStatus() {
@@ -251,10 +266,7 @@ func (a *app) render(v Verdict) {
 	}
 	a.mu.Unlock()
 	systray.SetTooltip(statusTooltip(v, n, available))
-	a.mu.Lock()
-	agentID := a.pinnedAgent
-	a.mu.Unlock()
-	a.mHeader.SetTitle(agentID + ": " + v.Reason)
+	a.mHeader.SetTitle(v.Reason)
 
 	a.renderRecent()
 
@@ -342,28 +354,6 @@ func (a *app) refreshDoctor() {
 	}
 }
 
-// stageLabel: этап, которого в ответе нет, называется отсутствующим. Пустая строка
-// читалась бы как «ок», а это ровно та ложь, ради которой doctor и делается поэтапным.
-func stageLabel(d *Doctor, id string) string {
-	for _, s := range d.Stages {
-		if s.ID != id {
-			continue
-		}
-		label := map[string]string{"ok": tr("stage.ok"), "warn": tr("stage.warn"), "fail": tr("stage.fail"), "skip": tr("stage.skip")}[s.State]
-		if label == "" {
-			label = s.State
-		}
-		if s.ElapsedMs > 0 {
-			label = tr("stage.elapsed", label, s.ElapsedMs)
-		}
-		if s.State != "ok" && s.Detail != "" {
-			label += ": " + s.Detail
-		}
-		return label
-	}
-	return tr("stage.missing")
-}
-
 func (a *app) handleClicks() {
 	for {
 		select {
@@ -387,6 +377,8 @@ func (a *app) handleClicks() {
 			a.changeLocale(localeEnglish)
 		case <-a.mLangRussian.ClickedCh:
 			a.changeLocale(localeRussian)
+		case <-a.mGuide.ClickedCh:
+			go a.showGuide()
 		case <-a.mQuit.ClickedCh:
 			if confirmTrayExit() {
 				systray.Quit()
@@ -440,12 +432,14 @@ func (a *app) runCLI(args ...string) {
 	if err != nil {
 		a.mu.Lock()
 		a.actionResult = "action.failed"
+		a.actionErr = err
 		a.mu.Unlock()
 		a.mActionStatus.SetTitle(tr("action.failed"))
-		a.mActionStatus.SetTooltip(err.Error())
+		a.mActionStatus.SetTooltip(tr("action.failedTooltip"))
 	} else {
 		a.mu.Lock()
 		a.actionResult = "action.success"
+		a.actionErr = nil
 		a.mu.Unlock()
 		a.mActionStatus.SetTitle(tr("action.success"))
 		a.mActionStatus.SetTooltip("")
@@ -460,6 +454,7 @@ func (a *app) copyDiagnostics() {
 		"statusError": errText(a.statusErr),
 		"doctor":      a.doctor,
 		"doctorError": errText(a.doctorErr),
+		"actionError": errText(a.actionErr),
 	}
 	a.mu.Unlock()
 
@@ -502,21 +497,7 @@ func stampNow(path string) error {
 // вопрос «что произошло», который цвет дать не может.
 func (a *app) renderRecent() {
 	a.mu.Lock()
-	var lines []string
-	if a.status != nil {
-		for _, d := range a.status.Deliveries {
-			if d.Direction != "inbound" {
-				continue
-			}
-			lines = append(lines, d.Peer+" — "+d.At)
-			if len(lines) == recentLines {
-				break
-			}
-		}
-		if len(lines) == 0 && a.status.Inbox.Total != nil && *a.status.Inbox.Total == 0 {
-			lines = append(lines, tr("recent.none"))
-		}
-	}
+	lines := recentLinesForStatus(a.status)
 	a.mu.Unlock()
 
 	for i, item := range a.mRecent {
@@ -577,6 +558,8 @@ func (a *app) applyLocale() {
 	a.mLanguageRoot.SetTooltip(tr("language.tooltip"))
 	a.mLangEnglish.SetTitle(tr("language.english"))
 	a.mLangRussian.SetTitle(tr("language.russian"))
+	a.mGuide.SetTitle(tr("guide.menu"))
+	a.mGuide.SetTooltip(tr("guide.tooltip"))
 	a.mQuit.SetTitle(tr("menu.quit"))
 	a.mQuit.SetTooltip(tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
@@ -595,5 +578,18 @@ func (a *app) applyLocale() {
 			label = stageLabel(d, stage.id)
 		}
 		a.mStages[stage.id].SetTitle(tr(stage.messageKey) + " — " + label)
+	}
+}
+
+func (a *app) showGuide() {
+	dismissed, err := showNativeGuide()
+	if err != nil {
+		systray.SetTooltip(tr("guide.failed"))
+		return
+	}
+	if dismissed {
+		if err := saveGuideSeenPreference(a.preferencesPath); err != nil {
+			systray.SetTooltip(tr("guide.saveFailed"))
+		}
 	}
 }

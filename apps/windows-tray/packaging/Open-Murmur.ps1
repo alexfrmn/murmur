@@ -162,9 +162,16 @@ public static class MurmurTrayActivation {
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr param);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr param);
     [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern int GetClassNameW(IntPtr hwnd, StringBuilder name, int length);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern int GetWindowTextW(IntPtr hwnd, StringBuilder text, int length);
     [DllImport("user32.dll", SetLastError=true)] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool AllowSetForegroundWindow(uint processId);
     [DllImport("user32.dll", SetLastError=true)] private static extern bool PostMessageW(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll", SetLastError=true)] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll", SetLastError=true)] private static extern bool ShowWindow(IntPtr hwnd, int command);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern IntPtr OpenEventW(uint desiredAccess, bool inheritHandle, string name);
+    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool SetEvent(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError=true)] private static extern bool CloseHandle(IntPtr handle);
     [DllImport("shell32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
     private static extern void SHChangeNotify(int eventId, uint flags, [MarshalAs(UnmanagedType.LPWStr)] string item1, IntPtr item2);
     public static IntPtr[] Find(uint processId, string className) {
@@ -177,6 +184,17 @@ public static class MurmurTrayActivation {
         }, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
         return found.ToArray();
     }
+    private static IntPtr[] FindGuide(uint processId) {
+        var found = new List<IntPtr>();
+        if (!EnumWindows(delegate(IntPtr hwnd, IntPtr param) {
+            uint owner; if (GetWindowThreadProcessId(hwnd, out owner) == 0 || owner != processId || !IsWindowVisible(hwnd)) return true;
+            var name = new StringBuilder(256); var title = new StringBuilder(256);
+            if (GetClassNameW(hwnd, name, name.Capacity) > 0 && String.Equals(name.ToString(), "#32770", StringComparison.Ordinal) &&
+                GetWindowTextW(hwnd, title, title.Capacity) > 0 && String.Equals(title.ToString(), "Murmur", StringComparison.Ordinal)) found.Add(hwnd);
+            return true;
+        }, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return found.ToArray();
+    }
     public static void Open(IntPtr hwnd, uint processId, string className) {
         const uint WM_USER = 0x0400, WM_RBUTTONUP = 0x0205;
         uint owner;
@@ -184,8 +202,21 @@ public static class MurmurTrayActivation {
         if (GetWindowThreadProcessId(hwnd, out owner) == 0 || owner != processId ||
             GetClassNameW(hwnd, name, name.Capacity) == 0 || !String.Equals(name.ToString(), className, StringComparison.Ordinal))
             throw new InvalidOperationException("The tray control window changed before activation.");
+        var guides = FindGuide(processId);
+        if (guides.Length > 1) throw new InvalidOperationException("Multiple Murmur guide windows matched the running tray; activation was refused.");
         AllowSetForegroundWindow(processId);
+        if (guides.Length == 1) {
+            ShowWindow(guides[0], 9);
+            if (!SetForegroundWindow(guides[0])) throw new InvalidOperationException("The Murmur guide is open, but Windows did not allow it to be brought to the foreground.");
+            return;
+        }
         if (!PostMessageW(hwnd, WM_USER + 1, UIntPtr.Zero, new IntPtr((int)WM_RBUTTONUP))) throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+    public static void SignalGuideReady(uint processId) {
+        var handle = OpenEventW(0x0002, false, "Local\\MurmurGuideReady-" + processId);
+        if (handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try { if (!SetEvent(handle)) throw new Win32Exception(Marshal.GetLastWin32Error()); }
+        finally { CloseHandle(handle); }
     }
     public static void ShortcutCreated(string path) { SHChangeNotify(0x00000002, 0x00001005, path, IntPtr.Zero); }
     public static void ShortcutDeleted(string path) { SHChangeNotify(0x00000004, 0x00001005, path, IntPtr.Zero); }
@@ -362,6 +393,7 @@ try {
         $null=Get-TrayWindow ([int]$process.ProcessId)
         $created=@(Install-MissingShortcuts $shortcutPlan)
         Write-LauncherState $statePath $process $probe.agentId
+        [MurmurTrayActivation]::SignalGuideReady([uint32]$process.ProcessId)
     }catch{
         Remove-CreatedShortcuts $created
         if($null -ne $process){Stop-VerifiedTrayProcess $process}
