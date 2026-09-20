@@ -208,6 +208,11 @@ func str(p *string) string {
 // измерить не удалось; неизмеренное поле не даёт объявить зелёное и не затыкает уже
 // известное.
 func resolve(s *Status, err error) Verdict {
+	// Independent startup work (such as a cached update check) can render before
+	// the first status arrives. No observation is unknown, never healthy.
+	if s == nil && err == nil {
+		return Verdict{Level: LevelGrey, Code: "status.unavailable", Reason: "статус ещё не снят"}
+	}
 	if err != nil {
 		code := "status.unavailable"
 		var se *statusError

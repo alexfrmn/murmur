@@ -40,15 +40,21 @@ var doctorStages = []struct{ id, title string }{
 }
 
 type app struct {
-	mu            sync.Mutex
-	status        *Status
-	statusErr     error
-	pinnedAgent   string
-	actionBusy    bool
-	mActionStatus *systray.MenuItem
-	mWakeStatus   *systray.MenuItem
-	doctor        *Doctor
-	doctorErr     error
+	mu                                                       sync.Mutex
+	status                                                   *Status
+	statusErr                                                error
+	pinnedAgent                                              string
+	actionBusy                                               bool
+	mActionStatus                                            *systray.MenuItem
+	mWakeStatus                                              *systray.MenuItem
+	doctor                                                   *Doctor
+	doctorErr                                                error
+	updates                                                  *updateSnapshot
+	updateErr                                                error
+	updateBusy                                               bool
+	updateRequests                                           chan bool
+	mUpdateState, mUpdateVersion, mUpdateTime, mUpdateReason *systray.MenuItem
+	mUpdatePage, mUpdateEnable, mUpdateDisable               *systray.MenuItem
 
 	mHeader  *systray.MenuItem
 	mHistory []*systray.MenuItem
@@ -159,11 +165,14 @@ func (a *app) onReady() {
 	a.mSvcLogs = svc.AddSubMenuItem("Каталог журналов недоступен в CLI", "Windows logs path пока не подтверждает native-каталог")
 	a.mSvcLogs.Disable()
 	systray.AddSeparator()
+	a.setupUpdates()
+	systray.AddSeparator()
 	a.mQuit = systray.AddMenuItem("Выход", "закрыть значок; служба продолжит работать")
 
 	go a.pollLoop()
 	go a.refreshDoctor()
 	go a.handleClicks()
+	go a.updateLoop()
 }
 
 func (a *app) refreshStatus() {
@@ -200,7 +209,11 @@ func (a *app) render(v Verdict) {
 	case LevelGreen:
 		base = colGreen
 	}
-	systray.SetIcon(iconBytes(base, v.Unread))
+	a.mu.Lock()
+	available := !a.updateBusy && a.updateErr == nil && a.updates.page(time.Now()) != ""
+	a.mu.Unlock()
+	systray.SetIcon(iconBytes(base, v.Unread, available))
+	a.renderUpdateState()
 
 	tip := "Murmur — " + v.Reason
 	if v.Unread {
@@ -341,6 +354,12 @@ func (a *app) handleClicks() {
 			go a.runCLI("service", "start")
 		case <-a.mSvcStop.ClickedCh:
 			go a.runCLI("service", "stop")
+		case <-a.mUpdatePage.ClickedCh:
+			a.openUpdatePage()
+		case <-a.mUpdateEnable.ClickedCh:
+			a.requestUpdatePreference(true)
+		case <-a.mUpdateDisable.ClickedCh:
+			a.requestUpdatePreference(false)
 		case <-a.mQuit.ClickedCh:
 			systray.Quit()
 			return
