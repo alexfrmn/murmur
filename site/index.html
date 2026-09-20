@@ -348,6 +348,10 @@
         <h3 data-i18n="secretTroubleTitle">sharing an invite or debug sample</h3>
         <p data-i18n="secretTroubleBody">an invitation can contain broker credentials. treat the whole blob like a password and use a trusted private channel. do not paste it into a public issue or chat.</p>
       </div>
+      <div class="fact">
+        <h3 data-i18n="notchTroubleTitle">the app is running, but there is no icon</h3>
+        <p data-i18n="notchTroubleBody">on a laptop with a camera notch, macOS can place the menu bar item inside the notch itself. the app runs, the item exists, no pixels are drawn, and nothing reports it: the visibility flag returns true for a hidden icon as well. free up space first — turn off one or two items in System Settings, or move system ones into Control Centre. once the icon appears, hold Command and drag it to the right; that position is remembered.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -419,6 +423,8 @@ const I18N = {
     pairTroubleBody: 'importing the reply blob confirms only your side. send a test message and require a message back. the round trip is the proof.',
     secretTroubleTitle: 'sharing an invite or debug sample',
     secretTroubleBody: 'an invitation can contain broker credentials. treat the whole blob like a password and use a trusted private channel. do not paste it into a public issue or chat.',
+    notchTroubleTitle: 'the app is running, but there is no icon',
+    notchTroubleBody: 'on a laptop with a camera notch, macOS can place the menu bar item inside the notch itself. the app runs, the item exists, no pixels are drawn, and nothing reports it: the visibility flag returns true for a hidden icon as well. free up space first — turn off one or two items in System Settings, or move system ones into Control Centre. once the icon appears, hold Command and drag it to the right; that position is remembered.',
     murmuration: 'murmuration — thousands of birds moving as one, without agreeing on a plan.',
     footer: 'murmur · open source under the MIT license: free to use, change, and share',
     schemaBoxes: [
@@ -532,6 +538,8 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
     pairTroubleBody: 'импорт ответного блоба подтверждает только вашу сторону. отправьте тестовое сообщение и дождитесь сообщения в ответ. доказательство — полный круг.',
     secretTroubleTitle: 'передаёте инвайт или пример для отладки',
     secretTroubleBody: 'в приглашении могут быть реквизиты брокера. считайте весь блоб паролем и передавайте по доверенному личному каналу. не вставляйте его в публичный issue или чат.',
+    notchTroubleTitle: 'приложение работает, а значка нет',
+    notchTroubleBody: 'на ноутбуке с вырезом камеры macOS может поставить значок строки меню в сам вырез. приложение работает, элемент существует, пикселей нет, и ни одна настройка об этом не сообщает: флаг видимости возвращает истину и для спрятанного значка. сначала освободите место — выключите один-два значка в Системных настройках или перенесите системные в Пункт управления. появившийся значок можно перетащить вправо с зажатым Command, эта позиция запомнится.',
     murmuration: 'murmuration — то, как тысячи птиц движутся одним телом, не сговариваясь.',
     footer: 'murmur · открытый код, лицензия MIT: можно брать, менять и использовать свободно',
     schemaBoxes: [
