@@ -42,6 +42,118 @@ The native service helper separately checks profile ownership.
 This wrapper is not an updater, an installer or a GUI onboarding wizard. Login,
 reboot, browser warnings and actual GUI clicks have separate acceptance records.
 
+## Manual upgrade from 2.9.0 to 2.10.0
+
+The update badge opens the release page; it does not download, install or restart
+Murmur. Keep the old bundle until the new service and tray have both been verified.
+Use the same absolute profile path and service name throughout the upgrade. **Do not
+run `init` or `join` again:** the existing profile contains the identity, private
+keys, peer configuration and database that the new runtime must continue to use.
+These steps apply to a companion bundle with `service uninstall` support, including
+the September 2.9.0 delivery candidates. Older source installations need their
+original service manager's removal procedure; do not assume the old v2.9.0 tag
+contains these CLI commands.
+
+1. Record the existing profile path and service name. In the old tray, choose
+   **Quit**. This closes the tray only; the service continues running.
+2. Extract the 2.10.0 ZIP into a new directory, separate from the 2.9.0 bundle and
+   the profile. Do not overwrite or delete the old bundle yet. Verify the extracted
+   ZIP against the release's published SHA-256 first. Then open PowerShell as
+   administrator under the same Windows user that owns the profile and keep this
+   terminal open through step 4. The extracted-bundle checker below also executes
+   both native programs with `--version`:
+
+   ```powershell
+   $OldBundle = 'C:\Murmur\2.9.0'
+   $NewBundle = 'C:\Murmur\2.10.0'
+   $DataDir = Join-Path $env:LOCALAPPDATA 'Murmur'
+   $ServiceName = 'MurmurDaemon'
+   $OldCli = Join-Path $OldBundle 'runtime\packages\setup\bin\murmur.mjs'
+   $NewCli = Join-Path $NewBundle 'runtime\packages\setup\bin\murmur.mjs'
+
+   Expand-Archive -LiteralPath "$env:USERPROFILE\Downloads\Murmur-Windows-2.10.0-x64.zip" -DestinationPath $NewBundle
+   Push-Location $NewBundle
+   node .\check-windows-bundle.mjs .
+   $Verified = $LASTEXITCODE
+   Pop-Location
+   if ($Verified -ne 0) { throw 'Bundle verification failed; stop here.' }
+   ```
+
+   Replace the example paths and `MurmurDaemon` with the values used by the existing
+   installation. A custom service name must remain explicit in every command.
+3. In the same elevated terminal, uninstall with the **old 2.9.0 CLI** so it can verify and remove the SCM
+   registration that points to the old helper. This stops the service, removes its
+   registration and helper metadata, and retains the private profile and logs:
+
+   ```powershell
+   node $OldCli service uninstall --data-dir $DataDir --service-name $ServiceName --json
+   if ($LASTEXITCODE -ne 0) { throw 'Old service removal failed; stop here.' }
+   ```
+
+4. Install with the **new 2.10.0 CLI**, using exactly the same profile and service
+   name. Installation starts the service and confirms the daemon before returning
+   success. Then verify the live status and declared version:
+
+   ```powershell
+   node $NewCli service install --data-dir $DataDir --service-name $ServiceName --json
+   if ($LASTEXITCODE -ne 0) { throw 'New service installation failed; see rollback below.' }
+   node $NewCli status --data-dir $DataDir --service-name $ServiceName --json
+   node $NewCli version --json
+   ```
+
+5. Open an ordinary, non-administrator PowerShell terminal. Set the same values
+   again in that terminal, then start the new tray with that binding:
+
+   ```powershell
+   $NewBundle = 'C:\Murmur\2.10.0'
+   $DataDir = Join-Path $env:LOCALAPPDATA 'Murmur' # use your existing absolute profile
+   $ServiceName = 'MurmurDaemon'                # use your existing exact service name
+   & (Join-Path $NewBundle 'Open-Murmur.cmd') -DataDir $DataDir -ServiceName $ServiceName
+   ```
+
+   Confirm the expected identity, service state and version before removing the old
+   bundle. If the new installation fails, leave `$DataDir` untouched and keep its
+   error output. Return to the elevated terminal from steps 2–4. If a partial new service remains, uninstall it with `$NewCli`; then
+   restore the old service with the retained bundle:
+
+   ```powershell
+   node $NewCli service uninstall --data-dir $DataDir --service-name $ServiceName --json
+   node $OldCli service install --data-dir $DataDir --service-name $ServiceName --json
+   ```
+
+### Ручное обновление с 2.9.0 до 2.10.0
+
+Индикатор обновления только открывает страницу релиза: Murmur не скачивает и не
+устанавливает обновление автоматически. До полной проверки новой службы и значка
+сохраните комплект 2.9.0. Во всех командах используйте прежние абсолютный путь
+профиля (`$DataDir`) и имя службы (`$ServiceName`). **Не запускайте `init` или `join`
+повторно:** существующий профиль хранит личность, закрытые ключи, настройки пиров и
+базу данных.
+Инструкция относится к комплектам с `service uninstall`, включая сентябрьские
+кандидаты 2.9.0. В старом теге v2.9.0 этих команд ещё нет; для старой установки из
+исходников используйте её прежний способ удаления службы.
+
+1. Запишите текущие `DataDir` и `ServiceName`, затем выберите **Quit** в старом
+   значке. Значок закроется, а служба продолжит работать.
+2. Распакуйте ZIP 2.10.0 в новый каталог отдельно от комплекта 2.9.0 и профиля.
+   Не перезаписывайте и не удаляйте старый комплект. Сначала сверьте SHA-256 ZIP с
+   опубликованной суммой. Откройте PowerShell от имени администратора под владельцем
+   профиля, задайте переменные и выполните первый блок выше с вашими путями и именем
+   службы. Проверка запускает оба EXE с `--version`. Этот терминал оставьте открытым
+   до завершения шага 4; при ошибке остановитесь.
+3. В том же терминале выполните `service uninstall` через `$OldCli` из
+   шага 3 выше: старая CLI проверит привязанную к старому EXE службу, остановит и
+   удалит её, сохранив приватный профиль и журналы.
+4. Выполните `service install`, `status` и `version` через `$NewCli`, как в шаге 4.
+   Передавайте те же `$DataDir` и `$ServiceName`; установка сама запускает службу и
+   подтверждает работу демона.
+5. В новом обычном PowerShell без повышения прав повторно задайте прежние значения
+   и запустите `Open-Murmur.cmd` блоком из шага 5. Удаляйте комплект 2.9.0
+   только после проверки личности, состояния службы и версии. Если установка 2.10.0
+   завершилась ошибкой, не меняйте профиль: удалите оставшуюся новую службу через
+   `$NewCli`, если она существует, и восстановите старую через `$OldCli` командами
+   отката выше в сохранённом терминале администратора.
+
 ## Release bundle recipe
 
 Maintainers build the complete companion on Windows from one committed Git ref:

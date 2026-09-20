@@ -410,7 +410,7 @@ struct MurmurMenuBarApp: App {
             Button(model.operating ? L10n.text("Working…") : model.wakeAction.title) { model.perform(model.wakeAction) }
                 .disabled(!model.canControl || model.status?.wake.config.enabled == nil)
             Button(L10n.text("Open inbox")) {}.disabled(true)
-            Text(L10n.text("Inbox viewing is not supported by Murmur CLI yet"))
+            Text(L10n.text("Inbox viewing is not available in this Mac app yet"))
             Button(L10n.text("Copy diagnostics")) { model.copyDiagnostics() }
             Menu(L10n.text("Service")) {
                 Button(L10n.text("Start")) { model.perform(.start) }.disabled(!model.canControl)

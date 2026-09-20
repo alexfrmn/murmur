@@ -78,7 +78,7 @@
 "GitHub receives your IP address and sees that you use Murmur" = "GitHub узнаёт ваш IP и факт использования Murmur";
 "GitHub returned an error" = "GitHub вернул ошибку";
 "In the dead-letter queue: %@" = "В очереди недоставленных: %@";
-"Inbox viewing is not supported by Murmur CLI yet" = "Просмотр inbox ещё не поддерживается Murmur CLI";
+"Inbox viewing is not available in this Mac app yet" = "Просмотр входящих в этом приложении для Mac пока недоступен";
 "Invalid command timeout" = "Недопустимое время ожидания команды";
 "Invalid diagnostics: step %@ must be skipped after %@ failed" = "Некорректная проверка: этап %@ должен быть пропущен после отказа %@";
 "Invalid response: expected a skipped step after %@ failed" = "Некорректный ответ: после отказа %@ ожидался пропуск";
