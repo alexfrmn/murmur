@@ -97,6 +97,15 @@ has released it. If the platform cannot inspect profile use, migration fails wit
 and daemon-observation checks are repeated under the setup write lock immediately
 before mutation; they are point-in-time evidence rather than a lifetime lock.
 
+`migration.runtime-unverifiable` means the saved daemon observation could not be
+read, did not identify this profile, or its recorded process could not be
+checked. The config remains unchanged. Check that you selected the intended
+profile, then inspect its `daemon-observation.json` and the recorded process
+state without editing either. Stop a confirmed service or standalone daemon
+through its normal controls. If the observation cannot be reconciled with the
+profile, keep the files and request diagnosis; deleting the observation or
+recreating the profile is not a migration step.
+
 Unix probes include visible processes belonging to other users, including root;
 private profile permissions do not exclude privileged holders. Missing process
 coverage, inaccessible file descriptors, process churn or truncated output leave

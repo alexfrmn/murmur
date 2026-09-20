@@ -9,7 +9,8 @@ import { createLinuxAdapter } from '../packages/setup/dist/src/platform/linux.js
 const unixOnly = { skip: typeof process.getuid !== 'function' };
 
 async function contextFixture(t) {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-profile-usage-'));
+  // macOS temp roots may use /var aliases; selected profile contexts are canonical.
+  const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-profile-usage-')));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   const dataDir = path.join(home, 'profile');
   const repoRoot = path.join(home, 'repo');

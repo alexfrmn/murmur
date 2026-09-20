@@ -131,7 +131,16 @@ test('migration refuses a live or malformed daemon observation even when a probe
   await fs.writeFile(path.join(dir,'daemon-observation.json'),JSON.stringify({schema:'murmur.runtime/1',agentId:'agent-a',pid:process.pid,storePath:context.storePath}),{mode:0o600});
   await assert.rejects(migrateBroker(context,adapter,{brokerUrl:'tls://broker.example:4222',apply:true}),/migration.profile-in-use/);
   await fs.writeFile(path.join(dir,'daemon-observation.json'),'{}',{mode:0o600});
-  await assert.rejects(migrateBroker(context,adapter,{brokerUrl:'tls://broker.example:4222',apply:true}),/migration.runtime-unverifiable/);
+  let refusal;
+  await assert.rejects(migrateBroker(context,adapter,{brokerUrl:'tls://broker.example:4222',apply:true}),error=>{
+    refusal=error;return error.message==='migration.runtime-unverifiable';
+  });
+  const explanation=cliErrorText(refusal);
+  assert.match(explanation,/could not verify the daemon observation/);
+  assert.match(explanation,/files were kept/);
+  assert.match(explanation,/Do not delete the observation or recreate the profile/);
+  for(const hidden of [dir,legacy.keys.encryption.privateKey,legacy.keys.signing.privateKey]) assert.ok(!explanation.includes(hidden));
+  assert.equal(await fs.readFile(path.join(dir,'daemon-observation.json'),'utf8'),'{}');
   assert.deepEqual(await fs.readFile(context.configPath),before);assert.equal((await fs.readdir(dir)).filter(x=>x.startsWith('agent-config.backup-')).length,0);
 });
 

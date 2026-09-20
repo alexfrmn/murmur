@@ -15,5 +15,11 @@ export function cliErrorText(error: unknown): string {
       + 'This build cannot force migration when profile use is unknown. '
       + 'Details: https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md#migrating-an-existing-broker';
   }
+  if (code === 'migration.runtime-unverifiable') {
+    return code + '\nMurmur could not verify the daemon observation for the selected profile. '
+      + 'Migration stopped; your files were kept. Check the selected profile, its daemon observation and process state before retrying. '
+      + 'Do not delete the observation or recreate the profile to bypass this check. '
+      + 'Details: https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md#migrating-an-existing-broker';
+  }
   return code;
 }

@@ -133,6 +133,18 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Install isolated TLS test broker
+        run: |
+          GOBIN="$RUNNER_TEMP/nats-bin" go install github.com/nats-io/nats-server/v2@v2.10.22
+          "$RUNNER_TEMP/nats-bin/nats-server" --version
+          openssl version
+          echo "$RUNNER_TEMP/nats-bin" >> "$GITHUB_PATH"
+
       - name: Unit tests
         run: node --test tests/*.test.mjs
 

@@ -60,9 +60,10 @@ Core owns transport validation: remote plaintext fails with
 `nats-plaintext-non-loopback-rejected`; only exact loopback hosts may use
 `nats://`; TLS certificate and hostname validation cannot be disabled. A remote
 `tls://` token profile remains technically connectable for migration, but it
-does not satisfy the per-peer credential cutover policy. The current canonical
-setup CLI exposes token-file input only, so adding user/password and TLS-file
-inputs there is a merge gate for this cutover.
+does not satisfy the per-peer credential cutover policy. The canonical setup CLI
+accepts a token file or paired user/password files, plus a CA file and server
+name. It does not expose client certificate/key inputs; deployments requiring
+mutual TLS need that additional setup support before cutover.
 
 ## Server policy
 
