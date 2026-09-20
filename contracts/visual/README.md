@@ -55,6 +55,24 @@ On Windows the same four are used directly, since colour is the native carrier
 there. The hover tooltip must still name the product and the state in words —
 colour alone is not a message.
 
+## Contrast is part of the palette, not an afterthought
+
+Every circle colour clears 3:1 against a light bar (`#f3f3f3`), against a dark
+bar (`#202020`), and against the white glyph drawn on top of it. Both ends of
+each gradient are checked, not just the midpoint.
+
+| gradient | light bar | dark bar | white glyph |
+|---|---|---|---|
+| ready `#6366f1` → `#8b5cf6` | 4.03 / 3.82 | 3.65 / 3.85 | 4.47 / 4.23 |
+| idle `#6b6b70` → `#85858b` | 4.78 / 3.31 | 3.07 / 4.44 | 5.30 / 3.67 |
+| failed `#c0392b` → `#D92027` | 4.52 / 4.90 | 3.00 / 3.25 | — |
+
+The grey started lighter, at `#8a8a8e` → `#a0a0a6`, and failed: the light end
+gave 2.34 against a light bar and 2.60 against the white glyph. Grey is the
+state a person sees most often before anything is set up, so it is the last
+one that may be hard to see. Antialiased edges are of course weaker than the
+body; these numbers describe the fill, and a universal guarantee is not claimed.
+
 ## What the file carries besides the paths
 
 `role="img"` with a `<title>` makes it readable by a screen reader.
@@ -70,10 +88,15 @@ The unread dot covers part of the outer right wave. That is the source, not a
 rendering fault, and it stays: the dot has to be the loudest thing on the icon,
 and an unread mark that yields to decoration is not a mark.
 
-Measured at 32 px, the overlap costs nothing legible. In the box the right wave
-occupies, `ready` has 45 white pixels and `unread` has 52 — the dot's white ring
-puts back more than the red circle takes. The lock and the inner wave are
-untouched and are tested separately.
+What the overlap does not cost is the meaning. The lock and the inner wave are
+untouched, and they carry the idea on their own.
+
+A first measurement here counted 45 white pixels in the box the right wave
+occupies for `ready` against 52 for `unread`, and read that as "nothing lost".
+That number proves nothing: the dot's own ring is white too, so it inflates the
+same count it was supposed to test. Legibility of the covered wave is confirmed
+by comparing renders and by checking control pixels of the inner wave and the
+lock, not by a white-pixel total over a region that contains the badge.
 
 A smaller dot was tried (`r 18`, moved outward): it clears the wave but drops
 from 72 red pixels to 47, which is the wrong trade. Do not "fix" this overlap

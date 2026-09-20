@@ -8,7 +8,7 @@
       <stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#8b5cf6"/>
     </linearGradient>
     <linearGradient id="murmur-quiet" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#8a8a8e"/><stop offset="100%" stop-color="#a0a0a6"/>
+      <stop offset="0%" stop-color="#6b6b70"/><stop offset="100%" stop-color="#85858b"/>
     </linearGradient>
     <linearGradient id="murmur-alarm" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#c0392b"/><stop offset="100%" stop-color="#D92027"/>
