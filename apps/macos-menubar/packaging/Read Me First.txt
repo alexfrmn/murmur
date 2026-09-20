@@ -2,7 +2,11 @@ Murmur for Mac
 
 1. Move Murmur to Applications.
 2. Open Murmur from Applications.
-3. Use the Murmur icon in the menu bar to choose your profile folder.
+3. In the Murmur window, choose your existing profile folder.
+
+Click the menu bar icon to open or hide the window; right-click for quick actions.
+If the icon is hidden, open Murmur again from Applications or press Control–Option–Command–M.
+Before choosing a profile, the quick menu contains only Choose profile folder and Quit.
 
 The app includes the Murmur engine. Opening it requires no Terminal commands or code build.
 Creating a profile, connecting your agent client and installing its background service
@@ -10,7 +14,7 @@ still use Murmur CLI. The app does not create a profile or install a service aut
 
 A compatible Node.js installation is required. If it is missing or too old, Murmur
 shows a link to the official Node.js website and a Try again button.
-English is the default app language. Choose Language → Русский to switch to Russian.
+English is the default app language. Choose Settings → Language → Русский to switch to Russian.
 macOS dialogs use your system language.
 
 First opening
