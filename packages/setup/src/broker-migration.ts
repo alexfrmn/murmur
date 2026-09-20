@@ -72,6 +72,12 @@ async function restoreAfterWriteFailure(c: ServiceContext, backup: string, origi
 
 export async function migrateBroker(c: ServiceContext, adapter: PlatformAdapter, options: BrokerMigrationOptions) {
   if (!options.brokerUrl) throw new Error('migration.broker-url-required');
+  // Do not silently change path-derived service identity when resolving a Unix alias.
+  // Refuse before preview, lock creation or any service operation; the user can
+  // inspect the physical path and retain an explicit existing service name.
+  if (process.platform !== 'win32' && await realpath(c.dataDir) !== c.dataDir) {
+    throw new Error('migration.profile-path-aliased');
+  }
   const preview = await candidate(c, options);
   const changed = !isDeepStrictEqual(preview.before, preview.after);
   if (!options.apply) return { schema:'murmur.broker-migration/1', applied:false, changed, restartRequired:changed, backup:null,

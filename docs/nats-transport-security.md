@@ -53,9 +53,9 @@ The profile mapping is mechanical: `natsUrl` becomes `url`, `natsToken` becomes
 becomes `tls`. Token and user/password authentication are mutually exclusive.
 Callers must not rebuild this validation or pass raw `nats.js` TLS options.
 
-Setup and packaging own filesystem validation: accept credentials and CA/client
-certificate material through private-file inputs, resolve file paths to absolute
-paths before writing the selected profile, and preserve the cert/key pairing.
+Setup owns credential-file inputs and validation of configured TLS file paths.
+CLI file inputs must use absolute paths; credential files must be private.
+Profiles must keep client certificate/key paths paired.
 Core owns transport validation: remote plaintext fails with
 `nats-plaintext-non-loopback-rejected`; only exact loopback hosts may use
 `nats://`; TLS certificate and hostname validation cannot be disabled. A remote

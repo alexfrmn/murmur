@@ -3,6 +3,12 @@ import { safeError } from './config.js';
 /** Human stderr only; structured consumers retain the stable error code. */
 export function cliErrorText(error: unknown): string {
   const code = safeError(error);
+  if (code === 'migration.profile-path-aliased') {
+    return code + '\nThe selected profile path contains a filesystem alias. Migration stopped; your files were kept. '
+      + 'Find its canonical path with the read-only command in the guide, then retry with that path. '
+      + 'Keep the existing service name explicit if the service was registered using an alias. '
+      + 'Steps: https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md#profile-path-aliases';
+  }
   if (code === 'migration.profile-hard-linked') {
     return code + '\nA profile file has another hard-link name. Migration stopped; your files were kept. '
       + 'Inspect files with multiple links in the selected profile, then locate their other names on the same volume. '

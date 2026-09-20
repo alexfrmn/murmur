@@ -116,6 +116,25 @@ icon does not stop the service or MCP processes inside configured clients. A
 supported privileged probe or a separate migration procedure is needed before
 that restriction can be lifted.
 
+### Profile path aliases
+
+On macOS and Linux, `migration.profile-path-aliased` means that the selected
+path resolves through a filesystem alias, including a parent-directory link.
+Both preview and apply stop before changing files or inspecting the service.
+Print the canonical path without changing the profile:
+
+```sh
+node -e "console.log(require('node:fs').realpathSync(process.argv[1]))" '/absolute/path/to/selected/profile'
+```
+
+Use that output as `--data-dir` and preview again. The default service name is
+derived from the supplied path. If the existing service was registered through
+an alias, retain its known name with `--service-name EXISTING_SERVICE_NAME` in
+the migration command; do not install a second service. If its name is unknown,
+identify it from the existing service registration before applying. Resolving
+the path does not establish that the profile is free: all usage checks still
+apply. No identity or profile recreation is required.
+
 ### Files with more than one name
 
 `migration.profile-hard-linked` means a regular file in the selected profile has
