@@ -105,6 +105,7 @@ test('Windows launcher gives actionable guidance when Node is missing', { skip: 
       timeout: 20_000, encoding: 'utf8', windowsHide: true,
       env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, PATH: dir, TEMP: dir, TMP: dir, LOCALAPPDATA: dir },
     });
+    assert.equal(result.error, undefined, String(result.error));
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout, /Install Node\.js 22\.13\.0 or newer/);
     assert.doesNotMatch(result.stdout, /Get-Command/i);

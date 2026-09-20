@@ -11,6 +11,17 @@ $ErrorActionPreference='Stop'
 function Quote-Argument([string]$value) {
     return '"' + [regex]::Replace([regex]::Replace($value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1') + '"'
 }
+function Find-NodeExecutable {
+    $pathValue=[Environment]::GetEnvironmentVariable('PATH','Process')
+    if([string]::IsNullOrWhiteSpace($pathValue)){return $null}
+    foreach($entry in @($pathValue -split ';')) {
+        $directory=[Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
+        if(-not $directory){continue}
+        try{$candidate=[IO.Path]::GetFullPath([IO.Path]::Combine($directory,'node.exe'))}catch{continue}
+        if([IO.File]::Exists($candidate)){return $candidate}
+    }
+    return $null
+}
 function Start-Bound([string]$file, [string[]]$arguments, [switch]$ReadResult) {
     $info=New-Object Diagnostics.ProcessStartInfo
     $info.FileName=$file; $info.Arguments=(($arguments | ForEach-Object { Quote-Argument $_ }) -join ' ')
@@ -46,9 +57,8 @@ try {
     $tray=Join-Path $PSScriptRoot 'murmur-tray.exe'
     foreach($file in @($cli,$tray)){if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'Extract the complete Windows bundle first: tray, launcher and runtime must remain together.'}}
     if(-not $NodePath){
-        $nodeCommand=Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue
-        if(-not $nodeCommand){throw 'Node.js is not installed or is not on PATH. Install Node.js 22.13.0 or newer, reopen PowerShell, and try again.'}
-        $NodePath=$nodeCommand.Source
+        $NodePath=Find-NodeExecutable
+        if(-not $NodePath){throw 'Node.js is not installed or is not on PATH. Install Node.js 22.13.0 or newer, reopen PowerShell, and try again.'}
     }
     if(-not [IO.Path]::IsPathRooted($NodePath) -or -not(Test-Path -LiteralPath $NodePath -PathType Leaf)){throw 'Select an installed Node executable using -NodePath.'}
     $NodePath=(Get-Item -LiteralPath $NodePath).FullName
