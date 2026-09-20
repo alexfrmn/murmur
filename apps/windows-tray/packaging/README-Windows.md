@@ -41,3 +41,61 @@ The native service helper separately checks profile ownership.
 
 This wrapper is not an updater, an installer or a GUI onboarding wizard. Login,
 reboot, browser warnings and actual GUI clicks have separate acceptance records.
+
+## Release bundle recipe
+
+Maintainers build the complete companion on Windows from one committed Git ref:
+
+```powershell
+node scripts/build-windows-bundle.mjs --ref HEAD --out C:\absolute\new-output
+```
+
+The producer needs Git, Node.js 22.13.0 or newer with its adjacent `npm-cli.js`,
+tar, and Go 1.24. The
+recipient does not need Git, npm, Go, or a compiler. The recipe exports a clean
+Git archive, installs its locked build dependencies outside the payload, builds
+the portable runtime, and cross-checks its root product version with the lockfile.
+It then builds both Windows executables with `GOOS=windows`, `GOARCH=amd64`,
+`CGO_ENABLED=0`, `-trimpath`, and linker values for the exact version and commit.
+Each executable's `--version` JSON is executed on the producer before packaging.
+
+The new output directory contains `Murmur-Windows-VERSION-x64.zip`, the matching
+`release-manifest.json`, and `SHA256SUMS.txt`. The ZIP has this extraction layout:
+
+```text
+Open-Murmur.cmd
+Open-Murmur.ps1
+README-Windows.md
+check-windows-bundle.mjs
+murmur-tray.exe
+release-manifest.json
+runtime/
+  runtime-manifest.json
+  bin/murmur-svc.exe
+  ...portable engine...
+```
+
+The release manifest records the exact 40-character source commit, declared
+product version, release-recipe hash, checker hash, runtime-recipe hash, native component
+declarations, and SHA-256 plus byte size for every payload file except the
+manifest itself. It also records the Node and Go producer versions. The runtime
+manifest independently inventories the portable
+engine before the service executable is added. Both recipes reject existing
+outputs and symbolic links; only the explicit launcher, documentation, native
+binaries, and staged runtime enter the ZIP. User profiles, `.data` directories,
+private configuration, source dependencies, and compiler caches are not copied.
+
+After extraction, verify both inventory layers with:
+
+```powershell
+node .\check-windows-bundle.mjs .
+```
+
+On Windows the checker also executes both native `--version` contracts. The
+recipe fixes the source graph and records its provenance; it does not promise
+bit-identical executables across different Node or Go toolchain versions.
+
+These unsigned Go executables expose precise version and source-commit metadata
+through `--version` and the release manifest. This recipe does not add Windows
+Explorer `VERSIONINFO`; the absence of Explorer file properties is not evidence
+that the binary is unversioned or signed.
