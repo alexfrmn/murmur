@@ -19,14 +19,18 @@ async function readClientFile(file: string) {
   try {
     // O_NOFOLLOW is unavailable on Windows. Inspect the link itself there too,
     // including dangling links, and bind the opened handle to the checked file.
-    const before = await lstat(file);
+    const before = await lstat(file, { bigint: true });
     if (!before.isFile()) throw new Error('client.config-file-invalid');
     handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const info = await handle.stat();
-    const after = await lstat(file);
-    if (!info.isFile() || !after.isFile() || before.dev !== info.dev || before.ino !== info.ino
-      || after.dev !== info.dev || after.ino !== info.ino || info.size > 4 * 1024 * 1024
-      || (process.getuid && info.uid !== process.getuid())) throw new Error('client.config-file-invalid');
+    const info = await handle.stat({ bigint: true });
+    const after = await lstat(file, { bigint: true });
+    // Node 22.13's libuv reports a 64-bit path volume serial but a 32-bit handle
+    // serial on recent Windows. Match libuv's fix without losing inode precision:
+    // https://github.com/libuv/libuv/commit/82cdfb75ff9bbd0dc65820ca418b7c5d412ff4d7
+    const device = (value: bigint) => process.platform === 'win32' ? BigInt.asUintN(32, value) : value;
+    if (!info.isFile() || !after.isFile() || device(before.dev) !== device(info.dev) || before.ino !== info.ino
+      || device(after.dev) !== device(info.dev) || after.ino !== info.ino || info.size > 4n * 1024n * 1024n
+      || (process.getuid && info.uid !== BigInt(process.getuid()))) throw new Error('client.config-file-invalid');
     return { text: await handle.readFile('utf8'), existed: true };
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { text: '', existed: false };
