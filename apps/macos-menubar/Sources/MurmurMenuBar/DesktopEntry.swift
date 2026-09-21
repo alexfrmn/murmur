@@ -73,6 +73,21 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         let mainMenu = NSMenu(), appItem = NSMenuItem()
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
+        // AppKit routes text-editing shortcuts through the responder chain.
+        let editMenu = NSMenu(title: L10n.text("Edit"))
+        for (title, action, key) in [
+            ("Undo", Selector(("undo:")), "z"),
+            ("Redo", Selector(("redo:")), "Z"),
+            ("Cut", #selector(NSText.cut(_:)), "x"),
+            ("Copy", #selector(NSText.copy(_:)), "c"),
+            ("Paste", #selector(NSText.paste(_:)), "v"),
+            ("Select All", #selector(NSText.selectAll(_:)), "a")
+        ] {
+            editMenu.addItem(NSMenuItem(title: L10n.text(title), action: action, keyEquivalent: key))
+        }
+        let editItem = NSMenuItem(title: L10n.text("Edit"), action: nil, keyEquivalent: "")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
         NSApp.mainMenu = mainMenu
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         // Preserve the preference written by the previous single MenuBarExtra.

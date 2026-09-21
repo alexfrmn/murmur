@@ -139,6 +139,14 @@
 "Service failed" = "Service failed";
 "Service status unknown" = "Service status unknown";
 "Service stopped" = "Service stopped";
+"Service running" = "Service running";
+"Edit" = "Edit";
+"Undo" = "Undo";
+"Redo" = "Redo";
+"Cut" = "Cut";
+"Copy" = "Copy";
+"Paste" = "Paste";
+"Select All" = "Select All";
 "Service, broker and connections are working" = "Service, broker and connections are working";
 "Service: %@" = "Service: %@";
 "Settings" = "Settings";
