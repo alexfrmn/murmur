@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { constants } from "node:fs";
-import { access, mkdir, open, readdir, readlink, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, readlink, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { PlatformAdapter, ServiceContext, ServiceSnapshot } from "../types.js";
+import type { PlatformAdapter, ProfileUsageSnapshot, ServiceContext, ServiceSnapshot } from "../types.js";
+import { classifyProfilePath, ProfileUsageUnknown, verifiedProfileRoot } from "./profile-usage.js";
 
 const exec = promisify(execFile);
 const marker = "# Managed by Murmur setup: systemd-v1\n";
@@ -28,6 +29,7 @@ export function renderLinuxUnit(c: ServiceContext): string {
 }
 export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter {
   const env = options.env ?? process.env, home = options.homeDir ?? homedir();
+  const procRoot = options.procDir ?? "/proc";
   const run = options.run ?? (async (args: string[]) => {
     try { return (await exec("systemctl", ["--user", ...args], { timeout: 5000, maxBuffer: 256 * 1024 })).stdout; }
     catch (e) {
@@ -60,6 +62,99 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
     check(c); sameLoadedPath(c, await inspect(c));
     if (await readOwned(c) !== renderLinuxUnit(c)) throw new Error("service.profile-mismatch");
   }
+  const usageUnknown = (reason = "profile-usage.probe-unavailable"): ProfileUsageSnapshot => ({ state: "unknown", reason });
+  const processUnknown = (reason = "profile-usage.process-unverifiable"): never => { throw new ProfileUsageUnknown(reason); };
+  function startTime(pid: string, value: string): string {
+    if (!value.startsWith(`${pid} (`)) return processUnknown();
+    const close = value.lastIndexOf(")");
+    if (close < pid.length + 2) return processUnknown();
+    const fields = value.slice(close + 1).trim().split(/\s+/);
+    const started = fields[19];
+    if (fields.length < 20 || !/^\d+$/.test(started ?? "")) return processUnknown();
+    return started;
+  }
+  function credentialUids(status: string): [number, number, number, number] {
+    const matches = [...status.matchAll(/^Uid:[ \t]+(\d+)[ \t]+(\d+)[ \t]+(\d+)[ \t]+(\d+)[ \t]*$/gm)];
+    if (matches.length !== 1) return processUnknown();
+    const uids = matches[0].slice(1).map(Number);
+    if (uids.length !== 4 || uids.some(uid => !Number.isSafeInteger(uid) || uid < 0)) return processUnknown();
+    return uids as [number, number, number, number];
+  }
+  async function processIdentity(pid: string): Promise<{ uids: [number, number, number, number]; started: string; proof: string }> {
+    try {
+      const statFile = path.join(procRoot, pid, "stat");
+      const before = startTime(pid, await readFile(statFile, "utf8"));
+      const statusFile = path.join(procRoot, pid, "status");
+      const firstUids = credentialUids(await readFile(statusFile, "utf8"));
+      const secondUids = credentialUids(await readFile(statusFile, "utf8"));
+      const after = startTime(pid, await readFile(statFile, "utf8"));
+      if (before !== after) return processUnknown("profile-usage.process-set-changed");
+      if (firstUids.some((uid, index) => uid !== secondUids[index])) {
+        return processUnknown("profile-usage.process-identity-changed");
+      }
+      return { uids: firstUids, started: before, proof: `${before}:${firstUids.join(":")}` };
+    } catch (error) {
+      if (error instanceof ProfileUsageUnknown) throw error;
+      return processUnknown();
+    }
+  }
+  async function visibleProcesses(): Promise<Map<string, string>> {
+    let entries;
+    try { entries = await readdir(procRoot, { withFileTypes: true }); }
+    catch { return processUnknown(); }
+    const result = new Map<string, string>();
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, "en"))) {
+      if (!/^\d+$/.test(entry.name)) continue;
+      if (!entry.isDirectory()) return processUnknown();
+      if (entry.name === String(process.pid)) continue;
+      const identity = await processIdentity(entry.name);
+      result.set(entry.name, identity.proof);
+    }
+    for (const anchor of new Set(["1", String(process.ppid)])) {
+      if (!result.has(anchor)) return processUnknown("profile-usage.process-visibility-incomplete");
+    }
+    return result;
+  }
+  const sameProcesses = (a: Map<string, string>, b: Map<string, string>) =>
+    a.size === b.size && [...a].every(([pid, proof]) => b.get(pid) === proof);
+  async function profileUsage(c: ServiceContext): Promise<ProfileUsageSnapshot> {
+    check(c);
+    try {
+      const uid = process.getuid?.();
+      if (!Number.isSafeInteger(uid) || uid! < 0) return usageUnknown();
+      const profile = await verifiedProfileRoot(c);
+      const before = await visibleProcesses();
+      let held = false;
+      for (const [pid, identity] of before) {
+        if ((await processIdentity(pid)).proof !== identity) return usageUnknown("profile-usage.process-identity-changed");
+        let descriptors: string[];
+        try { descriptors = (await readdir(path.join(procRoot, pid, "fd"))).sort(); }
+        catch { return usageUnknown("profile-usage.process-unverifiable"); }
+        for (const descriptor of descriptors) {
+          if (!/^\d+$/.test(descriptor)) return usageUnknown("profile-usage.process-unverifiable");
+          let target: string;
+          try { target = await readlink(path.join(procRoot, pid, "fd", descriptor)); }
+          catch { return usageUnknown("profile-usage.process-unverifiable"); }
+          if (/^(?:socket|pipe):\[\d+\]$/.test(target) || /^anon_inode:\[[^\]\r\n]+\]$/.test(target)) continue;
+          if (/^\/memfd:[^\r\n]+(?: \(deleted\))?$/.test(target)) continue;
+          const classification = await classifyProfilePath(profile.root, target);
+          if (classification === "unknown") return usageUnknown("profile-usage.process-unverifiable");
+          if (classification === "inside") held = true;
+        }
+        if ((await processIdentity(pid)).proof !== identity) return usageUnknown("profile-usage.process-identity-changed");
+      }
+      if (held) return { state: "in-use", reason: "profile-usage.open-file" };
+      const after = await visibleProcesses();
+      if (!sameProcesses(before, after)) return usageUnknown("profile-usage.process-set-changed");
+      const profileAfter = await verifiedProfileRoot(c);
+      if (profileAfter.root !== profile.root || profileAfter.proof !== profile.proof) {
+        return usageUnknown("profile-usage.profile-changed");
+      }
+      return { state: "free", reason: "profile-usage.no-open-files" };
+    } catch (error) {
+      return usageUnknown(error instanceof ProfileUsageUnknown ? error.reason : undefined);
+    }
+  }
   return {
     manager: "systemd",
     async status(c) {
@@ -78,7 +173,7 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
       result.since = Number.isFinite(started) ? new Date(started).toISOString() : null;
       if (result.pid) {
         try {
-          const expected = await realpath(c.storePath), fdDir = path.join(options.procDir ?? "/proc", String(result.pid), "fd");
+          const expected = await realpath(c.storePath), fdDir = path.join(procRoot, String(result.pid), "fd");
           for (const fd of await readdir(fdDir)) {
             try { if (await readlink(path.join(fdDir, fd)) === expected) { result.observedStorePath = expected; break; } } catch {}
           }
@@ -122,5 +217,6 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
       }
       return rows;
     },
+    profileUsage,
   };
 }

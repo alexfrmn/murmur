@@ -221,6 +221,11 @@ a separate step. Key import alone does not establish a working pair.
 Start in the checkout you built above, or the extracted prebuilt `runtime` folder.
 Node.js 22.13.0+ is required in both cases.
 
+Plaintext NATS is permitted only on loopback. A remote broker must use `tls://`;
+the coordinated cutover target also gives each agent its own subject-scoped user.
+See [`docs/nats-transport-security.md`](docs/nats-transport-security.md) for the
+server policy, pre-provisioned JetStream roles and isolated integration proof.
+
 **macOS/Linux:**
 
 ```bash
@@ -248,6 +253,10 @@ these commands do not migrate old `.data` directories. Never share `agent-config
 Put a broker token, if required, in a private local file. Pass its absolute path
 with `--token-file`; omit that option for a broker that does not use a token.
 Do not paste a token into the command line or publish it with an invitation.
+These token-mode commands do not complete the per-peer credential cutover: the
+canonical setup CLI must first gain private-file inputs for username/password and
+CA/client-certificate material. Until then, a token-only profile is not evidence
+that the coordinated cutover is ready.
 
 **First participant, macOS/Linux:**
 

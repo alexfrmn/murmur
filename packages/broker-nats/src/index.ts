@@ -33,17 +33,19 @@ import {
   type SecurityPolicy,
   type UnsignedAckV1,
   streamBackpressureAllowsSend,
+  buildSecureNatsConnectionOptions,
+  type SecureNatsClientConfig,
   validateEnvelopePolicy,
 } from "@murmurv2/core";
 
-export interface BrokerConfig {
-  url: string;
+export interface BrokerConfig extends SecureNatsClientConfig {
   jetstream?: boolean;
+  /** Restricted runtime role: stream and consumers must be provisioned by an operator. */
+  jetstreamProvisioning?: "managed" | "client";
   stream?: string;
   streamSubjects?: string[];
   jetstreamMaxDeliver?: number;
   jetstreamAckWaitMs?: number;
-  token?: string;
   connectMaxAttempts?: number;
   connectBaseBackoffMs?: number;
   connectJitterRatio?: number;
@@ -99,8 +101,7 @@ interface JetStreamConsumerAdvisory {
 }
 
 export const buildNatsConnectionOptions = (config: BrokerConfig): ConnectionOptions => ({
-  servers: config.url,
-  token: config.token,
+  ...buildSecureNatsConnectionOptions(config),
   maxReconnectAttempts: config.maxReconnectAttempts ?? -1,
   reconnectTimeWait: config.reconnectTimeWait ?? 2000,
   reconnectJitter: config.reconnectJitter ?? 500,
@@ -217,6 +218,12 @@ export class NatsBroker {
     this.jsm = await this.nc.jetstreamManager();
     const stream = this.streamName();
     const subjects = this.streamSubjects();
+
+    if (this.config.jetstreamProvisioning === "client") {
+      await this.jsm.streams.info(stream);
+      this.js = this.nc.jetstream();
+      return;
+    }
 
     try {
       const info = await this.jsm.streams.info(stream);
@@ -468,6 +475,7 @@ export class NatsBroker {
     try {
       info = await this.jsm.consumers.info(stream, durableName);
     } catch (err) {
+      if (this.config.jetstreamProvisioning === "client") throw err;
       if (err instanceof Error && err.message.startsWith("jetstream-consumer-filter-mismatch:")) {
         throw err;
       }
@@ -479,7 +487,14 @@ export class NatsBroker {
     if (filterSubject !== subject || (info.config.filter_subjects?.length ?? 0) > 0) {
       throw new Error(`jetstream-consumer-filter-mismatch:${durableName}:${filterSubject}:${subject}`);
     }
-    if (info.config.max_deliver !== config.max_deliver || info.config.ack_wait !== config.ack_wait) {
+    const deliveryLimitsDrifted = info.config.max_deliver !== config.max_deliver || info.config.ack_wait !== config.ack_wait;
+    const restrictedPolicyDrifted = info.config.ack_policy !== config.ack_policy
+      || info.config.deliver_policy !== config.deliver_policy
+      || Boolean(info.config.deliver_subject);
+    if (this.config.jetstreamProvisioning === "client" && (deliveryLimitsDrifted || restrictedPolicyDrifted)) {
+      throw new Error(`jetstream-consumer-policy-mismatch:${durableName}`);
+    }
+    if (deliveryLimitsDrifted) {
       await this.jsm.consumers.update(stream, durableName, {
         max_deliver: config.max_deliver,
         ack_wait: config.ack_wait,

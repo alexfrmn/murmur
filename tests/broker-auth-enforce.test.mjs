@@ -40,7 +40,7 @@ function harness() {
     async drain() {},
   };
   const dedupe = { async seen() { return false; }, async markSeen() {} };
-  const broker = new NatsBroker({ url: "nats://example.invalid" });
+  const broker = new NatsBroker({ url: "tls://example.invalid" });
   broker.nc = fakeNc;
   return { broker, dedupe, published };
 }

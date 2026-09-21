@@ -1,7 +1,9 @@
 {
   "agentId": "agent-stas",
-  "natsUrl": "nats://5.181.3.139:4222",
-  "natsToken": "<ASK-OPERATOR>",
+  "natsUrl": "tls://broker.example:4222",
+  "natsUser": "<ASK-OPERATOR>",
+  "natsPassword": "<ASK-OPERATOR>",
+  "natsTls": { "caFile": "/secure/path/murmur-nats-ca.pem" },
   "subject": "msg.agent-stas",
   "keys": {
     "encryption": {

@@ -60,5 +60,5 @@
   "store.noHolder": "no process holds the store file open",
   "store.otherHolder": "another process, not this daemon, holds the store",
   "usage.environment": "install reads MURMUR_NODE, MURMUR_ENTRY, MURMUR_WORKDIR and MURMUR_SERVICE_NAME",
-  "usage.line": "murmur-svc [--lang en|ru] install|uninstall|start|stop|status"
+  "usage.line": "murmur-svc [--lang en|ru] install|uninstall|start|stop|status|profile-usage"
 }

@@ -114,6 +114,8 @@ func main() {
 		mustDo(stop())
 	case "status":
 		mustDo(printStatus())
+	case "profile-usage":
+		mustDo(printProfileUsage())
 	default:
 		usage()
 		os.Exit(2)

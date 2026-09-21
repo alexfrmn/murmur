@@ -13,10 +13,28 @@ package main
 // какие процессы держат файл открытым. Совпал pid нашего демона — значит он и держит.
 
 import (
+	"fmt"
 	"path/filepath"
 	"syscall"
 	"unsafe"
 )
+
+func initialHolderListSize(result uintptr, needed uint32) (uint32, bool, error) {
+	switch result {
+	case 0:
+		if needed != 0 {
+			return 0, false, fmt.Errorf("restart-manager returned success with an unexpected holder count")
+		}
+		return 0, true, nil
+	case errorMoreData:
+		if needed == 0 {
+			return 0, false, fmt.Errorf("restart-manager requested an empty holder buffer")
+		}
+		return needed, false, nil
+	default:
+		return 0, false, syscall.Errno(result)
+	}
+}
 
 var (
 	rstrtmgr             = syscall.NewLazyDLL("rstrtmgr.dll")
@@ -47,9 +65,9 @@ type rmProcessInfo struct {
 func holdersOf(path string) ([]uint32, error) {
 	var session uint32
 	key := make([]uint16, cchRmSessionKeyChars+1)
-	if r, _, err := procRmStartSession.Call(uintptr(unsafe.Pointer(&session)), 0,
+	if r, _, _ := procRmStartSession.Call(uintptr(unsafe.Pointer(&session)), 0,
 		uintptr(unsafe.Pointer(&key[0]))); r != 0 {
-		return nil, err
+		return nil, syscall.Errno(r)
 	}
 	defer procRmEndSession.Call(uintptr(session))
 
@@ -58,24 +76,37 @@ func holdersOf(path string) ([]uint32, error) {
 		return nil, err
 	}
 	files := []*uint16{p}
-	if r, _, err := procRmRegisterResrc.Call(uintptr(session), 1,
+	if r, _, _ := procRmRegisterResrc.Call(uintptr(session), 1,
 		uintptr(unsafe.Pointer(&files[0])), 0, 0, 0, 0); r != 0 {
-		return nil, err
+		return nil, syscall.Errno(r)
 	}
 
 	var needed, count, reason uint32
 	count = 0
 	r, _, _ := procRmGetList.Call(uintptr(session), uintptr(unsafe.Pointer(&needed)),
 		uintptr(unsafe.Pointer(&count)), 0, uintptr(unsafe.Pointer(&reason)))
-	if r != errorMoreData || needed == 0 {
+	size, empty, err := initialHolderListSize(r, needed)
+	if err != nil {
+		return nil, err
+	}
+	if empty {
+		if reason != 0 {
+			return nil, fmt.Errorf("restart-manager reported reboot reason %#x without a holder", reason)
+		}
 		return nil, nil
 	}
-	infos := make([]rmProcessInfo, needed)
-	count = needed
-	if r, _, err := procRmGetList.Call(uintptr(session), uintptr(unsafe.Pointer(&needed)),
+	infos := make([]rmProcessInfo, size)
+	count = size
+	if r, _, _ := procRmGetList.Call(uintptr(session), uintptr(unsafe.Pointer(&needed)),
 		uintptr(unsafe.Pointer(&count)), uintptr(unsafe.Pointer(&infos[0])),
 		uintptr(unsafe.Pointer(&reason))); r != 0 {
-		return nil, err
+		return nil, syscall.Errno(r)
+	}
+	if count > uint32(len(infos)) {
+		return nil, fmt.Errorf("restart-manager returned more holders than the supplied buffer")
+	}
+	if count == 0 && reason != 0 {
+		return nil, fmt.Errorf("restart-manager reported reboot reason %#x without a holder", reason)
 	}
 	pids := make([]uint32, 0, count)
 	for i := uint32(0); i < count; i++ {

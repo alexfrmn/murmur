@@ -79,6 +79,52 @@ test('invalid paths and names fail before any helper call', async () => {
   assert.equal(f.calls.length, 0);
 });
 
+test('Windows profile usage accepts only the native read-only snapshot contract', async () => {
+  for (const expected of [
+    { state: 'free', reason: 'profile.store-unheld' },
+    { state: 'in-use', reason: 'profile.store-held' },
+    { state: 'unknown', reason: 'profile.store-missing' },
+    { state: 'unknown', reason: 'profile.store-invalid' },
+    { state: 'unknown', reason: 'profile.probe-unavailable' },
+    { state: 'unknown', reason: 'profile.managed-running-unobserved' },
+    { state: 'unknown', reason: 'profile.service-unverifiable' },
+  ]) {
+    const calls = [];
+    const adapter = createWindowsAdapter({ helperPath: helper, canonicalize,
+      env: { ProgramData: 'C:\\ProgramData', NODE_OPTIONS: '--require injected.js', MURMUR_STORE_PATH: 'C:\\wrong.db' },
+      run: async (file, args, options) => {
+        calls.push({ file, args, options });
+        return { code: 0, stdout: JSON.stringify({ schema: 'murmur.windows-profile-usage/1', ...expected }), stderr: '' };
+      } });
+    assert.deepEqual(await adapter.profileUsage(context), expected);
+    assert.equal(calls.length, 1); assert.deepEqual(calls[0].args, ['profile-usage']); assert.equal(calls[0].options.timeout, 8000);
+    assert.equal(calls[0].options.env.DATA_DIR, context.dataDir); assert.equal(calls[0].options.env.MURMUR_STORE_PATH, undefined);
+    assert.equal(calls[0].options.env.NODE_OPTIONS, undefined);
+  }
+});
+
+test('Windows profile usage refuses failed, malformed, contradictory and extra native evidence', async () => {
+  const replies = [
+    { code: 1, stdout: '', stderr: 'private helper detail' },
+    { code: 0, stdout: 'not json', stderr: '' },
+    { code: 0, stdout: JSON.stringify({ schema: 'murmur.windows-profile-usage/2', state: 'free', reason: 'profile.store-unheld' }), stderr: '' },
+    { code: 0, stdout: JSON.stringify({ schema: 'murmur.windows-profile-usage/1', state: 'free', reason: 'profile.store-held' }), stderr: '' },
+    { code: 0, stdout: JSON.stringify({ schema: 'murmur.windows-profile-usage/1', state: 'free', reason: 'profile.store-unheld', pid: 42 }), stderr: '' },
+  ];
+  for (const reply of replies) {
+    const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, run: async () => reply });
+    assert.deepEqual(await adapter.profileUsage(context), { state: 'unknown', reason: 'profile.probe-unavailable' });
+  }
+});
+
+test('Windows profile usage validates the selected profile before invoking the helper', async () => {
+  let called = false;
+  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, run: async () => { called = true; throw new Error('must not run'); } });
+  assert.deepEqual(await adapter.profileUsage({ ...context, dataDir: 'relative' }),
+    { state: 'unknown', reason: 'profile.probe-unavailable' });
+  assert.equal(called, false);
+});
+
 test('canonical DATA_DIR rejects conflict and explicit selection overrides ambient profiles', () => {
   const options = { platform: 'win32', home: 'C:\\Users\\me', repoRoot: context.repoRoot, nodePath: context.nodePath };
   assert.throws(() => resolveContext({ ...options, env: { DATA_DIR: 'C:\\alice', MURMUR_DATA_DIR: 'C:\\bob' } }), /data-dir-conflict/);

@@ -60,5 +60,5 @@
   "store.noHolder": "файл хранилища никто не держит открытым",
   "store.otherHolder": "хранилище держит другой процесс, не наш демон",
   "usage.environment": "install читает MURMUR_NODE, MURMUR_ENTRY, MURMUR_WORKDIR и MURMUR_SERVICE_NAME",
-  "usage.line": "murmur-svc [--lang en|ru] install|uninstall|start|stop|status"
+  "usage.line": "murmur-svc [--lang en|ru] install|uninstall|start|stop|status|profile-usage"
 }

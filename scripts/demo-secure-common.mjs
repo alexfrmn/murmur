@@ -19,6 +19,16 @@ export const loadDemoConfig = () => {
   return {
     natsUrl: process.env.NATS_URL || "nats://127.0.0.1:4222",
     natsToken: process.env.NATS_TOKEN || undefined,
+    natsUser: process.env.NATS_USER || undefined,
+    natsPassword: process.env.NATS_PASSWORD || undefined,
+    natsTls: process.env.NATS_URL?.startsWith("tls://")
+      ? {
+          ...(process.env.NATS_CA_FILE ? { caFile: process.env.NATS_CA_FILE } : {}),
+          ...(process.env.NATS_CERT_FILE ? { certFile: process.env.NATS_CERT_FILE } : {}),
+          ...(process.env.NATS_KEY_FILE ? { keyFile: process.env.NATS_KEY_FILE } : {}),
+          ...(process.env.NATS_SERVER_NAME ? { serverName: process.env.NATS_SERVER_NAME } : {}),
+        }
+      : undefined,
     subject: process.env.SUBJECT || "msg.demo.secure",
     consumerId: process.env.CONSUMER_ID || recipientAgentId,
     outboxDbPath: process.env.OUTBOX_DB_PATH || ".data/demo-outbox.db",

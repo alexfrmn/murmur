@@ -1,10 +1,13 @@
 import { StringCodec, connect, type NatsConnection, type Subscription } from "nats";
-import { isEnvelopeV1 } from "@murmurv2/core";
+import { buildSecureNatsConnectionOptions, isEnvelopeV1, type NatsTlsOptions } from "@murmurv2/core";
 
 export interface OpenClawBridgeConfig {
   agentId: string;
   natsUrl: string;
   natsToken?: string;
+  natsUser?: string;
+  natsPassword?: string;
+  natsTls?: NatsTlsOptions;
   natsSubject?: string;
 
   openclawBaseUrl: string;
@@ -165,7 +168,13 @@ export class OpenClawBridge {
 
   async start(): Promise<void> {
     if (this.running) return;
-    this.nc = await connect({ servers: this.config.natsUrl, token: this.config.natsToken });
+    this.nc = await connect(buildSecureNatsConnectionOptions({
+      url: this.config.natsUrl,
+      token: this.config.natsToken,
+      user: this.config.natsUser,
+      password: this.config.natsPassword,
+      tls: this.config.natsTls,
+    }));
     this.sub = this.nc.subscribe(this.subject());
     this.running = true;
 

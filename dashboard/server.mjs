@@ -12,10 +12,10 @@ import Database from "better-sqlite3";
 import { SECURITY_HEADERS, isAuthorizedHeader, isSameOriginWebSocket, loadDashboardToken } from "./http-security.mjs";
 import { authenticateEnvelope } from "./message-security.mjs";
 import { validAgentId } from "./render.mjs";
+import { dashboardNatsOptions } from "./nats-config.mjs";
 
 const PORT = Number(process.env.DASHBOARD_PORT) || 4280;
 const NATS_URL = process.env.NATS_URL || "nats://localhost:4222";
-const NATS_TOKEN = process.env.NATS_TOKEN;
 const DASHBOARD_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(DASHBOARD_DIR, "..", ".data");
 const TOKEN_FILE = process.env.DASHBOARD_TOKEN_FILE || path.join(homedir(), ".config", "murmur", "dashboard-token");
@@ -150,7 +150,7 @@ let rejectedCount = 0;
 const startTime = Date.now();
 
 try {
-  const nc = await connect({ servers: NATS_URL, token: NATS_TOKEN });
+  const nc = await connect(dashboardNatsOptions());
   console.log(`[dashboard] NATS connected: ${NATS_URL}`);
   const sub = nc.subscribe("msg.>");
 

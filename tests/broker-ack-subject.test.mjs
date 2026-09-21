@@ -38,7 +38,7 @@ test("subscribeWithAck publishes ack to original sender ack subject", async () =
     async seen() { return false; },
     async markSeen() {},
   };
-  const broker = new NatsBroker({ url: "nats://example.invalid" });
+  const broker = new NatsBroker({ url: "tls://example.invalid" });
   broker.nc = fakeNc;
 
   await broker.subscribeWithAck({

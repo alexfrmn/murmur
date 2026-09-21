@@ -33,6 +33,13 @@ export interface ClientDetection {
   detail?: string;
 }
 
+/** Point-in-time, read-only evidence about use of one resolved profile. */
+export interface ProfileUsageSnapshot {
+  state: "free" | "in-use" | "unknown";
+  /** Stable, non-secret reason code. Callers must not treat it as proof beyond this observation. */
+  reason: string;
+}
+
 export interface PlatformAdapter {
   manager: ServiceManager;
   status(context: ServiceContext): Promise<ServiceSnapshot>;
@@ -41,4 +48,6 @@ export interface PlatformAdapter {
   stop(context: ServiceContext): Promise<void>;
   uninstall?(context: ServiceContext): Promise<void>;
   detectClients(context: ServiceContext): Promise<ClientDetection[]>;
+  /** Optional until a platform has an independently reviewed native profile-usage probe. */
+  profileUsage?(context: ServiceContext): Promise<ProfileUsageSnapshot>;
 }

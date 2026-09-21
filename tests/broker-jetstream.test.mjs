@@ -126,7 +126,7 @@ const makeJetStreamBroker = ({
   };
 
   const broker = new NatsBroker({
-    url: "nats://example.invalid",
+    url: "tls://example.invalid",
     jetstream: true,
     stream: "MURMUR",
     streamSubjects: ["msg.>", "ack.>"],
@@ -151,7 +151,7 @@ test("JetStream publish ensures stream and uses envelope msgId as dedupe id", as
 
 test("JetStream disabled keeps core NATS publish path", async () => {
   const published = [];
-  const broker = new NatsBroker({ url: "nats://example.invalid" });
+  const broker = new NatsBroker({ url: "tls://example.invalid" });
   broker.nc = {
     publish(subject, data) {
       published.push({ subject, body: JSON.parse(sc.decode(data)) });
@@ -253,6 +253,28 @@ test("JetStream existing durable consumer is repaired when delivery limits drift
       ack_wait: 30_000_000_000,
     },
   }]);
+});
+
+test("restricted runtime uses pre-provisioned consumers without management writes", async () => {
+  const valid = { config: { filter_subject: "msg.agent-receiver", ack_policy: "explicit", deliver_policy: "all",
+    max_deliver: 5, ack_wait: 30_000_000_000 } };
+  const runtime = makeJetStreamBroker({ streamInfoThrows: false, consumerInfo: valid, brokerConfig: { jetstreamProvisioning: "client" } });
+  await runtime.broker.subscribeWithAck({ subject: "msg.agent-receiver", consumerId: "agent-receiver", dedupe: { seen: async () => false, markSeen: async () => {} }, onMessage: async () => {} });
+  assert.deepEqual(runtime.streamsAdded, []);
+  assert.deepEqual(runtime.consumersAdded, []);
+  assert.deepEqual(runtime.consumersUpdated, []);
+  for (const consumerInfo of [
+    undefined,
+    { config: { ...valid.config, max_deliver: 99 } },
+    { config: { ...valid.config, ack_policy: "none" } },
+    { config: { ...valid.config, deliver_policy: "new" } },
+    { config: { ...valid.config, deliver_subject: "push.inbox" } },
+  ]) {
+    const invalid = makeJetStreamBroker({ streamInfoThrows: false, consumerInfo, brokerConfig: { jetstreamProvisioning: "client" } });
+    await assert.rejects(invalid.broker.subscribeWithAck({ subject: "msg.agent-receiver", consumerId: "agent-receiver", dedupe: {}, onMessage: async () => {} }), /consumer-missing|policy-mismatch/);
+    assert.deepEqual(invalid.consumersAdded, []);
+    assert.deepEqual(invalid.consumersUpdated, []);
+  }
 });
 
 test("JetStream retryable handler failures are nacked for redelivery", async () => {

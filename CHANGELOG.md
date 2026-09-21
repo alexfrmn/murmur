@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Pending
-- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
+- **NATS transport security (TLS + per-peer auth)** — #153 subsumes #103 and adds restricted pre-provisioned JetStream roles, per-user reply inboxes and a separate TLS dashboard role. Canonical setup supports credential-free invitations, private credential inputs and explicit profile migration. Migration refuses when profile use cannot be established; it may be unavailable to ordinary Unix accounts. Existing non-loopback `nats://` configurations fail closed. Deployment remains held for the coordinated broker/client credential window in `docs/nats-transport-security.md`.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
 
 ## [2.10.0] - 2026-09-20

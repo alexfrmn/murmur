@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import type { ClientDetection, PlatformAdapter, ServiceContext, ServiceSnapshot } from '../types.js';
+import type { ClientDetection, PlatformAdapter, ProfileUsageSnapshot, ServiceContext, ServiceSnapshot } from '../types.js';
 
 const paths = path.win32;
 export interface WindowsOptions {
@@ -14,6 +14,13 @@ const fail = (reason: string): never => { throw new Error(`service.${reason}`); 
 const object = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const natural = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) >= 0;
 const textOrNull = (v: unknown) => v === null || typeof v === 'string';
+const usageUnknown = (): ProfileUsageSnapshot => ({ state: 'unknown', reason: 'profile.probe-unavailable' });
+const profileUsageReasons = new Map<string, ProfileUsageSnapshot['state']>([
+  ['profile.store-held', 'in-use'], ['profile.store-unheld', 'free'],
+  ['profile.store-missing', 'unknown'], ['profile.store-invalid', 'unknown'],
+  ['profile.probe-unavailable', 'unknown'], ['profile.managed-running-unobserved', 'unknown'],
+  ['profile.service-unverifiable', 'unknown'],
+]);
 function absolute(value: string) {
   if (typeof value !== 'string' || !paths.isAbsolute(value) || paths.normalize(value) !== value || /[\x00-\x1f\x7f]/.test(value)) fail('invalid-path');
 }
@@ -55,7 +62,7 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
   }
   async function invoke(c: ServiceContext, action: string) {
     validate(c);
-    const result = await run(await helper(c), [action], { env: selectedEnvironment(c), timeout: action === 'status' ? 8000 : 55000 });
+    const result = await run(await helper(c), [action], { env: selectedEnvironment(c), timeout: action === 'status' || action === 'profile-usage' ? 8000 : 55000 });
     if (result.code !== 0) fail('helper-command-failed');
     return result.stdout;
   }
@@ -114,6 +121,16 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
       catch (e) { const reason = e instanceof Error && /^service\.[a-z-]+$/.test(e.message) ? e.message : 'service.measurement-failed'; return empty(reason); }
     },
     install: c => mutate(c, 'install'), start: c => mutate(c, 'start'), stop: c => mutate(c, 'stop'), uninstall: c => mutate(c, 'uninstall'),
+    async profileUsage(c) {
+      try {
+        const value: unknown = JSON.parse(await invoke(c, 'profile-usage'));
+        if (!object(value) || Object.keys(value).sort().join(',') !== 'reason,schema,state'
+          || value.schema !== 'murmur.windows-profile-usage/1'
+          || !['free', 'in-use', 'unknown'].includes(value.state)
+          || typeof value.reason !== 'string' || profileUsageReasons.get(value.reason) !== value.state) return usageUnknown();
+        return { state: value.state as ProfileUsageSnapshot['state'], reason: value.reason };
+      } catch { return usageUnknown(); }
+    },
     async detectClients(): Promise<ClientDetection[]> {
       const rows: ClientDetection[] = [];
       for (const [id, command, configPath, format] of [

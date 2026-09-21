@@ -38,9 +38,11 @@ Copy `agent-config.example.json` → `agent-config.json` and set:
 
 - `agentId` — your kebab-case id (e.g. `agent-stas`).
 - `subject` — `msg.<agentId>` (your inbox).
-- `natsUrl` — the **public** broker: `nats://5.181.3.139:4222`
+- `natsUrl` — the TLS-required broker: `tls://broker.example:4222`.
   (the internal `100.95.23.7` Tailscale address is in-tenant only — use the public one).
-- `natsToken` — ask the operator (delivered out-of-band, e.g. via the upload bot).
+- `natsUser` / `natsPassword` — the distinct, subject-scoped credential assigned
+  to this agent and delivered out of band.
+- `natsTls.caFile` — local path to the operator-provided CA certificate.
 - `keys` — from step 2.
 - `peers` — the operator gives you the `agent-jarvis` and `agent-codex-volt`
   public keys + subjects. Add anyone you need to message.
@@ -68,7 +70,7 @@ node agent-runner.mjs send agent-jarvis "HANDSHAKE OK from agent-stas — runner
 
 Within ~30–60s you should see an inbound reply logged by your running agent.
 If the reply does not decrypt, the most common causes are a wrong key, a peer
-public key mismatch, or a `natsToken`/network issue — re-check those first.
+public key mismatch, or a TLS/credential/network issue — re-check those first.
 
 ## Files
 

@@ -12,6 +12,7 @@ import { setWakeEnabled, markInboxRead, readInbox, readLogPath } from './command
 import { renderStatusLine } from './status-line.js';
 import type { PlatformAdapter } from './types.js';
 import { readVersion, checkUpdates, setUpdateChecks } from './updates.js';
+import { migrateBroker } from './broker-migration.js';
 
 export function platformAdapter(): PlatformAdapter {
   if (process.platform === 'linux') return createLinuxAdapter();
@@ -34,23 +35,31 @@ export const isRawCliOutput = (value: unknown): value is RawCliOutput => !!value
 
 export async function main(args: string[], adapter = platformAdapter()): Promise<unknown> {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
-    'agent-id': { type: 'string' }, 'broker-url': { type: 'string' }, 'token-file': { type: 'string' }, 'invite-file': { type: 'string' }, 'reply-file': { type: 'string' }, 'reply-out': { type: 'string' }, out: { type: 'string' },
+    'agent-id': { type: 'string' }, 'broker-url': { type: 'string' }, 'token-file': { type: 'string' }, 'user-file': { type: 'string' }, 'password-file': { type: 'string' }, 'ca-file': { type: 'string' }, 'server-name': { type: 'string' }, 'invite-file': { type: 'string' }, 'reply-file': { type: 'string' }, 'reply-out': { type: 'string' }, out: { type: 'string' },
     client: { type: 'string' }, replace: { type: 'boolean' }, json: { type: 'boolean' }, line: { type: 'boolean' }, limit: { type: 'string' }, peer: { type: 'string' }, timeout: { type: 'string' }, 'data-dir': { type: 'string' }, 'service-name': { type: 'string' }, apply: { type: 'boolean' }, help: { type: 'boolean' },
   } });
-  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE', 'add-peer --reply-file FILE', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients configure --client ID [--replace]', 'wake pause|resume [--apply]', 'inbox read [--limit 1..100]', 'inbox mark-read', 'mcp serve --data-dir ABSOLUTE'],
+  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [private broker file options]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE [private broker file options]', 'add-peer --reply-file FILE', 'broker migrate --broker-url URL [private broker file options] [--apply]', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients configure --client ID [--replace]', 'wake pause|resume [--apply]', 'inbox read [--limit 1..100]', 'inbox mark-read', 'mcp serve --data-dir ABSOLUTE'],
+    brokerFileOptions: ['--token-file ABSOLUTE', '--user-file ABSOLUTE --password-file ABSOLUTE', '--ca-file ABSOLUTE', '--server-name DNS'],
     options: ['--data-dir ABSOLUTE', '--service-name NAME'], note: 'Windows service mutations require an elevated terminal and the matching native helper.' };
   const [command, action, extra] = positionals;
   if (extra) throw new Error('cli.unexpected-argument');
   if (values.line && command !== 'status') throw new Error('cli.line-only-for-status');
   if (values.line && values.json) throw new Error('cli.output-mode-conflict');
+  const brokerOptionNames = ['token-file','user-file','password-file','ca-file','server-name'] as const;
+  const hasBrokerOptions = brokerOptionNames.some(name => values[name] !== undefined);
+  const acceptsBrokerOptions = (command === 'init' && !action) || (command === 'join' && !action) || (command === 'broker' && action === 'migrate');
+  if (hasBrokerOptions && !acceptsBrokerOptions) throw new Error('cli.option-not-supported');
+  if (values['broker-url'] !== undefined && !((command === 'init' && !action) || (command === 'broker' && action === 'migrate'))) throw new Error('cli.option-not-supported');
   if (command === 'version' && !action) return readVersion();
   if (command === 'updates' && action === 'check') return checkUpdates();
   if (command === 'updates' && ['enable', 'disable'].includes(action)) return setUpdateChecks(action === 'enable');
   const context = resolveContext({ dataDir: values['data-dir'], serviceName: values['service-name'] });
   const required = (name: string) => { const value = values[name as keyof typeof values]; if (typeof value !== 'string' || !value) throw new Error('cli.required-option:' + name); return value; };
-  if (command === 'init' && !action) return initialize(context, { agentId: required('agent-id'), brokerUrl: required('broker-url'), tokenFile: values['token-file'] });
+  const brokerFiles = { tokenFile: values['token-file'], userFile: values['user-file'], passwordFile: values['password-file'], caFile: values['ca-file'], serverName: values['server-name'] };
+  if (command === 'init' && !action) return initialize(context, { agentId: required('agent-id'), brokerUrl: required('broker-url'), ...brokerFiles });
   if (command === 'invite' && !action) return invite(context, required('out'));
-  if (command === 'join' && !action) return join(context, { agentId: required('agent-id'), inviteFile: required('invite-file'), replyOut: required('reply-out') });
+  if (command === 'join' && !action) return join(context, { agentId: required('agent-id'), inviteFile: required('invite-file'), replyOut: required('reply-out'), ...brokerFiles });
+  if (command === 'broker' && action === 'migrate') return migrateBroker(context, adapter, { brokerUrl: required('broker-url'), ...brokerFiles, apply: values.apply });
   if (command === 'add-peer' && !action) return importPeer(context, required('reply-file'));
   if (command === 'status' && !action) {
     const status = await readStatus({ context, adapter });

@@ -51,6 +51,22 @@ The actual restart interval is retained; a short interval cannot become an hourl
 zero. Missing helper, unavailable manager, malformed response and mismatched
 profile produce unknown status with a reason. A failed action is not retried.
 
+Broker migration also calls the helper's read-only `profile-usage` probe. The probe
+registers the selected profile's existing `murmur.db` with Windows Restart Manager,
+which reports applications and services currently using that file. Any reported
+holder means `in-use`, including an unmanaged daemon; the helper does not need to
+open that process or read its command line. A Restart Manager error, a missing or
+invalid database, an inaccessible or foreign service, or a running managed service
+without a reported database holder produces `unknown`. Only a successful zero-holder
+observation together with a verified stopped or absent selected service produces
+`free`. Service state alone never proves that a profile is free.
+
+This result is a point-in-time observation. Murmur's daemon keeps its SQLite handle
+open while running, including versions released before this probe, but the result is
+not a lock and does not promise that another process cannot open the profile after
+the observation. Migration repeats the probe immediately before its atomic config
+replacement and still reports an uncertain observation as a refusal.
+
 Client detection currently supports Claude Code and Codex CLI executables in
 absolute PATH entries. Configuration uses the existing shared JSON/TOML writer;
 client reload remains explicit. Desktop application discovery is not implemented.
