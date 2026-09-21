@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { writePrivateJson } from '../scripts/secure-state.mjs';
 import { protectPrivateFile, preparePrivateReplacement } from '../packages/setup/dist/src/private-file.js';
-import { assertPrivateFile, fileAccessPolicy } from './helpers/private-files.mjs';
+import { assertPrivateFile, fileAccessPolicy, addExplicitAccessFixture } from './helpers/private-files.mjs';
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-private-setup-'));
@@ -55,8 +55,9 @@ test('Windows private files ignore incompatible inherited PowerShell module path
   }
 });
 
-test('Windows replacement preserves the existing file access policy before writing', { skip: process.platform !== 'win32' }, async t => {
+for (const explicit of [false, true]) test(`Windows replacement preserves ${explicit ? 'protected explicit readers and deny entries' : 'inherited access'} before writing`, { skip: process.platform !== 'win32' }, async t => {
   const f = await fixture(t), temporary = path.join(f.root, 'replacement.tmp');
+  if (explicit) await addExplicitAccessFixture(f.file);
   const before = await fileAccessPolicy(f.file), handle = await fs.open(temporary, 'wx', 0o600);
   try {
     await preparePrivateReplacement(temporary, handle, f.file).catch(async error => {

@@ -36,7 +36,23 @@ $entries = @($acl.GetAccessRules($true, $true, [System.Security.Principal.Securi
 
 export async function fileAccessPolicy(file) {
   assert.equal(process.platform, 'win32');
-  return powershell(file, `(Get-Acl -LiteralPath $env:MURMUR_TEST_ACL_FILE).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)`);
+  const sddl = await powershell(file, `(Get-Acl -LiteralPath $env:MURMUR_TEST_ACL_FILE).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)`);
+  // AI records the OS inheritance conversion, not a changed allow/deny policy.
+  return sddl.replace(/^D:(?:P|AI|AR)*/, flags => flags.replaceAll('AI', ''));
+}
+
+/** Only use on an existing test-owned file; model an intentional additional reader. */
+export async function addExplicitAccessFixture(file) {
+  assert.equal(process.platform, 'win32');
+  await powershell(file, `
+$acl = Get-Acl -LiteralPath $env:MURMUR_TEST_ACL_FILE
+$acl.SetAccessRuleProtection($true, $true)
+$reader = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-545')
+$guest = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-546')
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($reader, 'ReadAndExecute', 'Allow')))
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($guest, 'Write', 'Deny')))
+Set-Acl -LiteralPath $env:MURMUR_TEST_ACL_FILE -AclObject $acl
+`);
 }
 
 /** Only use with a newly created, test-owned directory. */

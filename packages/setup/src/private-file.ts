@@ -13,12 +13,19 @@ $env:PSModulePath = [System.IO.Path]::Combine($PSHOME, 'Modules')
 $file = $env:MURMUR_SETUP_PRIVATE_FILE
 $source = $env:MURMUR_SETUP_ACCESS_SOURCE
 $section = [System.Security.AccessControl.AccessControlSections]::Access
+function AccessPolicy($acl) {
+  $sddl = $acl.GetSecurityDescriptorSddlForm($section)
+  # Windows marks a copied DACL as auto-inherited even when its ACEs are unchanged.
+  # Ignore only that bookkeeping flag, retaining protection, order and every ACE.
+  return [regex]::Replace($sddl, '^D:(?:P|AI|AR)*', { param($match) $match.Value.Replace('AI', '') })
+}
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed = @($user, 'S-1-5-18', 'S-1-5-32-544') | Select-Object -Unique
 $security = New-Object System.Security.AccessControl.FileSecurity
 if ($source) {
   $expected = (Get-Acl -LiteralPath $source).GetSecurityDescriptorSddlForm($section)
   $security.SetSecurityDescriptorSddlForm($expected, $section)
+  $expectedPolicy = AccessPolicy (Get-Acl -LiteralPath $source)
 } else {
   $security.SetAccessRuleProtection($true, $false)
   foreach ($id in $allowed) {
@@ -30,8 +37,8 @@ if ($source) {
 Set-Acl -LiteralPath $file -AclObject $security
 $actual = Get-Acl -LiteralPath $file
 if ($source) {
-  if ($actual.GetSecurityDescriptorSddlForm($section) -ne $expected -or
-      (Get-Acl -LiteralPath $source).GetSecurityDescriptorSddlForm($section) -ne $expected) { throw 'changed access policy' }
+  if ((AccessPolicy $actual) -cne $expectedPolicy -or
+      (AccessPolicy (Get-Acl -LiteralPath $source)) -cne $expectedPolicy) { throw 'changed access policy' }
   exit 0
 }
 if (!$actual.AreAccessRulesProtected) { throw 'unprotected ACL' }
