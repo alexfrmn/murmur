@@ -4,8 +4,8 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { writePrivateJson } from '../scripts/secure-state.mjs';
-import { protectPrivateFile } from '../packages/setup/dist/src/private-file.js';
-import { assertPrivateFile } from './helpers/private-files.mjs';
+import { protectPrivateFile, preparePrivateReplacement } from '../packages/setup/dist/src/private-file.js';
+import { assertPrivateFile, fileAccessPolicy } from './helpers/private-files.mjs';
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-private-setup-'));
@@ -53,4 +53,19 @@ test('Windows private files ignore incompatible inherited PowerShell module path
   } finally {
     if (previous === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = previous;
   }
+});
+
+test('Windows replacement preserves the existing file access policy before writing', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t), temporary = path.join(f.root, 'replacement.tmp');
+  const before = await fileAccessPolicy(f.file), handle = await fs.open(temporary, 'wx', 0o600);
+  try {
+    await preparePrivateReplacement(temporary, handle, f.file).catch(async error => {
+      // These are only test-owned, empty/synthetic files, never a real profile.
+      t.diagnostic(JSON.stringify({ sourceAcl: await fileAccessPolicy(f.file), temporaryAcl: await fileAccessPolicy(temporary) }));
+      throw error;
+    });
+    assert.equal(await fileAccessPolicy(temporary), before);
+    assert.equal(await fileAccessPolicy(f.file), before);
+    assert.equal((await handle.stat()).size, 0);
+  } finally { await handle.close(); }
 });
