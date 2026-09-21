@@ -20,7 +20,17 @@ for (const format of ['json', 'toml']) test(`${format}: patch keeps auth rails, 
   const input = { forced_login_method: 'chatgpt', enable_codex_api_key_env: false, model: 'user-choice', [key]: { existing: { command: '/some/tool', args: ['do-not-change'] } }, custom: { nested: 'preserve' } };
   const source = format === 'json' ? JSON.stringify(input) : '# preserved in backup\n' + TOML.stringify(input);
   await fs.writeFile(f.file, source);
-  const result = await configureClient(f.context, f.adapter, 'codex-cli');
+  const result = await configureClient(f.context, f.adapter, 'codex-cli').catch(async error => {
+    // Report only synthetic fixture metadata when a native filesystem differs.
+    const describe = s => ({ regular: s.isFile(), link: s.isSymbolicLink(), dev: String(s.dev), ino: String(s.ino), uid: String(s.uid), size: String(s.size) });
+    const before = await fs.lstat(f.file, { bigint: true }), handle = await fs.open(f.file, 'r');
+    try {
+      t.diagnostic(JSON.stringify({ node: process.version, uv: process.versions.uv,
+        before: describe(before), opened: describe(await handle.stat({ bigint: true })),
+        after: describe(await fs.lstat(f.file, { bigint: true })) }));
+    } finally { await handle.close(); }
+    throw error;
+  });
   assert.equal(await fs.readFile(result.backup, 'utf8'), source);
   if (process.platform !== 'win32') assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
   const output = await fs.readFile(f.file, 'utf8'), parsed = format === 'json' ? JSON.parse(output) : TOML.parse(output);
