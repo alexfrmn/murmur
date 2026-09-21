@@ -62,6 +62,18 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     private var shortcut: GlobalShortcut?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The window is the primary entrance; the menu-bar item is a shortcut.
+        NSApp.applicationIconImage = MurmurMark.image(state: .ready, size: 512, description: "Murmur")
+        let appMenu = NSMenu()
+        appMenu.addItem(CommandMenuItem(L10n.text("Open Murmur")) { [weak self] in self?.showWindow() })
+        appMenu.addItem(.separator())
+        let quit = NSMenuItem(title: L10n.text("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        appMenu.addItem(quit)
+        let mainMenu = NSMenu(), appItem = NSMenuItem()
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+        NSApp.mainMenu = mainMenu
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         // Preserve the preference written by the previous single MenuBarExtra.
         // This API stores the user's Cmd-drag position; it cannot reveal notch overflow.
@@ -171,7 +183,7 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
 struct MurmurMenuBarApp {
     @MainActor static func main() {
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
+        app.setActivationPolicy(.regular)
         let delegate = MurmurAppDelegate()
         app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }
