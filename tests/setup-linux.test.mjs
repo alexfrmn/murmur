@@ -65,7 +65,7 @@ test('unit escaping keeps environment dollars literal and ExecStart dollars esca
   assert.ok(text.includes('$$HOME')); assert.ok(text.includes('100%%'));
   assert.ok(text.includes('StandardOutput=append:'));
 });
-test('installed systemd parser accepts the generated unit', { skip: process.platform !== 'linux' }, async t => {
+test('installed systemd parser accepts the generated unit', { skip: process.platform !== 'linux' ? 'requires the Linux systemd unit verifier' : false }, async t => {
   const f = await fixture(t);
   // Parse using the installed systemd verifier, without installing/starting any service.
   const file = path.join(f.home, 'verify.service');
