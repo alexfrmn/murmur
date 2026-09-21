@@ -133,6 +133,8 @@
   "updates.cached": "Из кеша",
   "updates.checked": "Проверено",
   "updates.checking": "Проверка обновлений…",
+  "updates.checkNow": "Проверить обновления сейчас",
+  "updates.checkNowTooltip": "Проверить с текущими настройками обновлений; установка не запускается",
   "updates.current": "Заявленная версия: %s",
   "updates.disable": "Отключить проверку обновлений",
   "updates.disabled": "Проверка обновлений отключена",

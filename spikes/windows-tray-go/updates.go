@@ -159,6 +159,22 @@ func updateReasonLabel(reason string) string {
 	return reason
 }
 
+// Manual checks preserve consent and use the same CLI cache as scheduled checks.
+// Each subprocess keeps its own existing timeout, including preference changes.
+func performUpdateRequest(parent context.Context, preference *bool, limit time.Duration) (*updateSnapshot, error) {
+	if preference != nil {
+		ctx, cancel := context.WithTimeout(parent, limit)
+		err := setUpdatesEnabled(ctx, *preference)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+	}
+	ctx, cancel := context.WithTimeout(parent, limit)
+	defer cancel()
+	return fetchUpdates(ctx)
+}
+
 func fetchUpdates(ctx context.Context) (*updateSnapshot, error) {
 	data, err := runRaw(ctx, "updates", "check", "--json")
 	if err != nil {

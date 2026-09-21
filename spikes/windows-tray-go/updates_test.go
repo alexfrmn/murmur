@@ -159,6 +159,103 @@ func TestUpdatesInvokeBoundCLIAndValidatePreferenceReadback(t *testing.T) {
 		t.Fatal("cancelled CLI accepted")
 	}
 }
+
+func bindUpdateRequestFixture(t *testing.T, response map[string]any, rejectPreference bool) string {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node unavailable")
+	}
+	node, err = filepath.Abs(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "update request.mjs")
+	fixture := `import fs from 'node:fs';
+const args = process.argv.slice(2);
+if (args[0] !== 'updates') process.exit(41);
+const action = args[1];
+fs.appendFileSync(new URL('calls.log', import.meta.url), action + '\n');
+const response = JSON.parse(fs.readFileSync(new URL('response.json', import.meta.url), 'utf8'));
+if (action === 'check') console.log(JSON.stringify(response));
+else if (action === 'enable' || action === 'disable') {
+  const requested = action === 'enable';
+  console.log(JSON.stringify({schema: 'murmur.update-preferences/1', enabled: REJECT ? !requested : requested}));
+} else process.exit(42);`
+	if rejectPreference {
+		fixture = string(bytes.ReplaceAll([]byte(fixture), []byte("REJECT"), []byte("true")))
+	} else {
+		fixture = string(bytes.ReplaceAll([]byte(fixture), []byte("REJECT"), []byte("false")))
+	}
+	if err := os.WriteFile(entry, []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "response.json"), updateJSON(t, response), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MURMUR_BIN", node)
+	t.Setenv("MURMUR_CLI", entry)
+	t.Setenv("MURMUR_PROFILE", filepath.Join(dir, "profile"))
+	t.Setenv("MURMUR_SERVICE_NAME", "UpdateRequestTest")
+	t.Setenv("MURMUR_UPDATE_CHECK", "0")
+	return filepath.Join(dir, "calls.log")
+}
+
+func disabledUpdateFixture() map[string]any {
+	v := updateFixture(time.Now())
+	v["enabled"], v["state"], v["reason"] = false, "unknown", "updates.disabled"
+	for _, key := range []string{"latestVersion", "releaseUrl", "action", "checkedAt", "lastSuccessAt", "nextCheckAt"} {
+		v[key] = nil
+	}
+	return v
+}
+
+func TestManualUpdateRequestPreservesDisabledPreferences(t *testing.T) {
+	log := bindUpdateRequestFixture(t, disabledUpdateFixture(), false)
+	snapshot, err := performUpdateRequest(context.Background(), nil, 10*time.Second)
+	if err != nil || snapshot.Enabled || snapshot.Reason != "updates.disabled" {
+		t.Fatal(snapshot, err)
+	}
+	commands, err := os.ReadFile(log)
+	if err != nil || string(commands) != "check\n" {
+		t.Fatal("manual check changed a preference or ran another command", string(commands), err)
+	}
+}
+
+func TestUpdateRequestChecksOnlyAfterConfirmedPreference(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		action := "disable"
+		response := disabledUpdateFixture()
+		if enabled {
+			action = "enable"
+			response = updateFixture(time.Now())
+		}
+		t.Run(action, func(t *testing.T) {
+			log := bindUpdateRequestFixture(t, response, false)
+			snapshot, err := performUpdateRequest(context.Background(), &enabled, 10*time.Second)
+			if err != nil || snapshot.Enabled != enabled {
+				t.Fatal(snapshot, err)
+			}
+			commands, err := os.ReadFile(log)
+			if err != nil || string(commands) != action+"\ncheck\n" {
+				t.Fatal("preference/check order changed", string(commands), err)
+			}
+		})
+	}
+	t.Run("rejected preference", func(t *testing.T) {
+		log := bindUpdateRequestFixture(t, updateFixture(time.Now()), true)
+		enabled := true
+		if _, err := performUpdateRequest(context.Background(), &enabled, 10*time.Second); err == nil {
+			t.Fatal("unconfirmed preference accepted")
+		}
+		commands, err := os.ReadFile(log)
+		if err != nil || string(commands) != "enable\n" {
+			t.Fatal("check ran after preference refusal", string(commands), err)
+		}
+	})
+}
+
 func TestUpdateBadgePreservesHealthAndUnread(t *testing.T) {
 	plain, err := png.Decode(bytes.NewReader(iconBytes(colRed, true)[22:]))
 	if err != nil {
