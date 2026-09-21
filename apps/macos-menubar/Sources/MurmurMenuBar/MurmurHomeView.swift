@@ -4,6 +4,9 @@ import MurmurTrayCore
 
 struct MurmurHomeView: View {
     @ObservedObject var model: TrayModel
+    @MurmurViewState private var page = "Home"
+    @MurmurViewState private var entry = "welcome"
+    @MurmurViewState private var showingNewConnection = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,34 +20,52 @@ struct MurmurHomeView: View {
                     .menuStyle(.borderlessButton).fixedSize()
                     .accessibilityLabel(L10n.text("Settings"))
             }.padding(24)
+            Picker(L10n.text("Sections"), selection: $page) {
+                Text(L10n.text("Home")).tag("Home")
+                Text(L10n.text("Help")).tag("Help")
+                Text(L10n.text("Settings")).tag("Settings")
+            }.pickerStyle(.segmented).padding(.horizontal, 24).padding(.bottom, 16)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if model.hasPendingSetup {
+                    if page == "Help" {
+                        MurmurHelpView()
+                    } else if page == "Settings" {
+                        settingsContent
+                    } else if model.hasPendingSetup {
                         savedSetup
-                    } else if model.profile == nil && !model.isDemo {
+                    } else if (model.profile == nil || showingNewConnection) && !model.isDemo {
                         firstRun
                     } else {
                         profileContent
                     }
+                    if page != "Help", let error = model.selectionError {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(L10n.text("Choose another folder…")) { model.chooseProfile() }.disabled(model.busy)
+                        if let detail = model.selectionErrorDetail {
+                            MurmurDisclosure(title: L10n.text("Technical details")) { Text(detail).textSelection(.enabled) }
+                        }
+                    }
+                    if model.checkingSelection { ProgressView(L10n.text("Checking this folder before opening it…")) }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
             }
             Divider()
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.shortcutAvailable ? L10n.text("Open or hide: ⌃⌥⌘M") : L10n.text("Shortcut unavailable. Open Murmur from Finder."))
-                    Text(L10n.text("Right-click the menu bar icon for quick actions."))
-                }.font(.caption).foregroundStyle(.secondary)
+                Button(L10n.text("How does Murmur work?")) { page = "Help" }.buttonStyle(.link)
                 Spacer()
                 Button(L10n.text("Quit")) { NSApp.terminate(nil) }.keyboardShortcut("q")
             }.padding(16)
         }.sheet(isPresented: $model.showCreateProfileSheet) { CreateProfileSheet(model: model) }
+            .onChange(of: model.profile) { _ in showingNewConnection = false; entry = "welcome" }
     }
 
     private var firstRun: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(L10n.text("Connect your agents")).font(.title2.weight(.semibold))
-            Text(L10n.text("Join with an invitation, or create a profile for your own server."))
+            Text(L10n.text("Connect your AI assistants")).font(.title2.weight(.semibold))
+            Text(L10n.text("Murmur lets an assistant in Claude Code or Codex send work to another assistant and get a reply."))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(L10n.text("Set up the connection here. Keep working with your assistant in its usual application."))
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if model.preparingRuntime {
                 ProgressView(L10n.text("Checking the Murmur engine…"))
@@ -55,13 +76,14 @@ struct MurmurHomeView: View {
                 if model.creatingProfile {
                     ProgressView(L10n.text("Creating your profile…"))
                 } else if model.needsExistingProfileChoice {
-                    Text(model.requiresRecoveryChoice ? L10n.text("Choose how to continue") : L10n.text("Profiles already on this Mac")).font(.headline)
+                    Text(model.requiresRecoveryChoice ? L10n.text("Choose how to continue") : L10n.text("Saved connections on this Mac")).font(.headline)
+                    profileExplanation
                     Text(model.requiresRecoveryChoice ? L10n.text("The saved record was reset. The earlier setup outcome is still unknown. Choose an existing profile or create a separate one.") : L10n.text("Choose an existing profile to continue. These folders may contain profiles from an earlier setup attempt."))
                         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     ForEach(model.savedProfiles, id: \.dataDirectory) { profile in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(profile.dataDirectory).font(.caption).textSelection(.enabled)
-                            Button(L10n.text("Choose this profile")) { model.chooseSavedProfile(profile) }.disabled(model.busy)
+                            Button(L10n.text("Check and open this connection")) { model.chooseSavedProfile(profile) }.disabled(model.busy)
                         }
                     }
                     if model.requiresRecoveryChoice {
@@ -72,20 +94,50 @@ struct MurmurHomeView: View {
                     }
                     Button(L10n.text("Create a separate profile…")) { model.allowNewSeparateProfile() }.disabled(model.busy)
                 } else {
-                    Button(L10n.text("I have an invitation…")) { model.useInvitation() }
-                        .buttonStyle(.borderedProminent).controlSize(.large)
-                        .disabled(model.busy).keyboardShortcut(.defaultAction)
-                    Button(L10n.text("Create a profile for my server…")) { model.beginOwnProfile() }
-                        .disabled(model.busy)
-                    Text(L10n.text("No invitation yet? Ask someone in your team to send one."))
-                        .font(.callout).foregroundStyle(.secondary)
-                    Divider()
-                    Button(L10n.text("Already configured? Choose a profile folder…")) { model.chooseProfile() }
-                        .buttonStyle(.link).disabled(model.busy)
+                    if entry == "restore" {
+                        Button(L10n.text("Back")) { entry = "welcome" }.buttonStyle(.link)
+                        Text(L10n.text("Open an existing connection")).font(.headline)
+                        profileExplanation
+                        Button(L10n.text("Find saved settings…")) { model.chooseProfile() }
+                            .buttonStyle(.borderedProminent).disabled(model.busy)
+                    } else if entry == "no-invitation" {
+                        Button(L10n.text("Back")) { entry = "welcome" }.buttonStyle(.link)
+                        Text(L10n.text("Ask someone already using Murmur for an invitation file. You will return a reply file, then test the connection."))
+                        Text(L10n.text("Starting the network yourself? You need an existing connection server and its details. This app does not create a server."))
+                            .foregroundStyle(.secondary)
+                        Button(L10n.text("I already have my own server…")) { model.beginOwnProfile() }.disabled(model.busy)
+                    } else {
+                        Button(L10n.text("I have an invitation…")) { model.useInvitation() }
+                            .buttonStyle(.borderedProminent).controlSize(.large)
+                            .disabled(model.busy).keyboardShortcut(.defaultAction)
+                        Text(L10n.text("Choose the file sent by the person whose assistant you want to connect to."))
+                            .font(.callout).foregroundStyle(.secondary)
+                        Divider()
+                        navigationRow("I do not have an invitation yet", detail: "How to get one or connect to your own server") { entry = "no-invitation" }
+                        navigationRow("I have used Murmur before", detail: "Open settings already saved on this Mac") { entry = "restore" }
+                    }
                 }
                 if let error = model.creationError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             }
-        }.padding(.vertical, 24)
+        }.padding(.vertical, 8)
+    }
+
+    private var profileExplanation: some View {
+        Text(L10n.text("A profile is Murmur's saved settings and private keys. A project folder or Documents is not a profile. New connections create these settings automatically; choose a folder only to restore an existing connection."))
+            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func navigationRow(_ title: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.text(title)).font(.headline)
+                    Text(L10n.text(detail)).font(.callout).foregroundStyle(.secondary)
+                }.fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Image(systemName: "chevron.right").accessibilityHidden(true)
+            }.padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(model.busy)
     }
 
     private var savedSetup: some View {
@@ -120,12 +172,22 @@ struct MurmurHomeView: View {
 
     private var profileContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
-                .font(.headline).fixedSize(horizontal: false, vertical: true)
-            if let profile = model.profile {
-                Text(model.agentID ?? L10n.text("Checking the selected profile…"))
-                Text(profile.dataDirectory).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                if let service = profile.serviceName { Text(L10n.text("Service: %@", service)).font(.caption) }
+            if model.status == nil && !model.isDemo {
+                Text(ConnectionGuidance.profileLabel(agentID: model.agentID, hasStatus: false, checking: model.checkingStatus))
+                    .font(.title2.weight(.semibold))
+                if model.checkingStatus {
+                    ProgressView()
+                } else {
+                    Text(L10n.text("Murmur could not verify the selected settings. Open a saved connection, or start a new one from an invitation."))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(L10n.text("Start a new connection")) { showingNewConnection = true; entry = "welcome" }
+                        .buttonStyle(.borderedProminent).disabled(model.busy)
+                    Button(L10n.text("Open an existing connection")) { model.chooseProfile() }.disabled(model.busy)
+                }
+            } else {
+                Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
+                    .font(.headline).fixedSize(horizontal: false, vertical: true)
+                if let agent = model.agentID { Text(L10n.text("Your assistant: %@", agent)) }
             }
             if model.hasSetupSteps { setupSteps }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
@@ -135,12 +197,8 @@ struct MurmurHomeView: View {
             if let count = model.status?.wake.delivery.pendingUndelivered {
                 Text(L10n.text("Waiting for agent delivery: %@", String(count)))
             }
-            HStack {
-                Button(L10n.text("Choose profile folder…")) { model.chooseProfile() }
-                    .disabled(model.busy || model.isDemo || model.runtimeError != nil)
-                Button(model.checkingStatus ? L10n.text("Refreshing…") : L10n.text("Refresh status")) { model.refreshStatus() }
-                    .disabled(model.busy || model.isDemo)
-            }
+            Button(model.checkingStatus ? L10n.text("Refreshing…") : L10n.text("Refresh status")) { model.refreshStatus() }
+                .disabled(model.busy || model.isDemo)
             if model.isDemo {
                 Picker(L10n.text("Preview states"), selection: $model.demoState) {
                     ForEach(Indicator.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -149,9 +207,34 @@ struct MurmurHomeView: View {
             if model.updateAvailable {
                 Button(L10n.text("Murmur update available")) { model.openUpdateRelease() }.disabled(model.isDemo)
             }
-            DisclosureGroup(L10n.text("Service")) { service.padding(.top, 10) }
-            DisclosureGroup(L10n.text("Diagnostics")) { diagnostics.padding(.top, 10) }
-            DisclosureGroup(L10n.text("Murmur updates")) { updateDetails.padding(.top, 10) }
+            MurmurDisclosure(title: L10n.text("Connection check"), explanation: L10n.text("Understand a problem and find the next step")) { diagnostics }
+            if model.status != nil {
+                Text(L10n.text("A running service does not prove that your AI assistant can answer. Send a test message from your AI application and wait for a reply."))
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var settingsContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n.text("Settings")).font(.title2.weight(.semibold))
+            MurmurDisclosure(title: L10n.text("Background operation"), explanation: L10n.text("What keeps running when you close the window")) { service }
+            Divider()
+            MurmurDisclosure(title: L10n.text("Connection check"), explanation: L10n.text("Understand a problem and find the next step")) { diagnostics }
+            Divider()
+            MurmurDisclosure(title: L10n.text("Murmur updates"), explanation: L10n.text("Installed version and the last check")) { updateDetails }
+            Divider()
+            MurmurDisclosure(title: L10n.text("Saved connection"), explanation: L10n.text("Open settings already saved on this Mac")) {
+                profileExplanation
+                if let profile = model.profile {
+                    Text(profile.dataDirectory).font(.caption).textSelection(.enabled)
+                    if let service = profile.serviceName { Text(L10n.text("Service: %@", service)).font(.caption) }
+                }
+                Button(L10n.text("Open an existing connection")) { model.chooseProfile() }
+                    .disabled(model.busy || model.isDemo || model.runtimeError != nil || model.hasPendingSetup)
+            }
+            Text(model.shortcutAvailable ? L10n.text("Open or hide: ⌃⌥⌘M") : L10n.text("Shortcut unavailable. Open Murmur from Finder."))
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -185,6 +268,8 @@ struct MurmurHomeView: View {
 
     private var service: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.text("When the background service is running, you can close this window and messages will still be delivered. Stopping the service stops delivery. Your AI assistant needs its own active session to answer."))
+                .fixedSize(horizontal: false, vertical: true)
             if let enabled = model.status?.wake.config.enabled { Text(L10n.text("Configured: %@", model.wakeState(enabled))) }
             if let enabled = model.status?.wake.effective.enabled { Text(L10n.text("Effective now: %@", model.wakeState(enabled))) }
             if model.status?.wake.effective.needsRestart == true { Text(L10n.text("Restart the service to apply this setting")) }
@@ -196,26 +281,38 @@ struct MurmurHomeView: View {
             HStack {
                 Button(L10n.text("Start")) { model.perform(.start) }.disabled(!model.canControl)
                 Button(L10n.text("Stop")) { model.perform(.stop) }.disabled(!model.canControl)
-                Button(L10n.text("Open configured log folder")) { model.openLogs() }.disabled(!model.canControl)
             }
+            Button(L10n.text("Open configured log folder")) { model.openLogs() }.disabled(!model.canControl)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var diagnostics: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let doctor = model.doctor {
-                ForEach(doctor.rows()) { row in
-                    Label("\(row.title): \(row.detail)", systemImage: row.symbol)
+                let summary = ConnectionGuidance.diagnosticSummary(doctor)
+                Text(summary.title).font(.headline)
+                Text(summary.message).fixedSize(horizontal: false, vertical: true)
+                if doctor.stages.contains(where: { $0.state == "fail" }) {
+                    Text(L10n.text("Later checks wait until the first problem is resolved."))
+                        .font(.callout).foregroundStyle(.secondary)
                 }
-                Text(L10n.text("Checked: %@", doctor.generatedAt)).font(.caption)
-            } else if let error = model.doctorError { Text(error) }
-            if let status = model.status {
-                ForEach(status.diagnosticNotes.filter { $0 != status.modeMismatch }, id: \.self) { Text($0) }
+            } else {
+                Text(model.checkingDoctor ? L10n.text("Checking the connection…") : L10n.text("The connection has not been checked yet."))
+            }
+            MurmurDisclosure(title: L10n.text("Technical details")) {
+                if let doctor = model.doctor {
+                    ForEach(doctor.rows()) { row in Label("\(row.title): \(row.detail)", systemImage: row.symbol).textSelection(.enabled) }
+                    Text(L10n.text("Checked: %@", doctor.generatedAt)).font(.caption)
+                } else if let error = model.doctorError { Text(error).textSelection(.enabled) }
+                if let error = model.profileError { Text(error).textSelection(.enabled) }
+                if let status = model.status {
+                    ForEach(status.diagnosticNotes.filter { $0 != status.modeMismatch }, id: \.self) { Text($0).textSelection(.enabled) }
+                }
             }
             HStack {
                 Button(model.checkingDoctor ? L10n.text("Checking…") : L10n.text("Check now")) {
                     model.refreshDoctor(); model.refreshStatus()
-                }.disabled(model.busy || model.isDemo)
+                }.disabled(model.busy || model.isDemo || model.profile == nil)
                 Button(L10n.text("Copy diagnostics")) { model.copyDiagnostics() }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -227,14 +324,22 @@ struct MurmurHomeView: View {
                 Text(updates.title())
                 Text(L10n.text("Product version: %@", updates.currentVersion ?? L10n.text("unknown.version")))
                 Text(updates.reasonText)
-                Text(L10n.text("Last attempt: %@", updates.checkedAt ?? L10n.text("not-measured.time")))
-                Text(updates.ageText())
-                Text(L10n.text("Last successful check: %@", updates.lastSuccessAt ?? L10n.text("not-measured.time")))
-                if let next = updates.nextCheckAt { Text(L10n.text("Next check no earlier than: %@", next)) }
+                if let checkedAt = updates.checkedAt, let date = timestamp(checkedAt) {
+                    Text(L10n.text("Last check: %@", date.formatted(date: .abbreviated, time: .shortened)))
+                }
+                Text(L10n.text("Checks can reuse a saved result. The date above is the time of that result, not a new network check."))
+                    .font(.callout).foregroundStyle(.secondary)
+                MurmurDisclosure(title: L10n.text("Technical details")) {
+                    Text(L10n.text("Last attempt: %@", updates.checkedAt ?? L10n.text("not-measured.time")))
+                    Text(updates.ageText())
+                    Text(L10n.text("Last successful check: %@", updates.lastSuccessAt ?? L10n.text("not-measured.time")))
+                    if let next = updates.nextCheckAt { Text(L10n.text("Next check no earlier than: %@", next)) }
+                }
                 if updates.stale { Text(L10n.text("The previous successful result is stale")) }
             } else { Text(L10n.text("Updates: result unknown")) }
             if model.checkingUpdates { Text(L10n.text("Checking for updates…")) }
             if let error = model.updateError { Text(error) }
+            Button(L10n.text("Check updates")) { model.refreshUpdates() }.disabled(!model.canChangeUpdates)
             if model.updateAvailable { Button(L10n.text("Open release page")) { model.openUpdateRelease() }.disabled(model.isDemo) }
         }.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
     }

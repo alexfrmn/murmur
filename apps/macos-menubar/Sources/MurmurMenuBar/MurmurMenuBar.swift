@@ -20,6 +20,9 @@ final class TrayModel: ObservableObject {
     @Published var agentID: String?
     @Published var checkingStatus = false
     @Published var checkingDoctor = false
+    @Published var checkingSelection = false
+    @Published var selectionError: String?
+    @Published var selectionErrorDetail: String?
     @Published var updates: UpdateSnapshot?
     @Published var updateError: String?
     @Published var checkingUpdates = false
@@ -122,7 +125,7 @@ final class TrayModel: ObservableObject {
             } else { updateError = ProbeError.missingCLI.localizedDescription }
     }
 
-    var busy: Bool { preparingRuntime || creatingProfile || operating || checkingStatus || checkingDoctor }
+    var busy: Bool { preparingRuntime || creatingProfile || operating || checkingStatus || checkingDoctor || checkingSelection }
     func selectLanguage(_ value: AppLanguage) {
         guard !busy, !checkingUpdates, value != language else { return }
         L10n.select(value)
@@ -199,9 +202,9 @@ final class TrayModel: ObservableObject {
     func chooseProfile() {
         guard !busy, !isDemo, runtimeError == nil, !hasPendingSetup else { return }
         let picker = NSOpenPanel()
-        picker.title = L10n.text("Murmur profile folder")
-        picker.message = L10n.text("Choose a profile folder created with Murmur CLI")
-        picker.prompt = L10n.text("Choose profile")
+        picker.title = L10n.text("Open an existing connection")
+        picker.message = L10n.text("Choose the folder where Murmur already stores its settings and keys. A project folder or Documents alone will not work. Your saved selection stays unchanged until this folder is verified.")
+        picker.prompt = L10n.text("Check this folder")
         picker.canChooseFiles = false; picker.canChooseDirectories = true
         picker.canCreateDirectories = false; picker.allowsMultipleSelection = false
         picker.showsHiddenFiles = true
@@ -212,14 +215,8 @@ final class TrayModel: ObservableObject {
         guard picker.runModal() == .OK, let url = picker.url else { return }
         do {
             let chosen = try ProfileBinding(dataDirectory: url.path)
-            if needsExistingProfileChoice {
-                recoverProfileSelection(chosen)
-                return
-            }
-            UserDefaults.standard.set(chosen.dataDirectory, forKey: "profileDirectory")
-            UserDefaults.standard.removeObject(forKey: "profileServiceName")
-            bind(chosen)
-        } catch { profileError = error.localizedDescription }
+            recoverProfileSelection(chosen)
+        } catch { selectionError = error.localizedDescription }
     }
 
     private func bind(_ chosen: ProfileBinding, expectedAgent: String? = nil, skipInitialDoctor: Bool = false) {
@@ -276,22 +273,36 @@ final class TrayModel: ObservableObject {
         recoverProfileSelection(chosen)
     }
     private func recoverProfileSelection(_ chosen: ProfileBinding) {
-        guard !busy, !isDemo, !hasPendingSetup,
-              let executable = CLIProbe.locate() else { return }
-        checkingStatus = true; creationError = nil
+        guard !busy, !isDemo, !hasPendingSetup else { return }
+        guard let executable = CLIProbe.locate() else {
+            selectionError = ProbeError.missingCLI.localizedDescription
+            selectionErrorDetail = nil
+            return
+        }
+        checkingSelection = true; selectionError = nil; selectionErrorDetail = nil
         let onboarding = ProfileOnboardingClient(executable: executable), root = applicationDirectory
         Task {
             let result = await Task.detached { Result { try onboarding.recoverSelectedProfile(chosen, applicationDirectory: root) } }.value
-            checkingStatus = false
+            defer { checkingSelection = false }
             switch result {
             case .success(let selected):
+                let confirmation = NSAlert()
+                confirmation.messageText = L10n.text("Open connection %@?", selected.agentID)
+                confirmation.informativeText = L10n.text("Murmur found saved settings in this folder. Opening them changes only the selected connection; no new identity is created.") + "\n\n" + chosen.dataDirectory
+                confirmation.addButton(withTitle: L10n.text("Open connection"))
+                confirmation.addButton(withTitle: L10n.text("Cancel"))
+                guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+                checkingSelection = false
                 do {
                     try persistCreatedSelection(selected)
                     completeRecoveryChoice()
                     bind(selected.profile, expectedAgent: selected.agentID, skipInitialDoctor: true)
                     operationMessage = L10n.text("Profile selected; connection has not been checked yet")
-                } catch { creationError = error.localizedDescription }
-            case .failure(let error): creationError = error.localizedDescription
+                } catch { selectionError = error.localizedDescription }
+            case .failure(let error):
+                // No preference, binding, identity or file was changed by this read-only attempt.
+                selectionError = L10n.text("This folder could not be opened as a Murmur connection. Choose settings created by Murmur, or start from an invitation. Your previous selection has been kept.")
+                selectionErrorDetail = error.localizedDescription
             }
         }
     }
@@ -351,6 +362,7 @@ final class TrayModel: ObservableObject {
         guard !busy, !isDemo, runtimeError == nil else { return }
         refreshSavedSetup()
         guard !hasPendingSetup, !needsExistingProfileChoice else { return }
+        selectionError = nil; selectionErrorDetail = nil
         creationPlan = nil; creationError = nil
         creationAgentID = NewProfilePlan.suggestedAgentID(); creationServer = ""; creationAccessFile = nil
         showCreateProfileSheet = true
@@ -359,6 +371,7 @@ final class TrayModel: ObservableObject {
         guard !busy, !isDemo, runtimeError == nil else { return }
         refreshSavedSetup()
         guard !hasPendingSetup, !needsExistingProfileChoice else { return }
+        selectionError = nil; selectionErrorDetail = nil
         let picker = NSOpenPanel()
         picker.title = L10n.text("Use a Murmur invitation")
         picker.message = L10n.text("Choose the invitation file sent by someone you trust")
@@ -489,7 +502,7 @@ final class TrayModel: ObservableObject {
     }
 
     func refreshStatus() {
-        guard !checkingStatus, !operating, !isDemo, let client else { return }
+        guard !checkingStatus, !checkingSelection, !operating, !isDemo, let client else { return }
         let selected = selectionID
         let expectedAgent = agentID
         checkingStatus = true
