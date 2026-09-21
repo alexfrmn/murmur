@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
@@ -22,6 +22,7 @@ async function fixture(t, runner) {
   return { adapter, home, ctx, calls, plist };
 }
 
+describe('setup-darwin', { skip: process.platform === 'win32' && 'Darwin adapter requires POSIX paths, ownership and executable permissions' }, () => {
 test('install produces private escaped plist, stays unloaded and is idempotent', async t => {
   const f = await fixture(t);
   await f.adapter.install(f.ctx);
@@ -188,4 +189,6 @@ test('stop refuses another profile reusing the same serviceName without any boot
   const other = { ...f.ctx, dataDir, configPath: path.join(dataDir, 'agent-config.json'), storePath: path.join(dataDir, 'murmur.db'), logDir: path.join(dataDir, 'logs') };
   await assert.rejects(f.adapter.stop(other), /stop-profile-mismatch/);
   assert.ok(f.calls.every(([, args]) => args[0] !== 'bootout'));
+});
+
 });

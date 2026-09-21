@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
@@ -16,6 +16,7 @@ async function fixture(t) {
   const loaded = (state = 'inactive') => { info = `LoadState=loaded\nFragmentPath=${target}\nActiveState=${state}\nSubState=${state === 'active' ? 'running' : 'dead'}\nMainPID=123\nExecMainStatus=0\n`; };
   return { home, context, target, adapter, calls, loaded, setInfo: value => { info = value; } };
 }
+describe('setup-linux', { skip: process.platform === 'win32' && 'systemd adapter requires POSIX paths and ownership' }, () => {
 test('install backs up owned changes, refuses loaded updates and is idempotent', async t => {
   const f = await fixture(t); await f.adapter.install(f.context); f.loaded();
   assert.equal((await fs.stat(f.target)).mode & 0o777, 0o600);
@@ -71,4 +72,6 @@ test('installed systemd parser accepts the generated unit', { skip: process.plat
   const file = path.join(f.home, 'verify.service');
   await fs.writeFile(file, renderLinuxUnit({ ...f.context, repoRoot: f.home }));
   execFileSync('systemd-analyze', ['verify', file], { stdio: 'pipe' });
+});
+
 });

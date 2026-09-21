@@ -30,7 +30,7 @@ async function fixture(t) {
   return { home, dataDir, configPath, bytes, logDir, args, run };
 }
 
-test('logs path returns only canonical profile identity and readable configured directory, without writes', async t => {
+test('logs path returns only canonical profile identity and readable configured directory, without writes', { skip: process.platform === 'win32' && 'Windows reports a native logs limitation instead of the POSIX directory contract' }, async t => {
   const f = await fixture(t);
   await fs.mkdir(f.logDir);
   // Opening the directory must not require reading any log contents.
@@ -48,7 +48,7 @@ test('logs path returns only canonical profile identity and readable configured 
   assert.deepEqual(await fs.readdir(f.logDir), ['daemon.log']);
 });
 
-test('logs path fails clearly when directory is missing and never creates it or a profile', async t => {
+test('logs path fails clearly when directory is missing and never creates it or a profile', { skip: process.platform === 'win32' && 'Windows reports a native logs limitation instead of the POSIX directory contract' }, async t => {
   const f = await fixture(t);
   const result = f.run();
   assert.equal(result.status, 1);
@@ -60,14 +60,14 @@ test('logs path fails clearly when directory is missing and never creates it or 
   await assert.rejects(fs.stat(f.dataDir), { code: 'ENOENT' });
 });
 
-test('logs path rejects a regular file without changing its contents', async t => {
+test('logs path rejects a regular file without changing its contents', { skip: process.platform === 'win32' && 'Windows reports a native logs limitation instead of the POSIX directory contract' }, async t => {
   const f = await fixture(t);
   await fs.writeFile(f.logDir, 'do-not-replace');
   await assert.rejects(main(f.args, noService), /logs.not-directory/);
   assert.equal(await fs.readFile(f.logDir, 'utf8'), 'do-not-replace');
 });
 
-test('logs path rejects links outside the chosen profile and links back to the profile root', async t => {
+test('logs path rejects links outside the chosen profile and links back to the profile root', { skip: process.platform === 'win32' && 'Windows reports a native logs limitation instead of the POSIX directory contract' }, async t => {
   const f = await fixture(t), outside = path.join(f.home, 'profile-other');
   await fs.mkdir(outside);
   for (const target of [outside, f.dataDir]) {
@@ -79,7 +79,7 @@ test('logs path rejects links outside the chosen profile and links back to the p
   assert.equal(await fs.readFile(f.configPath, 'utf8'), f.bytes);
 });
 
-test('logs path resolves profile aliases and accepts a directory alias contained inside the profile', async t => {
+test('logs path resolves profile aliases and accepts a directory alias contained inside the profile', { skip: process.platform === 'win32' && 'Windows reports a native logs limitation instead of the POSIX directory contract' }, async t => {
   const f = await fixture(t), actualLogs = path.join(f.dataDir, 'actual-logs'), alias = path.join(f.home, 'alias');
   await fs.mkdir(actualLogs);
   await fs.symlink(actualLogs, f.logDir, 'junction');
@@ -102,7 +102,7 @@ test('logs path refuses unreadable or non-traversable directories without changi
   }
 });
 
-test('logs path does not advertise a directory when profile identity is invalid', async t => {
+test('logs path does not advertise a directory when profile identity is invalid', { skip: process.platform === 'win32' && 'Windows reports a native logs limitation instead of the POSIX directory contract' }, async t => {
   const f = await fixture(t);
   await fs.mkdir(f.logDir);
   await fs.writeFile(f.configPath, JSON.stringify({ privateKey: 'do-not-print' }));
@@ -111,4 +111,20 @@ test('logs path does not advertise a directory when profile identity is invalid'
   assert.equal(result.stdout, '');
   assert.match(result.stderr, /^config.identity-invalid$/m);
   assert.doesNotMatch(result.stderr, /do-not-print/);
+});
+
+
+test('Windows logs command reports its native limitation without creating or changing profile files', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t);
+  for (const directoryExists of [false, true]) {
+    if (directoryExists) await fs.mkdir(f.logDir);
+    const before = await fs.readdir(f.dataDir);
+    await assert.rejects(main(f.args, noService), /^Error: logs\.windows-native-location-unavailable$/);
+    const result = f.run();
+    assert.equal(result.status, 1); assert.equal(result.stdout, '');
+    assert.match(result.stderr, /^logs\.windows-native-location-unavailable$/m);
+    assert.doesNotMatch(result.stderr, /private-test-token|privateKey/);
+    assert.equal(await fs.readFile(f.configPath, 'utf8'), f.bytes);
+    assert.deepEqual(await fs.readdir(f.dataDir), before);
+  }
 });

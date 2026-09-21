@@ -22,7 +22,7 @@ for (const format of ['json', 'toml']) test(`${format}: patch keeps auth rails, 
   await fs.writeFile(f.file, source);
   const result = await configureClient(f.context, f.adapter, 'codex-cli');
   assert.equal(await fs.readFile(result.backup, 'utf8'), source);
-  assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
   const output = await fs.readFile(f.file, 'utf8'), parsed = format === 'json' ? JSON.parse(output) : TOML.parse(output);
   assert.equal(parsed[key].murmur.env.DATA_DIR, f.context.dataDir);
   delete parsed[key].murmur; assert.deepEqual(parsed, input);
@@ -94,13 +94,23 @@ test('existing other Murmur contour requires explicit replacement and retains ba
   const changed = await configureClient(f.context, f.adapter, 'codex-cli', true);
   assert.equal(await fs.readFile(changed.backup, 'utf8'), before);
 });
-test('malformed config and symlink are rejected without rewriting their target', async t => {
+test('malformed config is rejected without rewriting it', async t => {
   const f = await fixture(t, 'json'); await fs.writeFile(f.file, 'not json');
   await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'), /config-parse-failed/);
   assert.equal(await fs.readFile(f.file, 'utf8'), 'not json');
-  const target = path.join(f.root, 'unrelated'); await fs.writeFile(target, '{}'); await fs.unlink(f.file); await fs.symlink(target, f.file);
-  await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'));
-  assert.equal(await fs.readFile(target, 'utf8'), '{}');
+});
+for (const dangling of [false, true]) test(`client preview/apply reject ${dangling ? 'dangling' : 'existing'} symlink without replacing it`, async t => {
+  const f = await fixture(t, 'json'); await profile(f);
+  const target = path.join(f.root, 'unrelated');
+  if (!dangling) await fs.writeFile(target, '{}');
+  await fs.symlink(target, f.file, 'file');
+  for (const run of [previewClientConfiguration, configureClient]) {
+    await assert.rejects(run(f.context, f.adapter, 'codex-cli'), /config-file-invalid/);
+    assert.equal(await fs.readlink(f.file), target);
+    if (dangling) await assert.rejects(fs.stat(target), { code: 'ENOENT' });
+    else assert.equal(await fs.readFile(target, 'utf8'), '{}');
+    assert.deepEqual((await fs.readdir(f.root)).filter(p => /backup|murmur-lock|\.tmp$/.test(p)), []);
+  }
 });
 test('unknown profile path is not guessed or written', async t => {
   const f = await fixture(t, 'json'); f.adapter.detectClients = async () => [{ id: 'codex-cli', installed: true, configPath: null, format: 'json' }];

@@ -9,11 +9,12 @@ import { readStatus } from '../packages/setup/dist/src/status.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 const adapter = { manager: 'none', status: async () => ({ state: 'stopped', manager: 'none', pid: null, since: null, lastExitCode: null, observedStorePath: null, restartCount: null, restartWindowMs: null }) };
 async function fixture(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-onboard-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-onboard-')), cleanup = [];
+  t.after(async () => { for (const close of cleanup.reverse()) await close(); await fs.rm(root, { recursive: true, force: true }); });
   const command = (id, args) => main([...args, '--data-dir', path.join(root, id)], adapter);
   const config = id => fs.readFile(path.join(root, id, 'agent-config.json'), 'utf8').then(JSON.parse);
   const init = id => command(id, ['init', '--agent-id', id, '--broker-url', 'nats://127.0.0.1:4222']);
-  return { root, command, config, init };
+  return { root, command, config, init, cleanup };
 }
 test('two profiles can exchange private invite/reply files without shell-specific env syntax', async t => {
   const f = await fixture(t); await f.init('agent-a');
@@ -27,7 +28,8 @@ test('two profiles can exchange private invite/reply files without shell-specifi
   assert.equal(b.peers['agent-a'].encryption.publicKey, a.keys.encryption.publicKey);
   const context = resolveContext({ dataDir: path.join(f.root, 'agent-a'), repoRoot: fileURLToPath(new URL('../', import.meta.url)) });
   assert.equal((await readStatus({ context, adapter })).peers.list[0].paired, null);
-  assert.equal((await fs.stat(invitation)).mode & 0o777, 0o600);
+  // Windows permissions are ACLs; stat.mode cannot verify POSIX owner-only bits.
+  if (process.platform !== 'win32') assert.equal((await fs.stat(invitation)).mode & 0o777, 0o600);
   assert.ok(!Buffer.from((await fs.readFile(invitation, 'utf8')).trim().slice(7), 'base64').toString().includes('privateKey'));
 });
 test('repeat init/add-peer preserves existing identity and rejects a peer key change', async t => {
@@ -79,7 +81,7 @@ test('broker credentials come from a private input file and are absent from comm
 test('add-peer clears only this peer poisoned dedupe rows and preserves delivered rows', async t => {
   const { SQLiteDedupeOutboxStore } = await import('../packages/core/dist/src/index.js');
   const f = await fixture(t); await f.init('agent-a'); const config = await f.config('agent-a');
-  const store = new SQLiteDedupeOutboxStore(path.join(f.root, 'agent-a', 'murmur.db')); t.after(() => store.close());
+  const store = new SQLiteDedupeOutboxStore(path.join(f.root, 'agent-a', 'murmur.db')); f.cleanup.push(() => store.close());
   await store.markSeen('blocked', 'consumer', { senderAgentId:'agent-b', poisonReason:'unknown-peer' });
   await store.markSeen('delivered', 'consumer', { senderAgentId:'agent-b' });
   await store.markSeen('other', 'consumer', { senderAgentId:'agent-c', poisonReason:'unknown-peer' });

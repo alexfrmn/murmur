@@ -11,13 +11,14 @@ import { prepareReplyTest, checkReplyTest } from '../packages/setup/dist/src/rep
 import { main } from '../packages/setup/dist/src/cli.js';
 async function fixture(t) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-reply-test-'));
-  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  let store;
+  t.after(async () => { store?.close(); await fs.rm(dataDir, { recursive: true, force: true }); });
   const context = resolveContext({ dataDir });
   const keys = { signing: await createSigningKeyPair(), encryption: await createKeyPair() };
   const config = { agentId: 'alice', subject: 'msg.alice', natsUrl: 'nats://127.0.0.1:4222', keys,
     peers: { bob: { subject: 'msg.bob', signing: { publicKey: keys.signing.publicKey }, encryption: { publicKey: keys.encryption.publicKey } } } };
   await fs.writeFile(context.configPath, JSON.stringify(config), { mode: 0o600 });
-  const store = new SQLiteMessageStore(context.storePath); t.after(() => store.close());
+  store = new SQLiteMessageStore(context.storePath);
   const cursor = path.join(dataDir, 'read-state.json'); await fs.writeFile(cursor, '{"fixture":"unchanged"}');
   const plan = await prepareReplyTest(context, 'bob');
   const append = (direction, patch = {}) => store.append({ msgId: randomUUID(), conversationId: plan.conversationId,

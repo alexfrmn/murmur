@@ -91,14 +91,21 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22.13.0'
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Check update CLI, cache and preferences without network
-        run: node --test tests/setup-updates.test.mjs
+      - name: Check shared setup behavior on Windows
+        shell: pwsh
+        run: |
+          $tests = @(Get-ChildItem tests/setup-*.test.mjs | Sort-Object Name | ForEach-Object FullName)
+          if ($tests.Count -eq 0) { throw 'No setup tests found' }
+          node --test @tests
+          if ($LASTEXITCODE -ne 0) { throw 'Windows setup tests failed' }
       - name: Check Claude statusline native Windows composition
         run: node --test tests/claude-statusline-windows.test.mjs
 

@@ -1,6 +1,6 @@
 import * as TOML from '@iarna/toml';
 import { constants } from 'node:fs';
-import { mkdir, open, rename, rmdir, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, rename, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -17,9 +17,16 @@ async function selectedClient(c: ServiceContext, adapter: PlatformAdapter, clien
 async function readClientFile(file: string) {
   let handle;
   try {
+    // O_NOFOLLOW is unavailable on Windows. Inspect the link itself there too,
+    // including dangling links, and bind the opened handle to the checked file.
+    const before = await lstat(file);
+    if (!before.isFile()) throw new Error('client.config-file-invalid');
     handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     const info = await handle.stat();
-    if (!info.isFile() || info.size > 4 * 1024 * 1024 || (process.getuid && info.uid !== process.getuid())) throw new Error('client.config-file-invalid');
+    const after = await lstat(file);
+    if (!info.isFile() || !after.isFile() || before.dev !== info.dev || before.ino !== info.ino
+      || after.dev !== info.dev || after.ino !== info.ino || info.size > 4 * 1024 * 1024
+      || (process.getuid && info.uid !== process.getuid())) throw new Error('client.config-file-invalid');
     return { text: await handle.readFile('utf8'), existed: true };
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { text: '', existed: false };
