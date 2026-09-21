@@ -9,7 +9,7 @@ import { configureClient, previewClientConfiguration, sameClientFileIdentity } f
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 import { createKeyPair, createSigningKeyPair } from '../packages/security/dist/src/index.js';
 import { main } from '../packages/setup/dist/src/cli.js';
-import { assertPrivateFile, allowPublicReadInFixtureDirectory } from './helpers/private-files.mjs';
+import { assertPrivateFile, allowPublicReadInFixtureDirectory, fileAccessPolicy } from './helpers/private-files.mjs';
 
 test('Windows missing volume serial preserves full inode and known-device refusal', () => {
   const pathInfo = { dev: 0n, ino: 844424931489285n };
@@ -34,6 +34,7 @@ for (const format of ['json', 'toml']) test(`${format}: patch keeps auth rails, 
   const input = { forced_login_method: 'chatgpt', enable_codex_api_key_env: false, model: 'user-choice', [key]: { existing: { command: '/some/tool', args: ['do-not-change'] } }, custom: { nested: 'preserve' } };
   const source = format === 'json' ? JSON.stringify(input) : '# preserved in backup\n' + TOML.stringify(input);
   await fs.writeFile(f.file, source);
+  const accessBefore = process.platform === 'win32' ? await fileAccessPolicy(f.file) : null;
   const result = await configureClient(f.context, f.adapter, 'codex-cli').catch(async error => {
     // Report only synthetic fixture metadata when a native filesystem differs.
     const describe = s => ({ regular: s.isFile(), link: s.isSymbolicLink(), dev: String(s.dev), ino: String(s.ino), uid: String(s.uid), size: String(s.size) });
@@ -47,7 +48,8 @@ for (const format of ['json', 'toml']) test(`${format}: patch keeps auth rails, 
   });
   assert.equal(await fs.readFile(result.backup, 'utf8'), source);
   await assertPrivateFile(result.backup);
-  await assertPrivateFile(f.file);
+  if (process.platform === 'win32') assert.equal(await fileAccessPolicy(f.file), accessBefore);
+  else await assertPrivateFile(f.file);
   const output = await fs.readFile(f.file, 'utf8'), parsed = format === 'json' ? JSON.parse(output) : TOML.parse(output);
   assert.equal(parsed[key].murmur.env.DATA_DIR, f.context.dataDir);
   delete parsed[key].murmur; assert.deepEqual(parsed, input);
@@ -143,13 +145,15 @@ test('unknown profile path is not guessed or written', async t => {
   await assert.rejects(fs.stat(f.file), { code: 'ENOENT' });
 });
 
-test('Windows client replacement and backup protect secrets despite a public parent ACL', { skip: process.platform !== 'win32' }, async t => {
+test('Windows client replacement preserves existing access while its backup is private', { skip: process.platform !== 'win32' }, async t => {
   const f = await fixture(t, 'json');
   await allowPublicReadInFixtureDirectory(f.root);
   const source = JSON.stringify({ token: 'fixture-private-token', mcpServers: {} });
   await fs.writeFile(f.file, source);
   await assert.rejects(assertPrivateFile(f.file), /private output/);
+  const before = await fileAccessPolicy(f.file);
   const result = await configureClient(f.context, f.adapter, 'codex-cli');
   assert.equal(await fs.readFile(result.backup, 'utf8'), source);
-  await assertPrivateFile(result.backup); await assertPrivateFile(f.file);
+  await assertPrivateFile(result.backup);
+  assert.equal(await fileAccessPolicy(f.file), before, 'configuring Murmur must not silently revoke existing readers');
 });

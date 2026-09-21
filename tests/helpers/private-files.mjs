@@ -34,6 +34,11 @@ $entries = @($acl.GetAccessRules($true, $true, [System.Security.Principal.Securi
   assert.equal(expected.size, 0);
 }
 
+export async function fileAccessPolicy(file) {
+  assert.equal(process.platform, 'win32');
+  return powershell(file, `(Get-Acl -LiteralPath $env:MURMUR_TEST_ACL_FILE).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)`);
+}
+
 /** Only use with a newly created, test-owned directory. */
 export async function allowPublicReadInFixtureDirectory(directory) {
   assert.equal(process.platform, 'win32');

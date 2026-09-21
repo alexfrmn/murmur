@@ -11,17 +11,29 @@ $ErrorActionPreference = 'Stop'
 # terminal. Only load modules belonging to this Windows PowerShell 5.1 process.
 $env:PSModulePath = [System.IO.Path]::Combine($PSHOME, 'Modules')
 $file = $env:MURMUR_SETUP_PRIVATE_FILE
+$source = $env:MURMUR_SETUP_ACCESS_SOURCE
+$section = [System.Security.AccessControl.AccessControlSections]::Access
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed = @($user, 'S-1-5-18', 'S-1-5-32-544') | Select-Object -Unique
 $security = New-Object System.Security.AccessControl.FileSecurity
-$security.SetAccessRuleProtection($true, $false)
-foreach ($id in $allowed) {
-  $sid = New-Object System.Security.Principal.SecurityIdentifier($id)
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'Allow')
-  $security.AddAccessRule($rule)
+if ($source) {
+  $expected = (Get-Acl -LiteralPath $source).GetSecurityDescriptorSddlForm($section)
+  $security.SetSecurityDescriptorSddlForm($expected, $section)
+} else {
+  $security.SetAccessRuleProtection($true, $false)
+  foreach ($id in $allowed) {
+    $sid = New-Object System.Security.Principal.SecurityIdentifier($id)
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'Allow')
+    $security.AddAccessRule($rule)
+  }
 }
 Set-Acl -LiteralPath $file -AclObject $security
 $actual = Get-Acl -LiteralPath $file
+if ($source) {
+  if ($actual.GetSecurityDescriptorSddlForm($section) -ne $expected -or
+      (Get-Acl -LiteralPath $source).GetSecurityDescriptorSddlForm($section) -ne $expected) { throw 'changed access policy' }
+  exit 0
+}
 if (!$actual.AreAccessRulesProtected) { throw 'unprotected ACL' }
 $rules = @($actual.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
 if ($rules.Count -ne $allowed.Count) { throw 'unexpected ACL entries' }
@@ -31,19 +43,40 @@ foreach ($rule in $rules) {
 }
 `;
 
-/** Protect a newly created, still-empty setup output before writing credentials. */
-export async function protectPrivateFile(file: string, handle: FileHandle): Promise<void> {
+async function prepareFile(file: string, handle: FileHandle, accessSource?: string): Promise<void> {
   if (process.platform !== 'win32') return;
   const opened = await handle.stat({ bigint: true });
   const before = await lstat(file, { bigint: true });
   if (!opened.isFile() || opened.size !== 0n || !before.isFile() || !sameClientFileIdentity(before, opened)) {
     throw new Error('private-file.target-invalid');
   }
+  const sourceBefore = accessSource ? await lstat(accessSource, { bigint: true }).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }) : null;
+  if (sourceBefore && (!sourceBefore.isFile() || sameClientFileIdentity(sourceBefore, opened))) {
+    throw new Error('private-file.access-source-invalid');
+  }
   try {
     await exec(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(protect, 'utf16le').toString('base64')],
-      { env: { ...process.env, MURMUR_SETUP_PRIVATE_FILE: file }, windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 });
+      { env: { ...process.env, MURMUR_SETUP_PRIVATE_FILE: file, MURMUR_SETUP_ACCESS_SOURCE: sourceBefore ? accessSource : '' },
+        windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 });
   } catch { throw new Error('private-file.windows-acl-failed'); }
   const after = await lstat(file, { bigint: true });
   if (!after.isFile() || !sameClientFileIdentity(after, opened)) throw new Error('private-file.target-changed');
+  if (sourceBefore) {
+    const sourceAfter = await lstat(accessSource!, { bigint: true });
+    if (!sourceAfter.isFile() || !sameClientFileIdentity(sourceBefore, sourceAfter)) throw new Error('private-file.access-source-changed');
+  }
+}
+
+/** Protect a newly created, still-empty setup output before writing credentials. */
+export async function protectPrivateFile(file: string, handle: FileHandle): Promise<void> {
+  return prepareFile(file, handle);
+}
+
+/** Existing Windows files keep their access policy, including intentional sandbox readers. */
+export async function preparePrivateReplacement(file: string, handle: FileHandle, previous: string): Promise<void> {
+  return prepareFile(file, handle, previous);
 }

@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { ClientDetection, PlatformAdapter, ServiceContext } from './types.js';
 import { loadConfig } from './config.js';
 import { sameClientFileIdentity } from './file-identity.js';
-import { protectPrivateFile } from './private-file.js';
+import { protectPrivateFile, preparePrivateReplacement } from './private-file.js';
 export { sameClientFileIdentity } from './file-identity.js';
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value);
 
@@ -97,7 +97,7 @@ export async function configureClient(c: ServiceContext, adapter: PlatformAdapte
     const temporary = `${file}.murmur-${randomUUID()}.tmp`;
     try {
       const out = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-      try { await protectPrivateFile(temporary, out); await out.writeFile(serialized); await out.sync(); } finally { await out.close(); }
+      try { await preparePrivateReplacement(temporary, out, file); await out.writeFile(serialized); await out.sync(); } finally { await out.close(); }
       // A client can save its config while the confirmation window is open or
       // while we prepare the backup. Refuse a changed target instead of losing it.
       if (!isDeepStrictEqual(await readClientFile(file), current)) throw new Error('client.plan-stale');

@@ -6,12 +6,15 @@ No environment assignment syntax is required. Every profile-specific command
 accepts `--data-dir ABSOLUTE_PATH`; the service, daemon and MCP entry use this one
 profile. This is a source-checkout workflow, not a published npm installation.
 
-On Windows, setup protects newly written identity state, invitations, client
-configuration and backups with a non-inheriting file ACL before writing secrets.
+On Windows, setup protects new identity state, invitations, client configuration
+and backups with a non-inheriting file ACL before writing secrets.
 Only the creating account, SYSTEM (used by the native service) and local
 Administrators receive access. This uses built-in Windows PowerShell without
 changing the parent directory ACL; if protection cannot be applied and verified,
-the write fails. Preview and unchanged client entries do not change permissions.
+the write fails. Replacing an existing state or client configuration file preserves
+its Windows access policy, including intentional service or sandbox readers; it
+does not audit or tighten that existing policy. Its new backup is private. Preview
+and unchanged client entries do not change permissions.
 
 The older `scripts/murmur-invite.mjs`, `scripts/murmur-join.mjs` and
 `scripts/murmur-add-peer.mjs` entrypoints are disabled compatibility notices.
