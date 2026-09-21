@@ -174,7 +174,7 @@ func bindUpdateRequestFixture(t *testing.T, response map[string]any, rejectPrefe
 	entry := filepath.Join(dir, "update request.mjs")
 	fixture := `import fs from 'node:fs';
 const args = process.argv.slice(2);
-if (args[0] !== 'updates') process.exit(41);
+if (args[0] !== 'updates' || process.env.MURMUR_UPDATE_CHECK !== '0') process.exit(41);
 const action = args[1];
 fs.appendFileSync(new URL('calls.log', import.meta.url), action + '\n');
 const response = JSON.parse(fs.readFileSync(new URL('response.json', import.meta.url), 'utf8'));

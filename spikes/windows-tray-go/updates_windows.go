@@ -130,6 +130,9 @@ func (a *app) requestUpdates(preference *bool) {
 	a.mu.Lock()
 	busy := a.updateBusy
 	a.mu.Unlock()
+	// A manual request may read the CLI's disabled state. The binding preserves
+	// MURMUR_UPDATE_CHECK=0, and the CLI returns before any network request.
+	// Preference changes cannot override that environment-level opt-out.
 	if busy || (preference != nil && os.Getenv("MURMUR_UPDATE_CHECK") == "0") {
 		return
 	}
