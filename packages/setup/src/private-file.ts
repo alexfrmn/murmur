@@ -23,9 +23,10 @@ $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed = @($user, 'S-1-5-18', 'S-1-5-32-544') | Select-Object -Unique
 $security = New-Object System.Security.AccessControl.FileSecurity
 if ($source) {
-  $expected = (Get-Acl -LiteralPath $source).GetSecurityDescriptorSddlForm($section)
+  $original = Get-Acl -LiteralPath $source
+  $expected = $original.GetSecurityDescriptorSddlForm($section)
   $security.SetSecurityDescriptorSddlForm($expected, $section)
-  $expectedPolicy = AccessPolicy (Get-Acl -LiteralPath $source)
+  $expectedPolicy = AccessPolicy $original
 } else {
   $security.SetAccessRuleProtection($true, $false)
   foreach ($id in $allowed) {
@@ -69,7 +70,15 @@ async function prepareFile(file: string, handle: FileHandle, accessSource?: stri
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(protect, 'utf16le').toString('base64')],
       { env: { ...process.env, MURMUR_SETUP_PRIVATE_FILE: file, MURMUR_SETUP_ACCESS_SOURCE: sourceBefore ? accessSource : '' },
         windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 });
-  } catch { throw new Error('private-file.windows-acl-failed'); }
+  } catch (error) {
+    // Keep paths, command text and arbitrary PowerShell stderr out of diagnostics.
+    const failure = error as { killed?: boolean; code?: string | number; stderr?: string };
+    const rejection = ['changed access policy', 'unprotected ACL', 'unexpected ACL entries', 'unexpected ACL']
+      .find(reason => failure.stderr?.includes(reason));
+    const reason = failure.killed ? 'timeout' : failure.code === 'ENOENT' ? 'powershell-unavailable'
+      : rejection?.replaceAll(' ', '-') ?? 'command-failed';
+    throw new Error(`private-file.windows-acl-failed:${reason}`);
+  }
   const after = await lstat(file, { bigint: true });
   if (!after.isFile() || !sameClientFileIdentity(after, opened)) throw new Error('private-file.target-changed');
   if (sourceBefore) {
