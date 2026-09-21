@@ -63,6 +63,14 @@ public struct CLIProbe: Sendable {
         // No shell; GUI launches must not depend on an interactive shell PATH.
         let inherited = ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]
         var childEnvironment = environment.filter { inherited.contains($0.key) }
+        // Client routing belongs to the shared detector. Preserve explicit custom
+        // homes for this command family so the GUI cannot silently write defaults.
+        // Never inherit credentials, NODE_OPTIONS or arbitrary runtime overrides.
+        if arguments.first == "clients" {
+            for key in ["CODEX_HOME", "CLAUDE_CONFIG_DIR"] {
+                if let value = environment[key] { childEnvironment[key] = value }
+            }
+        }
         // Preserve only the documented opt-out, never an opt-in or arbitrary value.
         if environment["MURMUR_UPDATE_CHECK"] == "0" { childEnvironment["MURMUR_UPDATE_CHECK"] = "0" }
         childEnvironment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"

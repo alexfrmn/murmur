@@ -286,7 +286,8 @@ struct ProbeChecks {
         let markCount = try runMarkChecks(fixtures: directory)
         let onboardingCount = try runOnboardingChecks(fixtures: directory)
         let guidanceCount = try runConnectionGuidanceChecks(fixtures: directory)
+        let clientSetupCount = try runClientSetupChecks(fixtures: directory)
         print("\(guidanceCount) connection guidance checks passed")
-        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount + localizationCount + presentationCount + markCount + onboardingCount + guidanceCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount), localization \(localizationCount), presentation \(presentationCount), mark \(markCount), onboarding \(onboardingCount), guidance \(guidanceCount)")
+        print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount + localizationCount + presentationCount + markCount + onboardingCount + guidanceCount + clientSetupCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount), localization \(localizationCount), presentation \(presentationCount), mark \(markCount), onboarding \(onboardingCount), guidance \(guidanceCount), client setup \(clientSetupCount)")
     }
 }

@@ -11,7 +11,7 @@ public enum ConnectionGuidance {
         if let failure = doctor.stages.first(where: { $0.state == "fail" }) {
             switch failure.id {
             case "config":
-                if failure.detail == "config.missing" {
+                if failure.reason == "config.missing" || failure.detail == "config.missing" {
                     return (L10n.text("This folder has no Murmur settings"),
                             L10n.text("Start a new connection or choose the folder where Murmur was set up before."))
                 }

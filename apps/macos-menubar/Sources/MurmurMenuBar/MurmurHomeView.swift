@@ -190,6 +190,7 @@ struct MurmurHomeView: View {
                 if let agent = model.agentID { Text(L10n.text("Your assistant: %@", agent)) }
             }
             if model.hasSetupSteps { setupSteps }
+            if model.status != nil && !model.isDemo { MurmurClientSetupView(model: model) }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
             if let error = model.operationError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             if let message = model.operationMessage { Text(message) }

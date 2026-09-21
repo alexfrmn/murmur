@@ -21,6 +21,16 @@ final class TrayModel: ObservableObject {
     @Published var checkingStatus = false
     @Published var checkingDoctor = false
     @Published var checkingSelection = false
+    @Published var aiClients: [DetectedAIClient]?
+    @Published var configuringAI = false
+    @Published var aiSetupError: String?
+    @Published var aiReceipt: ClientConfigurationReceipt?
+    @Published var replyPlan: ReplyTestPlan?
+    @Published var replyObservation: ReplyTestObservation?
+    @Published var checkingReply = false
+    @Published var watchingReply = false
+    @Published var replyError: String?
+    @Published var testPromptCopied = false
     @Published var selectionError: String?
     @Published var selectionErrorDetail: String?
     @Published var updates: UpdateSnapshot?
@@ -49,6 +59,7 @@ final class TrayModel: ObservableObject {
     let isDemo: Bool
     private var timer: Timer?
     private var updateTimer: Timer?
+    private var replyTimer: Timer?
     private var client: ProfileClient?
     private var updatesClient: UpdatesClient?
     private var selectionID = UUID()
@@ -125,7 +136,7 @@ final class TrayModel: ObservableObject {
             } else { updateError = ProbeError.missingCLI.localizedDescription }
     }
 
-    var busy: Bool { preparingRuntime || creatingProfile || operating || checkingStatus || checkingDoctor || checkingSelection }
+    var busy: Bool { preparingRuntime || creatingProfile || operating || checkingStatus || checkingDoctor || checkingSelection || configuringAI }
     func selectLanguage(_ value: AppLanguage) {
         guard !busy, !checkingUpdates, value != language else { return }
         L10n.select(value)
@@ -221,6 +232,8 @@ final class TrayModel: ObservableObject {
 
     private func bind(_ chosen: ProfileBinding, expectedAgent: String? = nil, skipInitialDoctor: Bool = false) {
         selectionID = UUID()
+        aiClients = nil; aiReceipt = nil; aiSetupError = nil
+        resetReplyTest()
         restoreSetup(for: chosen)
         profile = chosen; agentID = expectedAgent ?? setupAgentID; status = nil; doctor = nil
         operationMessage = nil; operationError = nil
@@ -493,6 +506,107 @@ final class TrayModel: ObservableObject {
         for key in ["setupProfileDirectory", "setupAgentID", "setupReplyFile"] { UserDefaults.standard.removeObject(forKey: key) }
     }
 
+    private var aiSetupClient: ClientSetupClient? {
+        guard let profile, let executable = CLIProbe.locate() else { return nil }
+        return ClientSetupClient(executable: executable, profile: profile)
+    }
+    func detectAIClients() {
+        guard !busy, !isDemo, let helper = aiSetupClient, let agent = agentID, status != nil else { return }
+        let selected = selectionID
+        configuringAI = true; aiSetupError = nil
+        Task {
+            let result = await Task.detached { Result { try helper.detect(expectedAgent: agent) } }.value
+            guard selected == selectionID else { return }
+            configuringAI = false
+            switch result {
+            case .success(let choices): aiClients = choices
+            case .failure: aiClients = []; aiSetupError = L10n.text("Could not find your AI applications. Check the connection settings and try again.")
+            }
+        }
+    }
+    func connectAIClient(_ kind: AIClientKind) {
+        guard !busy, !isDemo, let helper = aiSetupClient, let agent = agentID, status != nil else { return }
+        let selected = selectionID
+        configuringAI = true; aiSetupError = nil
+        Task {
+            defer { if selected == selectionID { configuringAI = false } }
+            do {
+                let plan = try await Task.detached { try helper.preview(kind, expectedAgent: agent) }.value
+                guard selected == selectionID else { return }
+                let alert = NSAlert()
+                alert.messageText = L10n.text(plan.action == .replace ? "Replace the Murmur connection in %@?" : "Connect %@ to Murmur?", kind.title)
+                alert.informativeText = L10n.text("This connects %@ using the selected Murmur settings. Your sign-in, model choices and other connections are kept. An existing file is backed up before a change. Reload the AI application afterwards.", agent)
+                    + "\n\n" + plan.configPath
+                if plan.action == .replace {
+                    alert.informativeText += "\n\n" + L10n.text("This application already has a different Murmur connection. Replacing it switches which connection its assistant uses.")
+                }
+                alert.addButton(withTitle: L10n.text(plan.action == .replace ? "Replace Murmur connection" : "Connect application"))
+                alert.addButton(withTitle: L10n.text("Cancel"))
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                aiReceipt = nil; resetReplyTest()
+                let receipt = try await Task.detached { try helper.configure(plan, expectedAgent: agent) }.value
+                guard selected == selectionID else { return }
+                aiReceipt = receipt
+                resetReplyTest()
+            } catch {
+                guard selected == selectionID else { return }
+                aiSetupError = L10n.text("The change could not be confirmed. Settings may have changed while this window was open. Choose the application again to review its current settings; nothing is retried automatically.")
+            }
+        }
+    }
+    func prepareReplyTest(peer: String) {
+        guard !busy, !isDemo, let helper = aiSetupClient, let agent = agentID,
+              status?.peers.list?.contains(where: { $0.agentId == peer }) == true else { return }
+        let selected = selectionID
+        resetReplyTest(); configuringAI = true
+        Task {
+            let result = await Task.detached { Result { try helper.prepareTest(peerID: peer, expectedAgent: agent) } }.value
+            guard selected == selectionID else { return }
+            configuringAI = false
+            switch result {
+            case .success(let plan): replyPlan = plan
+            case .failure: replyError = L10n.text("Could not prepare the test. Refresh the connection and check that the other participant has been added.")
+            }
+        }
+    }
+    func copyReplyTestPrompt() {
+        guard let plan = replyPlan else { return }
+        NSPasteboard.general.clearContents()
+        testPromptCopied = NSPasteboard.general.setString(plan.prompt, forType: .string)
+    }
+    func watchReplyTest() {
+        guard replyPlan != nil, !isDemo, !watchingReply else { return }
+        watchingReply = true
+        checkReplyTest()
+        replyTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkReplyTest() }
+        }
+    }
+    func checkReplyTest() {
+        guard !checkingReply, !configuringAI, !isDemo, let plan = replyPlan, let helper = aiSetupClient, let agent = agentID else { return }
+        let selected = selectionID
+        checkingReply = true; replyError = nil
+        Task {
+            let result = await Task.detached { Result { try helper.checkTest(plan, expectedAgent: agent) } }.value
+            guard selected == selectionID, replyPlan?.token == plan.token else { return }
+            checkingReply = false
+            switch result {
+            case .success(let observation):
+                replyObservation = observation
+                if observation.state == .replied || observation.state == .expired { stopWatchingReply() }
+            case .failure:
+                replyError = L10n.text("The test result is unavailable. Keep both assistants open, check Murmur is running, then try checking again.")
+                stopWatchingReply()
+            }
+        }
+    }
+    func stopWatchingReply() {
+        replyTimer?.invalidate(); replyTimer = nil; watchingReply = false
+    }
+    func resetReplyTest() {
+        stopWatchingReply(); replyPlan = nil; replyObservation = nil; replyError = nil; checkingReply = false; testPromptCopied = false
+    }
+
     var verdict: Verdict {
         if isDemo {
             return Verdict(demoState, unread: demoState == .unread,
@@ -502,7 +616,7 @@ final class TrayModel: ObservableObject {
     }
 
     func refreshStatus() {
-        guard !checkingStatus, !checkingSelection, !operating, !isDemo, let client else { return }
+        guard !checkingStatus, !checkingSelection, !configuringAI, !operating, !isDemo, let client else { return }
         let selected = selectionID
         let expectedAgent = agentID
         checkingStatus = true

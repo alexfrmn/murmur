@@ -41,12 +41,16 @@ func runConnectionGuidanceChecks(fixtures: URL) throws -> Int {
         let missing = try DoctorSnapshot.decode(JSONSerialization.data(withJSONObject: object))
         try check(ConnectionGuidance.diagnosticSummary(missing).title == L10n.text("This folder has no Murmur settings"),
                   "The missing-folder case needs a recovery explanation")
+        stages[0] = ["id": "config", "state": "fail", "detail": "Configuration: config.missing", "reason": "config.missing"]
+        object["stages"] = stages
+        try check(ConnectionGuidance.diagnosticSummary(try DoctorSnapshot.decode(JSONSerialization.data(withJSONObject: object))).title == L10n.text("This folder has no Murmur settings"),
+                  "The real engine's stable reason must win over its human-readable detail")
         stages[0]["detail"] = "synthetic-secret-do-not-display"
         object["stages"] = stages
         let unsafe = ConnectionGuidance.diagnosticSummary(try DoctorSnapshot.decode(JSONSerialization.data(withJSONObject: object)))
         try check(!unsafe.title.contains("synthetic-secret") && !unsafe.message.contains("synthetic-secret"),
                   "Unknown diagnostic payload must not leak into the friendly summary")
-        count += 2
+        count += 3
 
         object["stages"] = DoctorSnapshot.stageIDs.map { ["id": $0, "state": "ok", "detail": "ok"] }
         let complete = ConnectionGuidance.diagnosticSummary(try DoctorSnapshot.decode(JSONSerialization.data(withJSONObject: object)))
@@ -56,7 +60,7 @@ func runConnectionGuidanceChecks(fixtures: URL) throws -> Int {
         let partial = ConnectionGuidance.diagnosticSummary(try DoctorSnapshot.decode(JSONSerialization.data(withJSONObject: object)))
         try check(partial.title == L10n.text("Some checks are still unconfirmed"), "A partial response is not complete")
         count += 2
-        print("PASS connection guidance: \(language.rawValue), 10 checks")
+        print("PASS connection guidance: \(language.rawValue), 11 checks")
     }
     return count
 }
