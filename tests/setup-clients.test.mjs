@@ -5,10 +5,23 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import * as TOML from '@iarna/toml';
-import { configureClient, previewClientConfiguration } from '../packages/setup/dist/src/clients.js';
+import { configureClient, previewClientConfiguration, sameClientFileIdentity } from '../packages/setup/dist/src/clients.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 import { createKeyPair, createSigningKeyPair } from '../packages/security/dist/src/index.js';
 import { main } from '../packages/setup/dist/src/cli.js';
+
+test('Windows missing volume serial preserves full inode and known-device refusal', () => {
+  const pathInfo = { dev: 0n, ino: 844424931489285n };
+  const handleInfo = { dev: 3606225537n, ino: pathInfo.ino };
+  assert.equal(sameClientFileIdentity(pathInfo, handleInfo, 'win32'), true);
+  assert.equal(sameClientFileIdentity(pathInfo, { ...handleInfo, ino: pathInfo.ino + 1n }, 'win32'), false);
+  assert.equal(sameClientFileIdentity(handleInfo, { ...handleInfo, dev: handleInfo.dev + 1n }, 'win32'), false);
+  assert.equal(sameClientFileIdentity(pathInfo, handleInfo, 'linux'), false);
+  assert.equal(sameClientFileIdentity(pathInfo, handleInfo, 'darwin'), false);
+  assert.equal(sameClientFileIdentity({ ...handleInfo, dev: (1n << 32n) + handleInfo.dev }, handleInfo, 'win32'), true);
+  const large = { dev: 0n, ino: 2n ** 60n };
+  assert.equal(sameClientFileIdentity(large, { ...large, ino: large.ino + 1n }, 'win32'), false);
+});
 async function fixture(t, format) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-mcp-config-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
   const file = path.join(root, `config.${format}`), context = resolveContext({ dataDir: path.join(root, 'data'), repoRoot: fileURLToPath(new URL('../', import.meta.url)) });
