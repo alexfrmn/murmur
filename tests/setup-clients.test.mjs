@@ -9,6 +9,7 @@ import { configureClient, previewClientConfiguration, sameClientFileIdentity } f
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 import { createKeyPair, createSigningKeyPair } from '../packages/security/dist/src/index.js';
 import { main } from '../packages/setup/dist/src/cli.js';
+import { assertPrivateFile, allowPublicReadInFixtureDirectory } from './helpers/private-files.mjs';
 
 test('Windows missing volume serial preserves full inode and known-device refusal', () => {
   const pathInfo = { dev: 0n, ino: 844424931489285n };
@@ -45,7 +46,8 @@ for (const format of ['json', 'toml']) test(`${format}: patch keeps auth rails, 
     throw error;
   });
   assert.equal(await fs.readFile(result.backup, 'utf8'), source);
-  if (process.platform !== 'win32') assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
+  await assertPrivateFile(result.backup);
+  await assertPrivateFile(f.file);
   const output = await fs.readFile(f.file, 'utf8'), parsed = format === 'json' ? JSON.parse(output) : TOML.parse(output);
   assert.equal(parsed[key].murmur.env.DATA_DIR, f.context.dataDir);
   delete parsed[key].murmur; assert.deepEqual(parsed, input);
@@ -139,4 +141,15 @@ test('unknown profile path is not guessed or written', async t => {
   const f = await fixture(t, 'json'); f.adapter.detectClients = async () => [{ id: 'codex-cli', installed: true, configPath: null, format: 'json' }];
   await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'), /path-unverified/);
   await assert.rejects(fs.stat(f.file), { code: 'ENOENT' });
+});
+
+test('Windows client replacement and backup protect secrets despite a public parent ACL', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t, 'json');
+  await allowPublicReadInFixtureDirectory(f.root);
+  const source = JSON.stringify({ token: 'fixture-private-token', mcpServers: {} });
+  await fs.writeFile(f.file, source);
+  await assert.rejects(assertPrivateFile(f.file), /private output/);
+  const result = await configureClient(f.context, f.adapter, 'codex-cli');
+  assert.equal(await fs.readFile(result.backup, 'utf8'), source);
+  await assertPrivateFile(result.backup); await assertPrivateFile(f.file);
 });

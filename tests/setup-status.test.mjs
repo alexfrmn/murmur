@@ -104,12 +104,8 @@ test('runtime observer captures only safe fault codes without command/output con
   const f = await fixture(t);
   const observation = createDaemonObservation({ dataDir: f.context.dataDir, storePath: f.context.storePath, agentId: 'agent-a', wake: { enabled: true, mode: 'monitor' } });
   f.cleanup.push(() => observation.stop()); await observation.start();
-  observation.observeLog('error', 'WakeMonitor lane crashed', { error: 'database is locked', secret: 'do-not-copy' });
-  // Serialize one explicit observation after the asynchronous log write settles.
-  for (let n = 0; n < 30; n++) {
-    const text = await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8');
-    if (JSON.parse(text).wake.lastFault === 'wake.database-locked') { assert.ok(!text.includes('do-not-copy')); return; }
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-  assert.fail('fault observation did not persist');
+  await observation.observeLog('error', 'WakeMonitor lane crashed', { error: 'database is locked', secret: 'do-not-copy' });
+  const text = await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8');
+  assert.equal(JSON.parse(text).wake.lastFault, 'wake.database-locked');
+  assert.ok(!text.includes('do-not-copy'));
 });

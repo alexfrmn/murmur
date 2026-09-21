@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { main } from '../packages/setup/dist/src/cli.js';
 import { readStatus } from '../packages/setup/dist/src/status.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
+import { assertPrivateFile, allowPublicReadInFixtureDirectory } from './helpers/private-files.mjs';
 const adapter = { manager: 'none', status: async () => ({ state: 'stopped', manager: 'none', pid: null, since: null, lastExitCode: null, observedStorePath: null, restartCount: null, restartWindowMs: null }) };
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-onboard-')), cleanup = [];
@@ -28,8 +29,7 @@ test('two profiles can exchange private invite/reply files without shell-specifi
   assert.equal(b.peers['agent-a'].encryption.publicKey, a.keys.encryption.publicKey);
   const context = resolveContext({ dataDir: path.join(f.root, 'agent-a'), repoRoot: fileURLToPath(new URL('../', import.meta.url)) });
   assert.equal((await readStatus({ context, adapter })).peers.list[0].paired, null);
-  // Windows permissions are ACLs; stat.mode cannot verify POSIX owner-only bits.
-  if (process.platform !== 'win32') assert.equal((await fs.stat(invitation)).mode & 0o777, 0o600);
+  await assertPrivateFile(invitation); await assertPrivateFile(reply);
   assert.ok(!Buffer.from((await fs.readFile(invitation, 'utf8')).trim().slice(7), 'base64').toString().includes('privateKey'));
 });
 test('repeat init/add-peer preserves existing identity and rejects a peer key change', async t => {
@@ -133,4 +133,21 @@ test('case-insensitive volumes reject fresh and existing mixed-case profile outp
   await fs.mkdir(path.join(f.root,'casefold'));
   await assert.rejects(f.command('casefold',['join','--agent-id','casefold','--invite-file',invitation,'--reply-out',output]),/output-inside-profile/);
   assert.deepEqual(await fs.readdir(path.join(f.root,'casefold')),[]);
+});
+
+test('Windows credential invite does not inherit public read access from its output folder', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t), token = path.join(f.root, 'token');
+  await fs.writeFile(token, 'fixture-broker-secret');
+  await f.command('agent-a', ['init', '--agent-id', 'agent-a', '--broker-url', 'nats://127.0.0.1:4222', '--token-file', token]);
+  const shared = path.join(f.root, 'shared'); await fs.mkdir(shared);
+  await allowPublicReadInFixtureDirectory(shared);
+  const control = path.join(shared, 'public-control'); await fs.writeFile(control, 'synthetic');
+  await assert.rejects(assertPrivateFile(control), /private output/);
+  const output = path.join(shared, 'invite.txt');
+  const result = await f.command('agent-a', ['invite', '--out', output]);
+  assert.equal(result.containsBrokerCredential, true);
+  await assertPrivateFile(output);
+  await assertPrivateFile(path.join(f.root, 'agent-a', 'agent-config.json'));
+  const blob = (await fs.readFile(output, 'utf8')).trim();
+  assert.equal(JSON.parse(Buffer.from(blob.slice('MURMUR:'.length), 'base64')).natsToken, 'fixture-broker-secret');
 });

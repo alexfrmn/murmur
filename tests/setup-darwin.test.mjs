@@ -1,4 +1,4 @@
-import { describe, test } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
@@ -22,8 +22,7 @@ async function fixture(t, runner) {
   return { adapter, home, ctx, calls, plist };
 }
 
-describe('setup-darwin', { skip: process.platform === 'win32' && 'Darwin adapter requires POSIX paths, ownership and executable permissions' }, () => {
-test('install produces private escaped plist, stays unloaded and is idempotent', async t => {
+test('install produces private escaped plist, stays unloaded and is idempotent', { skip: process.platform === 'win32' && 'requires POSIX paths, ownership or executable permissions' }, async t => {
   const f = await fixture(t);
   await f.adapter.install(f.ctx);
   const initial = await fs.readFile(f.plist, 'utf8');
@@ -84,7 +83,7 @@ test('status distinguishes absent service from unreadable service without leakin
   assert.ok(!JSON.stringify(value).includes('SECRET'));
 });
 
-test('running state reports actual FD store evidence and start time', async t => {
+test('running state reports actual FD store evidence and start time', { skip: process.platform === 'win32' && 'requires POSIX paths, ownership or executable permissions' }, async t => {
   const f = await fixture(t, (file, args, ctx, home) => {
     if (file === '/bin/launchctl') return ok(`path = ${path.join(home, 'Library', 'LaunchAgents', ctx.serviceName + '.plist')}\n state = running\n pid = 123\n last exit code = 0\n`);
     if (file === '/bin/ps') return ok('Sat Sep 19 12:00:00 2026\n');
@@ -141,7 +140,7 @@ test('never operates an unrelated loaded service sharing the requested label', a
   await assert.rejects(other.stop(f.ctx), /other-loaded-service/);
 });
 
-test('client detection uses executable permission and desktop bundle IDs; never writes config', async t => {
+test('client detection uses executable permission and desktop bundle IDs; never writes config', { skip: process.platform === 'win32' && 'requires POSIX paths, ownership or executable permissions' }, async t => {
   const f = await fixture(t);
   const bin = path.join(f.home, 'bin'); await fs.mkdir(bin);
   await fs.writeFile(path.join(bin, 'claude'), '#!/bin/sh\n', { mode: 0o700 });
@@ -189,6 +188,4 @@ test('stop refuses another profile reusing the same serviceName without any boot
   const other = { ...f.ctx, dataDir, configPath: path.join(dataDir, 'agent-config.json'), storePath: path.join(dataDir, 'murmur.db'), logDir: path.join(dataDir, 'logs') };
   await assert.rejects(f.adapter.stop(other), /stop-profile-mismatch/);
   assert.ok(f.calls.every(([, args]) => args[0] !== 'bootout'));
-});
-
 });

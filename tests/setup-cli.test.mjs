@@ -13,6 +13,7 @@ import { createKeyPair, createSigningKeyPair, encryptPayload, decryptPayload, si
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 import { main } from '../packages/setup/dist/src/cli.js';
 import { runDoctor, probeRoundtrip } from '../packages/setup/dist/src/doctor.js';
+import { assertPrivateFile, allowPublicReadInFixtureDirectory } from './helpers/private-files.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const stopped = { manager: 'none', status: async () => ({ state: 'stopped', manager: 'none', pid: null, since: null, lastExitCode: null, observedStorePath: null, restartCount: null, restartWindowMs: null }) };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -42,11 +43,12 @@ test('doctor stops at daemon and gives all six stages without broker side effect
 });
 test('pause command backs up private config and honestly reports required restart', async t => {
   const f = await fixture(t);
+  if (process.platform === 'win32') await allowPublicReadInFixtureDirectory(f.context.dataDir);
   const result = await main(['wake', 'pause', '--data-dir', f.context.dataDir], stopped);
   assert.equal(result.configuredEnabled, false); assert.equal(result.effectiveEnabled, null); assert.equal(result.restartRequired, true);
   assert.equal(JSON.parse(await fs.readFile(f.context.configPath, 'utf8')).wake.enabled, false);
   assert.equal(JSON.parse(await fs.readFile(result.backup, 'utf8')).wake.enabled, true);
-  if (process.platform !== 'win32') assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
+  await assertPrivateFile(result.backup); await assertPrivateFile(f.context.configPath);
   const again = await main(['wake', 'pause', '--data-dir', f.context.dataDir], stopped); assert.equal(again.backup, null);
 });
 test('explicit mark-read advances only the chosen contour cursor', async t => {

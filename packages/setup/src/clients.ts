@@ -1,22 +1,15 @@
 import * as TOML from '@iarna/toml';
-import { constants, type BigIntStats } from 'node:fs';
+import { constants } from 'node:fs';
 import { lstat, mkdir, open, rename, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { ClientDetection, PlatformAdapter, ServiceContext } from './types.js';
 import { loadConfig } from './config.js';
+import { sameClientFileIdentity } from './file-identity.js';
+import { protectPrivateFile } from './private-file.js';
+export { sameClientFileIdentity } from './file-identity.js';
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value);
-
-/** Windows/libuv may omit the path's volume serial; a full inode must still match. */
-export function sameClientFileIdentity(a: Pick<BigIntStats, 'dev' | 'ino'>, b: Pick<BigIntStats, 'dev' | 'ino'>, platform: NodeJS.Platform = process.platform) {
-  if (a.ino !== b.ino) return false;
-  if (platform !== 'win32') return a.dev === b.dev;
-  // Node 22.13/libuv 1.49.2 can report path dev=0 with a nonzero handle dev.
-  // When both are available, compare the Windows volume serial's low 32 bits:
-  // https://github.com/libuv/libuv/commit/82cdfb75ff9bbd0dc65820ca418b7c5d412ff4d7
-  return a.dev === 0n || b.dev === 0n || BigInt.asUintN(32, a.dev) === BigInt.asUintN(32, b.dev);
-}
 
 async function selectedClient(c: ServiceContext, adapter: PlatformAdapter, clientId: string) {
   const client = (await adapter.detectClients(c)).find(item => item.id === clientId);
@@ -99,12 +92,12 @@ export async function configureClient(c: ServiceContext, adapter: PlatformAdapte
     const backup = existed ? `${file}.murmur-backup-${randomUUID()}` : null;
     if (backup) {
       const out = await open(backup, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-      try { await out.writeFile(text); await out.sync(); } finally { await out.close(); }
+      try { await protectPrivateFile(backup, out); await out.writeFile(text); await out.sync(); } finally { await out.close(); }
     }
     const temporary = `${file}.murmur-${randomUUID()}.tmp`;
     try {
       const out = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-      try { await out.writeFile(serialized); await out.sync(); } finally { await out.close(); }
+      try { await protectPrivateFile(temporary, out); await out.writeFile(serialized); await out.sync(); } finally { await out.close(); }
       // A client can save its config while the confirmation window is open or
       // while we prepare the backup. Refuse a changed target instead of losing it.
       if (!isDeepStrictEqual(await readClientFile(file), current)) throw new Error('client.plan-stale');

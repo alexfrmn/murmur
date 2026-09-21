@@ -7,6 +7,7 @@ import { SQLiteDedupeOutboxStore } from '@murmurv2/core';
 import { createKeyPair, createSigningKeyPair } from '@murmurv2/security';
 import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerConfig } from './config.js';
 import { writeState } from './state.js';
+import { protectPrivateFile } from './private-file.js';
 import type { ServiceContext } from './types.js';
 
 async function privateText(file: string): Promise<string> {
@@ -58,11 +59,13 @@ async function validateOutput(c: ServiceContext, file: string) {
 async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
   if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
   const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+  let written = false;
   try {
+    await protectPrivateFile(file, handle);
     await beforeWrite?.();
     await handle.writeFile(prefix + Buffer.from(JSON.stringify(value)).toString('base64') + '\n'); await handle.sync();
-  } catch (error) { await unlink(file).catch(() => {}); throw error; }
-  finally { await handle.close(); }
+    written = true;
+  } finally { await handle.close(); if (!written) await unlink(file).catch(() => {}); }
 }
 async function locked<T>(c: ServiceContext, fn: () => Promise<T>) {
   await mkdir(c.dataDir, { recursive: true, mode: 0o700 });
