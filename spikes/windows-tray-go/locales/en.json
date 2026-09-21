@@ -133,6 +133,8 @@
   "updates.cached": "Cached",
   "updates.checked": "Checked",
   "updates.checking": "Checking for updates…",
+  "updates.checkNow": "Check for updates now",
+  "updates.checkNowTooltip": "Refresh the result using your update settings; nothing is installed",
   "updates.current": "Declared version: %s",
   "updates.disable": "Disable update checks",
   "updates.disabled": "Update checks are disabled",

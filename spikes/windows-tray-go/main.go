@@ -54,11 +54,11 @@ type app struct {
 	updates                                                  *updateSnapshot
 	updateErr                                                error
 	updateBusy                                               bool
-	updateRequests                                           chan bool
+	updateRequests                                           chan *bool
 	preferencesPath                                          string
 	guideSignal                                              *launcherGuideSignal
 	mUpdateState, mUpdateVersion, mUpdateTime, mUpdateReason *systray.MenuItem
-	mUpdatePage, mUpdateEnable, mUpdateDisable               *systray.MenuItem
+	mUpdateCheck, mUpdatePage, mUpdateEnable, mUpdateDisable *systray.MenuItem
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
 	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
@@ -367,6 +367,8 @@ func (a *app) handleClicks() {
 			go a.runCLI("service", "start")
 		case <-a.mSvcStop.ClickedCh:
 			go a.runCLI("service", "stop")
+		case <-a.mUpdateCheck.ClickedCh:
+			a.requestUpdates(nil)
 		case <-a.mUpdatePage.ClickedCh:
 			a.openUpdatePage()
 		case <-a.mUpdateEnable.ClickedCh:
@@ -548,6 +550,7 @@ func (a *app) applyLocale() {
 	a.mSvcLogs.SetTooltip(tr("menu.serviceLogsTooltip"))
 	a.mUpdatesRoot.SetTitle(tr("updates.root"))
 	a.mUpdatesRoot.SetTooltip(tr("updates.rootTooltip"))
+	a.mUpdateCheck.SetTooltip(tr("updates.checkNowTooltip"))
 	a.mUpdatePage.SetTitle(tr("updates.open"))
 	a.mUpdatePage.SetTooltip(tr("updates.openTooltip"))
 	a.mUpdateEnable.SetTitle(tr("updates.enable"))
