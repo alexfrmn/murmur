@@ -45,13 +45,15 @@ async function validateOutput(c: ServiceContext, file: string) {
   if (!relative || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) {
     throw new Error('onboarding.output-inside-profile');
   }
-  const profileInfo = await stat(c.dataDir).catch((error) => {
+  const profileInfo = await stat(c.dataDir, { bigint: true }).catch((error) => {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   });
   // Existing path aliases are compared by filesystem identity, not by lowercasing names.
   if (profileInfo) for (let ancestor = parent; ; ancestor = path.dirname(ancestor)) {
-    const info = await stat(ancestor);
+    // NTFS file IDs can exceed Number.MAX_SAFE_INTEGER. Rounding neighboring
+    // directory IDs can falsely identify an outside output as part of the profile.
+    const info = await stat(ancestor, { bigint: true });
     if (info.dev === profileInfo.dev && info.ino === profileInfo.ino) throw new Error('onboarding.output-inside-profile');
     if (path.dirname(ancestor) === ancestor) break;
   }
