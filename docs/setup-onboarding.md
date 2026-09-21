@@ -44,6 +44,15 @@ nonce through the real daemon outbox, verifies the peer's signed encrypted reply
 and requires that reply in the local inbox before saving pairing evidence.
 It does not certify GUI appearance or an LLM session wake.
 
+To check a selected AI client's real exchange, `reply-test prepare --peer ID`
+returns a request, conversation ID and a 15-minute test token without sending
+anything. Send the returned request through that client's Murmur tools, using
+the returned conversation. `reply-test check --test-token TOKEN` reads the
+matching durable request and reply without consuming the inbox. Keep the request
+and expected reply as exact standalone lines; an agent introduction or signature
+may appear on separate lines. A blockquoted marker or marker embedded in another
+sentence does not count. Success confirms the exchange, not autonomous wake.
+
 Linux/systemd, Darwin/launchd and Windows SCM adapters use the shared CLI.
 Windows additionally needs the matching native service helper and elevation for
 service mutations; see [Windows CLI](windows-service-cli.md). An already-running service must be restarted explicitly to load

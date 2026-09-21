@@ -9,6 +9,9 @@ interface Challenge { version: 1; agentId: string; peerId: string; fingerprint: 
 const conversation = (c: Challenge) => `murmur:setup:${c.nonce}`;
 const reply = (c: Challenge) => `MURMUR-SETUP-REPLY ${c.nonce}`;
 const request = (c: Challenge) => `Murmur connection test from ${c.agentId}. Use murmur_send to reply to ${c.agentId} in this same conversation with exactly this line: ${reply(c)}`;
+// Agent identities/signatures may surround the protocol line, but a substring
+// inside an explanation or blockquote is not a completed request/reply.
+const hasProtocolLine = (text: string, expected: string) => text.split(/\r?\n/).some(line => line.trim() === expected);
 
 /** Preparing instructions never sends a message or writes any profile state. */
 export async function prepareReplyTest(context: ServiceContext, peerId: string) {
@@ -38,14 +41,14 @@ export async function checkReplyTest(context: ServiceContext, token: string) {
   const db = new DatabaseSync(context.storePath, { readOnly: true });
   try {
     db.exec('PRAGMA busy_timeout=1000; BEGIN');
-    const sent = db.prepare(`SELECT msg_id AS msgId, created_at AS createdAt, channel_id AS channelId,
+    const sent = db.prepare(`SELECT msg_id AS msgId, created_at AS createdAt, text, channel_id AS channelId,
       sender_member_id AS senderMemberId, addressee_member_id AS addresseeMemberId FROM local_messages
-      WHERE direction='outbound' AND sender=? AND conversation_id=? AND text=? ORDER BY rowid DESC LIMIT 100`)
-      .all(test.agentId, conversation(test), request(test)) as Record<string, any>[];
-    const received = db.prepare(`SELECT msg_id AS msgId, created_at AS createdAt, channel_id AS channelId,
+      WHERE direction='outbound' AND sender=? AND conversation_id=? ORDER BY rowid DESC LIMIT 100`)
+      .all(test.agentId, conversation(test)) as Record<string, any>[];
+    const received = db.prepare(`SELECT msg_id AS msgId, created_at AS createdAt, text, channel_id AS channelId,
       sender_member_id AS senderMemberId, addressee_member_id AS addresseeMemberId FROM local_messages
-      WHERE direction='inbound' AND sender=? AND conversation_id=? AND trim(text, char(9)||char(10)||char(13)||' ')=?
-      ORDER BY rowid DESC LIMIT 100`).all(test.peerId, conversation(test), reply(test)) as Record<string, any>[];
+      WHERE direction='inbound' AND sender=? AND conversation_id=?
+      ORDER BY rowid DESC LIMIT 100`).all(test.peerId, conversation(test)) as Record<string, any>[];
     db.exec('COMMIT');
     const inWindow = (row: Record<string, any>) => {
       const at = Date.parse(row.createdAt);
@@ -55,8 +58,9 @@ export async function checkReplyTest(context: ServiceContext, token: string) {
       (row.channelId ?? null) === (peer.channelId ?? null)
       && (row.senderMemberId ?? null) === ((inbound ? peer.memberId : config.memberId) ?? null)
       && (row.addresseeMemberId ?? null) === ((inbound ? config.memberId : peer.memberId) ?? null);
-    const outbound = sent.find(row => inWindow(row) && routing(row, false));
+    const outbound = sent.find(row => hasProtocolLine(row.text, request(test)) && inWindow(row) && routing(row, false));
     const inbound = outbound && received.find(row => inWindow(row) && routing(row, true)
+      && hasProtocolLine(row.text, reply(test))
       && Date.parse(row.createdAt) >= Date.parse(outbound.createdAt) - 5000);
     return { schema: 'murmur.reply-test/1', generatedAt: new Date(now).toISOString(), agentId: config.agentId,
       peerId: test.peerId, conversationId: conversation(test),

@@ -36,6 +36,26 @@ test('preparing does not send; only matching outbound and inbound complete the t
   assert.ok(!JSON.stringify(result).includes(f.plan.expectedReply), 'receipt does not expose message bodies');
   assert.deepEqual(await fs.readFile(f.cursor), before);
 });
+test('agent introductions and signatures preserve the exact request and reply lines', async t => {
+  const f = await fixture(t), before = await fs.readFile(f.cursor);
+  await f.append('outbound', { text: `Alice, the workspace assistant.\r\n\r\n${f.plan.requestText}\r\n\r\nSigned by Alice` });
+  assert.equal((await f.check()).state, 'waiting');
+  await f.append('inbound', { text: `Bob, the peer assistant.\n\n${f.plan.expectedReply}\n\nSigned by Bob` });
+  assert.equal((await f.check()).state, 'replied');
+  assert.deepEqual(await fs.readFile(f.cursor), before);
+});
+for (const direction of ['outbound', 'inbound']) {
+  for (const wrapper of ['inline', 'quote', 'suffix']) {
+    test(`does not accept ${direction} ${wrapper} text instead of an exact protocol line`, async t => {
+      const f = await fixture(t);
+      const exact = direction === 'outbound' ? f.plan.requestText : f.plan.expectedReply;
+      const text = { inline: `I could send ${exact}`, quote: `> ${exact}`, suffix: `${exact} but I have not sent it` }[wrapper];
+      await f.append('outbound', direction === 'outbound' ? { text } : {});
+      await f.append('inbound', direction === 'inbound' ? { text } : {});
+      assert.equal((await f.check()).state, direction === 'outbound' ? 'not-sent' : 'waiting');
+    });
+  }
+}
 for (const wrong of ['peer', 'conversation', 'nonce', 'old-time', 'future-time', 'direction', 'channel', 'member']) {
   test(`does not accept a reply with wrong ${wrong}`, async t => {
     const f = await fixture(t); await f.append('outbound');
