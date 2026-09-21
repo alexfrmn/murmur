@@ -7,6 +7,9 @@ import { sameClientFileIdentity } from './file-identity.js';
 const exec = promisify(execFile);
 const protect = `
 $ErrorActionPreference = 'Stop'
+# Node can inherit PowerShell 7's module paths when launched by a CI runner or
+# terminal. Only load modules belonging to this Windows PowerShell 5.1 process.
+$env:PSModulePath = [System.IO.Path]::Combine($PSHOME, 'Modules')
 $file = $env:MURMUR_SETUP_PRIVATE_FILE
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed = @($user, 'S-1-5-18', 'S-1-5-32-544') | Select-Object -Unique
