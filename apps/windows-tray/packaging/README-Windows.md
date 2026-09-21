@@ -1,5 +1,8 @@
 # Windows companion bundle
 
+Start with **Open-Murmur.cmd**. It binds the engine and profile and creates your
+shortcuts. `murmur-tray.exe` is the internal tray process started by that launcher.
+
 Keep `Open-Murmur.cmd`, `Open-Murmur.ps1`, `murmur-tray.exe`, `murmur.ico` and `runtime/` together.
 The runtime is the prebuilt portable engine; Windows adds its matching native
 `runtime/bin/murmur-svc.exe`. Node.js 22.13.0 or newer is external. No Go/npm/build is
@@ -137,7 +140,8 @@ contains these CLI commands.
    if ($Verified -ne 0) { throw 'Bundle verification failed; stop here.' }
    ```
 
-   The extracted-bundle checker inventories the runtime and executes both native
+   The extracted-bundle checker inventories the runtime, runs `version --json`
+   through the same CLI entry point as `Open-Murmur`, and executes both native
    programs with `--version`. It runs only after the published ZIP checksum matches.
 3. Open PowerShell as administrator under the same Windows user that owns the
    profile, set the exact old and new bindings, and keep this terminal open through
