@@ -13,10 +13,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readPrivateJson, writePrivateJson } from "../scripts/secure-state.mjs";
+import { skipPosixModes, skipWithoutSymlinks } from "./windows-host.mjs";
 
 const mode = (filePath) => statSync(filePath).mode & 0o777;
 
-test("private JSON writes use a 0700 directory and atomic 0600 file", async () => {
+test("private JSON writes use a 0700 directory and atomic 0600 file", { skip: skipPosixModes }, async () => {
   const root = mkdtempSync(join(tmpdir(), "murmur-private-state-"));
   const dir = join(root, ".data");
   const config = join(dir, "agent-config.json");
@@ -38,7 +39,7 @@ test("private JSON writes use a 0700 directory and atomic 0600 file", async () =
   }
 });
 
-test("private JSON reads repair permissive modes", async () => {
+test("private JSON reads repair permissive modes", { skip: skipPosixModes }, async () => {
   const root = mkdtempSync(join(tmpdir(), "murmur-private-mode-"));
   const dir = join(root, ".data");
   const config = join(dir, "agent-config.json");
@@ -56,7 +57,7 @@ test("private JSON reads repair permissive modes", async () => {
   }
 });
 
-test("private JSON writes reject a symlink target without changing its destination", async () => {
+test("private JSON writes reject a symlink target without changing its destination", { skip: skipWithoutSymlinks }, async () => {
   const root = mkdtempSync(join(tmpdir(), "murmur-private-symlink-"));
   const dir = join(root, ".data");
   const destination = join(root, "outside.json");

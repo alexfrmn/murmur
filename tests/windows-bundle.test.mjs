@@ -12,6 +12,7 @@ import {
 } from '../scripts/build-windows-bundle.mjs';
 import { writeZip } from '../scripts/build-runtime-bundle.mjs';
 import { verifyWindowsBundle } from '../scripts/check-windows-bundle.mjs';
+import { skipWithoutSymlinks } from './windows-host.mjs';
 
 const temporary = async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur windows bundle '));
@@ -31,7 +32,7 @@ test('release arguments require one exact output path and keep the selected ref 
   }
 });
 
-test('npm runs through a validated npm-cli.js beside the selected Node executable', async t => {
+test('npm runs through a validated npm-cli.js beside the selected Node executable', { skip: skipWithoutSymlinks }, async t => {
   const dir = await temporary(t);
   const node = path.join(dir, 'node.exe'); await fs.writeFile(node, 'node');
   const adjacent = path.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
@@ -73,7 +74,7 @@ test('release manifest inventories every payload byte and records exact provenan
   assert.equal(Object.hasOwn(written.files, 'release-manifest.json'), false);
 });
 
-test('manifest and ZIP creation reject symlinks', async t => {
+test('manifest and ZIP creation reject symlinks', { skip: skipWithoutSymlinks }, async t => {
   const bundle = await temporary(t);
   await fs.writeFile(path.join(bundle, 'payload'), 'data');
   await fs.symlink(path.join(bundle, 'payload'), path.join(bundle, 'alias'));

@@ -6,6 +6,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createLinuxAdapter, renderLinuxUnit } from '../packages/setup/dist/src/platform/linux.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
+import { skipPosixServiceHost } from './windows-host.mjs';
 async function fixture(t) {
   const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-systemd-')));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -16,7 +17,7 @@ async function fixture(t) {
   const loaded = (state = 'inactive') => { info = `LoadState=loaded\nFragmentPath=${target}\nActiveState=${state}\nSubState=${state === 'active' ? 'running' : 'dead'}\nMainPID=123\nExecMainStatus=0\n`; };
   return { home, context, target, adapter, calls, loaded, setInfo: value => { info = value; } };
 }
-test('install backs up owned changes, refuses loaded updates and is idempotent', async t => {
+test('install backs up owned changes, refuses loaded updates and is idempotent', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t); await f.adapter.install(f.context); f.loaded();
   assert.equal((await fs.stat(f.target)).mode & 0o777, 0o600);
   assert.equal(await fs.readFile(f.target, 'utf8'), renderLinuxUnit(f.context));
@@ -27,14 +28,14 @@ test('install backs up owned changes, refuses loaded updates and is idempotent',
   f.loaded(); await f.adapter.install(changed);
   assert.equal((await fs.readdir(path.dirname(f.target))).filter(x => x.includes('.backup-')).length, 1);
 });
-test('foreign files and symlinks are never replaced', async t => {
+test('foreign files and symlinks are never replaced', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t); await fs.mkdir(path.dirname(f.target), { recursive: true });
   await fs.writeFile(f.target, 'foreign'); await assert.rejects(f.adapter.install(f.context), /unmanaged/);
   await fs.unlink(f.target); await fs.symlink('/dev/null', f.target);
   await assert.rejects(f.adapter.install(f.context));
   assert.ok((await fs.lstat(f.target)).isSymbolicLink());
 });
-test('same label cannot start or stop a different contour', async t => {
+test('same label cannot start or stop a different contour', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t); await f.adapter.install(f.context); f.loaded();
   const other = resolveContext({ dataDir: path.join(f.home, 'other'), repoRoot: f.context.repoRoot, serviceName: f.context.serviceName });
   for (const action of ['start', 'stop']) await assert.rejects(f.adapter[action](other), /profile-mismatch/);
@@ -43,7 +44,7 @@ test('same label cannot start or stop a different contour', async t => {
   await assert.rejects(f.adapter.install(f.context), /foreign-loaded-unit/);
   assert.equal((await f.adapter.status(f.context)).state, 'unknown');
 });
-test('status requires actual descriptor evidence, keeps lifetime restart count unmeasured', async t => {
+test('status requires actual descriptor evidence, keeps lifetime restart count unmeasured', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t); await f.adapter.install(f.context); f.loaded('active');
   await fs.writeFile(f.context.storePath, 'fixture');
   const fd = path.join(f.home, 'proc/123/fd'); await fs.mkdir(fd, { recursive: true });
@@ -52,13 +53,13 @@ test('status requires actual descriptor evidence, keeps lifetime restart count u
   const s = await f.adapter.status(f.context); assert.equal(s.observedStorePath, f.context.storePath);
   assert.equal(s.restartCount, null); assert.equal(s.restartWindowMs, null);
 });
-test('service operations reject controls and conflicting derived paths before commands', async t => {
+test('service operations reject controls and conflicting derived paths before commands', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t);
   await assert.rejects(f.adapter.install({ ...f.context, dataDir: '/tmp/a\nEnvironment=BAD' }), /invalid-path/);
   await assert.rejects(f.adapter.start({ ...f.context, logDir: '/tmp/other' }), /conflicting-store/);
   assert.equal(f.calls.length, 0);
 });
-test('unit escaping keeps environment dollars literal and ExecStart dollars escaped', async t => {
+test('unit escaping keeps environment dollars literal and ExecStart dollars escaped', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t);
   const c = { ...f.context, repoRoot: '/tmp/a $HOME 100% "quoted"' };
   const text = renderLinuxUnit(c);

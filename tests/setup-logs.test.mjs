@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createKeyPair, createSigningKeyPair } from '../packages/security/dist/src/index.js';
 import { main } from '../packages/setup/dist/src/cli.js';
+import { skipPosixLogs } from './windows-host.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 // Any attempt to observe or mutate a service is a failure for this read-only command.
@@ -30,7 +31,7 @@ async function fixture(t) {
   return { home, dataDir, configPath, bytes, logDir, args, run };
 }
 
-test('logs path returns only canonical profile identity and readable configured directory, without writes', async t => {
+test('logs path returns only canonical profile identity and readable configured directory, without writes', { skip: skipPosixLogs }, async t => {
   const f = await fixture(t);
   await fs.mkdir(f.logDir);
   // Opening the directory must not require reading any log contents.
@@ -48,7 +49,7 @@ test('logs path returns only canonical profile identity and readable configured 
   assert.deepEqual(await fs.readdir(f.logDir), ['daemon.log']);
 });
 
-test('logs path fails clearly when directory is missing and never creates it or a profile', async t => {
+test('logs path fails clearly when directory is missing and never creates it or a profile', { skip: skipPosixLogs }, async t => {
   const f = await fixture(t);
   const result = f.run();
   assert.equal(result.status, 1);
@@ -60,14 +61,14 @@ test('logs path fails clearly when directory is missing and never creates it or 
   await assert.rejects(fs.stat(f.dataDir), { code: 'ENOENT' });
 });
 
-test('logs path rejects a regular file without changing its contents', async t => {
+test('logs path rejects a regular file without changing its contents', { skip: skipPosixLogs }, async t => {
   const f = await fixture(t);
   await fs.writeFile(f.logDir, 'do-not-replace');
   await assert.rejects(main(f.args, noService), /logs.not-directory/);
   assert.equal(await fs.readFile(f.logDir, 'utf8'), 'do-not-replace');
 });
 
-test('logs path rejects links outside the chosen profile and links back to the profile root', async t => {
+test('logs path rejects links outside the chosen profile and links back to the profile root', { skip: skipPosixLogs }, async t => {
   const f = await fixture(t), outside = path.join(f.home, 'profile-other');
   await fs.mkdir(outside);
   for (const target of [outside, f.dataDir]) {
@@ -79,7 +80,7 @@ test('logs path rejects links outside the chosen profile and links back to the p
   assert.equal(await fs.readFile(f.configPath, 'utf8'), f.bytes);
 });
 
-test('logs path resolves profile aliases and accepts a directory alias contained inside the profile', async t => {
+test('logs path resolves profile aliases and accepts a directory alias contained inside the profile', { skip: skipPosixLogs }, async t => {
   const f = await fixture(t), actualLogs = path.join(f.dataDir, 'actual-logs'), alias = path.join(f.home, 'alias');
   await fs.mkdir(actualLogs);
   await fs.symlink(actualLogs, f.logDir, 'junction');
@@ -102,7 +103,7 @@ test('logs path refuses unreadable or non-traversable directories without changi
   }
 });
 
-test('logs path does not advertise a directory when profile identity is invalid', async t => {
+test('logs path does not advertise a directory when profile identity is invalid', { skip: skipPosixLogs }, async t => {
   const f = await fixture(t);
   await fs.mkdir(f.logDir);
   await fs.writeFile(f.configPath, JSON.stringify({ privateKey: 'do-not-print' }));

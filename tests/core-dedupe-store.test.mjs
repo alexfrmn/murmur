@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { InMemoryDedupeStore, SQLiteDedupeOutboxStore } from "../packages/core/dist/src/index.js";
+import { assertMode } from "./windows-host.mjs";
 
 test("InMemoryDedupeStore seen/markSeen roundtrip", async () => {
   const store = new InMemoryDedupeStore();
@@ -27,14 +28,14 @@ test("InMemoryDedupeStore evicts oldest entries when maxSize exceeded", async ()
   assert.equal(await store.seen("m6", "c"), true);
 });
 
-test("SQLiteDedupeOutboxStore markSeen/seen roundtrip", async () => {
+test("SQLiteDedupeOutboxStore markSeen/seen roundtrip", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "murmur-dedupe-"));
   const dbPath = join(dir, "murmur.db");
 
   let store;
   try {
     store = new SQLiteDedupeOutboxStore(dbPath);
-    assert.equal(statSync(dbPath).mode & 0o777, 0o600);
+    assertMode(t, statSync(dbPath).mode, 0o600, "store mode");
     assert.equal(await store.seen("m1", "consumer-1"), false);
     await store.markSeen("m1", "consumer-1");
     assert.equal(await store.seen("m1", "consumer-1"), true);

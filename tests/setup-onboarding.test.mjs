@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { main } from '../packages/setup/dist/src/cli.js';
 import { readStatus } from '../packages/setup/dist/src/status.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
+import { assertMode, skipWithoutSymlinks } from './windows-host.mjs';
 const adapter = { manager: 'none', status: async () => ({ state: 'stopped', manager: 'none', pid: null, since: null, lastExitCode: null, observedStorePath: null, restartCount: null, restartWindowMs: null }) };
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-onboard-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -27,7 +28,7 @@ test('two profiles can exchange private invite/reply files without shell-specifi
   assert.equal(b.peers['agent-a'].encryption.publicKey, a.keys.encryption.publicKey);
   const context = resolveContext({ dataDir: path.join(f.root, 'agent-a'), repoRoot: fileURLToPath(new URL('../', import.meta.url)) });
   assert.equal((await readStatus({ context, adapter })).peers.list[0].paired, null);
-  assert.equal((await fs.stat(invitation)).mode & 0o777, 0o600);
+  assertMode(t, (await fs.stat(invitation)).mode, 0o600, 'invite mode');
   assert.ok(!Buffer.from((await fs.readFile(invitation, 'utf8')).trim().slice(7), 'base64').toString().includes('privateKey'));
 });
 test('repeat init/add-peer preserves existing identity and rejects a peer key change', async t => {
@@ -108,7 +109,7 @@ for (const managed of ['agent-config.json','murmur.db','read-state.json']) test(
   await assert.rejects(f.command('agent-b',['join','--agent-id','agent-b','--invite-file',invitation,'--reply-out',path.join(data,managed)]),/output-inside-profile/);
   assert.deepEqual(await fs.readdir(data),[]);
 });
-test('invite and join reject symlink-parent aliases into a managed profile',async t=>{
+test('invite and join reject symlink-parent aliases into a managed profile',{ skip: skipWithoutSymlinks },async t=>{
   const f=await fixture(t);await f.init('agent-a');
   const data=path.join(f.root,'agent-b');await fs.mkdir(data);const alias=path.join(f.root,'alias');await fs.symlink(data,alias,'dir');
   const invitation=path.join(f.root,'invite');await f.command('agent-a',['invite','--out',invitation]);

@@ -13,6 +13,7 @@ import { createKeyPair, createSigningKeyPair, encryptPayload, decryptPayload, si
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 import { main } from '../packages/setup/dist/src/cli.js';
 import { runDoctor, probeRoundtrip } from '../packages/setup/dist/src/doctor.js';
+import { assertMode } from './windows-host.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const stopped = { manager: 'none', status: async () => ({ state: 'stopped', manager: 'none', pid: null, since: null, lastExitCode: null, observedStorePath: null, restartCount: null, restartWindowMs: null }) };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -45,7 +46,7 @@ test('pause command backs up private config and honestly reports required restar
   assert.equal(result.configuredEnabled, false); assert.equal(result.effectiveEnabled, null); assert.equal(result.restartRequired, true);
   assert.equal(JSON.parse(await fs.readFile(f.context.configPath, 'utf8')).wake.enabled, false);
   assert.equal(JSON.parse(await fs.readFile(result.backup, 'utf8')).wake.enabled, true);
-  assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
+  assertMode(t, (await fs.stat(result.backup)).mode, 0o600, 'backup mode');
   const again = await main(['wake', 'pause', '--data-dir', f.context.dataDir], stopped); assert.equal(again.backup, null);
 });
 test('explicit mark-read advances only the chosen contour cursor', async t => {
