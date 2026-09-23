@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputDir,
     [Parameter(Mandatory=$true)][string]$Compiler,
     [string]$NodePath = 'node',
-    [string]$BundleChecker = (Join-Path $PSScriptRoot '..\..\..\..\scripts\check-windows-bundle.mjs')
+    [string]$BundleChecker = (Join-Path $PSScriptRoot '..\..\..\scripts\check-windows-bundle.mjs')
 )
 $ErrorActionPreference = 'Stop'
 $bundle = (Resolve-Path -LiteralPath $BundleDir).Path.TrimEnd('\')

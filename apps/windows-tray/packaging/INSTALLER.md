@@ -46,3 +46,5 @@ application name, Start Menu folder and default install directory prevent
 registration or shortcut collisions with a real Murmur installation. This build
 is not a release artifact. A silent install deliberately does not launch the app
 (`skipifsilent`); verify launch separately using its exact installed exe path.
+
+Setup/upgrade and uninstall now refuse while any registered Windows service ImagePath references this installation directory (including a runtime path in arguments). The check is read-only and also protects stopped services; no service is stopped or deleted automatically. Failure to enumerate services aborts. Paths using junction or short-name aliases are not resolved by this string check and remain an acceptance limitation.

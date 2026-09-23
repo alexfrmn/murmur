@@ -59,6 +59,59 @@ Filename: "{app}\murmur-tray.exe"; Description: "{cm:LaunchProgram,Murmur}"; Wor
 ; knows the selected profile and service. Installer ownership agreed with Claude.
 
 [Code]
+function ReferencesInstall(Command, InstallDir: String): Boolean;
+begin
+  StringChangeEx(Command, '/', '\', True);
+  StringChangeEx(InstallDir, '/', '\', True);
+  { Include the separator: Murmur-other is not this installation. Conservatively
+    match runtime paths in arguments too, e.g. a service hosted by external Node. }
+  Result := Pos(Lowercase(AddBackslash(InstallDir)), Lowercase(Command)) > 0;
+end;
+
+function ServiceDependencyError(): String;
+var
+  Names: TArrayOfString;
+  I: Integer;
+  ImagePath: String;
+  Shell: Variant;
+begin
+  Result := '';
+  try
+    if not RegGetSubkeyNames(HKLM64, 'SYSTEM\CurrentControlSet\Services', Names) then
+      RaiseException('Cannot enumerate Windows services');
+    Shell := CreateOleObject('WScript.Shell');
+    for I := 0 to GetArrayLength(Names) - 1 do begin
+      if RegQueryStringValue(HKLM64, 'SYSTEM\CurrentControlSet\Services\' + Names[I], 'ImagePath', ImagePath) then begin
+        ImagePath := Shell.ExpandEnvironmentStrings(ImagePath);
+        if ReferencesInstall(ImagePath, ExpandConstant('{app}')) then begin
+          Result := 'Windows service "' + Names[I] + '" still uses this Murmur installation. ' +
+            'Remove that service through Murmur service management before updating or uninstalling these files, then try again. Your profile will be kept.';
+          exit;
+        end;
+      end;
+    end;
+  except
+    Result := 'Windows service dependencies could not be checked. No installation files were changed. Try again from an account that can read the service configuration.';
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := ServiceDependencyError();
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  Reason: String;
+begin
+  Reason := ServiceDependencyError();
+  Result := Reason = '';
+  if not Result then begin
+    Log(Reason);
+    SuppressibleMsgBox(Reason, mbError, MB_OK, IDOK);
+  end;
+end;
+
 procedure RemoveOwnedLauncherShortcut(const FileName: String);
 var
   Shell, Link: Variant;
