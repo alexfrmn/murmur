@@ -294,9 +294,16 @@ function Install-MissingShortcuts($plan) {
             $temporary=[IO.Path]::Combine([IO.Path]::GetDirectoryName($entry.Path),'.murmur-'+[guid]::NewGuid().ToString('N')+'.tmp.lnk')
             $temporaryBytes=$null
             try{
-                $link=$shell.CreateShortcut($temporary)
-                $link.TargetPath=$entry.Target;$link.Arguments=$entry.Arguments;$link.WorkingDirectory=$entry.WorkingDirectory
-                $link.Description=$entry.Description;$link.IconLocation=$entry.Icon;$link.WindowStyle=$entry.WindowStyle;$link.Save()
+                try{
+                    $link=$shell.CreateShortcut($temporary)
+                    $link.TargetPath=$entry.Target;$link.Arguments=$entry.Arguments;$link.WorkingDirectory=$entry.WorkingDirectory
+                    $link.Description=$entry.Description;$link.IconLocation=$entry.Icon;$link.WindowStyle=$entry.WindowStyle;$link.Save()
+                }catch{
+                    # WScript.Shell passes paths through the system ANSI code page. A bundle or shortcut folder
+                    # with other characters cannot be saved; opening Murmur does not depend on the shortcut.
+                    Write-Host "Murmur shortcut was not $(if($entry.OldBytes){'updated'}else{'created'}): Windows cannot save a shortcut for a path with characters outside code page $([Text.Encoding]::Default.CodePage): $($entry.Path). Murmur still opens; start murmur-tray.exe from this bundle folder, or move the bundle to a folder with such characters removed."
+                    continue
+                }
                 $temporaryItem=Get-Item -LiteralPath $temporary -Force
                 if($temporaryItem.PSIsContainer -or (Test-LinkedItem $temporaryItem) -or $temporaryItem.Length -gt 1048576){throw "The staged shortcut is invalid: $($entry.Path)"}
                 $temporaryBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($temporary))
