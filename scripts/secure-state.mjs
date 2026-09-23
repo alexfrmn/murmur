@@ -56,7 +56,7 @@ export const readPrivateJson = async (filePath) => {
   }
 };
 
-export const writePrivateJson = async (filePath, value) => {
+export const writePrivateJson = async (filePath, value, { beforeWrite } = {}) => {
   setPrivateUmask();
   const dirPath = path.dirname(filePath);
   await ensurePrivateDirectory(dirPath);
@@ -78,6 +78,7 @@ export const writePrivateJson = async (filePath, value) => {
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       0o600,
     );
+    await beforeWrite?.(tempPath, handle);
     await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
     await handle.sync();
     await handle.close();

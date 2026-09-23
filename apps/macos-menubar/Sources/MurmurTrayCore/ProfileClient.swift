@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-private func explicitAbsolutePath(_ value: String) -> Bool {
+func explicitAbsolutePath(_ value: String) -> Bool {
     value.hasPrefix("/") && value != "/" &&
         !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) &&
         value.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
@@ -10,7 +10,7 @@ private func explicitAbsolutePath(_ value: String) -> Bool {
 
 // Validate a CLI result using POSIX realpath. Foundation's URL standardization
 // strips /private on macOS, so it is not equivalent to the CLI's realpath.
-private func existingRealPath(_ value: String) -> String? {
+func existingRealPath(_ value: String) -> String? {
     guard let pointer = realpath(value, nil) else { return nil }
     defer { free(pointer) }
     return String(cString: pointer)
@@ -114,6 +114,13 @@ public struct ProfileStatusRead: Sendable {
     public let error: Verdict?
 }
 
+public struct ServiceSetupError: Error, LocalizedError, Sendable {
+    public let reason: String
+    public var errorDescription: String? {
+        L10n.text("Service installed; startup could not be confirmed. %@", reason)
+    }
+}
+
 /// One bound CLI executable/profile for reads and controls. No config or SQLite access.
 public struct ProfileClient: Sendable {
     public let executable: URL
@@ -165,6 +172,20 @@ public struct ProfileClient: Sendable {
         }
         let result = try probe(timeout: actionTimeout).invoke(action.arguments)
         return try ControlReceipt.decode(result.data, for: action)
+    }
+
+
+    /// Explicit first-run action. Recheck identity between installation and start.
+    public func installAndStart(expectedAgent: String) throws -> ControlReceipt {
+        let fresh = try readStatus()
+        guard try verifiedAgent(in: fresh) == expectedAgent else { throw ProfileError.identityChanged }
+        let data = try probe(timeout: actionTimeout).invoke(["service", "install"]).data
+        struct Installed: Decodable { let schema: String, action: String, service: StatusSnapshot.Service }
+        guard let value = try? JSONDecoder().decode(Installed.self, from: data),
+              schemaKnown(value.schema, name: "murmur.service"), value.action == "install",
+              value.service.state != nil else { throw ProfileError.invalidResponse }
+        do { return try perform(.start, expectedAgent: expectedAgent) }
+        catch { throw ServiceSetupError(reason: error.localizedDescription) }
     }
 
     public func logDirectory(expectedAgent: String) throws -> URL {

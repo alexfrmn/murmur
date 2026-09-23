@@ -2,15 +2,23 @@ Murmur for Mac
 
 1. Move Murmur to Applications.
 2. Open Murmur from Applications.
-3. In the Murmur window, choose your existing profile folder.
+3. Choose I have an invitation and open the file sent by your teammate.
+4. Use Show reply file to find the file to send back to that person.
+5. Click Start Murmur on this Mac. After exchanging the reply, check the connection.
+
+If you have your own server, choose Create a profile for my server and enter its address.
+Already configured? Choose your existing profile folder instead.
 
 Click the menu bar icon to open or hide the window; right-click for quick actions.
 If the icon is hidden, open Murmur again from Applications or press Control–Option–Command–M.
 Before choosing a profile, the quick menu contains only Choose profile folder and Quit.
 
 The app includes the Murmur engine. Opening it requires no Terminal commands or code build.
-Creating a profile, connecting your agent client and installing its background service
-still use Murmur CLI. The app does not create a profile or install a service automatically.
+Profile creation and the explicit Start button use the bundled Murmur CLI behind the window.
+The app creates a private profile folder for you. It does not silently start a service.
+Connecting your agent client still uses the shared CLI onboarding instructions:
+https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md
+A created profile or running service does not by itself prove pairing or agent delivery.
 
 A compatible Node.js installation is required. If it is missing or too old, Murmur
 shows a link to the official Node.js website and a Try again button.

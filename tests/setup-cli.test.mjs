@@ -13,17 +13,18 @@ import { createKeyPair, createSigningKeyPair, encryptPayload, decryptPayload, si
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 import { main } from '../packages/setup/dist/src/cli.js';
 import { runDoctor, probeRoundtrip } from '../packages/setup/dist/src/doctor.js';
-import { assertMode } from './windows-host.mjs';
+import { assertPrivateFile, allowPublicReadInFixtureDirectory, fileAccessPolicy } from './helpers/private-files.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const stopped = { manager: 'none', status: async () => ({ state: 'stopped', manager: 'none', pid: null, since: null, lastExitCode: null, observedStorePath: null, restartCount: null, restartWindowMs: null }) };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function fixture(t) {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-cli-')); t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-cli-')), cleanup = [];
+  t.after(async () => { for (const close of cleanup.reverse()) await close(); await fs.rm(dataDir, { recursive: true, force: true }); });
   const context = resolveContext({ dataDir, repoRoot: root });
   const config = { agentId: 'agent-a', subject: 'msg.agent-a', natsUrl: 'nats://127.0.0.1:4222', keys: { signing: await createSigningKeyPair(), encryption: await createKeyPair() }, peers: {}, wake: { enabled: true } };
   const save = () => fs.writeFile(context.configPath, JSON.stringify(config)); await save();
   new SQLiteMessageStore(context.storePath).close(); new SQLiteDedupeOutboxStore(context.storePath).close();
-  return { context, config, save };
+  return { context, config, save, cleanup };
 }
 test('CLI emits formed JSON with exit zero for missing config and stopped daemon', async t => {
   const f = await fixture(t); await fs.unlink(f.context.configPath);
@@ -42,11 +43,15 @@ test('doctor stops at daemon and gives all six stages without broker side effect
 });
 test('pause command backs up private config and honestly reports required restart', async t => {
   const f = await fixture(t);
+  if (process.platform === 'win32') await allowPublicReadInFixtureDirectory(f.context.dataDir);
+  const accessBefore = process.platform === 'win32' ? await fileAccessPolicy(f.context.configPath) : null;
   const result = await main(['wake', 'pause', '--data-dir', f.context.dataDir], stopped);
   assert.equal(result.configuredEnabled, false); assert.equal(result.effectiveEnabled, null); assert.equal(result.restartRequired, true);
   assert.equal(JSON.parse(await fs.readFile(f.context.configPath, 'utf8')).wake.enabled, false);
   assert.equal(JSON.parse(await fs.readFile(result.backup, 'utf8')).wake.enabled, true);
-  assertMode(t, (await fs.stat(result.backup)).mode, 0o600, 'backup mode');
+  await assertPrivateFile(result.backup);
+  if (process.platform === 'win32') assert.equal(await fileAccessPolicy(f.context.configPath), accessBefore);
+  else await assertPrivateFile(f.context.configPath);
   const again = await main(['wake', 'pause', '--data-dir', f.context.dataDir], stopped); assert.equal(again.backup, null);
 });
 test('explicit mark-read advances only the chosen contour cursor', async t => {
@@ -61,11 +66,11 @@ test('real NATS roundtrip needs valid peer signature AND local daemon persistenc
   const portServer = createServer(); await new Promise(resolve => portServer.listen(0, '127.0.0.1', resolve));
   const port = portServer.address().port; await new Promise(resolve => portServer.close(resolve));
   const broker = spawn('nats-server', ['-a', '127.0.0.1', '-p', String(port)], { stdio: 'ignore' });
-  t.after(async () => { if (broker.exitCode === null) { broker.kill('SIGTERM'); await new Promise(resolve => broker.once('exit', resolve)); } });
+  f.cleanup.push(async () => { if (broker.exitCode === null) { broker.kill('SIGTERM'); await new Promise(resolve => broker.once('exit', resolve)); } });
   let nc;
   for (let i = 0; i < 50 && !nc; i++) { try { nc = await connect({ servers: `nats://127.0.0.1:${port}`, reconnect: false }); } catch { await delay(20); } }
-  assert.ok(nc, 'isolated broker starts'); t.after(() => nc.close());
-  const db = new DatabaseSync(f.context.storePath); t.after(() => db.close());
+  assert.ok(nc, 'isolated broker starts'); f.cleanup.push(() => nc.close());
+  const db = new DatabaseSync(f.context.storePath); f.cleanup.push(() => db.close());
   const subscriptions = [], subscribe = nc.subscribe.bind(nc);
   nc.subscribe = (subject, ...rest) => { subscriptions.push(subject); return subscribe(subject, ...rest); };
   let done = false;

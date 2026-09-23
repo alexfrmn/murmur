@@ -62,6 +62,33 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     private var shortcut: GlobalShortcut?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The window is the primary entrance; the menu-bar item is a shortcut.
+        NSApp.applicationIconImage = MurmurMark.image(state: .ready, size: 512, description: "Murmur")
+        let appMenu = NSMenu()
+        appMenu.addItem(CommandMenuItem(L10n.text("Open Murmur")) { [weak self] in self?.showWindow() })
+        appMenu.addItem(.separator())
+        let quit = NSMenuItem(title: L10n.text("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        appMenu.addItem(quit)
+        let mainMenu = NSMenu(), appItem = NSMenuItem()
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+        // AppKit routes text-editing shortcuts through the responder chain.
+        let editMenu = NSMenu(title: L10n.text("Edit"))
+        for (title, action, key) in [
+            ("Undo", Selector(("undo:")), "z"),
+            ("Redo", Selector(("redo:")), "Z"),
+            ("Cut", #selector(NSText.cut(_:)), "x"),
+            ("Copy", #selector(NSText.copy(_:)), "c"),
+            ("Paste", #selector(NSText.paste(_:)), "v"),
+            ("Select All", #selector(NSText.selectAll(_:)), "a")
+        ] {
+            editMenu.addItem(NSMenuItem(title: L10n.text(title), action: action, keyEquivalent: key))
+        }
+        let editItem = NSMenuItem(title: L10n.text("Edit"), action: nil, keyEquivalent: "")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         // Preserve the preference written by the previous single MenuBarExtra.
         // This API stores the user's Cmd-drag position; it cannot reveal notch overflow.
@@ -120,7 +147,7 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
 
     private func showWindow() {
         if window == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 470, height: 520),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 640),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                   backing: .buffered, defer: false)
             window.title = "Murmur"
@@ -141,12 +168,12 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         func add(_ title: String, enabled: Bool = true, action: @escaping () -> Void) {
             menu.addItem(CommandMenuItem(title, enabled: enabled, command: action))
         }
+        add(L10n.text("Open Murmur")) { [weak self] in self?.showWindow() }
         if model.profile != nil || model.isDemo {
             add(model.verdict.reason) { [weak self] in self?.showWindow() }
-            add(L10n.text("Open Murmur")) { [weak self] in self?.showWindow() }
             menu.addItem(.separator())
         }
-        add(L10n.text("Choose profile folder…"), enabled: !model.busy && !model.isDemo && model.runtimeError == nil) { [weak self] in
+        add(L10n.text("Open an existing connection"), enabled: !model.busy && !model.isDemo && model.runtimeError == nil) { [weak self] in
             self?.model.chooseProfile()
         }
         if model.profile != nil || model.isDemo {
@@ -161,8 +188,7 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             }
             menu.addItem(.separator())
         }
-        // Before a profile exists there are exactly these two commands. No unknown
-        // counters, disabled feature catalogue, or placeholder inbox action.
+        // New users can always reopen the guided window without knowing a profile path.
         add(L10n.text("Quit")) { NSApp.terminate(nil) }
         return menu
     }
@@ -172,7 +198,7 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
 struct MurmurMenuBarApp {
     @MainActor static func main() {
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
+        app.setActivationPolicy(.regular)
         let delegate = MurmurAppDelegate()
         app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }

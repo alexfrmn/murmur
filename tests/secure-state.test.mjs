@@ -17,21 +17,18 @@ import { skipPosixModes, skipWithoutSymlinks } from "./windows-host.mjs";
 
 const mode = (filePath) => statSync(filePath).mode & 0o777;
 
-test("private JSON writes use a 0700 directory and atomic 0600 file", { skip: skipPosixModes }, async () => {
+test("private JSON writes publish complete values atomically", async () => {
   const root = mkdtempSync(join(tmpdir(), "murmur-private-state-"));
   const dir = join(root, ".data");
   const config = join(dir, "agent-config.json");
 
   try {
     await writePrivateJson(config, { generation: 1, secret: "first" });
-    const firstInode = statSync(config).ino;
-    assert.equal(mode(dir), 0o700);
-    assert.equal(mode(config), 0o600);
+    const firstInode = statSync(config, { bigint: true }).ino;
     assert.deepEqual(await readPrivateJson(config), { generation: 1, secret: "first" });
 
     await writePrivateJson(config, { generation: 2, secret: "second" });
-    assert.notEqual(statSync(config).ino, firstInode);
-    assert.equal(mode(config), 0o600);
+    assert.notEqual(statSync(config, { bigint: true }).ino, firstInode);
     assert.deepEqual(await readPrivateJson(config), { generation: 2, secret: "second" });
     assert.deepEqual(readdirSync(dir), ["agent-config.json"]);
   } finally {
@@ -39,7 +36,25 @@ test("private JSON writes use a 0700 directory and atomic 0600 file", { skip: sk
   }
 });
 
-test("private JSON reads repair permissive modes", { skip: skipPosixModes }, async () => {
+test("POSIX private JSON writes use a 0700 directory and 0600 files", {
+  skip: skipPosixModes,
+}, async () => {
+  const root = mkdtempSync(join(tmpdir(), "murmur-private-write-mode-"));
+  const dir = join(root, ".data"), config = join(dir, "agent-config.json");
+  try {
+    for (const generation of [1, 2]) {
+      await writePrivateJson(config, { generation });
+      assert.equal(mode(dir), 0o700);
+      assert.equal(mode(config), 0o600);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("POSIX private JSON reads repair permissive modes", {
+  skip: skipPosixModes,
+}, async () => {
   const root = mkdtempSync(join(tmpdir(), "murmur-private-mode-"));
   const dir = join(root, ".data");
   const config = join(dir, "agent-config.json");

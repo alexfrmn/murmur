@@ -248,5 +248,42 @@ func runControlChecks(fixtures: URL) throws -> Int {
             try check(try f.calls() == ["status", "logs-path"], "Fresh identity and lookup, never fallback")
         }
     }
+
+    try scenario("first-run install then start rechecks identity for each mutation") { f in
+        var receipt = f.receipt(.start); receipt["action"] = "install"
+        try f.write("service-install", object: receipt)
+        _ = try f.client().installAndStart(expectedAgent: f.agent)
+        try check(try f.calls() == ["status", "service-install", "status", "service-start"], "Ordered identity-scoped installation and start")
+    }
+    try scenario("install failure never proceeds to start") { f in
+        try f.body("service-install", "printf 'darwin-install-failed' >&2; exit 3")
+        try rejects("failed install") { _ = try f.client().installAndStart(expectedAgent: f.agent) }
+        try check(try f.calls() == ["status", "service-install"], "No start after failed installation")
+    }
+    try scenario("wrong install receipt never proceeds to start") { f in
+        try f.write("service-install", object: f.receipt(.start))
+        try rejects("wrong install action") { _ = try f.client().installAndStart(expectedAgent: f.agent) }
+        try check(try f.calls() == ["status", "service-install"], "No start on unconfirmed installation")
+    }
+    try scenario("changed identity blocks first-run installation") { f in
+        try f.write("status", object: changing(f.status, ["agentId"], "another-agent"))
+        try rejects("wrong initial identity") { _ = try f.client().installAndStart(expectedAgent: f.agent) }
+        try check(try f.calls() == ["status"], "Foreign profile is never installed")
+    }
+    try scenario("identity changed during installation blocks start") { f in
+        var receipt = f.receipt(.start); receipt["action"] = "install"
+        try f.write("service-install", object: receipt)
+        let changed = f.directory.appendingPathComponent("changed-status.json")
+        try JSONSerialization.data(withJSONObject: changing(f.status, ["agentId"], "another-agent")).write(to: changed)
+        try f.body("service-install", "/bin/cp " + shellLiteral(changed.path) + " " + shellLiteral(f.directory.appendingPathComponent("status.json").path)
+                   + "\nexec /bin/cat " + shellLiteral(f.directory.appendingPathComponent("service-install.json").path))
+        do {
+            _ = try f.client().installAndStart(expectedAgent: f.agent)
+            throw CheckFailure(message: "Changed identity must block startup")
+        } catch let failure as ServiceSetupError {
+            try check(failure.reason == ProfileError.identityChanged.localizedDescription, "A completed installation is not shown as failed")
+        }
+        try check(try f.calls() == ["status", "service-install", "status"], "No start after changed identity")
+    }
     return count
 }

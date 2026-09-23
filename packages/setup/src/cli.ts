@@ -1,4 +1,5 @@
-import { configureClient } from './clients.js';
+import { configureClient, previewClientConfiguration } from './clients.js';
+import { prepareReplyTest, checkReplyTest } from './reply-test.js';
 import { initialize, invite, join, importPeer } from './onboarding.js';
 import { runDoctor } from './doctor.js';
 import { parseArgs } from 'node:util';
@@ -39,14 +40,14 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
   try {
     parsed = parseArgs({ args, allowPositionals: true, options: {
       'agent-id': { type: 'string' }, 'broker-url': { type: 'string' }, 'token-file': { type: 'string' }, 'invite-file': { type: 'string' }, 'reply-file': { type: 'string' }, 'reply-out': { type: 'string' }, out: { type: 'string' },
-      client: { type: 'string' }, replace: { type: 'boolean' }, json: { type: 'boolean' }, line: { type: 'boolean' }, limit: { type: 'string' }, peer: { type: 'string' }, timeout: { type: 'string' }, 'data-dir': { type: 'string' }, 'service-name': { type: 'string' }, apply: { type: 'boolean' }, help: { type: 'boolean' },
+      client: { type: 'string' }, replace: { type: 'boolean' }, 'plan-id': { type: 'string' }, 'test-token': { type: 'string' }, json: { type: 'boolean' }, line: { type: 'boolean' }, limit: { type: 'string' }, peer: { type: 'string' }, timeout: { type: 'string' }, 'data-dir': { type: 'string' }, 'service-name': { type: 'string' }, apply: { type: 'boolean' }, help: { type: 'boolean' },
     } });
   } catch (error) {
     // parseArgs explains itself in a sentence, which safeError must hide; keep a stable code instead.
     throw new Error((error as NodeJS.ErrnoException).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? 'cli.unknown-option' : 'cli.invalid-arguments');
   }
   const { values, positionals } = parsed;
-  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE', 'add-peer --reply-file FILE', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients configure --client ID [--replace]', 'wake pause|resume [--apply]', 'inbox read [--limit 1..100]', 'inbox mark-read', 'mcp serve --data-dir ABSOLUTE'],
+  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE', 'add-peer --reply-file FILE', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients preview --client ID', 'clients configure --client ID [--replace] [--plan-id SHA256]', 'reply-test prepare --peer AGENT', 'reply-test check --test-token TOKEN', 'wake pause|resume [--apply]', 'inbox read [--limit 1..100]', 'inbox mark-read', 'mcp serve --data-dir ABSOLUTE'],
     options: ['--data-dir ABSOLUTE', '--service-name NAME'], note: 'Windows service mutations require an elevated terminal and the matching native helper.' };
   const [command, action, extra] = positionals;
   if (extra) throw new Error('cli.unexpected-argument');
@@ -79,8 +80,11 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
     return readLogPath(context);
   }
   if (command === 'doctor' && !action) return runDoctor({ context, adapter, peer: values.peer, timeoutMs: values.timeout === undefined ? undefined : Number(values.timeout) });
-  if (command === 'clients' && action === 'configure') return configureClient(context, adapter, required('client'), values.replace);
+  if (command === 'clients' && action === 'preview') return previewClientConfiguration(context, adapter, required('client'));
+  if (command === 'clients' && action === 'configure') return configureClient(context, adapter, required('client'), values.replace, values['plan-id']);
   if (command === 'clients' && action === 'detect') return { schema: 'murmur.clients/1', clients: await adapter.detectClients(context) };
+  if (command === 'reply-test' && action === 'prepare') return prepareReplyTest(context, required('peer'));
+  if (command === 'reply-test' && action === 'check') return checkReplyTest(context, required('test-token'));
   if (command === 'wake' && ['pause', 'resume'].includes(action)) return setWakeEnabled(context, adapter, action === 'resume', values.apply);
   if (command === 'inbox' && action === 'read') return readInbox(context, values.limit === undefined ? 20 : Number(values.limit));
   if (command === 'inbox' && action === 'mark-read') return markInboxRead(context);
