@@ -113,3 +113,19 @@ test('logs path does not advertise a directory when profile identity is invalid'
   assert.match(result.stderr, /^config.identity-invalid$/m);
   assert.doesNotMatch(result.stderr, /do-not-print/);
 });
+
+
+test('Windows logs command reports its native limitation without creating or changing profile files', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t);
+  for (const directoryExists of [false, true]) {
+    if (directoryExists) await fs.mkdir(f.logDir);
+    const before = await fs.readdir(f.dataDir);
+    await assert.rejects(main(f.args, noService), /^Error: logs\.windows-native-location-unavailable$/);
+    const result = f.run();
+    assert.equal(result.status, 1); assert.equal(result.stdout, '');
+    assert.match(result.stderr, /^logs\.windows-native-location-unavailable$/m);
+    assert.doesNotMatch(result.stderr, /private-test-token|privateKey/);
+    assert.equal(await fs.readFile(f.configPath, 'utf8'), f.bytes);
+    assert.deepEqual(await fs.readdir(f.dataDir), before);
+  }
+});

@@ -120,7 +120,7 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
 
     private func showWindow() {
         if window == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 470, height: 520),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 640),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                   backing: .buffered, defer: false)
             window.title = "Murmur"
@@ -141,12 +141,12 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         func add(_ title: String, enabled: Bool = true, action: @escaping () -> Void) {
             menu.addItem(CommandMenuItem(title, enabled: enabled, command: action))
         }
+        add(L10n.text("Open Murmur")) { [weak self] in self?.showWindow() }
         if model.profile != nil || model.isDemo {
             add(model.verdict.reason) { [weak self] in self?.showWindow() }
-            add(L10n.text("Open Murmur")) { [weak self] in self?.showWindow() }
             menu.addItem(.separator())
         }
-        add(L10n.text("Choose profile folder…"), enabled: !model.busy && !model.isDemo && model.runtimeError == nil) { [weak self] in
+        add(L10n.text("Open an existing connection"), enabled: !model.busy && !model.isDemo && model.runtimeError == nil) { [weak self] in
             self?.model.chooseProfile()
         }
         if model.profile != nil || model.isDemo {
@@ -161,8 +161,7 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             }
             menu.addItem(.separator())
         }
-        // Before a profile exists there are exactly these two commands. No unknown
-        // counters, disabled feature catalogue, or placeholder inbox action.
+        // New users can always reopen the guided window without knowing a profile path.
         add(L10n.text("Quit")) { NSApp.terminate(nil) }
         return menu
     }

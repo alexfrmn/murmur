@@ -40,7 +40,7 @@ export function createDaemonObservation({ dataDir, storePath, agentId, wake, log
       if ((level === "error" || level === "fatal") && message.startsWith("WakeMonitor")) {
         snapshot.wake.lastFault = data?.error === "database is locked" ? "wake.database-locked" : "wake.runtime-fault";
         snapshot.wake.lastFaultAt = new Date().toISOString();
-        void write();
+        return write();
       }
     },
     stop() { if (timer) clearInterval(timer); },

@@ -14,6 +14,16 @@ No environment assignment syntax is required. Every profile-specific command
 accepts `--data-dir ABSOLUTE_PATH`; the service, daemon and MCP entry use this one
 profile. In an npm installation replace the source entry with `murmur`.
 
+On Windows, setup protects new identity state, invitations, client configuration
+and backups with a non-inheriting file ACL before writing secrets.
+Only the creating account, SYSTEM (used by the native service) and local
+Administrators receive access. This uses built-in Windows PowerShell without
+changing the parent directory ACL; if protection cannot be applied and verified,
+the write fails. Replacing an existing state or client configuration file preserves
+its Windows access policy, including intentional service or sandbox readers; it
+does not audit or tighten that existing policy. Its new backup is private. Preview
+and unchanged client entries do not change permissions.
+
 The older `scripts/murmur-invite.mjs`, `scripts/murmur-join.mjs` and
 `scripts/murmur-add-peer.mjs` entrypoints are disabled compatibility notices.
 They exit without reading or changing a profile and name the equivalent command
@@ -51,6 +61,15 @@ Doctor subscribes only to the selected profile's actual receive subjects, sends 
 nonce through the real daemon outbox, verifies the peer's signed encrypted reply,
 and requires that reply in the local inbox before saving pairing evidence.
 It does not certify GUI appearance or an LLM session wake.
+
+To check a selected AI client's real exchange, `reply-test prepare --peer ID`
+returns a request, conversation ID and a 15-minute test token without sending
+anything. Send the returned request through that client's Murmur tools, using
+the returned conversation. `reply-test check --test-token TOKEN` reads the
+matching durable request and reply without consuming the inbox. Keep the request
+and expected reply as exact standalone lines; an agent introduction or signature
+may appear on separate lines. A blockquoted marker or marker embedded in another
+sentence does not count. Success confirms the exchange, not autonomous wake.
 
 Linux/systemd, Darwin/launchd and Windows SCM adapters use the shared CLI.
 Windows additionally needs the matching native service helper and elevation for

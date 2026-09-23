@@ -110,23 +110,29 @@ test('root-layout ZIP is deterministic and publication refuses an existing desti
   assert.deepEqual(await fs.readdir(output), []);
 });
 
-test('Windows checker accepts the declared service overlay and rejects any undeclared byte', async t => {
+async function checkerBundle(t, cliSource = 'console.log(JSON.stringify({ schema: "murmur.version/1", product: "Murmur", version: "2.10.0" }));') {
   const bundle = await temporary(t);
   await fs.mkdir(path.join(bundle, 'runtime', 'bin'), { recursive: true });
   const payload = {
     'Open-Murmur.cmd': 'cmd', 'Open-Murmur.ps1': 'ps1', 'README-Windows.md': 'readme',
-    'check-windows-bundle.mjs': 'checker', 'murmur-tray.exe': 'tray', 'runtime/package.json': 'package',
+    'check-windows-bundle.mjs': 'checker', 'murmur-tray.exe': 'tray', 'runtime/package.json': '{"type":"module"}',
+    'runtime/packages/setup/bin/murmur.mjs': cliSource,
     'runtime/bin/murmur-svc.exe': 'service', 'murmur.ico': 'icon',
   };
   for (const [name, contents] of Object.entries(payload)) {
     await fs.mkdir(path.dirname(path.join(bundle, name)), { recursive: true });
     await fs.writeFile(path.join(bundle, name), contents);
   }
-  const runtimeFile = await fs.readFile(path.join(bundle, 'runtime', 'package.json'));
   const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const runtimeFiles = {};
+  for (const [file, contents] of Object.entries(payload)) {
+    if (!file.startsWith('runtime/') || file === 'runtime/bin/murmur-svc.exe') continue;
+    const bytes = Buffer.from(contents);
+    runtimeFiles[file.slice('runtime/'.length)] = { sha256: digest(bytes), size: bytes.length };
+  }
   const runtimeManifest = { schema: 'murmur.runtime-bundle/1', declaredVersion: '2.10.0',
     sourceCommit: 'a'.repeat(40), recipeSha256: 'c'.repeat(64),
-    files: { 'package.json': { sha256: digest(runtimeFile), size: runtimeFile.length } } };
+    files: runtimeFiles };
   await fs.writeFile(path.join(bundle, 'runtime', 'runtime-manifest.json'), JSON.stringify(runtimeManifest) + '\n');
   const runtimeManifestBytes = await fs.readFile(path.join(bundle, 'runtime', 'runtime-manifest.json'));
   const checkerBytes = await fs.readFile(path.join(bundle, 'check-windows-bundle.mjs'));
@@ -134,9 +140,31 @@ test('Windows checker accepts the declared service overlay and rejects any undec
     recipeSha256: 'b'.repeat(64), runtimeRecipeSha256: 'c'.repeat(64),
     runtimeManifestSha256: digest(runtimeManifestBytes), checkerSha256: digest(checkerBytes), buildNode: '22.13.0',
     buildGo: 'go version go1.24.0 windows/amd64' });
+  return { bundle, payloadFiles: Object.keys(payload).length + 1 };
+}
+
+test('Windows checker accepts the declared service overlay and rejects any undeclared byte', async t => {
+  const { bundle, payloadFiles } = await checkerBundle(t);
   const result = await verifyWindowsBundle(bundle, { executeNative: false });
   assert.equal(result.declaredVersion, '2.10.0');
-  assert.equal(result.files, Object.keys(payload).length + 1);
+  assert.equal(result.files, payloadFiles);
+  assert.equal(result.runtimeVersionExecuted, true);
   await fs.writeFile(path.join(bundle, 'runtime', 'unexpected.cache'), 'extra');
   await assert.rejects(verifyWindowsBundle(bundle, { executeNative: false }), /Unmanifested bundle file/);
+});
+
+test('Windows checker rejects an inventoried canonical CLI whose runtime import is missing', async t => {
+  const { bundle } = await checkerBundle(t, 'import "../../../scripts/runtime-capability.mjs";');
+  await assert.rejects(verifyWindowsBundle(bundle, { executeNative: false }), /Runtime CLI version verification failed/);
+});
+
+test('Windows checker rejects a canonical CLI that reports a different product version', async t => {
+  const { bundle } = await checkerBundle(t,
+    'console.log(JSON.stringify({ schema: "murmur.version/1", product: "Murmur", version: "2.9.0" }));');
+  await assert.rejects(verifyWindowsBundle(bundle, { executeNative: false }), /Runtime CLI version differs/);
+});
+
+test('Windows checker rejects successful CLI exit without a version contract', async t => {
+  const { bundle } = await checkerBundle(t, 'console.log("ready");');
+  await assert.rejects(verifyWindowsBundle(bundle, { executeNative: false }), /Runtime CLI version verification failed/);
 });

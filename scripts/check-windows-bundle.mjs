@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 const HERE = fileURLToPath(import.meta.url);
 const MANIFEST_NAME = 'release-manifest.json';
 const REQUIRED = ['Open-Murmur.cmd', 'Open-Murmur.ps1', 'README-Windows.md', 'check-windows-bundle.mjs', 'murmur-tray.exe', 'murmur.ico',
-  'runtime/runtime-manifest.json', 'runtime/bin/murmur-svc.exe'];
+  'runtime/runtime-manifest.json', 'runtime/packages/setup/bin/murmur.mjs', 'runtime/bin/murmur-svc.exe'];
 const COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -50,6 +50,26 @@ function executeNativeVersion(executable, manifest, component) {
     version: manifest.declaredVersion, sourceCommit: manifest.sourceCommit };
   for (const [key, expectedValue] of Object.entries(expected)) {
     if (value[key] !== expectedValue) throw new Error(`${component} --version ${key} differs from the release manifest`);
+  }
+}
+
+function executeRuntimeVersion(root, manifest) {
+  // Match Open-Murmur.ps1's entry point; a workspace copy below node_modules
+  // has a different relative-import base and is not a launcher entry point.
+  const cli = path.join(root, 'runtime', 'packages', 'setup', 'bin', 'murmur.mjs');
+  let value;
+  try {
+    value = JSON.parse(execFileSync(process.execPath, ['--no-warnings', cli, 'version', '--json'], {
+      cwd: root, encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, NODE_OPTIONS: '', NODE_PATH: '', MURMUR_UPDATE_CHECK: '0' },
+    }).trim());
+  } catch {
+    throw new Error('Runtime CLI version verification failed: version --json must complete with a JSON contract');
+  }
+  const expected = { schema: 'murmur.version/1', product: 'Murmur', version: manifest.declaredVersion };
+  for (const [key, wanted] of Object.entries(expected)) {
+    if (value?.[key] !== wanted) throw new Error(`Runtime CLI ${key} differs from the release manifest`);
   }
 }
 
@@ -110,12 +130,13 @@ export async function verifyWindowsBundle(root, { executeNative = process.platfo
     const bytes = await fs.readFile(path.join(runtimePath, file));
     if (bytes.length !== entry.size || hash(bytes) !== entry.sha256) throw new Error(`Portable runtime file differs from manifest: ${file}`);
   }
+  executeRuntimeVersion(root, manifest);
   if (executeNative) {
     executeNativeVersion(path.join(root, 'murmur-tray.exe'), manifest, 'windows-tray');
     executeNativeVersion(path.join(root, 'runtime', 'bin', 'murmur-svc.exe'), manifest, 'windows-service');
   }
   return { schema: manifest.schema, declaredVersion: manifest.declaredVersion, sourceCommit: manifest.sourceCommit,
-    files: actual.length, nativeVersionExecuted: executeNative };
+    files: actual.length, runtimeVersionExecuted: true, nativeVersionExecuted: executeNative };
 }
 
 async function main(args) {

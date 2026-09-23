@@ -15,16 +15,40 @@ commands, `.command` launcher, adjacent runtime folder or Node binding file.
 
 Murmur checks standard Node.js and Homebrew installation paths, Volta, nvm and fnm.
 If Node is missing or too old, a dialog links to the official download page and
-lets you retry. It does not install Node, create profiles or install services for you.
+lets you retry. It does not install Node automatically.
 
-Murmur opens a window with one first step: choose an existing profile folder.
-After selection, the window shows status and available controls. The menu bar icon
-toggles this window; right-click it for quick actions. Before profile selection,
-that menu contains only **Choose profile folder…** and **Quit**. Profile creation, client
-connection and service installation still use the shared CLI at
-`/Applications/Murmur.app/Contents/MacOS/murmur`. See the
-[onboarding instructions](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md).
+Murmur opens a window with **I have an invitation…** as the primary path. Select the
+private invitation sent by your teammate; Murmur creates a profile and reply file.
+Use **Show reply file** to find what to send back. Then click **Start Murmur on this Mac**
+to install and start the profile’s background service. After exchanging the reply,
+use **Check connection**. Creating a profile is not proof of pairing or live agent delivery.
+
+If you own a server, **Create a profile for my server…** asks for its address and an
+optional access file. A unique name and private profile folder are chosen automatically;
+you may change the name. There is no default public server. Previously configured users
+can choose an existing profile folder. The menu bar icon toggles this window; right-click
+for quick actions. Before profile selection, the quick menu still contains only
+**Choose profile folder…** and **Quit**.
+
+Profile, key and service writes go through `/Applications/Murmur.app/Contents/MacOS/murmur`: `init` or `join`
+for creation, then explicit `service install` and `service start`, with a fresh check of
+the same agent identity before each service mutation. Keys are not regenerated on start.
 The helper runs only the bundled engine and preserves literal arguments without a shell.
+Before creation, the app saves a private recovery record containing only the chosen
+identity, paths derived from its identifier, and progress. If verification fails,
+the saved setup shows the original paths and lets you check the same profile without
+repeating creation. A confirmed write is shown separately from an unconfirmed command.
+Retrying creation is offered only when the command has finished and no profile or reply
+files exist. Previous nonempty private profile folders are listed before a separate
+profile can be created. No profile, reply or key files are deleted by recovery.
+If the record is damaged or an interrupted setup cannot continue, **Reset saved setup
+record…** asks for confirmation and keeps a private copy of that record. You then
+choose an existing profile or explicitly create a separate one; resetting never
+retries creation automatically. The copy remains available in Finder after reopening.
+Choosing an earlier private profile restores its reply link and service setup steps
+after checking the same identity. It does not create the profile again.
+Agent-client connection still uses the shared
+[onboarding instructions](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md).
 
 English is the default app language, independently of macOS. Choose
 **Settings → Language → Русский** for Russian or **Настройки → Язык → English** to switch back. The choice

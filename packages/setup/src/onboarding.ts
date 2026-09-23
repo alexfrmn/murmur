@@ -9,6 +9,7 @@ import { createKeyPair, createSigningKeyPair } from '@murmurv2/security';
 import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerConfig } from './config.js';
 import { writeState } from './state.js';
 import { refuseVirtualizedAppData } from './appdata.js';
+import { protectPrivateFile } from './private-file.js';
 import type { ServiceContext } from './types.js';
 
 type PrivateFile = 'invite-file' | 'reply-file' | 'token-file';
@@ -52,13 +53,15 @@ async function validateOutput(c: ServiceContext, file: string) {
   if (!relative || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) {
     throw new Error('onboarding.output-inside-profile');
   }
-  const profileInfo = await stat(c.dataDir).catch((error) => {
+  const profileInfo = await stat(c.dataDir, { bigint: true }).catch((error) => {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   });
   // Existing path aliases are compared by filesystem identity, not by lowercasing names.
   if (profileInfo) for (let ancestor = parent; ; ancestor = path.dirname(ancestor)) {
-    const info = await stat(ancestor);
+    // NTFS file IDs can exceed Number.MAX_SAFE_INTEGER. Rounding neighboring
+    // directory IDs can falsely identify an outside output as part of the profile.
+    const info = await stat(ancestor, { bigint: true });
     if (info.dev === profileInfo.dev && info.ino === profileInfo.ino) throw new Error('onboarding.output-inside-profile');
     if (path.dirname(ancestor) === ancestor) break;
   }
@@ -89,13 +92,14 @@ async function restrictToCurrentUser(target: string, directory: boolean) {
 async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
   if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
   const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+  let written = false;
   try {
-    // Before any content: an invite carries the broker token.
-    await restrictToCurrentUser(file, false);
+    // Protect the still-empty output before writing the invitation credential.
+    await protectPrivateFile(file, handle);
     await beforeWrite?.();
     await handle.writeFile(prefix + Buffer.from(JSON.stringify(value)).toString('base64') + '\n'); await handle.sync();
-  } catch (error) { await unlink(file).catch(() => {}); throw error; }
-  finally { await handle.close(); }
+    written = true;
+  } finally { await handle.close(); if (!written) await unlink(file).catch(() => {}); }
 }
 async function locked<T>(c: ServiceContext, fn: () => Promise<T>) {
   // mkdir reports a path only when it created something: never rewrite an existing profile's ACL.

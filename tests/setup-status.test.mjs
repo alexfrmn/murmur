@@ -12,7 +12,8 @@ const now = Date.parse('2026-09-19T13:00:00Z'), at = new Date(now).toISOString()
 const key = Buffer.alloc(32, 7).toString('base64');
 async function fixture(t) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-status-'));
-  let db; t.after(() => { db?.close(); return fs.rm(dataDir, { recursive: true, force: true }); });
+  const cleanup = [];
+  t.after(async () => { for (const close of cleanup.reverse()) await close(); await fs.rm(dataDir, { recursive: true, force: true }); });
   const context = resolveContext({ dataDir, repoRoot: fileURLToPath(new URL('../', import.meta.url)) });
   const config = { agentId: 'agent-a', subject: 'msg.agent-a', natsUrl: 'nats://127.0.0.1:4222',
     keys: { signing: { publicKey: key, privateKey: key }, encryption: { publicKey: key, privateKey: key } },
@@ -29,8 +30,8 @@ async function fixture(t) {
   await write('read-state.json', { schema: 'murmur.read/1', agentId: config.agentId, rowid: 0 });
   const adapter = { manager: 'systemd', status: async () => snapshot };
   const read = () => readStatus({ context, adapter, now: () => now });
-  db = new DatabaseSync(context.storePath);
-  return { context, config, snapshot, observation, write, read, db };
+  const db = new DatabaseSync(context.storePath); cleanup.push(() => db.close());
+  return { context, config, snapshot, observation, write, read, db, cleanup };
 }
 test('status reads real durable counters, no local-key-only pairing claim or file writes', async t => {
   const f = await fixture(t);
@@ -102,13 +103,9 @@ test('Windows private profile does not share the public service metadata directo
 test('runtime observer captures only safe fault codes without command/output contents', async t => {
   const f = await fixture(t);
   const observation = createDaemonObservation({ dataDir: f.context.dataDir, storePath: f.context.storePath, agentId: 'agent-a', wake: { enabled: true, mode: 'monitor' } });
-  t.after(() => observation.stop()); await observation.start();
-  observation.observeLog('error', 'WakeMonitor lane crashed', { error: 'database is locked', secret: 'do-not-copy' });
-  // Serialize one explicit observation after the asynchronous log write settles.
-  for (let n = 0; n < 30; n++) {
-    const text = await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8');
-    if (JSON.parse(text).wake.lastFault === 'wake.database-locked') { assert.ok(!text.includes('do-not-copy')); return; }
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-  assert.fail('fault observation did not persist');
+  f.cleanup.push(() => observation.stop()); await observation.start();
+  await observation.observeLog('error', 'WakeMonitor lane crashed', { error: 'database is locked', secret: 'do-not-copy' });
+  const text = await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8');
+  assert.equal(JSON.parse(text).wake.lastFault, 'wake.database-locked');
+  assert.ok(!text.includes('do-not-copy'));
 });

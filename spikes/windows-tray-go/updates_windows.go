@@ -21,13 +21,16 @@ func (a *app) setupUpdates() {
 	a.mUpdateTime.Disable()
 	a.mUpdateReason = a.mUpdatesRoot.AddSubMenuItem("", "")
 	a.mUpdateReason.Disable()
+	a.mUpdateCheck = a.mUpdatesRoot.AddSubMenuItem(tr("updates.checkNow"), tr("updates.checkNowTooltip"))
 	a.mUpdatePage = a.mUpdatesRoot.AddSubMenuItem(tr("updates.open"), tr("updates.openTooltip"))
 	a.mUpdatePage.Disable()
 	a.mUpdateEnable = a.mUpdatesRoot.AddSubMenuItem(tr("updates.enable"), "")
 	a.mUpdateDisable = a.mUpdatesRoot.AddSubMenuItem(tr("updates.disable"), "")
 	a.mUpdatePrivacy = a.mUpdatesRoot.AddSubMenuItem(tr("updates.privacy"), tr("updates.privacyTooltip"))
 	a.mUpdatePrivacy.Disable()
-	a.updateRequests = make(chan bool, 1)
+	// A nil request checks with the existing preferences; only explicit enable
+	// and disable actions carry a preference change.
+	a.updateRequests = make(chan *bool, 1)
 }
 
 // One owner serializes checks/preferences independently of status/service work.
@@ -39,25 +42,13 @@ func (a *app) updateLoop() {
 		var preference *bool
 		select {
 		case <-timer.C:
-		case enabled := <-a.updateRequests:
-			preference = &enabled
+		case preference = <-a.updateRequests:
 		}
 		a.mu.Lock()
 		a.updateBusy = true
 		a.mu.Unlock()
 		a.renderUpdateState()
-		var err error
-		if preference != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
-			err = setUpdatesEnabled(ctx, *preference)
-			cancel()
-		}
-		var result *updateSnapshot
-		if err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
-			result, err = fetchUpdates(ctx)
-			cancel()
-		}
+		result, err := performUpdateRequest(context.Background(), preference, cliTimeout)
 		a.mu.Lock()
 		a.updates = result
 		a.updateErr = err
@@ -88,6 +79,13 @@ func (a *app) renderUpdateState() {
 		title = tr("updates.checking")
 	}
 	a.mUpdateState.SetTitle(title)
+	a.mUpdateCheck.Disable()
+	if busy {
+		a.mUpdateCheck.SetTitle(tr("updates.checking"))
+	} else {
+		a.mUpdateCheck.SetTitle(tr("updates.checkNow"))
+		a.mUpdateCheck.Enable()
+	}
 	version := tr("updates.unknown")
 	if s != nil && s.CurrentVersion != nil {
 		version = *s.CurrentVersion
@@ -126,14 +124,20 @@ func (a *app) renderUpdateState() {
 	}
 }
 func (a *app) requestUpdatePreference(enabled bool) {
+	a.requestUpdates(&enabled)
+}
+func (a *app) requestUpdates(preference *bool) {
 	a.mu.Lock()
 	busy := a.updateBusy
 	a.mu.Unlock()
-	if busy || os.Getenv("MURMUR_UPDATE_CHECK") == "0" {
+	// A manual request may read the CLI's disabled state. The binding preserves
+	// MURMUR_UPDATE_CHECK=0, and the CLI returns before any network request.
+	// Preference changes cannot override that environment-level opt-out.
+	if busy || (preference != nil && os.Getenv("MURMUR_UPDATE_CHECK") == "0") {
 		return
 	}
 	select {
-	case a.updateRequests <- enabled:
+	case a.updateRequests <- preference:
 	default:
 	}
 }
