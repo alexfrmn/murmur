@@ -32,8 +32,18 @@ try {
   const profile = path.join(temp, 'profile');
   const env = { ...process.env, NODE_OPTIONS: '', NODE_PATH: '', DATA_DIR: profile,
     MURMUR_DATA_DIR: profile, MURMUR_STORE_PATH: '', MURMUR_UPDATE_CHECK: '0' };
-  const cli = args => JSON.parse(execFileSync(process.execPath, [path.join(runtime, 'packages/setup/bin/murmur.mjs'), ...args],
-    { cwd: temp, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10000 }));
+  // Windows init applies private ACLs through PowerShell. Allow its cold startup
+  // on shared runners without making a failed command indistinguishable from MCP.
+  const cliTimeoutMs = process.platform === 'win32' ? 60_000 : 10_000;
+  const cli = args => {
+    const startedAt = Date.now();
+    try {
+      return JSON.parse(execFileSync(process.execPath, [path.join(runtime, 'packages/setup/bin/murmur.mjs'), ...args],
+        { cwd: temp, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cliTimeoutMs }));
+    } catch (error) {
+      throw new Error(`Runtime CLI probe ${args[0]} ${error.code === 'ETIMEDOUT' ? 'timed out' : 'failed'} after ${Date.now() - startedAt}ms (budget ${cliTimeoutMs}ms)`, { cause: error });
+    }
+  };
   assert.equal(cli(['version']).version, manifest.declaredVersion);
   assert.equal(cli(['init', '--data-dir', profile, '--agent-id', 'runtime-probe', '--broker-url', 'nats://127.0.0.1:4222']).agentId, 'runtime-probe');
   assert.equal(cli(['status', '--data-dir', profile]).agentId, 'runtime-probe');
