@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { createWindowsAdapter } from '../packages/setup/dist/src/platform/windows.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 const context = resolveContext({ platform: 'win32', dataDir: 'C:\\Users\\me\\profile', repoRoot: 'C:\\Program Files\\Murmur\\runtime', nodePath: 'C:\\Program Files\\nodejs\\node.exe', serviceName: 'MurmurFixture' });
@@ -13,9 +16,9 @@ function native(overrides = {}) {
     observedStorePath: context.storePath, observedStoreUnknownReason: null,
     restartCount: 0, restartWindowMs: 15000, restartsLastHour: null, restartsUnknownReason: 'service.history-window-incomplete', restartsPerHourLimit: 5, ...overrides };
 }
-function fixture(initial = native()) {
+function fixture(initial = native(), elevated = true) {
   let value = initial, failure = false; const calls = [];
-  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize,
+  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, elevated: async () => elevated,
     env: { NODE_OPTIONS: '--require injected.js', DATA_DIR: 'C:\\other', MURMUR_STORE_PATH: 'C:\\wrong.db', ProgramData: 'C:\\ProgramData' },
     run: async (file, args, options) => {
       calls.push({ file, args, options });
@@ -72,6 +75,43 @@ test('not-installed differs from an inaccessible manager, and uninstall verifies
 test('helper success without requested state does not report a successful start', async () => {
   const f = fixture(native({ state: 'stopped', pid: 0, daemonPid: null, observedStorePath: null, restartCount: null, restartWindowMs: null }));
   await assert.rejects(f.adapter.start(context), /action-unconfirmed/);
+});
+test('a non-elevated terminal is told to elevate before any SCM mutation', async () => {
+  const stopped = native({ state: 'stopped', pid: 0, daemonPid: null, observedStorePath: null, restartCount: null, restartWindowMs: null });
+  const missing = native({ manager: 'none', state: 'stopped', profile: null, pid: 0, daemonPid: null, observedStorePath: null, restartCount: null, restartWindowMs: null });
+  for (const [action, value] of [['install', missing], ['start', stopped], ['stop', native()], ['uninstall', native()]]) {
+    const f = fixture(value, false);
+    await assert.rejects(f.adapter[action](context), /^Error: service\.elevation-required$/);
+    assert.ok(f.calls.every(c => c.args[0] === 'status'), action);
+  }
+  // Nothing to change needs no elevation, and status never asks for it.
+  const f = fixture(missing, false); await f.adapter.stop(context); await f.adapter.uninstall(context);
+  assert.equal((await f.adapter.status(context)).state, 'stopped');
+});
+test('an unmeasurable integrity level leaves the decision to the service manager', async () => {
+  const f = fixture(native(), null); await f.adapter.stop(context);
+  assert.deepEqual(f.calls.map(c => c.args[0]), ['status', 'stop', 'status']);
+});
+test('this process integrity level is measured on Windows', { skip: process.platform !== 'win32' }, async () => {
+  const f = createWindowsAdapter({ helperPath: helper, canonicalize, run: async () => ({ code: 0, stdout: JSON.stringify(native()), stderr: '' }) });
+  // The fake helper never stops: an elevated run reaches it and is unconfirmed, a plain one is refused first.
+  await assert.rejects(f.stop(context), new RegExp(`service\\.${highIntegrity() ? 'action-unconfirmed' : 'elevation-required'}$`));
+});
+const whoami = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe');
+const highIntegrity = () => /"S-1-16-(12288|16384)"/.test(execFileSync(whoami, ['/groups', '/fo', 'csv', '/nh'], { encoding: 'utf8' }));
+test('a whoami.exe planted earlier in PATH does not decide elevation', { skip: process.platform !== 'win32' }, async t => {
+  const fake = await mkdtemp(path.join(tmpdir(), 'murmur-fake-whoami-'));
+  t.after(() => rm(fake, { recursive: true, force: true }));
+  // Not an executable: a PATH lookup would fail to start it and fall back to "unmeasured", skipping the check.
+  await writeFile(path.join(fake, 'whoami.exe'), 'not a program');
+  const adapterUrl = new URL('../packages/setup/dist/src/platform/windows.js', import.meta.url).href;
+  const script = `const { createWindowsAdapter } = await import(${JSON.stringify(adapterUrl)});
+const native = ${JSON.stringify(native())}, context = ${JSON.stringify(context)};
+const adapter = createWindowsAdapter({ helperPath: ${JSON.stringify(helper)}, canonicalize: async v => v.toLowerCase(), run: async () => ({ code: 0, stdout: JSON.stringify(native), stderr: '' }) });
+await adapter.stop(context).then(() => console.log('stopped'), e => console.log(e.message));`;
+  const pathKey = Object.keys(process.env).find(k => k.toLowerCase() === 'path') ?? 'Path';
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, [pathKey]: `${fake};${process.env[pathKey]}` } });
+  assert.equal(run.stdout.trim(), highIntegrity() ? 'service.action-unconfirmed' : 'service.elevation-required', run.stderr);
 });
 test('invalid paths and names fail before any helper call', async () => {
   const f = fixture();
