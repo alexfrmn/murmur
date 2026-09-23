@@ -52,10 +52,13 @@ function clientDocument(client: ClientDetection, text: string) {
 const claudeSettingsPath = (configPath: string) => path.join(path.dirname(configPath), '.claude', 'settings.json');
 // Forward slashes read the same in the bash and cmd that run hook commands; node accepts them.
 const hookPath = (value: string) => `"${value.replaceAll('\\', '/')}"`;
+// Eight hours after each turn instead of the drain's 20-minute default: a message that arrives
+// during a working day still wakes the session (docs/wake-native.md, known limitation).
+const WAKE_WINDOW_SECONDS = 28800;
 /** The node wake drain (docs/wake-native.md): polls the store after each turn and wakes the session. */
 function desiredWakeHook(c: ServiceContext) {
   return { type: 'command', asyncRewake: true,
-    command: `${hookPath(c.nodePath)} --no-warnings ${hookPath(path.join(c.repoRoot, 'scripts', 'wake-drain-claude.mjs'))} --db ${hookPath(c.storePath)}` };
+    command: `${hookPath(c.nodePath)} --no-warnings ${hookPath(path.join(c.repoRoot, 'scripts', 'wake-drain-claude.mjs'))} --db ${hookPath(c.storePath)} --max-seconds ${WAKE_WINDOW_SECONDS}` };
 }
 const isMurmurWakeHook = (hook: unknown) => object(hook) && typeof hook.command === 'string' && hook.command.includes('wake-drain-claude');
 /** Plan the Stop hook edit; only Murmur's own wake hook is ever added, kept or replaced. */

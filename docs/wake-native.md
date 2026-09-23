@@ -167,6 +167,17 @@ A fault — no store, an unreadable store, no `node:sqlite` — prints one line 
 and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
 silently is the failure this port exists to remove, so it does neither.
 
+### Installed by `murmur clients configure --client claude-code`
+
+The CLI registers this drain as a Stop hook in `~/.claude/settings.json` (next to
+`~/.claude.json`) with `--db <profile>/murmur.db --max-seconds 28800`; a second run changes
+nothing, and a different Murmur wake hook is replaced only with `--replace`.
+
+Known limitation: the session is woken only within the window after the end of its last turn
+(8 hours for the installed hook, 20 minutes by default). A message that arrives later wakes it
+at the next human turn. One poller runs per cursor (the lock above); after Claude Code is
+closed, that poller stays alive until its window ends, then exits.
+
 ### Cold start: what arrived while nothing was listening
 
 The cursor is per session. That is what makes a message wake every live session

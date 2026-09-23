@@ -34,7 +34,7 @@ test('claude-code gets the MCP entry and the Stop wake hook for this profile', a
   assert.ok(JSON.parse(await fs.readFile(f.configPath, 'utf8')).mcpServers.murmur);
   const [hook] = await f.ourHooks();
   assert.equal(hook.type, 'command'); assert.equal(hook.asyncRewake, true);
-  assert.equal(hook.command, `"${slash(f.context.nodePath)}" --no-warnings "${slash(path.join(repoRoot, 'scripts', 'wake-drain-claude.mjs'))}" --db "${slash(f.context.storePath)}"`);
+  assert.equal(hook.command, `"${slash(f.context.nodePath)}" --no-warnings "${slash(path.join(repoRoot, 'scripts', 'wake-drain-claude.mjs'))}" --db "${slash(f.context.storePath)}" --max-seconds 28800`);
   assert.doesNotMatch(hook.command, /\.sh"/);
   // Idempotent: a second run changes nothing and never duplicates the hook.
   const again = await configureClient(f.context, f.adapter, 'claude-code');
@@ -104,4 +104,21 @@ test('the wake drain reads the store given by --db, as the hook passes it', asyn
   const woke = drain();
   assert.equal(woke.status, 2, woke.stdout + woke.stderr);
   assert.match(woke.stdout + woke.stderr, /agent-peer/);
+});
+
+test('--max-seconds bounds the drain poll and wins over MURMUR_WAKE_MAX_SECONDS', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-drain-window-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const db = path.join(root, 'murmur.db');
+  const store = new DatabaseSync(db);
+  store.exec('CREATE TABLE local_messages (msg_id TEXT PRIMARY KEY, created_at TEXT, sender TEXT, conversation_id TEXT, direction TEXT, text TEXT)');
+  store.close();
+  const env = { ...process.env, HOME: root, USERPROFILE: root, MURMUR_WAKE_SESSION_KEY: 'window', MURMUR_WAKE_MAX_SECONDS: '3600', MURMUR_WAKE_POLL_MS: '200' };
+  const drain = extra => spawnSync(process.execPath, ['--no-warnings', path.join(repoRoot, 'scripts', 'wake-drain-claude.mjs'), '--db', db, ...extra], { env, encoding: 'utf8', timeout: 20_000 });
+  assert.equal(drain(['--once']).status, 0); // seed the cursor
+  const started = Date.now();
+  const polled = drain(['--max-seconds', '2']);
+  assert.equal(polled.error, undefined, 'the environment hour must not apply');
+  assert.equal(polled.status, 0, polled.stdout + polled.stderr);
+  assert.ok(Date.now() - started < 15_000, `poll lasted ${Date.now() - started} ms`);
 });

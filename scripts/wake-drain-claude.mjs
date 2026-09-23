@@ -61,7 +61,7 @@
 //                           (defaults to CLAUDE_CODE_SESSION_ID, first 8 chars)
 //   MURMUR_WAKE_CURSOR      file holding the last-drained inbound rowid
 //   MURMUR_WAKE_LOCK        single-poller lock file
-//   MURMUR_WAKE_MAX_SECONDS poll lifetime in seconds (default 1200)
+//   MURMUR_WAKE_MAX_SECONDS poll lifetime in seconds (default 1200); --max-seconds N wins
 //   MURMUR_WAKE_POLL_MS     poll interval in ms (default 10000)
 //   MURMUR_WAKE_ANCHOR      shared cross-session cursor used by --session
 //   MURMUR_WAKE_SESSION_MAX max messages --session prints (default 20; older ones
@@ -95,7 +95,8 @@ const SESSION_KEY = (process.env.MURMUR_WAKE_SESSION_KEY || process.env.CLAUDE_C
 const suffix = SESSION_KEY ? `-${SESSION_KEY}` : "";
 const CURSOR = process.env.MURMUR_WAKE_CURSOR || join(HOME, `.murmur-wake-cursor${suffix}`);
 const LOCK = process.env.MURMUR_WAKE_LOCK || join(HOME, `.murmur-wake-lock${suffix}`);
-const MAX_SECONDS = Number(process.env.MURMUR_WAKE_MAX_SECONDS || 1200);
+const maxArgument = process.argv.indexOf("--max-seconds");
+const MAX_SECONDS = Number((maxArgument > 0 && process.argv[maxArgument + 1]) || process.env.MURMUR_WAKE_MAX_SECONDS || 1200);
 const POLL_MS = Number(process.env.MURMUR_WAKE_POLL_MS || 10000);
 const ONCE = process.argv.includes("--once");
 const SESSION = process.argv.includes("--session");
