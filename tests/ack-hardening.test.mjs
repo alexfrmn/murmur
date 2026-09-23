@@ -38,11 +38,13 @@ const envelope = (msgId) => ({
 
 test("SQLite ack receipts: a nonce can be claimed exactly once", async () => {
   const dir = workdir();
+  let store;
   try {
-    const store = new SQLiteDedupeOutboxStore(path.join(dir, "murmur.db"));
+    store = new SQLiteDedupeOutboxStore(path.join(dir, "murmur.db"));
     assert.equal(await store.claimAckNonce("agent-b", "nonce-1"), true);
     assert.equal(await store.claimAckNonce("agent-b", "nonce-1"), false);
   } finally {
+    store?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -50,26 +52,32 @@ test("SQLite ack receipts: a nonce can be claimed exactly once", async () => {
 test("SQLite ack receipts: a claim survives a restart of the process", async () => {
   const dir = workdir();
   const dbPath = path.join(dir, "murmur.db");
+  let before;
+  let after;
   try {
-    const before = new SQLiteDedupeOutboxStore(dbPath);
+    before = new SQLiteDedupeOutboxStore(dbPath);
     assert.equal(await before.claimAckNonce("agent-b", "nonce-replay"), true);
 
     // A brand-new store instance stands in for a restarted daemon: same file, no shared
     // memory. This is precisely where the in-memory Set used to forget.
-    const after = new SQLiteDedupeOutboxStore(dbPath);
+    after = new SQLiteDedupeOutboxStore(dbPath);
     assert.equal(await after.claimAckNonce("agent-b", "nonce-replay"), false);
   } finally {
+    before?.close();
+    after?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("SQLite ack receipts: the same nonce from a different sender is a different claim", async () => {
   const dir = workdir();
+  let store;
   try {
-    const store = new SQLiteDedupeOutboxStore(path.join(dir, "murmur.db"));
+    store = new SQLiteDedupeOutboxStore(path.join(dir, "murmur.db"));
     assert.equal(await store.claimAckNonce("agent-b", "shared-nonce"), true);
     assert.equal(await store.claimAckNonce("agent-c", "shared-nonce"), true);
   } finally {
+    store?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -92,8 +100,9 @@ for (const [label, makeStore] of [
 ]) {
   test(`${label} outbox: an ACK arriving while the row is still pending is applied`, async () => {
     const dir = workdir();
+    let store;
     try {
-      const store = makeStore(dir);
+      store = makeStore(dir);
       await store.enqueue("msg.agent-b", envelope("m-fast"));
 
       // No markSent() yet — this is the race window.
@@ -102,14 +111,16 @@ for (const [label, makeStore] of [
       const record = await store.getOutboxRecord("m-fast");
       assert.equal(record.status, "acked");
     } finally {
+      store?.close?.();
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   test(`${label} outbox: a late markSent does not resurrect an acked row`, async () => {
     const dir = workdir();
+    let store;
     try {
-      const store = makeStore(dir);
+      store = makeStore(dir);
       await store.enqueue("msg.agent-b", envelope("m-late"));
       await store.applyAckTransition("m-late", "ack");
 
@@ -119,19 +130,22 @@ for (const [label, makeStore] of [
       const record = await store.getOutboxRecord("m-late");
       assert.equal(record.status, "acked", "a settled row must not be dragged back to sent");
     } finally {
+      store?.close?.();
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   test(`${label} outbox: a terminal row still rejects a second transition`, async () => {
     const dir = workdir();
+    let store;
     try {
-      const store = makeStore(dir);
+      store = makeStore(dir);
       await store.enqueue("msg.agent-b", envelope("m-twice"));
       await store.markSent("m-twice");
       assert.equal(await store.applyAckTransition("m-twice", "ack"), "applied");
       assert.equal(await store.applyAckTransition("m-twice", "nack"), "not-in-flight");
     } finally {
+      store?.close?.();
       rmSync(dir, { recursive: true, force: true });
     }
   });

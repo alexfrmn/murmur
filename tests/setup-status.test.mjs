@@ -12,7 +12,7 @@ const now = Date.parse('2026-09-19T13:00:00Z'), at = new Date(now).toISOString()
 const key = Buffer.alloc(32, 7).toString('base64');
 async function fixture(t) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-status-'));
-  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  let db; t.after(() => { db?.close(); return fs.rm(dataDir, { recursive: true, force: true }); });
   const context = resolveContext({ dataDir, repoRoot: fileURLToPath(new URL('../', import.meta.url)) });
   const config = { agentId: 'agent-a', subject: 'msg.agent-a', natsUrl: 'nats://127.0.0.1:4222',
     keys: { signing: { publicKey: key, privateKey: key }, encryption: { publicKey: key, privateKey: key } },
@@ -29,7 +29,7 @@ async function fixture(t) {
   await write('read-state.json', { schema: 'murmur.read/1', agentId: config.agentId, rowid: 0 });
   const adapter = { manager: 'systemd', status: async () => snapshot };
   const read = () => readStatus({ context, adapter, now: () => now });
-  const db = new DatabaseSync(context.storePath); t.after(() => db.close());
+  db = new DatabaseSync(context.storePath);
   return { context, config, snapshot, observation, write, read, db };
 }
 test('status reads real durable counters, no local-key-only pairing claim or file writes', async t => {

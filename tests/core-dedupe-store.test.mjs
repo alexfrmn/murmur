@@ -31,14 +31,16 @@ test("SQLiteDedupeOutboxStore markSeen/seen roundtrip", async () => {
   const dir = mkdtempSync(join(tmpdir(), "murmur-dedupe-"));
   const dbPath = join(dir, "murmur.db");
 
+  let store;
   try {
-    const store = new SQLiteDedupeOutboxStore(dbPath);
+    store = new SQLiteDedupeOutboxStore(dbPath);
     assert.equal(statSync(dbPath).mode & 0o777, 0o600);
     assert.equal(await store.seen("m1", "consumer-1"), false);
     await store.markSeen("m1", "consumer-1");
     assert.equal(await store.seen("m1", "consumer-1"), true);
     assert.equal(await store.seen("m1", "consumer-2"), false);
   } finally {
+    store?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -58,8 +60,9 @@ test("SQLiteDedupeOutboxStore applies an ACK transition exactly once while sent"
     signature: "signature",
   };
 
+  let store;
   try {
-    const store = new SQLiteDedupeOutboxStore(dbPath);
+    store = new SQLiteDedupeOutboxStore(dbPath);
     await store.enqueue("msg.receiver", envelope);
     await store.markSent(envelope.msgId);
 
@@ -72,6 +75,7 @@ test("SQLiteDedupeOutboxStore applies an ACK transition exactly once while sent"
     assert.equal(afterReplay.status, "acked");
     assert.equal(afterReplay.version, afterFirst.version);
   } finally {
+    store?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });

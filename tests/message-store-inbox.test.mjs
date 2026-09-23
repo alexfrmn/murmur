@@ -10,7 +10,14 @@ const withStore = () => {
   const dir = mkdtempSync(join(tmpdir(), "murmur-inbox-"));
   const dbPath = join(dir, "murmur.db");
   const store = new SQLiteMessageStore(dbPath);
-  return { store, dbPath, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    store,
+    dbPath,
+    cleanup: () => {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 };
 
 const append = (store, { direction, sender, text, at }) =>
@@ -171,7 +178,7 @@ test("message store migrates legacy databases with wake eligibility defaulting t
     `);
     legacy.close();
 
-    new SQLiteMessageStore(dbPath);
+    new SQLiteMessageStore(dbPath).close();
 
     const migrated = new DatabaseSync(dbPath);
     const columns = migrated.prepare("PRAGMA table_info(local_messages)").all();

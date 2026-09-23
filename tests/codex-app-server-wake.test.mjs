@@ -553,9 +553,10 @@ test("Codex app-server injector refuses to report an empty final answer as relay
 
 test("Codex app-server injector does not restart a turn whose reply is already queued", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-relay-idem-"));
+  let outbox;
   try {
     const storePath = path.join(dir, "murmur.db");
-    const outbox = new SQLiteDedupeOutboxStore(storePath);
+    outbox = new SQLiteDedupeOutboxStore(storePath);
     const replyMsgId = deriveRelayReplyMsgId(payload.msgId);
     await outbox.enqueue("msg.agent-jarvis", {
       schemaVersion: "1.0",
@@ -584,6 +585,7 @@ test("Codex app-server injector does not restart a turn whose reply is already q
     assert.equal(result.source, "relay-idempotent");
     assert.equal(result.replyMsgId, replyMsgId);
   } finally {
+    outbox?.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -15,7 +15,14 @@ const withStore = () => {
   const dir = mkdtempSync(join(tmpdir(), "murmur-delivery-"));
   const dbPath = join(dir, "murmur.db");
   const store = new SQLiteMessageStore(dbPath);
-  return { store, dbPath, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    store,
+    dbPath,
+    cleanup: () => {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 };
 
 const inbound = (store, msgId, extra = {}) =>
@@ -30,8 +37,14 @@ const inbound = (store, msgId, extra = {}) =>
     ...extra,
   });
 
-const rowsFor = (dbPath, msgId) =>
-  new DatabaseSync(dbPath).prepare("SELECT COUNT(*) as n FROM local_messages WHERE msg_id = ?").get(msgId).n;
+const rowsFor = (dbPath, msgId) => {
+  const db = new DatabaseSync(dbPath);
+  try {
+    return db.prepare("SELECT COUNT(*) as n FROM local_messages WHERE msg_id = ?").get(msgId).n;
+  } finally {
+    db.close();
+  }
+};
 
 test("append stores each inbound delivery once: a redelivered msgId is a duplicate, not a second row", async () => {
   const { store, dbPath, cleanup } = withStore();
@@ -72,6 +85,7 @@ test("append keeps inbound and outbound copies of the same msgId apart", async (
 test("legacy rows without delivery_id are migrated in place and never re-woken", async () => {
   const dir = mkdtempSync(join(tmpdir(), "murmur-delivery-legacy-"));
   const dbPath = join(dir, "murmur.db");
+  let store;
   try {
     // The 2.8.x schema: eight columns, no wake state, no delivery id.
     const legacy = new DatabaseSync(dbPath);
@@ -91,10 +105,10 @@ test("legacy rows without delivery_id are migrated in place and never re-woken",
     `);
     legacy.close();
 
-    const store = new SQLiteMessageStore(dbPath);
-    const columns = new Set(
-      new DatabaseSync(dbPath).prepare("PRAGMA table_info(local_messages)").all().map((c) => c.name),
-    );
+    store = new SQLiteMessageStore(dbPath);
+    const inspect = new DatabaseSync(dbPath);
+    const columns = new Set(inspect.prepare("PRAGMA table_info(local_messages)").all().map((c) => c.name));
+    inspect.close();
     assert.ok(columns.has("delivery_id"));
     assert.ok(columns.has("wake_status"));
 
@@ -109,6 +123,7 @@ test("legacy rows without delivery_id are migrated in place and never re-woken",
     assert.equal(open[0].rowid, fresh.rowid);
     assert.equal(await store.wakeCursor(), 2, "an open delivery holds the cursor below it");
   } finally {
+    store?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });

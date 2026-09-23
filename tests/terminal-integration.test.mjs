@@ -105,7 +105,7 @@ test('explicit-profile mcp serve starts the existing server without contaminatin
   const messages = await replies;
   assert.equal(messages[0].result.serverInfo.name, 'murmur-v2-mcp');
   assert.ok(messages[1].result.tools.some(tool => tool.name === 'murmur_inbox'));
-  child.kill();
+  const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited;
   assert.equal(await fs.stat(path.join(f.dataDir, 'channel-roster.db')).then(() => true), true);
   assert.equal(await fs.stat(poisonedStore).then(() => true, () => false), false);
   assert.equal(await fs.stat(poisonedRoster).then(() => true, () => false), false);
