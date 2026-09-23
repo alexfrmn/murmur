@@ -35,10 +35,13 @@ test('existing other Murmur contour requires explicit replacement and retains ba
   const changed = await configureClient(f.context, f.adapter, 'codex-cli', true);
   assert.equal(await fs.readFile(changed.backup, 'utf8'), before);
 });
-test('malformed config and symlink are rejected without rewriting their target', { skip: skipWithoutSymlinks }, async t => {
+test('malformed config is rejected without rewriting it', async t => {
   const f = await fixture(t, 'json'); await fs.writeFile(f.file, 'not json');
   await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'), /config-parse-failed/);
   assert.equal(await fs.readFile(f.file, 'utf8'), 'not json');
+});
+test('a symlinked config is rejected without rewriting its target', { skip: skipWithoutSymlinks }, async t => {
+  const f = await fixture(t, 'json');
   const target = path.join(f.root, 'unrelated'); await fs.writeFile(target, '{}'); await fs.unlink(f.file); await fs.symlink(target, f.file);
   await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'));
   assert.equal(await fs.readFile(target, 'utf8'), '{}');

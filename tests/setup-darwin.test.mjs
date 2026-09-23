@@ -47,12 +47,15 @@ test('install backs up only an owned changed plist', async t => {
   assert.equal(await fs.readFile(path.join(path.dirname(f.plist), backups[0]), 'utf8'), original);
 });
 
-test('install refuses unmanaged and symlink plist', { skip: skipWithoutSymlinks }, async t => {
+test('install refuses an unmanaged plist', async t => {
   const f = await fixture(t);
   await fs.mkdir(path.dirname(f.plist), { recursive: true });
   await fs.writeFile(f.plist, '<plist>some other service</plist>');
   await assert.rejects(f.adapter.install(f.ctx), /unmanaged/);
-  await fs.unlink(f.plist);
+});
+test('install refuses a symlinked plist', { skip: skipWithoutSymlinks }, async t => {
+  const f = await fixture(t);
+  await fs.mkdir(path.dirname(f.plist), { recursive: true });
   const target = path.join(f.home, 'unrelated'); await fs.writeFile(target, 'do not change');
   await fs.symlink(target, f.plist);
   await assert.rejects(f.adapter.install(f.ctx), /nonregular/);

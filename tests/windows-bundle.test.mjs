@@ -32,7 +32,7 @@ test('release arguments require one exact output path and keep the selected ref 
   }
 });
 
-test('npm runs through a validated npm-cli.js beside the selected Node executable', { skip: skipWithoutSymlinks }, async t => {
+test('npm runs through a validated npm-cli.js beside the selected Node executable', async t => {
   const dir = await temporary(t);
   const node = path.join(dir, 'node.exe'); await fs.writeFile(node, 'node');
   const adjacent = path.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
@@ -42,6 +42,12 @@ test('npm runs through a validated npm-cli.js beside the selected Node executabl
   await fs.mkdir(path.dirname(explicit), { recursive: true }); await fs.writeFile(explicit, 'explicit');
   assert.equal(await resolveNpmCli(node, { npm_execpath: explicit }), explicit);
   await assert.rejects(resolveNpmCli(node, { npm_execpath: 'relative/npm-cli.js' }), /absolute/);
+});
+test('npm refuses a symlinked npm-cli.js', { skip: skipWithoutSymlinks }, async t => {
+  const dir = await temporary(t);
+  const node = path.join(dir, 'node.exe'); await fs.writeFile(node, 'node');
+  const explicit = path.join(dir, 'other', 'npm-cli.js');
+  await fs.mkdir(path.dirname(explicit), { recursive: true }); await fs.writeFile(explicit, 'explicit');
   const linked = path.join(dir, 'linked', 'npm-cli.js'); await fs.mkdir(path.dirname(linked));
   await fs.symlink(explicit, linked);
   await assert.rejects(resolveNpmCli(node, { npm_execpath: linked }), /regular file/);

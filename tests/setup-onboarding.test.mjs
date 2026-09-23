@@ -114,8 +114,11 @@ test('invite and join reject symlink-parent aliases into a managed profile',{ sk
   const data=path.join(f.root,'agent-b');await fs.mkdir(data);const alias=path.join(f.root,'alias');await fs.symlink(data,alias,'dir');
   const invitation=path.join(f.root,'invite');await f.command('agent-a',['invite','--out',invitation]);
   await assert.rejects(f.command('agent-b',['join','--agent-id','agent-b','--invite-file',invitation,'--reply-out',path.join(alias,'future-state.json')]),/output-inside-profile/);
-  await assert.rejects(f.command('agent-a',['invite','--out',path.join(f.root,'agent-a','murmur.db')]),/output-inside-profile/);
   assert.deepEqual(await fs.readdir(data),[]);
+});
+test('invite refuses an output that names a file managed by the profile',async t=>{
+  const f=await fixture(t);await f.init('agent-a');
+  await assert.rejects(f.command('agent-a',['invite','--out',path.join(f.root,'agent-a','murmur.db')]),/output-inside-profile/);
   await assert.rejects(fs.stat(path.join(f.root,'agent-a','murmur.db')),{code:'ENOENT'});
 });
 test('join requires an existing output parent before creating the profile',async t=>{
