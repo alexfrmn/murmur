@@ -1,13 +1,16 @@
 import { mkdir, readdir, rmdir, stat } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { sameClientFileIdentity } from './file-identity.js';
 
 const paths = path.win32;
 const inside = (base: string, dir: string) => {
   const relative = paths.relative(base, dir);
   return relative && !relative.startsWith('..') && !paths.isAbsolute(relative) ? relative : null;
 };
-const identity = (dir: string) => stat(dir).then(s => `${s.dev}:${s.ino}`, () => null);
+// BigInt: NTFS file IDs exceed 2^53. Compared with sameClientFileIdentity, because Node 22.13 on
+// Windows reports dev 0 for a plain path and the real volume serial through a junction.
+const identity = (dir: string) => stat(dir, { bigint: true }).catch(() => null);
 
 /**
  * A process with MSIX package identity (e.g. an app installed from Microsoft Store) sees AppData
@@ -26,16 +29,17 @@ export async function refuseVirtualizedAppData(dataDir: string, env: NodeJS.Proc
   if (!base) return;
   // Climb to the nearest existing directory that is still inside the AppData root.
   let probe: string | null = null, target = dataDir;
-  while (await identity(target) === null && inside(base[0]!, paths.dirname(target)) !== null) target = paths.dirname(target);
-  if (await identity(target) === null) {
+  while (!(await identity(target)) && inside(base[0]!, paths.dirname(target)) !== null) target = paths.dirname(target);
+  if (!(await identity(target))) {
     target = paths.join(paths.dirname(target), `.murmur-appdata-probe-${randomUUID()}`);
     await mkdir(target); probe = target;
   }
   try {
-    const own = await identity(target), relative = inside(base[0]!, target)!;
+    const own = (await identity(target))!, relative = inside(base[0]!, target)!;
     const names = await readdir(packages).catch(() => [] as string[]);
     for (const name of names) {
-      if (await identity(paths.join(packages, name, 'LocalCache', base[1], relative)) === own) throw new Error('profile.virtualized-appdata');
+      const twin = await identity(paths.join(packages, name, 'LocalCache', base[1], relative));
+      if (twin && sameClientFileIdentity(twin, own)) throw new Error('profile.virtualized-appdata');
     }
   } finally { if (probe) await rmdir(probe).catch(() => {}); }
 }
