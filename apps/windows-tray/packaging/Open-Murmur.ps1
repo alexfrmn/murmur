@@ -245,7 +245,9 @@ function Get-TrayWindow([int]$processId) {
 function Get-ShortcutPlan {
     $programs=[Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)
     $desktop=[Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
-    foreach($folder in @($programs,$desktop)){
+    # Startup brings the tray back after sign-in; the service already starts with Windows on its own.
+    $startup=[Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+    foreach($folder in @($programs,$desktop,$startup)){
         if([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::IsPathRooted($folder)){throw 'A per-user shortcut folder is unavailable.'}
         Assert-OrdinaryDirectory $folder 'A per-user shortcut folder' -AllowCloudFolder
     }
@@ -257,7 +259,7 @@ function Get-ShortcutPlan {
     $icon=$iconPath+',0'
     $shell=New-Object -ComObject WScript.Shell
     $plan=@()
-    foreach($path in @((Join-Path $programs 'Murmur.lnk'),(Join-Path $desktop 'Murmur.lnk'))){
+    foreach($path in @((Join-Path $programs 'Murmur.lnk'),(Join-Path $desktop 'Murmur.lnk'),(Join-Path $startup 'Murmur.lnk'))){
         $exists=Test-Path -LiteralPath $path
         if($exists){
             $item=Get-Item -LiteralPath $path -Force
@@ -267,7 +269,9 @@ function Get-ShortcutPlan {
             if($link.TargetPath -ine $powershell -or $link.Arguments -cne $arguments -or $link.WorkingDirectory -ine $PSScriptRoot -or
                $link.Description -cne $description -or $savedIcon -ine $icon){throw "Shortcut location is occupied by another target: $path. Remove the old shortcut before opening this selection."}
         }
-        $plan+=@{Path=$path;Exists=$exists;Target=$powershell;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon}
+        # At sign-in the launcher console starts minimized (7) instead of opening over the desktop.
+        $windowStyle=if([IO.Path]::GetDirectoryName($path) -ieq $startup){7}else{1}
+        $plan+=@{Path=$path;Exists=$exists;Target=$powershell;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon;WindowStyle=$windowStyle}
     }
     return @($plan)
 }
@@ -281,7 +285,7 @@ function Install-MissingShortcuts($plan) {
             try{
                 $link=$shell.CreateShortcut($temporary)
                 $link.TargetPath=$entry.Target;$link.Arguments=$entry.Arguments;$link.WorkingDirectory=$entry.WorkingDirectory
-                $link.Description=$entry.Description;$link.IconLocation=$entry.Icon;$link.WindowStyle=1;$link.Save()
+                $link.Description=$entry.Description;$link.IconLocation=$entry.Icon;$link.WindowStyle=$entry.WindowStyle;$link.Save()
                 $temporaryItem=Get-Item -LiteralPath $temporary -Force
                 if($temporaryItem.PSIsContainer -or (Test-LinkedItem $temporaryItem) -or $temporaryItem.Length -gt 1048576){throw "The staged shortcut is invalid: $($entry.Path)"}
                 $temporaryBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($temporary))
