@@ -193,3 +193,32 @@ func validateAction(buf []byte, command, action string) error {
 }
 
 var mutationTimeout = 60 * time.Second
+
+// setupBinding is the bundle CLI and Node for first-profile setup, when no profile exists yet.
+func setupBinding(profile string) (cliBinding, error) {
+	b, err := discoverCLI()
+	var se *statusError
+	if err != nil && !(errors.As(err, &se) && se.code == "profile.not-configured") {
+		return b, err
+	}
+	b.Profile, b.Service = profile, ""
+	return b, nil
+}
+
+// runSetupCLI runs the CLI as the user and returns stdout, or the CLI's own error code (the one
+// line safeError writes to stderr) so a failed step names its reason.
+func runSetupCLI(ctx context.Context, b cliBinding, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, b.Node, append([]string{b.Entry}, args...)...)
+	cmd.Env = b.environment()
+	cmd.Dir = filepath.Dir(b.Entry)
+	hideConsole(cmd)
+	var stdout, stderr boundedOutput
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		if code := strings.TrimSpace(stderr.String()); code != "" && !strings.ContainsAny(code, "\r\n") {
+			return nil, errors.New(code)
+		}
+		return nil, err
+	}
+	return stdout.Bytes(), nil
+}

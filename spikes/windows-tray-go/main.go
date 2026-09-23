@@ -626,6 +626,61 @@ func (a *app) showGuide() {
 	}
 }
 
-// connectToColleague starts first-profile setup. Until the in-tray onboarding lands it opens the
-// guide, which explains how to get an invitation file and where Murmur lives.
-func (a *app) connectToColleague() { a.showGuide() }
+// connectToColleague sets Murmur up from an invitation file without a terminal: the default
+// profile %LOCALAPPDATA%Murmur, a name from the Windows user, the reply saved where the user
+// chooses, one UAC prompt for the service, and the detected AI clients connected.
+func (a *app) connectToColleague() {
+	a.mu.Lock()
+	if a.actionBusy {
+		a.mu.Unlock()
+		return
+	}
+	a.actionBusy = true
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.actionBusy = false; a.mu.Unlock(); a.refreshStatus() }()
+	local := os.Getenv("LOCALAPPDATA")
+	profile := filepath.Join(local, "Murmur")
+	b, err := setupBinding(profile)
+	if err == nil && !filepath.IsAbs(local) {
+		err = errors.New("LOCALAPPDATA")
+	}
+	if err != nil {
+		tell(tr("onboarding.title"), tr("onboarding.noRuntime", err))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	steps := onboardingSteps{
+		pickInvitation: func() (string, bool) { return fileDialog(false, tr("onboarding.pickInvite"), "") },
+		pickReply:      func(suggested string) (string, bool) { return fileDialog(true, tr("onboarding.pickReply"), suggested) },
+		confirm:        askYesNo,
+		inform:         tell,
+		revealFile:     revealAndCopy,
+		exists:         fileExists,
+		cli:            func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
+		elevated: func(args ...string) error {
+			if serviceAdmin() {
+				_, err := runSetupCLI(ctx, b, args...)
+				return err
+			}
+			err := runElevated(ctx, b.Node, append([]string{b.Entry}, args...), filepath.Dir(b.Entry))
+			if errors.Is(err, errElevationCancelled) {
+				return fmt.Errorf("%s", tr("action.elevationCancelled"))
+			}
+			return err
+		},
+	}
+	replyDir := desktopFolder()
+	if replyDir == "" {
+		replyDir = os.Getenv("USERPROFILE")
+	}
+	r, err := runOnboarding(steps, profile, defaultAgentID(os.Getenv("USERNAME")), replyDir)
+	if errors.Is(err, errOnboardingCancelled) {
+		return
+	}
+	if err != nil {
+		tell(tr("onboarding.title"), err.Error())
+		return
+	}
+	tell(tr("onboarding.title"), tr("onboarding.done", r.AgentID))
+}
