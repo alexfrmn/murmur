@@ -6,6 +6,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { main } from '../packages/setup/dist/src/cli.js';
 import { safeError } from '../packages/setup/dist/src/config.js';
+import { describeProcess, describeFileAccess } from './ci-windows-diagnostics.mjs';
 
 test('safeError keeps stable codes and hides free-form messages', () => {
   assert.equal(safeError(new Error('onboarding.invalid-blob')), 'onboarding.invalid-blob');
@@ -55,6 +56,7 @@ test('join with an unreadable invite reports access denied, not operation-failed
     await fs.chmod(invite, 0);
     t.after(async () => { await fs.chmod(invite, 0o600); await fs.rm(root, { recursive: true, force: true }); });
   }
+  await describeProcess(t); await describeFileAccess(t, invite);
   // The fixture must really be unreadable here; an environment that still reads it (for example with
   // the backup privilege enabled) cannot exercise this path and says so instead of passing silently.
   const readable = await fs.readFile(invite).then(() => true, e => (e.code === 'EPERM' || e.code === 'EACCES' ? false : Promise.reject(e)));

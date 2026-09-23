@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { main } from '../packages/setup/dist/src/cli.js';
+import { describeProcess, describeIdentity } from './ci-windows-diagnostics.mjs';
 
 // MSIX virtualization cannot be switched on in a test. A directory junction reproduces what the
 // packaged process sees: %LOCALAPPDATA%\X and Packages\<pkg>\LocalCache\Local\X are one directory.
@@ -28,6 +29,9 @@ const virtualize = async (f, name) => {
 
 test('join refuses a profile that lives in a package LocalCache twin and writes nothing', { skip: process.platform !== 'win32' && 'MSIX is Windows only' }, async t => {
   const f = await fixture(t); await virtualize(f, 'Murmur-codex-win');
+  await describeProcess(t);
+  await describeIdentity(t, 'profile path', path.join(f.local, 'Murmur-codex-win'));
+  await describeIdentity(t, 'LocalCache twin', path.join(f.cache, 'Murmur-codex-win'));
   await assert.rejects(f.join(path.join(f.local, 'Murmur-codex-win')), /^Error: profile\.virtualized-appdata$/);
   assert.deepEqual(await fs.readdir(path.join(f.cache, 'Murmur-codex-win')), []);
   await assert.rejects(fs.stat(path.join(f.root, 'reply-Murmur-codex-win.txt')), { code: 'ENOENT' });
@@ -35,6 +39,8 @@ test('join refuses a profile that lives in a package LocalCache twin and writes 
 
 test('a new profile below a virtualized folder is refused before it is created', { skip: process.platform !== 'win32' && 'MSIX is Windows only' }, async t => {
   const f = await fixture(t); await virtualize(f, 'Programs');
+  await describeIdentity(t, 'parent path', path.join(f.local, 'Programs'));
+  await describeIdentity(t, 'parent twin', path.join(f.cache, 'Programs'));
   await assert.rejects(f.join(path.join(f.local, 'Programs', 'Murmur')), /profile\.virtualized-appdata/);
   assert.deepEqual(await fs.readdir(path.join(f.cache, 'Programs')), []);
 });
