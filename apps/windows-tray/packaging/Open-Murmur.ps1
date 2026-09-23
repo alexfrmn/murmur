@@ -110,6 +110,9 @@ function Write-LauncherState([string]$path,$process,[string]$agentId) {
     try{
         [IO.File]::WriteAllText($temporary,(ConvertTo-Json $value -Compress)+"`n",(New-Object Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $temporary -Destination $path -Force
+        # An explicit profile opened here is newer than a choice made earlier in the tray.
+        $trayChoice=[IO.Path]::Combine($parent,'tray-profile.json')
+        if(Test-Path -LiteralPath $trayChoice -PathType Leaf){Remove-Item -LiteralPath $trayChoice -Force}
     }finally{if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force}}
 }
 function Get-ExactTrayProcesses {
@@ -251,10 +254,10 @@ function Get-ShortcutPlan {
         if([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::IsPathRooted($folder)){throw 'A per-user shortcut folder is unavailable.'}
         Assert-OrdinaryDirectory $folder 'A per-user shortcut folder' -AllowCloudFolder
     }
-    $powershell=(Get-Item -LiteralPath (Join-Path $PSHOME 'powershell.exe')).FullName
-    $parts=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-NodePath',$NodePath,'-DataDir',$DataDir)
-    if($ServiceName){$parts+=@('-ServiceName',$ServiceName)}
-    $arguments=(($parts | ForEach-Object { Quote-Argument $_ }) -join ' ')
+    # Shortcuts start the tray itself: no PowerShell window. The tray finds the profile and service
+    # this launcher records in tray-launch-binding.json when it opens them.
+    $target=(Get-Item -LiteralPath $tray).FullName
+    $arguments=''
     $description='Open Murmur controls (managed by Murmur)'
     $icon=$iconPath+',0'
     $shell=New-Object -ComObject WScript.Shell
@@ -266,12 +269,10 @@ function Get-ShortcutPlan {
             if($item.PSIsContainer -or (Test-LinkedItem $item) -or $item.Length -gt 1048576){throw "Shortcut location is occupied by an unmanaged item: $path. Remove the old shortcut before opening this selection."}
             try{$link=$shell.CreateShortcut($path)}catch{throw "Shortcut location is occupied by an unreadable item: $path. Remove the old shortcut before opening this selection."}
             $savedIcon=([string]$link.IconLocation) -replace ',\s*([0-9]+)$',',$1'
-            if($link.TargetPath -ine $powershell -or $link.Arguments -cne $arguments -or $link.WorkingDirectory -ine $PSScriptRoot -or
+            if($link.TargetPath -ine $target -or $link.Arguments -cne $arguments -or $link.WorkingDirectory -ine $PSScriptRoot -or
                $link.Description -cne $description -or $savedIcon -ine $icon){throw "Shortcut location is occupied by another target: $path. Remove the old shortcut before opening this selection."}
         }
-        # At sign-in the launcher console starts minimized (7) instead of opening over the desktop.
-        $windowStyle=if([IO.Path]::GetDirectoryName($path) -ieq $startup){7}else{1}
-        $plan+=@{Path=$path;Exists=$exists;Target=$powershell;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon;WindowStyle=$windowStyle}
+        $plan+=@{Path=$path;Exists=$exists;Target=$target;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon;WindowStyle=1}
     }
     return @($plan)
 }

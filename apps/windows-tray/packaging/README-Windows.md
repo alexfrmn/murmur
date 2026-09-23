@@ -8,16 +8,18 @@ The runtime is the prebuilt portable engine; Windows adds its matching native
 `runtime/bin/murmur-svc.exe`. Node.js 22.13.0 or newer is external. No Go/npm/build is
 needed on the recipient's machine. Unsigned binaries may trigger Windows warnings.
 
-Initialize/join and install the service through the CLI first, using one explicit
-profile. Double-click `Open-Murmur.cmd` or `murmur-tray.exe`: the tray finds the profile the launcher
+No terminal is needed: with no profile yet, the tray offers "Connect to a colleague…"
+(choose the invitation file; it creates the profile, saves the reply for the colleague,
+installs the service after one Windows consent prompt and connects Claude Code and Codex)
+and, for profiles made with the CLI, "Open an existing profile…". Double-click `Open-Murmur.cmd` or `murmur-tray.exe`: the tray finds the profile the launcher
 last opened or the default one, and says "Murmur is not set up yet" when there is none.
 An explicit `-DataDir` still selects another existing profile.
 The launcher checks the local runtime and actual tray-to-CLI identity before
 opening the menu. It does not create a profile or write client config. After the
 first successful open it adds a Murmur shortcut to the Start menu, the Desktop and
-the per-user Startup folder, so the tray comes back after sign-in (the service
-already starts with Windows); the Startup entry opens minimized. Delete those
-shortcuts to undo it. A custom service name must be supplied for the initial selection:
+the per-user Startup folder. They start murmur-tray.exe directly, without a PowerShell
+window, so the tray comes back after sign-in (the service already starts with Windows).
+Delete those shortcuts to undo it. A custom service name must be supplied for the initial selection:
 
 ```powershell
 .\Open-Murmur.cmd -DataDir 'C:\Users\you\AppData\Local\Murmur' -ServiceName MurmurDaemon

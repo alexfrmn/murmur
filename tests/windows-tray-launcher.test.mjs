@@ -139,10 +139,10 @@ function waitForMainWindowTitle(processId, title) {
   return result.stdout.replace(/^\uFEFF/, '').trim();
 }
 
-function removeOwnedShortcuts(shortcutPaths, launcherPath) {
+function removeOwnedShortcuts(shortcutPaths, trayPath) {
   const command = `$shell=New-Object -ComObject WScript.Shell;foreach($path in @(${shortcutPaths.map(psLiteral).join(',')})){` +
     `if(Test-Path -LiteralPath $path -PathType Leaf){try{$link=$shell.CreateShortcut($path);` +
-    `if($link.Description -ceq 'Open Murmur controls (managed by Murmur)' -and $link.Arguments.Contains(${psLiteral(launcherPath)})){Remove-Item -LiteralPath $path -Force}}catch{}}}`;
+    `if($link.Description -ceq 'Open Murmur controls (managed by Murmur)' -and $link.TargetPath -ieq ${psLiteral(trayPath)}){Remove-Item -LiteralPath $path -Force}}catch{}}}`;
   const result = runPowerShell(command);
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
@@ -278,16 +278,14 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
 
         for (const shortcut of shortcutPaths) {
           const link = inspectShortcut(shortcut);
-          assert.equal(link.target.toLowerCase(), systemPowerShell.toLowerCase());
+          // The shortcut starts the tray itself, without a PowerShell window or arguments; the tray
+          // finds the profile and service from the binding the launcher just recorded.
+          assert.equal(link.target.toLowerCase(), path.join(canonicalDir, 'murmur-tray.exe').toLowerCase());
           assert.equal(link.workingDirectory.toLowerCase(), canonicalDir.toLowerCase());
           assert.equal(link.description, 'Open Murmur controls (managed by Murmur)');
           assert.equal(link.icon.replace(/,\s*0$/, ',0').toLowerCase(), `${path.join(canonicalDir, 'murmur.ico')},0`.toLowerCase());
-          assert.match(link.arguments, /"-NoProfile"/);
-          assert.ok(link.arguments.includes(`"${launcher}"`), link.arguments);
-          assert.ok(link.arguments.includes(`"${canonicalProfile}"`), link.arguments);
-          assert.ok(link.arguments.includes('"ChosenService"'), link.arguments);
-          // Programs and Desktop open normally; the sign-in (Startup) entry starts minimized.
-          assert.equal(link.windowStyle, shortcut === shortcutPaths[2] ? 7 : 1, shortcut);
+          assert.equal(link.arguments, '');
+          assert.equal(link.windowStyle, 1, shortcut);
         }
 
         assert.equal(waitForMainWindowTitle(state.pid, 'Murmur'), 'Murmur');
@@ -354,7 +352,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         }
       }
       if (foreignShortcut) await rm(foreignShortcut, { force: true });
-      if (shortcutPaths.length) removeOwnedShortcuts(shortcutPaths, launcherPathForCleanup);
+      if (shortcutPaths.length) removeOwnedShortcuts(shortcutPaths, path.join(path.dirname(launcherPathForCleanup), 'murmur-tray.exe'));
       await rm(dir, { recursive: true, force: true });
     }
   });
