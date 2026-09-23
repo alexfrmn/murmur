@@ -22,7 +22,8 @@ The wrapper uses a per-process PowerShell execution-policy override; it does not
 change the machine policy. `-NodePath` explicitly selects another installed Node.
 `-Check -DataDir ABSOLUTE` performs the read-only binding probe without opening a
 window. Ordinary users can inspect status and change the configured wake pause;
-SCM start/stop requires an elevated CLI terminal. The tray does not elevate itself.
+Service Start/Stop in the tray asks Windows for administrator consent (UAC) once
+per action and runs the same CLI command elevated; declining changes nothing.
 
 The tray is English on a fresh profile regardless of the Windows display language. Use
 `-Language ru` to open it in Russian; `-Language en` switches back to English. The

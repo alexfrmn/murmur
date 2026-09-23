@@ -1,4 +1,7 @@
 {
+  "action.elevatedFailed": "The service command failed (code %d); run murmur doctor for details",
+  "action.elevatedTimeout": "The service command did not finish in time",
+  "action.elevationCancelled": "Administrator consent was declined; nothing changed",
   "action.failed": "Action was not confirmed; it was not retried",
   "action.failedTooltip": "Copy diagnostics for the technical reason",
   "action.none": "No action has been run yet",
@@ -75,8 +78,7 @@
   "menu.recent": "Recent incoming messages",
   "menu.resume": "Resume",
   "menu.service": "Service",
-  "menu.serviceAdminStart": "Start: elevated CLI terminal required",
-  "menu.serviceAdminStop": "Stop: elevated CLI terminal required",
+  "menu.serviceElevationTooltip": "Windows will ask for administrator consent",
   "menu.serviceLogs": "Log folder is unavailable from the CLI",
   "menu.serviceLogsTooltip": "The Windows logs command does not yet confirm a native folder",
   "menu.start": "Start",

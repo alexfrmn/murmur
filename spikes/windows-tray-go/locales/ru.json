@@ -1,4 +1,7 @@
 {
+  "action.elevatedFailed": "Команда службы не выполнена (код %d); подробности — murmur doctor",
+  "action.elevatedTimeout": "Команда службы не завершилась вовремя",
+  "action.elevationCancelled": "Подтверждение администратора отклонено; ничего не изменено",
   "action.failed": "Действие не подтверждено; повтор не выполнялся",
   "action.failedTooltip": "Скопируйте диагностику, чтобы увидеть техническую причину",
   "action.none": "Действие ещё не выполнялось",
@@ -75,8 +78,7 @@
   "menu.recent": "Последние входящие",
   "menu.resume": "Возобновить",
   "menu.service": "Служба",
-  "menu.serviceAdminStart": "Старт: нужна повышенная CLI-консоль",
-  "menu.serviceAdminStop": "Стоп: нужна повышенная CLI-консоль",
+  "menu.serviceElevationTooltip": "Windows попросит подтверждения администратора",
   "menu.serviceLogs": "Каталог журналов недоступен в CLI",
   "menu.serviceLogsTooltip": "Windows logs path пока не подтверждает native-каталог",
   "menu.start": "Старт",

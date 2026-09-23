@@ -8,8 +8,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -304,20 +306,23 @@ func (a *app) render(v Verdict) {
 	} else {
 		a.mPause.Disable()
 	}
-	if ready && serviceAdmin() {
+	// Without an elevated token a click asks Windows for consent (UAC) instead of sending the
+	// user to an administrator terminal.
+	if ready {
 		a.mSvcStar.Enable()
 		a.mSvcStop.Enable()
 	} else {
 		a.mSvcStar.Disable()
 		a.mSvcStop.Disable()
 	}
-	if serviceAdmin() {
-		a.mSvcStar.SetTitle(tr("menu.start"))
-		a.mSvcStop.SetTitle(tr("menu.stop"))
-	} else {
-		a.mSvcStar.SetTitle(tr("menu.serviceAdminStart"))
-		a.mSvcStop.SetTitle(tr("menu.serviceAdminStop"))
+	a.mSvcStar.SetTitle(tr("menu.start"))
+	a.mSvcStop.SetTitle(tr("menu.stop"))
+	serviceTip := ""
+	if !serviceAdmin() {
+		serviceTip = tr("menu.serviceElevationTooltip")
 	}
+	a.mSvcStar.SetTooltip(serviceTip)
+	a.mSvcStop.SetTooltip(serviceTip)
 	if paused {
 		a.mPause.SetTitle(tr("menu.resume"))
 	} else {
@@ -435,7 +440,20 @@ func (a *app) runCLI(args ...string) {
 			args[1] = "resume"
 		}
 	}
-	if err == nil {
+	if err == nil && args[0] == "service" && !serviceAdmin() {
+		// The elevated CLI cannot hand its reply back; it exits 0 only after confirming the
+		// requested service state, and the deferred refresh re-reads the status.
+		var b cliBinding
+		if b, err = selectedCLI(); err == nil {
+			err = runElevated(ctx, b.Node, b.arguments(append(args, "--json")), filepath.Dir(b.Entry))
+		}
+		switch {
+		case errors.Is(err, errElevationCancelled):
+			err = fmt.Errorf("%s", tr("action.elevationCancelled"))
+		case errors.Is(err, errElevatedTimeout):
+			err = fmt.Errorf("%s", tr("action.elevatedTimeout"))
+		}
+	} else if err == nil {
 		var out []byte
 		out, err = runRaw(ctx, append(args, "--json")...)
 		if err == nil {
