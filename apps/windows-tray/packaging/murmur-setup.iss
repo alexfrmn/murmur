@@ -116,6 +116,7 @@ procedure RemoveOwnedLauncherShortcut(const FileName: String);
 var
   Shell, Link: Variant;
   Launcher, Arguments: String;
+  OldTarget, DirectTarget: Boolean;
 begin
   if not FileExists(FileName) then exit;
   try
@@ -123,10 +124,16 @@ begin
     Link := Shell.CreateShortcut(FileName);
     Launcher := ExpandConstant('{app}\Open-Murmur.ps1');
     Arguments := Link.Arguments;
+    { The uninstaller system-directory constant can resolve to SysWOW64. Recognize both explicit
+      Windows PowerShell locations written by the native launcher. }
+    OldTarget := ((CompareText(String(Link.TargetPath), ExpandConstant('{win}\System32\WindowsPowerShell\v1.0\powershell.exe')) = 0) or
+      (CompareText(String(Link.TargetPath), ExpandConstant('{win}\SysWOW64\WindowsPowerShell\v1.0\powershell.exe')) = 0)) and
+      (Pos('"' + Launcher + '"', Arguments) > 0);
+    DirectTarget := (CompareText(String(Link.TargetPath), ExpandConstant('{app}\murmur-tray.exe')) = 0) and
+      (Arguments = '');
     if (String(Link.Description) = 'Open Murmur controls (managed by Murmur)') and
-       (CompareText(String(Link.TargetPath), ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe')) = 0) and
        (CompareText(String(Link.WorkingDirectory), ExpandConstant('{app}')) = 0) and
-       (Pos('"' + Launcher + '"', Arguments) > 0) then
+       (OldTarget or DirectTarget) then
       DeleteFile(FileName);
   except
     Log('Leaving unreadable or unrecognized shortcut unchanged.');
