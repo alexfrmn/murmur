@@ -10,8 +10,8 @@ import { deflateRawSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 
 const HERE = fileURLToPath(import.meta.url);
-const WORKSPACES = ['core', 'security', 'broker-nats', 'broker-ws', 'mcp-server', 'setup'];
-const SCRIPTS = ['murmur-daemon.mjs', 'murmur-shell-send.mjs', 'runtime-capability.mjs',
+export const WORKSPACES = ['core', 'security', 'broker-nats', 'broker-ws', 'mcp-server', 'setup'];
+export const SCRIPTS = ['murmur-daemon.mjs', 'murmur-shell-send.mjs', 'runtime-capability.mjs',
   'notify-router.mjs', 'codex-app-server-wake.mjs', 'murmur-jetstream-advisory.mjs',
   'wake-monitor.mjs', 'lease.mjs', 'secure-state.mjs', 'daemon-observation.mjs', 'ack-security.mjs'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -66,6 +66,8 @@ export async function stageRuntime(source, output, { sourceCommit, recipeSha256 
     const root = await json(path.join(source, 'package.json'));
     const lockBytes = await fs.readFile(path.join(source, 'package-lock.json'));
     const lock = JSON.parse(lockBytes);
+    const workspaceNames = new Map(await Promise.all(WORKSPACES.map(async dir =>
+      [dir, (await json(path.join(source, 'packages', dir, 'package.json'))).name])));
     const dependencies = [], seen = new Set();
     async function dependency(from, name) {
       const located = await resolveDependency(source, from, name);
@@ -78,7 +80,7 @@ export async function stageRuntime(source, output, { sourceCommit, recipeSha256 
       const locked = lock.packages?.[relative];
       if (pkg.name !== name || !locked) throw new Error(`Dependency is not locked: ${name}`);
       if (locked.link) {
-        const workspace = WORKSPACES.find(w => name === `@murmurv2/${w}`);
+        const workspace = WORKSPACES.find(w => name === workspaceNames.get(w));
         if (!workspace || real !== path.join(source, 'packages', workspace)) throw new Error(`Unexpected workspace link: ${name}`);
         await copyTree(path.join(staging, 'packages', workspace), path.join(staging, relative));
       } else {
@@ -109,6 +111,12 @@ export async function stageRuntime(source, output, { sourceCommit, recipeSha256 
     for (const workspace of WORKSPACES) {
       const rel = `packages/${workspace}`;
       await copyFile(path.join(source, rel, 'package.json'), path.join(staging, rel, 'package.json'));
+      if (workspace === 'setup') {
+        const pkg = await json(path.join(staging, rel, 'package.json'));
+        pkg.main = 'dist/src/index.js'; pkg.types = 'dist/src/index.d.ts';
+        pkg.bin = { murmur: 'bin/murmur.mjs' };
+        await fs.writeFile(path.join(staging, rel, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
+      }
       await copyTree(path.join(source, rel, 'dist/src'), path.join(staging, rel, 'dist/src'), file => /\.(?:js|json)$/.test(file));
       await fs.access(path.join(staging, rel, 'dist/src', workspace === 'setup' ? 'cli.js' : 'index.js'));
     }
@@ -116,7 +124,7 @@ export async function stageRuntime(source, output, { sourceCommit, recipeSha256 
     await copyFile(path.join(source, 'packages/setup/bin/murmur.mjs'), path.join(staging, 'packages/setup/bin/murmur.mjs'));
     await copyTree(path.join(source, 'plugins/claude-code'), path.join(staging, 'plugins/claude-code'));
     for (const script of SCRIPTS) await copyFile(path.join(source, 'scripts', script), path.join(staging, 'scripts', script));
-    for (const workspace of WORKSPACES) await dependency(source, `@murmurv2/${workspace}`);
+    for (const workspace of WORKSPACES) await dependency(source, workspaceNames.get(workspace));
     // ws is also a direct dependency of the daemon's Codex wake transport.
     await dependency(source, 'ws');
     const inventory = {};

@@ -1,10 +1,18 @@
-# Source-checkout onboarding CLI
+# Onboarding CLI
+
+The publishable `@murmurv2/cli` package exposes the same commands as `murmur`.
+During rehearsal, install only from the coordinator's explicit registry:
+`npm install --global @murmurv2/cli --registry <approved-registry-url>`.
+The public npm hold remains until a reviewed release is actually published.
+The package contains compiled runtime files and a Windows x64 service helper;
+it needs Node.js >=22.13.0 but no consumer-side compiler or install hooks.
+See the [CLI package guide](../packages/setup/README.md).
 
 Build the checkout with `npm ci` and `npm run build`. Invoke the same executable
 from PowerShell, Bash or another shell: `node packages/setup/bin/murmur.mjs`.
 No environment assignment syntax is required. Every profile-specific command
 accepts `--data-dir ABSOLUTE_PATH`; the service, daemon and MCP entry use this one
-profile. This is a source-checkout workflow, not a published npm installation.
+profile. In an npm installation replace the source entry with `murmur`.
 
 The older `scripts/murmur-invite.mjs`, `scripts/murmur-join.mjs` and
 `scripts/murmur-add-peer.mjs` entrypoints are disabled compatibility notices.

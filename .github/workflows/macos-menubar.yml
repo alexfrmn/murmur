@@ -24,6 +24,12 @@ jobs:
         run: brew install nats-server
       - name: Build engine and check portable setup behavior
         run: npm ci && npm run build && node --test tests/setup-*.test.mjs
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/windows-service-go/go.mod
+          cache-dependency-path: spikes/windows-service-go/go.sum
+      - name: Install npm tarballs and probe the packaged CLI and MCP
+        run: node scripts/test-npm-cli.mjs
       - name: Build native consumer after canonical fixture gate
         working-directory: apps/macos-menubar
         run: ./scripts/build-app.sh

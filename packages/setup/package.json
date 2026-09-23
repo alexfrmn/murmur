@@ -1,22 +1,41 @@
 {
-  "name": "@murmurv2/setup",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@murmurv2/cli",
+  "version": "2.10.0",
   "type": "module",
-  "main": "dist/src/index.js",
-  "types": "dist/src/index.d.ts",
+  "main": "runtime/packages/setup/dist/src/index.js",
+  "types": "runtime/packages/setup/dist/src/index.d.ts",
   "bin": {
-    "murmur": "bin/murmur.mjs"
+    "murmur": "bin/murmur-npm.mjs"
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "prepack": "npm run build --prefix ../.. && node ../../scripts/prepare-cli-package.mjs"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "@murmurv2/broker-nats": "^0.3.2",
-    "@murmurv2/core": "^0.6.0",
+    "@murmurv2/broker-nats": "^0.3.4",
+    "@murmurv2/core": "^0.6.3",
     "@murmurv2/mcp-server": "^0.2.2",
-    "@murmurv2/security": "^0.1.0",
-    "nats": "^2.28.2"
-  }
+    "@murmurv2/security": "^0.1.1",
+    "nats": "^2.28.2",
+    "ws": "^8.21.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexfrmn/murmur.git",
+    "directory": "packages/setup"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Murmur CLI — invite-based setup, background service, client configuration and diagnostics.",
+  "files": [
+    "bin/murmur-npm.mjs",
+    "runtime",
+    "LICENSE"
+  ]
 }
