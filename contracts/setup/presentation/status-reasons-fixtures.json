@@ -2,17 +2,15 @@
   "schema": "murmur.status-presentation-fixtures/1",
   "cases": [
     {
-      "name": "pairing-only-unknown",
+      "name": "runtime-ready-peer-unchecked",
       "statusFixture": "../v1/fixtures/status-pairing-unknown.json",
-      "expectedCode": "unmeasured",
-      "expectedMessageId": "status.pairingUnknown",
+      "expectedCode": "ok",
+      "expectedMessageId": "status.ready",
       "forbiddenDisplayedSubstrings": [
         "peers.list.agent-jarvis.paired",
         "agent-jarvis"
       ],
-      "requiredDiagnosticMissing": [
-        "peers.list.agent-jarvis.paired"
-      ]
+      "requiredDiagnosticMissing": []
     },
     {
       "name": "generic-unmeasured",

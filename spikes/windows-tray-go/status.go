@@ -52,6 +52,8 @@ func missingPresentationKey(missing []string) string {
 
 func presentationMessageKey(code string, missing []string) string {
 	switch code {
+	case "ok":
+		return "status.ready"
 	case "status.unavailable", "schema.unparsable", "schema.missing-key", "schema.wrong-type", "schema.invalid-value":
 		return "status.unavailable"
 	case "schema.unknown":
@@ -372,21 +374,12 @@ func resolve(s *Status, err error) Verdict {
 			// писать некому, и зелёный значок сказал бы ему прямую неправду.
 			return out(LevelYellow, "peers.none", tr("status.noPeers"))
 		}
-		var unpaired, unknownPair []string
 		for _, p := range s.Peers.List {
-			switch {
-			case p.Paired == nil:
-				unknownPair = append(unknownPair, p.AgentID)
-			case !*p.Paired:
-				unpaired = append(unpaired, p.AgentID)
+			if p.Paired != nil && !*p.Paired {
+				return out(LevelYellow, "peers.unpaired", tr(presentationMessageKey("peers.unpaired", nil)))
 			}
 		}
-		if len(unpaired) > 0 {
-			return out(LevelYellow, "peers.unpaired", tr(presentationMessageKey("peers.unpaired", nil)))
-		}
-		for _, id := range unknownPair {
-			note("peers.list."+id+".paired", "unmeasured")
-		}
+		// A missing proof remains visible per peer, not as a runtime failure.
 	}
 
 	if s.Inbox.Unread == nil {
@@ -428,7 +421,7 @@ func resolve(s *Status, err error) Verdict {
 	if len(missing) > 0 {
 		return out(LevelGrey, "unmeasured", tr(presentationMessageKey("unmeasured", missing)))
 	}
-	return out(LevelGreen, "ok", tr("status.healthy", peerCount(len(s.Peers.List))))
+	return out(LevelGreen, "ok", tr("status.ready"))
 }
 
 // num печатает число либо «не измерено»: подставлять ноль вместо неизвестного значит

@@ -35,6 +35,9 @@ function schemaFailure(input: unknown): string | null {
     const { present, value } = lookup(input, path);
     if (present && value !== null && !count(value)) return "schema.unparsable";
   }
+  const peers = lookup(input, "peers.list").value;
+  if (Array.isArray(peers) && peers.some(peer => !record(peer)
+    || (peer.paired != null && typeof peer.paired !== "boolean"))) return "schema.unparsable";
   return null;
 }
 
@@ -86,8 +89,8 @@ export function statusVerdict(input: unknown, now = Date.now()): StatusVerdict {
   else {
     if (!s.peers.list.length) return out("yellow", "peers.none");
     if (s.peers.list.some((p: any) => p?.paired === false)) return out("yellow", "peers.unpaired");
-    const unknownPeers = s.peers.list.filter((p: any) => p?.paired !== true).map((p: any) => p?.agentId ?? "unknown");
-    for (const peer of unknownPeers) note(`peers.list.${peer}.paired`);
+    // A missing roundtrip proof is a peer detail, not a runtime failure.
+    // Keep paired=null in the snapshot; green never asserts delivery or wake.
   }
   if (!count(s.inbox?.unread)) note("inbox.unread", s.inbox?.unknownReason ? "source-unreadable" : "unmeasured");
   if (typeof wake.config?.enabled === "boolean" && typeof wake.effective?.enabled === "boolean"

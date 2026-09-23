@@ -29,21 +29,9 @@
       },
       {
         "agentId": "agent-sasha",
-        "paired": true,
+        "paired": null,
         "lastInboundAt": "2026-09-11T09:12:00Z",
         "lastOutboundAt": "2026-09-11T09:20:00Z"
-      },
-      {
-        "agentId": "agent-viola",
-        "paired": true,
-        "lastInboundAt": "2026-09-11T14:00:00Z",
-        "lastOutboundAt": "2026-09-11T14:05:00Z"
-      },
-      {
-        "agentId": "agent-danik",
-        "paired": true,
-        "lastInboundAt": "2026-09-18T09:51:09Z",
-        "lastOutboundAt": "2026-09-18T10:02:00Z"
       }
     ]
   },

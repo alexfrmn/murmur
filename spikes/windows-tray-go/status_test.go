@@ -45,7 +45,7 @@ func TestResolveLevels(t *testing.T) {
 		{"status-grey.json", LevelGrey, true},
 		{"status-no-peers.json", LevelYellow, false},
 		{"status-unmeasured.json", LevelGrey, false},
-		{"status-pairing-unknown.json", LevelGrey, true},
+		{"status-pairing-unknown.json", LevelGreen, true},
 	}
 	for _, c := range cases {
 		v := resolve(load(t, c.fixture), nil)
@@ -144,9 +144,10 @@ func TestZeroIsNotNull(t *testing.T) {
 // Парность, о которой не знаем, не равна парности подтверждённой: локальные ключи сами
 // по себе не доказывают, что пара установлена с обеих сторон.
 func TestPairingUnknownIsNotPaired(t *testing.T) {
-	v := resolve(load(t, "status-pairing-unknown.json"), nil)
-	if v.Level != LevelGrey {
-		t.Errorf("неизвестная парность должна гасить в серый, получен %v (%s)", v.Level, v.Reason)
+	snapshot := load(t, "status-pairing-unknown.json")
+	v := resolve(snapshot, nil)
+	if v.Level != LevelGreen || snapshot.Peers.List[0].Paired != nil {
+		t.Errorf("runtime readiness must preserve unknown peer proof: %#v", v)
 	}
 	no := false
 	s := load(t, "status-pairing-unknown.json")

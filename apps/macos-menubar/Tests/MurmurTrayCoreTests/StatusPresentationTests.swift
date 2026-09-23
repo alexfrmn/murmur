@@ -128,5 +128,17 @@ func runStatusPresentationChecks(fixtures: URL, base: [String: Any], now: Date) 
     try check(!unpaired.reason.contains(peerList[0]["agentId"] as! String),
               "Unpaired status must not display a peer ID")
     count += 1
+    for (value, english, russian) in [
+        (NSNull() as Any, "Exchange not checked yet", "Обмен ещё не проверен"),
+        (true as Any, "Exchange verified", "Обмен проверен"),
+        (false as Any, "Exchange verification failed", "Проверка обмена не пройдена")
+    ] {
+        let data = try JSONSerialization.data(withJSONObject: ["agentId": "agent-fixture", "paired": value])
+        let peer = try JSONDecoder().decode(StatusSnapshot.Peer.self, from: data)
+        try check(inLanguage(.english) { peer.exchangeDescription } == english
+                  && inLanguage(.russian) { peer.exchangeDescription } == russian,
+                  "Peer detail must preserve each proof state in EN/RU")
+        count += 1
+    }
     return count
 }

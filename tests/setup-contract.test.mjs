@@ -59,3 +59,23 @@ test("nullable broker state is unmeasured, not an observed connection failure", 
   input.broker.state = null;
   assert.deepEqual(statusVerdict(input, now), { level: "grey", code: "unmeasured", unread: true, missing: ["broker.state"], missingWhy: {} });
 });
+
+test("unchecked peers do not hide missing runtime measurements or known failures", () => {
+  const input = materialize(JSON.parse(readFileSync(new URL("status-peers-unchecked.json", fixtures), "utf8")));
+  assert.equal(statusVerdict(input, now).level, "green");
+  assert.deepEqual(input.peers.list.map(p => p.paired), [null, null]);
+  const cases = [
+    [s => { s.peers.list = null; }, "grey", "unmeasured"],
+    [s => { s.inbox.unread = null; }, "grey", "unmeasured"],
+    [s => { s.wake.effective.enabled = null; }, "grey", "unmeasured"],
+    [s => { s.outbox.queue.failed = 1; }, "red", "outbox.undelivered"],
+    [s => { s.wake.faults.lastFault = "wake.failed"; }, "red", "wake.fault"],
+    [s => { s.broker.state = "disconnected"; }, "yellow", "broker.unreachable"],
+    [s => { s.peers.list[1].paired = false; }, "yellow", "peers.unpaired"],
+  ];
+  for (const [edit, level, code] of cases) {
+    const sample = structuredClone(input); edit(sample);
+    const verdict = statusVerdict(sample, now);
+    assert.deepEqual([verdict.level, verdict.code], [level, code]);
+  }
+});
