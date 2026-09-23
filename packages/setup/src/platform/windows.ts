@@ -13,6 +13,15 @@ export interface WindowsOptions {
   elevated?: () => Promise<boolean | null>;
 }
 const fail = (reason: string): never => { throw new Error(`service.${reason}`); };
+/**
+ * murmur-svc ends a failure with exactly one footer line `murmur-svc: reason=<key>` (LF). Only that
+ * strict last line is trusted and only its key is kept, case preserved; the rest of stderr may carry
+ * paths or OS text and is never read. Anything else keeps the old generic code.
+ */
+export function helperReason(stderr: string): string {
+  const key = /(?:^|\n)murmur-svc: reason=([A-Za-z][A-Za-z0-9.]{0,80})\n?$/.exec(stderr)?.[1];
+  return key && !key.endsWith('.') && !key.includes('..') ? `helper.${key}` : 'helper-command-failed';
+}
 const object = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const natural = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) >= 0;
 const textOrNull = (v: unknown) => v === null || typeof v === 'string';
@@ -66,7 +75,7 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
   async function invoke(c: ServiceContext, action: string) {
     validate(c);
     const result = await run(await helper(c), [action], { env: selectedEnvironment(c), timeout: action === 'status' ? 8000 : 55000 });
-    if (result.code !== 0) fail('helper-command-failed');
+    if (result.code !== 0) fail(helperReason(result.stderr));
     return result.stdout;
   }
   async function inspect(c: ServiceContext): Promise<{ snapshot: ServiceSnapshot; installed: boolean }> {
@@ -123,7 +132,7 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
     manager: 'windows-service',
     async status(c) {
       try { return (await inspect(c)).snapshot; }
-      catch (e) { const reason = e instanceof Error && /^service\.[a-z-]+$/.test(e.message) ? e.message : 'service.measurement-failed'; return empty(reason); }
+      catch (e) { const reason = e instanceof Error && /^service\.(?:[a-z-]+|helper\.[A-Za-z][A-Za-z0-9.]*)$/.test(e.message) ? e.message : 'service.measurement-failed'; return empty(reason); }
     },
     install: c => mutate(c, 'install'), start: c => mutate(c, 'start'), stop: c => mutate(c, 'stop'), uninstall: c => mutate(c, 'uninstall'),
     async detectClients(): Promise<ClientDetection[]> {
