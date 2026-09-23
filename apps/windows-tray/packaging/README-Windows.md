@@ -19,7 +19,11 @@ opening the menu. It does not create a profile or write client config. After the
 first successful open it adds a Murmur shortcut to the Start menu, the Desktop and
 the per-user Startup folder. They start murmur-tray.exe directly, without a PowerShell
 window, so the tray comes back after sign-in (the service already starts with Windows).
-Delete those shortcuts to undo it. A custom service name must be supplied for the initial selection:
+Delete those shortcuts to undo it. Only one tray runs per bundle in a Windows session: opening
+a shortcut or `murmur-tray.exe` again opens the menu of the running tray instead of adding a
+second icon. "Open an existing profile…" uses the service name the CLI derives from the
+profile path; a profile with a custom service name is opened with the launcher (known limitation
+of 2.11). A custom service name must be supplied for the initial selection:
 
 ```powershell
 .\Open-Murmur.cmd -DataDir 'C:\Users\you\AppData\Local\Murmur' -ServiceName MurmurDaemon
@@ -74,9 +78,9 @@ Murmur не меняет настройки панели задач и закр�
 второй подсказки.
 
 After a successful first launch, the launcher creates **Murmur** shortcuts on your
-Desktop and in your per-user Start menu. Both remember the selected Node, bundle,
-profile and service name. Open either shortcut to show the controls of the same
-running tray, including when Windows has put its icon under the hidden-icons arrow.
+Desktop and in your per-user Start menu. They open this bundle's tray, which uses the profile
+and service name the launcher last selected. Open either shortcut to show the controls of the
+same running tray, including when Windows has put its icon under the hidden-icons arrow.
 The shortcuts carry the same purple logo as the tray.
 
 Windows controls which icons appear directly on the taskbar. Murmur keeps its icon

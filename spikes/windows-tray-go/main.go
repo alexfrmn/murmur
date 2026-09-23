@@ -59,6 +59,7 @@ type app struct {
 	updateRequests                                           chan *bool
 	preferencesPath                                          string
 	guideSignal                                              *launcherGuideSignal
+	instance                                                 *trayInstance
 	mUpdateState, mUpdateVersion, mUpdateTime, mUpdateReason *systray.MenuItem
 	mUpdateCheck, mUpdatePage, mUpdateEnable, mUpdateDisable *systray.MenuItem
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
@@ -142,12 +143,26 @@ func main() {
 		}
 		return
 	}
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	instance, err := claimTray(trayInstanceKey(exe))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if instance == nil {
+		// Murmur is already running from this bundle; its menu was asked to open.
+		return
+	}
 	guideSignal, err := newLauncherGuideSignal(options.launcherStart)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, tr("guide.failed"))
 		os.Exit(1)
 	}
-	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT"), preferencesPath: preferencesPath, actionResult: "action.none", guideSignal: guideSignal}
+	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT"), preferencesPath: preferencesPath, actionResult: "action.none", guideSignal: guideSignal, instance: instance}
 	systray.Run(a.onReady, func() {})
 }
 
@@ -218,6 +233,11 @@ func (a *app) onReady() {
 	go a.refreshDoctor()
 	go a.handleClicks()
 	go a.updateLoop()
+	go func() {
+		for a.instance.wait() {
+			_ = openOwnMenu()
+		}
+	}()
 	if a.guideSignal != nil {
 		go func() {
 			if a.guideSignal.wait() && !guideSeenPreference(a.preferencesPath) {

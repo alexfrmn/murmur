@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Windows: one tray per bundle.** Start, Desktop and Startup shortcuts start `murmur-tray.exe`
+  directly; a second launch now opens the running tray's menu and exits with 0 instead of adding
+  a second icon (session-local named mutex keyed by the executable path).
+
+### Known limitations
+- **Windows tray: "Open an existing profile…"** uses the service name derived from the profile
+  path. Profiles with a custom service name are opened with `Open-Murmur.cmd -DataDir … -ServiceName …`.
+
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
