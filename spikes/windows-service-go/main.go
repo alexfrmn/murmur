@@ -71,20 +71,19 @@ func svcName() string {
 func main() {
 	if nativeVersionRequested(os.Args[1:]) {
 		if err := writeNativeVersion(os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fail(err)
 		}
 		return
 	}
 	options, parseErr := parseHelperArguments(os.Args[1:])
 	setLocale(options.locale)
 	if parseErr != nil {
-		fail("%v", parseErr)
+		fail(parseErr)
 	}
 	args := options.positionals
 	isService, err := svc.IsWindowsService()
 	if err != nil {
-		fail("%s", tr("error.mode", err))
+		fail(trError("error.mode", err, err))
 	}
 	if isService {
 		// SCM передаёт «run <имя>» из ImagePath. Без этого svc.Run получил бы имя по
@@ -123,16 +122,17 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, tr("usage.line"))
 	fmt.Fprintln(os.Stderr, tr("usage.environment"))
+	_ = writeHelperReason(os.Stderr, trError("usage.line", nil))
 }
 
 func mustDo(err error) {
 	if err != nil {
-		fail("%v", err)
+		fail(err)
 	}
 }
 
-func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
+func fail(err error) {
+	_ = writeHelperError(os.Stderr, err)
 	os.Exit(1)
 }
 
@@ -286,13 +286,13 @@ func resolveSpec() (*launchSpec, error) {
 	if node == "" {
 		found, err := exec.LookPath("node")
 		if err != nil {
-			return nil, errors.New(tr("error.node"))
+			return nil, trError("error.node", err)
 		}
 		node = found
 	}
 	entry := os.Getenv("MURMUR_ENTRY")
 	if entry == "" {
-		return nil, errors.New(tr("error.entry"))
+		return nil, trError("error.entry", nil)
 	}
 	workDir := os.Getenv("MURMUR_WORKDIR")
 	if workDir == "" {
@@ -315,7 +315,7 @@ func resolveSpec() (*launchSpec, error) {
 	// относительный путь там означает совсем другой файл.
 	for name, p := range map[string]string{"MURMUR_NODE": node, "MURMUR_ENTRY": entry, "MURMUR_WORKDIR": workDir, "MURMUR_DATA_DIR": data} {
 		if !filepath.IsAbs(p) {
-			return nil, errors.New(tr("error.path", name, p))
+			return nil, trError("error.path", nil, name, p)
 		}
 		if _, err := os.Stat(p); err != nil && name != "MURMUR_DATA_DIR" {
 			return nil, fmt.Errorf("%s: %v", name, err)
@@ -347,9 +347,9 @@ func install() error {
 	if existing, err := m.OpenService(svcName()); err == nil {
 		defer existing.Close()
 		if ownErr := ownService(existing); ownErr != nil {
-			return errors.New(tr("error.unchanged", ownErr))
+			return trError("error.unchanged", ownErr, ownErr)
 		}
-		return errors.New(tr("error.alreadyInstalled", svcName()))
+		return trError("error.alreadyInstalled", nil, svcName())
 	} else if !serviceAbsent(err) {
 		return trError("error.existingCheck", err, err)
 	}
@@ -397,9 +397,9 @@ func install() error {
 		say("%s", tr("install.rollback"))
 		_ = stopService(s)
 		if derr := s.Delete(); derr != nil {
-			return errors.New(tr("install.rollbackFailed", err, derr))
+			return trError("install.rollbackFailed", errors.Join(err, derr), err, derr)
 		}
-		return errors.New(tr("install.rollbackEvidence", err, specPath(), statePath(), logDir()))
+		return trError("install.rollbackEvidence", err, err, specPath(), statePath(), logDir())
 	}
 	say("%s", tr("daemon.settled", settleTime))
 	return nil
@@ -439,13 +439,13 @@ func verifyStart(s *mgr.Service) error {
 			return trError("error.serviceState", err, err)
 		}
 		if q.State != svc.Running {
-			return errors.New(tr("service.leftRunning", time.Until(deadline).Round(time.Second)))
+			return trError("service.leftRunning", nil, time.Until(deadline).Round(time.Second))
 		}
 		if !processAlive(pid) {
 			if newPID, err := readDaemonPID(); err == nil && newPID != pid {
-				return errors.New(tr("daemon.restartEarly", pid, newPID))
+				return trError("daemon.restartEarly", nil, pid, newPID)
 			}
-			return errors.New(tr("daemon.didNotLive", pid))
+			return trError("daemon.didNotLive", nil, pid)
 		}
 	}
 	return nil
@@ -464,11 +464,11 @@ func waitState(s *mgr.Service, want svc.State, timeout time.Duration) error {
 			return nil
 		}
 		if q.State == svc.Stopped && want == svc.Running {
-			return errors.New(tr("error.startStopped", q.Win32ExitCode, q.ServiceSpecificExitCode, logDir()))
+			return trError("error.startStopped", nil, q.Win32ExitCode, q.ServiceSpecificExitCode, logDir())
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return errors.New(tr("error.startTimeout", timeout, last))
+	return trError("error.startTimeout", nil, timeout, last)
 }
 
 func waitDaemonPID(timeout time.Duration) (int, error) {
@@ -479,7 +479,7 @@ func waitDaemonPID(timeout time.Duration) (int, error) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return 0, errors.New(tr("daemon.didNotStart", timeout, logDir()))
+	return 0, trError("daemon.didNotStart", nil, timeout, logDir())
 }
 
 func readDaemonPID() (int, error) {
@@ -576,7 +576,7 @@ func startAndVerify() error {
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
-		return errors.New(tr("error.notInstalled", svcName()))
+		return trError("error.notInstalled", nil, svcName())
 	}
 	defer s.Close()
 	if err := ownService(s); err != nil {
@@ -597,7 +597,7 @@ func stop() error {
 	defer m.Disconnect()
 	s, err := m.OpenService(svcName())
 	if err != nil {
-		return errors.New(tr("error.notInstalled", svcName()))
+		return trError("error.notInstalled", nil, svcName())
 	}
 	defer s.Close()
 	if err := ownService(s); err != nil {
@@ -959,7 +959,7 @@ func resolveSpecFromFile() (*launchSpec, error) {
 		return nil, trError("spec.aclRead", err, specPath(), err)
 	}
 	if !ok {
-		return nil, errors.New(tr("spec.insecure", why))
+		return nil, trError("spec.insecure", nil, why)
 	}
 	buf, err := os.ReadFile(specPath())
 	if err != nil {
@@ -970,7 +970,7 @@ func resolveSpecFromFile() (*launchSpec, error) {
 		return nil, trError("spec.parse", err, err)
 	}
 	if spec.Node == "" || spec.Entry == "" {
-		return nil, errors.New(tr("spec.required"))
+		return nil, trError("spec.required", nil)
 	}
 	return &spec, nil
 }
