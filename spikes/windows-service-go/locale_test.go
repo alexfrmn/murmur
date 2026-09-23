@@ -20,7 +20,7 @@ func TestEveryStaticMessageKeyExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyPattern := regexp.MustCompile(`tr\("([^"]+)"`)
+	keyPattern := regexp.MustCompile(`tr(?:Error)?\("([^"]+)"`)
 	for _, file := range files {
 		data, err := os.ReadFile(file)
 		if err != nil {

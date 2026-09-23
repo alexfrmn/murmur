@@ -16,6 +16,8 @@
   "error.admin": "Service Control Manager is unavailable; open an elevated terminal: %v",
   "error.create": "Could not create the service: %v",
   "error.entry": "MURMUR_ENTRY is not set; provide the path to scripts/murmur-daemon.mjs",
+  "error.language": "language must be en or ru",
+  "error.unknown": "Service helper failed; see the service logs",
   "error.existingCheck": "Could not inspect the existing service; nothing was changed: %v",
   "error.mode": "Could not determine the launch mode: %v",
   "error.node": "Node was not found on PATH; set MURMUR_NODE",
