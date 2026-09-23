@@ -101,14 +101,15 @@ async function waitForCommandTrace(tracePrefix, command) {
 function userShortcutPaths() {
   const result = runPowerShell(`ConvertTo-Json -Compress -InputObject @(
     [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::Programs),'Murmur.lnk'),
-    [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),'Murmur.lnk'))`);
+    [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),'Murmur.lnk'),
+    [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::Startup),'Murmur.lnk'))`);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   return parsePowerShellJson(result.stdout);
 }
 
 function inspectShortcut(shortcutPath) {
   const result = runPowerShell(`$shell=New-Object -ComObject WScript.Shell;$link=$shell.CreateShortcut(${psLiteral(shortcutPath)});` +
-    `[ordered]@{target=$link.TargetPath;arguments=$link.Arguments;workingDirectory=$link.WorkingDirectory;description=$link.Description;icon=$link.IconLocation}|ConvertTo-Json -Compress`);
+    `[ordered]@{target=$link.TargetPath;arguments=$link.Arguments;workingDirectory=$link.WorkingDirectory;description=$link.Description;icon=$link.IconLocation;windowStyle=$link.WindowStyle}|ConvertTo-Json -Compress`);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   return parsePowerShellJson(result.stdout);
 }
@@ -285,6 +286,8 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
           assert.ok(link.arguments.includes(`"${launcher}"`), link.arguments);
           assert.ok(link.arguments.includes(`"${canonicalProfile}"`), link.arguments);
           assert.ok(link.arguments.includes('"ChosenService"'), link.arguments);
+          // Programs and Desktop open normally; the sign-in (Startup) entry starts minimized.
+          assert.equal(link.windowStyle, shortcut === shortcutPaths[2] ? 7 : 1, shortcut);
         }
 
         assert.equal(waitForMainWindowTitle(state.pid, 'Murmur'), 'Murmur');

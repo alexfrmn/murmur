@@ -13,8 +13,11 @@ profile. Double-click `Open-Murmur.cmd` or `murmur-tray.exe`: the tray finds the
 last opened or the default one, and says "Murmur is not set up yet" when there is none.
 An explicit `-DataDir` still selects another existing profile.
 The launcher checks the local runtime and actual tray-to-CLI identity before
-opening the menu. It neither creates a profile nor writes client config or login
-startup. A custom service name must be supplied for the initial selection:
+opening the menu. It does not create a profile or write client config. After the
+first successful open it adds a Murmur shortcut to the Start menu, the Desktop and
+the per-user Startup folder, so the tray comes back after sign-in (the service
+already starts with Windows); the Startup entry opens minimized. Delete those
+shortcuts to undo it. A custom service name must be supplied for the initial selection:
 
 ```powershell
 .\Open-Murmur.cmd -DataDir 'C:\Users\you\AppData\Local\Murmur' -ServiceName MurmurDaemon
