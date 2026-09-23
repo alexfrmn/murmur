@@ -230,6 +230,9 @@ function newRows(db, since) {
 }
 
 function skipReason(row) {
+  // Daemon-owned diagnostics are never AI work. Keep their skip in the same
+  // durable ledger as explicit filters before advancing this session's cursor.
+  if (Number(row.wakeEligible) === 0 && String(row.conversationId).startsWith("murmur:doctor:")) return "doctor-protocol";
   if (SKIP_SENDERS.has(row.sender)) return "sender-filtered";
   if (SKIP_CONVERSATIONS.has(row.conversationId)) return "conversation-filtered";
   if (SKIP_INELIGIBLE && Number(row.wakeEligible) === 0) return "wake-ineligible";

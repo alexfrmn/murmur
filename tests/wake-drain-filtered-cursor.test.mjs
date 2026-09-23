@@ -97,6 +97,25 @@ const FILTER = {
 };
 
 for (const { name, run, skip } of runners) {
+  test(`${name}: muted doctor rows are ledgered without waking while ordinary and legacy rows remain visible`, { skip }, t => {
+    const ctx = withDb();
+    t.after(() => { ctx.db.close(); fs.rmSync(ctx.dir, {recursive:true,force:true}); });
+    assert.equal(run(ctx).status, 0);
+    insert(ctx.db, {msgId:'protocol',conversationId:'murmur:doctor:new',wakeEligible:0});
+    insert(ctx.db, {msgId:'ordinary-muted',wakeEligible:0});
+    insert(ctx.db, {msgId:'legacy',conversationId:'murmur:doctor:legacy',wakeEligible:null});
+    const first = run(ctx);
+    assert.equal(first.status, 2);
+    assert.match(first.stderr, /Murmur wake: 2 new inbound message\(s\):/);
+    assert.doesNotMatch(first.stderr, /rowid=1 /);
+    assert.deepEqual(ledgerOf(ctx).map(e=>[e.rowid,e.reason]), [[1,'doctor-protocol']]);
+    assert.equal(cursorOf(ctx), 3);
+    insert(ctx.db, {msgId:'protocol-only',conversationId:'murmur:doctor:next',wakeEligible:0});
+    const second = run(ctx);
+    assert.equal(second.status, 0); assert.equal(second.stderr, '');
+    assert.equal(cursorOf(ctx), 4); assert.equal(ledgerOf(ctx).length, 2);
+  });
+
   test(`${name}: filtered rows are recorded in state, reported rows do not repeat`, { skip }, () => {
     const ctx = withDb();
     assert.equal(run(ctx).status, 0, "first run seeds the cursor at an empty tip");
