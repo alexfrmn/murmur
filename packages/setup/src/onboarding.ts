@@ -9,9 +9,15 @@ import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerCo
 import { writeState } from './state.js';
 import type { ServiceContext } from './types.js';
 
-async function privateText(file: string): Promise<string> {
+type PrivateFile = 'invite-file' | 'reply-file' | 'token-file';
+async function privateText(file: string, role: PrivateFile): Promise<string> {
   if (!path.isAbsolute(file)) throw new Error('onboarding.file-must-be-absolute');
-  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  // Name the option and the reason, never the path or contents: this is what a new user acts on.
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') throw new Error(`onboarding.${role}-not-found`);
+    if (e.code === 'EPERM' || e.code === 'EACCES') throw new Error(`onboarding.${role}-access-denied`);
+    throw e;
+  });
   try {
     const info = await handle.stat();
     if (!info.isFile() || info.size > 16384) throw new Error('onboarding.file-invalid');
@@ -91,7 +97,7 @@ async function saveChanged(c: ServiceContext, previous: AgentConfig | null, next
 const publicPeer = (c: AgentConfig) => ({ agentId: c.agentId, subject: c.subject,
   encryption: { publicKey: c.keys.encryption.publicKey }, signing: { publicKey: c.keys.signing.publicKey } });
 async function readBlob(file: string, prefix: string, type: 'invite' | 'reply') {
-  const text = await privateText(file);
+  const text = await privateText(file, `${type}-file`);
   if (!text.startsWith(prefix)) throw new Error('onboarding.invalid-blob');
   const encoded = text.slice(prefix.length);
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || Buffer.from(encoded, 'base64').toString('base64') !== encoded) throw new Error('onboarding.invalid-blob');
@@ -119,7 +125,7 @@ export async function initialize(c: ServiceContext, options: { agentId: string; 
       // Re-running init never rotates keys or replaces credentials.
       return { schema: 'murmur.init/1', agentId: previous.agentId, dataDir: c.dataDir, existing: true };
     }
-    const token = options.tokenFile ? await privateText(options.tokenFile) : undefined;
+    const token = options.tokenFile ? await privateText(options.tokenFile, 'token-file') : undefined;
     if (token?.includes('\n') || token?.includes('\r')) throw new Error('onboarding.token-file-invalid');
     const config = await newConfig(options.agentId, options.brokerUrl, token);
     await saveChanged(c, null, config);
