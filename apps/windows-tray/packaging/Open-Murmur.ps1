@@ -59,13 +59,21 @@ function Get-LauncherStatePath {
     Assert-OrdinaryDirectory $local 'The per-user application data folder'
     return [IO.Path]::Combine($local,'Murmur','tray-launch-binding.json')
 }
-function Assert-OrdinaryDirectory([string]$path,[string]$label,[switch]$AllowMissing) {
+# True for junctions and symbolic links. A OneDrive file or folder is a cloud-files reparse point
+# without LinkType and does not redirect elsewhere; it is treated as an ordinary item.
+function Test-LinkedItem($item) { return [bool]($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and [bool]$item.LinkType }
+function Assert-OrdinaryDirectory([string]$path,[string]$label,[switch]$AllowMissing,[switch]$AllowCloudFolder) {
     if(-not(Test-Path -LiteralPath $path)){
         if($AllowMissing){return}
         throw "$label is unavailable."
     }
     $item=Get-Item -LiteralPath $path -Force
-    if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw "$label must be an ordinary directory."}
+    if(-not $item.PSIsContainer){throw "$label must be an ordinary directory."}
+    if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){
+        # A Desktop moved into OneDrive is a cloud-files reparse point, not a link: it has no LinkType.
+        # Junctions and symbolic links still redirect writes elsewhere and stay refused.
+        if(-not $AllowCloudFolder -or $item.LinkType){throw "$label must be an ordinary directory."}
+    }
 }
 function Read-LauncherState([string]$path) {
     $parent=[IO.Path]::GetDirectoryName($path)
@@ -102,6 +110,9 @@ function Write-LauncherState([string]$path,$process,[string]$agentId) {
     try{
         [IO.File]::WriteAllText($temporary,(ConvertTo-Json $value -Compress)+"`n",(New-Object Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $temporary -Destination $path -Force
+        # An explicit profile opened here is newer than a choice made earlier in the tray.
+        $trayChoice=[IO.Path]::Combine($parent,'tray-profile.json')
+        if(Test-Path -LiteralPath $trayChoice -PathType Leaf){Remove-Item -LiteralPath $trayChoice -Force}
     }finally{if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force}}
 }
 function Get-ExactTrayProcesses {
@@ -237,29 +248,31 @@ function Get-TrayWindow([int]$processId) {
 function Get-ShortcutPlan {
     $programs=[Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)
     $desktop=[Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
-    foreach($folder in @($programs,$desktop)){
+    # Startup brings the tray back after sign-in; the service already starts with Windows on its own.
+    $startup=[Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+    foreach($folder in @($programs,$desktop,$startup)){
         if([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::IsPathRooted($folder)){throw 'A per-user shortcut folder is unavailable.'}
-        Assert-OrdinaryDirectory $folder 'A per-user shortcut folder'
+        Assert-OrdinaryDirectory $folder 'A per-user shortcut folder' -AllowCloudFolder
     }
-    $powershell=(Get-Item -LiteralPath (Join-Path $PSHOME 'powershell.exe')).FullName
-    $parts=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-NodePath',$NodePath,'-DataDir',$DataDir)
-    if($ServiceName){$parts+=@('-ServiceName',$ServiceName)}
-    $arguments=(($parts | ForEach-Object { Quote-Argument $_ }) -join ' ')
+    # Shortcuts start the tray itself: no PowerShell window. The tray finds the profile and service
+    # this launcher records in tray-launch-binding.json when it opens them.
+    $target=(Get-Item -LiteralPath $tray).FullName
+    $arguments=''
     $description='Open Murmur controls (managed by Murmur)'
     $icon=$iconPath+',0'
     $shell=New-Object -ComObject WScript.Shell
     $plan=@()
-    foreach($path in @((Join-Path $programs 'Murmur.lnk'),(Join-Path $desktop 'Murmur.lnk'))){
+    foreach($path in @((Join-Path $programs 'Murmur.lnk'),(Join-Path $desktop 'Murmur.lnk'),(Join-Path $startup 'Murmur.lnk'))){
         $exists=Test-Path -LiteralPath $path
         if($exists){
             $item=Get-Item -LiteralPath $path -Force
-            if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 1048576){throw "Shortcut location is occupied by an unmanaged item: $path. Remove the old shortcut before opening this selection."}
+            if($item.PSIsContainer -or (Test-LinkedItem $item) -or $item.Length -gt 1048576){throw "Shortcut location is occupied by an unmanaged item: $path. Remove the old shortcut before opening this selection."}
             try{$link=$shell.CreateShortcut($path)}catch{throw "Shortcut location is occupied by an unreadable item: $path. Remove the old shortcut before opening this selection."}
             $savedIcon=([string]$link.IconLocation) -replace ',\s*([0-9]+)$',',$1'
-            if($link.TargetPath -ine $powershell -or $link.Arguments -cne $arguments -or $link.WorkingDirectory -ine $PSScriptRoot -or
+            if($link.TargetPath -ine $target -or $link.Arguments -cne $arguments -or $link.WorkingDirectory -ine $PSScriptRoot -or
                $link.Description -cne $description -or $savedIcon -ine $icon){throw "Shortcut location is occupied by another target: $path. Remove the old shortcut before opening this selection."}
         }
-        $plan+=@{Path=$path;Exists=$exists;Target=$powershell;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon}
+        $plan+=@{Path=$path;Exists=$exists;Target=$target;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon;WindowStyle=1}
     }
     return @($plan)
 }
@@ -273,9 +286,9 @@ function Install-MissingShortcuts($plan) {
             try{
                 $link=$shell.CreateShortcut($temporary)
                 $link.TargetPath=$entry.Target;$link.Arguments=$entry.Arguments;$link.WorkingDirectory=$entry.WorkingDirectory
-                $link.Description=$entry.Description;$link.IconLocation=$entry.Icon;$link.WindowStyle=1;$link.Save()
+                $link.Description=$entry.Description;$link.IconLocation=$entry.Icon;$link.WindowStyle=$entry.WindowStyle;$link.Save()
                 $temporaryItem=Get-Item -LiteralPath $temporary -Force
-                if($temporaryItem.PSIsContainer -or ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $temporaryItem.Length -gt 1048576){throw "The staged shortcut is invalid: $($entry.Path)"}
+                if($temporaryItem.PSIsContainer -or (Test-LinkedItem $temporaryItem) -or $temporaryItem.Length -gt 1048576){throw "The staged shortcut is invalid: $($entry.Path)"}
                 $temporaryBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($temporary))
                 try{[IO.File]::Move($temporary,$entry.Path)}catch{throw "Shortcut location became occupied before it could be created: $($entry.Path)"}
                 $created+=@([pscustomobject]@{Path=$entry.Path;Bytes=$temporaryBytes})
@@ -299,7 +312,7 @@ function Test-ExactCreatedShortcut($created) {
     if($null -eq $created -or -not(Test-Path -LiteralPath $created.Path -PathType Leaf)){return $false}
     try{
         $item=Get-Item -LiteralPath $created.Path -Force
-        if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 1048576){return $false}
+        if((Test-LinkedItem $item) -or $item.Length -gt 1048576){return $false}
         return [Convert]::ToBase64String([IO.File]::ReadAllBytes($created.Path)) -ceq $created.Bytes
     }catch{return $false}
 }
@@ -326,7 +339,7 @@ try {
     $iconPath=Join-Path $PSScriptRoot 'murmur.ico'
     foreach($file in @($cli,$tray,$iconPath)){if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'Extract the complete Windows bundle first: tray, launcher, icon and runtime must remain together.'}}
     $iconItem=Get-Item -LiteralPath $iconPath -Force
-    if(($iconItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $iconItem.Length -lt 22 -or $iconItem.Length -gt 1048576){throw 'The adjacent murmur.ico is not a bounded ordinary icon file.'}
+    if((Test-LinkedItem $iconItem) -or $iconItem.Length -lt 22 -or $iconItem.Length -gt 1048576){throw 'The adjacent murmur.ico is not a bounded ordinary icon file.'}
     $iconHeader=[IO.File]::ReadAllBytes($iconPath)
     if($iconHeader[0] -ne 0 -or $iconHeader[1] -ne 0 -or $iconHeader[2] -ne 1 -or $iconHeader[3] -ne 0 -or $iconHeader[4] -lt 1 -or $iconHeader[5] -ne 0){throw 'The adjacent murmur.ico is invalid.'}
     if(-not $NodePath){
@@ -337,12 +350,10 @@ try {
     $NodePath=(Get-Item -LiteralPath $NodePath).FullName
     if(-not $DataDir){
         if($Check){throw '-Check requires an explicit -DataDir; no dialog is opened.'}
-        Add-Type -AssemblyName System.Windows.Forms
-        $picker=New-Object System.Windows.Forms.FolderBrowserDialog
-        $picker.Description='Select the existing Murmur profile created by CLI init/join.'
-        $picker.ShowNewFolderButton=$false
-        if($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){exit 0}
-        $DataDir=$picker.SelectedPath
+        # No profile named: open the tray itself. It finds the last or default profile, or says Murmur
+        # is not set up and offers to connect to a colleague. A folder dialog helps nobody here.
+        if(@(Get-ExactTrayProcesses).Count -eq 0){Start-Process -FilePath $tray -WorkingDirectory $PSScriptRoot}
+        exit 0
     }
     if(-not [IO.Path]::IsPathRooted($DataDir) -or -not(Test-Path -LiteralPath $DataDir -PathType Container)){throw 'Select an existing absolute profile folder. Initialize it with the CLI first.'}
     $DataDir=(Get-Item -LiteralPath $DataDir).FullName

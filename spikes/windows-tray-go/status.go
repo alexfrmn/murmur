@@ -60,6 +60,8 @@ func presentationMessageKey(code string, missing []string) string {
 		return "status.schema"
 	case "wake.fault":
 		return "status.wakeFault"
+	case "profile.not-configured":
+		return "status.notConfigured"
 	case "peers.unpaired":
 		return "status.unpaired"
 	case "unmeasured":

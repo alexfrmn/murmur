@@ -8,8 +8,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -57,11 +59,13 @@ type app struct {
 	updateRequests                                           chan *bool
 	preferencesPath                                          string
 	guideSignal                                              *launcherGuideSignal
+	instance                                                 *trayInstance
 	mUpdateState, mUpdateVersion, mUpdateTime, mUpdateReason *systray.MenuItem
 	mUpdateCheck, mUpdatePage, mUpdateEnable, mUpdateDisable *systray.MenuItem
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
 	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
+	mConnect, mOpenProfile                            *systray.MenuItem
 	mLanguageRoot, mLangEnglish, mLangRussian, mGuide *systray.MenuItem
 	mHistory                                          []*systray.MenuItem
 	mStages                                           map[string]*systray.MenuItem
@@ -141,12 +145,26 @@ func main() {
 		}
 		return
 	}
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	instance, err := claimTray(trayInstanceKey(exe))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if instance == nil {
+		// Murmur is already running from this bundle; its menu was asked to open.
+		return
+	}
 	guideSignal, err := newLauncherGuideSignal(options.launcherStart)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, tr("guide.failed"))
 		os.Exit(1)
 	}
-	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT"), preferencesPath: preferencesPath, actionResult: "action.none", guideSignal: guideSignal}
+	a := &app{mStages: map[string]*systray.MenuItem{}, pinnedAgent: os.Getenv("MURMUR_EXPECTED_AGENT"), preferencesPath: preferencesPath, actionResult: "action.none", guideSignal: guideSignal, instance: instance}
 	systray.Run(a.onReady, func() {})
 }
 
@@ -157,6 +175,11 @@ func (a *app) onReady() {
 
 	a.mHeader = systray.AddMenuItem(tr("menu.initialStatus"), "")
 	a.mHeader.Disable()
+	// Shown only while no profile exists: the first thing a new user can do from the tray.
+	a.mConnect = systray.AddMenuItem(tr("menu.connect"), tr("menu.connectTooltip"))
+	a.mConnect.Hide()
+	a.mOpenProfile = systray.AddMenuItem(tr("menu.openProfile"), tr("menu.openProfileTooltip"))
+	a.mOpenProfile.Hide()
 	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
 	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
 	for i := 0; i < historyLines; i++ {
@@ -219,6 +242,11 @@ func (a *app) onReady() {
 	go a.refreshDoctor()
 	go a.handleClicks()
 	go a.updateLoop()
+	go func() {
+		for a.instance.wait() {
+			_ = openOwnMenu()
+		}
+	}()
 	if a.guideSignal != nil {
 		go func() {
 			if a.guideSignal.wait() && !guideSeenPreference(a.preferencesPath) {
@@ -276,6 +304,13 @@ func (a *app) render(v Verdict) {
 	a.mu.Unlock()
 	systray.SetTooltip(statusTooltip(v, n, available))
 	a.mHeader.SetTitle(v.Reason)
+	if v.Code == "profile.not-configured" {
+		a.mConnect.Show()
+		a.mOpenProfile.Show()
+	} else {
+		a.mConnect.Hide()
+		a.mOpenProfile.Hide()
+	}
 
 	a.renderRecent()
 	a.renderPeers()
@@ -305,20 +340,23 @@ func (a *app) render(v Verdict) {
 	} else {
 		a.mPause.Disable()
 	}
-	if ready && serviceAdmin() {
+	// Without an elevated token a click asks Windows for consent (UAC) instead of sending the
+	// user to an administrator terminal.
+	if ready {
 		a.mSvcStar.Enable()
 		a.mSvcStop.Enable()
 	} else {
 		a.mSvcStar.Disable()
 		a.mSvcStop.Disable()
 	}
-	if serviceAdmin() {
-		a.mSvcStar.SetTitle(tr("menu.start"))
-		a.mSvcStop.SetTitle(tr("menu.stop"))
-	} else {
-		a.mSvcStar.SetTitle(tr("menu.serviceAdminStart"))
-		a.mSvcStop.SetTitle(tr("menu.serviceAdminStop"))
+	a.mSvcStar.SetTitle(tr("menu.start"))
+	a.mSvcStop.SetTitle(tr("menu.stop"))
+	serviceTip := ""
+	if !serviceAdmin() {
+		serviceTip = tr("menu.serviceElevationTooltip")
 	}
+	a.mSvcStar.SetTooltip(serviceTip)
+	a.mSvcStop.SetTooltip(serviceTip)
 	if paused {
 		a.mPause.SetTitle(tr("menu.resume"))
 	} else {
@@ -391,6 +429,10 @@ func (a *app) handleClicks() {
 			a.changeLocale(localeRussian)
 		case <-a.mGuide.ClickedCh:
 			go a.showGuide()
+		case <-a.mConnect.ClickedCh:
+			go a.connectToColleague()
+		case <-a.mOpenProfile.ClickedCh:
+			go a.openExistingProfile()
 		case <-a.mQuit.ClickedCh:
 			if confirmTrayExit() {
 				systray.Quit()
@@ -434,7 +476,20 @@ func (a *app) runCLI(args ...string) {
 			args[1] = "resume"
 		}
 	}
-	if err == nil {
+	if err == nil && args[0] == "service" && !serviceAdmin() {
+		// The elevated CLI cannot hand its reply back; it exits 0 only after confirming the
+		// requested service state, and the deferred refresh re-reads the status.
+		var b cliBinding
+		if b, err = selectedCLI(); err == nil {
+			err = runElevated(ctx, b.Node, b.arguments(append(args, "--json")), filepath.Dir(b.Entry))
+		}
+		switch {
+		case errors.Is(err, errElevationCancelled):
+			err = fmt.Errorf("%s", tr("action.elevationCancelled"))
+		case errors.Is(err, errElevatedTimeout):
+			err = fmt.Errorf("%s", tr("action.elevatedTimeout"))
+		}
+	} else if err == nil {
 		var out []byte
 		out, err = runRaw(ctx, append(args, "--json")...)
 		if err == nil {
@@ -621,4 +676,80 @@ func (a *app) showGuide() {
 			systray.SetTooltip(tr("guide.saveFailed"))
 		}
 	}
+}
+
+// connectToColleague sets Murmur up from an invitation file without a terminal: the default
+// profile %LOCALAPPDATA%Murmur, a name from the Windows user, the reply saved where the user
+// chooses, one UAC prompt for the service, and the detected AI clients connected.
+func (a *app) connectToColleague() {
+	a.mu.Lock()
+	if a.actionBusy {
+		a.mu.Unlock()
+		return
+	}
+	a.actionBusy = true
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.actionBusy = false; a.mu.Unlock(); a.refreshStatus() }()
+	local := os.Getenv("LOCALAPPDATA")
+	profile := filepath.Join(local, "Murmur")
+	b, err := setupBinding(profile)
+	if err == nil && !filepath.IsAbs(local) {
+		err = errors.New("LOCALAPPDATA")
+	}
+	if err != nil {
+		tell(tr("onboarding.title"), tr("onboarding.noRuntime", err))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	steps := onboardingSteps{
+		pickInvitation: func() (string, bool) { return fileDialog(false, tr("onboarding.pickInvite"), "") },
+		pickReply:      func(suggested string) (string, bool) { return fileDialog(true, tr("onboarding.pickReply"), suggested) },
+		confirm:        askYesNo,
+		inform:         tell,
+		revealFile:     revealAndCopy,
+		exists:         fileExists,
+		cli:            func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
+		elevated: func(args ...string) error {
+			if serviceAdmin() {
+				_, err := runSetupCLI(ctx, b, args...)
+				return err
+			}
+			err := runElevated(ctx, b.Node, append([]string{b.Entry}, args...), filepath.Dir(b.Entry))
+			if errors.Is(err, errElevationCancelled) {
+				return fmt.Errorf("%s", tr("action.elevationCancelled"))
+			}
+			return err
+		},
+	}
+	replyDir := desktopFolder()
+	if replyDir == "" {
+		replyDir = os.Getenv("USERPROFILE")
+	}
+	r, err := runOnboarding(steps, profile, defaultAgentID(os.Getenv("USERNAME")), replyDir)
+	if errors.Is(err, errOnboardingCancelled) {
+		return
+	}
+	if err != nil {
+		tell(tr("onboarding.title"), err.Error())
+		return
+	}
+	tell(tr("onboarding.title"), tr("onboarding.done", r.AgentID))
+}
+
+// openExistingProfile is for people who already made a profile with the CLI: pick its folder,
+// and the tray uses it from now on.
+func (a *app) openExistingProfile() {
+	dir, ok := folderDialog(tr("menu.openProfile"))
+	if !ok {
+		return
+	}
+	if err := chooseTrayProfile(dir); err != nil {
+		tell(tr("menu.openProfile"), err.Error())
+		return
+	}
+	a.mu.Lock()
+	a.pinnedAgent = "" // a different profile is a different identity
+	a.mu.Unlock()
+	a.refreshStatus()
 }
