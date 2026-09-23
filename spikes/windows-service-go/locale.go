@@ -109,6 +109,7 @@ func tr(key string, args ...any) string {
 // localizedError keeps the original error available to errors.Is/errors.As
 // while presenting the selected-language message to a person.
 type localizedError struct {
+	key     string
 	message string
 	cause   error
 }
@@ -117,7 +118,7 @@ func (e *localizedError) Error() string { return e.message }
 func (e *localizedError) Unwrap() error { return e.cause }
 
 func trError(key string, cause error, args ...any) error {
-	return &localizedError{message: tr(key, args...), cause: cause}
+	return &localizedError{key: key, message: tr(key, args...), cause: cause}
 }
 
 type helperArguments struct {
@@ -133,12 +134,12 @@ func parseHelperArguments(args []string) (helperArguments, error) {
 			continue
 		}
 		if i+1 >= len(args) {
-			return result, errors.New("language must be en or ru")
+			return result, trError("error.language", nil)
 		}
 		i++
 		result.locale = strings.ToLower(args[i])
 		if result.locale != "en" && result.locale != "ru" {
-			return result, errors.New("language must be en or ru")
+			return result, trError("error.language", nil)
 		}
 	}
 	return result, nil
