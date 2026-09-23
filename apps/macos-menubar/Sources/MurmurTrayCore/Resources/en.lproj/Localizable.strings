@@ -433,3 +433,8 @@
 "Resume saves the setting. If status says a service restart is required, stop and start this profile's service in Settings." = "Resume saves the setting. If status says a service restart is required, stop and start this profile's service in Settings.";
 "Warning dismissed. Message history was kept; nothing was resent." = "Warning dismissed. Message history was kept; nothing was resent.";
 "Warning restored. Message history is unchanged." = "Warning restored. Message history is unchanged.";
+"Service connected and ready" = "Service connected and ready";
+"Exchange verified" = "Exchange verified";
+"Exchange verification failed" = "Exchange verification failed";
+"Exchange not checked yet" = "Exchange not checked yet";
+"Exchange verification does not test automatic agent wake." = "Exchange verification does not test automatic agent wake.";

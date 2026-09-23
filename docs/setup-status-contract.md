@@ -79,7 +79,8 @@ source; durable records alone must not be described as complete process history.
 An active `outbox.queue.failed > 0` remains red. A terminal DLQ record is a yellow
 `outbox.dead-letter` warning, after current service, wake-fault, broker and peer
 failures have been considered. This deliberately extends the v1 consumer policy
-in TypeScript, Swift and Go together; original fixture bytes remain unchanged.
+in TypeScript, Swift and Go together. The 2.11 readiness change below intentionally
+updates the pairing-only fixture expectation; other original fixtures are unchanged.
 It does not turn an undelivered message into a delivered one.
 
 The Mac profile view shows recipient, original send time and a safe explanation
@@ -106,7 +107,16 @@ peer identity, bound to the current local/remote signing and encryption key
 fingerprints. A matching local config, a decoded reply blob, a process, a NATS
 connection, or an unsigned ACK never establishes mutual pairing. A proof expires
 in 24 hours, immediately on identity/key changes, or on explicit invalidation.
-Without proof the answer is null; a measured mismatch is false. Doctor without a
+Without proof the answer is null; a measured mismatch is false. In 2.11, the overall
+indicator describes measured runtime readiness, not a peer roundtrip or autonomous
+wake. A peer with `paired=null` keeps that value and is shown as **Exchange not
+checked yet** in the Mac connection card and Windows Connections menu. It no longer
+adds a missing runtime field or makes the overall icon grey. `paired=false` still
+warns; an empty/unknown peer list, missing runtime measurements, send/wake failures,
+broker failures and stale snapshots retain their prior verdicts. Green does not
+assert that any peer has replied. Proof expiry/key binding and doctor stages do
+not change. The Windows menu shows the first 20 peers and an explicit remaining
+count; copy diagnostics retains the complete status. Doctor without a
 selected diagnostic peer explains the missing probe instead of silently choosing
 an arbitrary recipient. The probe uses existing encrypted signed envelopes; no
 wire protocol replacement is introduced.
@@ -141,7 +151,8 @@ stopped service. Unknown CLI arguments fail without a fabricated status.
 
 `status --line` is the raw, JSON-free terminal segment documented in
 [terminal integration](terminal-integration.md). It returns empty stdout only for
-a fully measured healthy snapshot with zero unread messages. Unknown, degraded,
+a measured ready runtime with zero unread messages. Unchecked peer proof remains
+in the JSON peer details and desktop UI. Unknown, degraded,
 and failed measurements always return a fixed visible segment. `inbox read`
 returns durable inbound message JSON without changing the read cursor;
 `inbox mark-read` is the only CLI operation that advances that cursor.

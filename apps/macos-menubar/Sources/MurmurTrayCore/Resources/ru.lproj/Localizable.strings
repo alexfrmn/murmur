@@ -433,3 +433,8 @@
 "Resume saves the setting. If status says a service restart is required, stop and start this profile's service in Settings." = "Кнопка сохранит настройку. Если потребуется перезапуск службы, остановите и запустите её в настройках этого профиля.";
 "Warning dismissed. Message history was kept; nothing was resent." = "Предупреждение убрано. История сохранена, повторной отправки не было.";
 "Warning restored. Message history is unchanged." = "Предупреждение возвращено. История сообщений не менялась.";
+"Service connected and ready" = "Служба подключена и готова к работе";
+"Exchange verified" = "Обмен проверен";
+"Exchange verification failed" = "Проверка обмена не пройдена";
+"Exchange not checked yet" = "Обмен ещё не проверен";
+"Exchange verification does not test automatic agent wake." = "Проверка обмена не проверяет автоматическое пробуждение агента.";

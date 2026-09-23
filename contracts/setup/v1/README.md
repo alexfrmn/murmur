@@ -8,7 +8,13 @@ attention only; an inconsistent/missing summary falls back to the actual DLQ cou
 A backlog with both configured and observed wake paused warns
 (`wake.paused-pending`); unapplied pause and recorded wake faults still fail.
 Nine additive fixtures cover this extension across TypeScript, Swift and Go.
-The original fixtures and required wire leaves below are preserved.
+The required wire leaves below are preserved. A second deliberate 2.11 policy
+change separates runtime readiness from peer proof: `paired=null` remains unknown
+in the peer detail but does not make an otherwise ready service grey. A measured
+`paired=false` still warns. The expectation in `status-pairing-unknown.json` is
+intentionally updated to green/ok with no missing runtime field; the other original
+fixtures are unchanged. Three additional fixtures cover two unchecked peers,
+a measured mismatch and an invalid proof value across TS/Swift/Go.
 
 All platforms read this directory directly. Do not keep private fixture copies or
 expected verdict tables. Status files are JSON status responses with reserved test
@@ -27,7 +33,7 @@ freshness, future time, and malformed timestamps reproducible.
 is invalid. Doctor files declare `$expect.valid`; runners must check that an earlier
 failure makes every following stage skip with `blocked-by:<failed-stage>`.
 Status schema failures carry separate codes for missing keys, wrong types and
-invalid counter values. This packet preserves the author's exact fixture bytes.
+invalid counter values. Changes to frozen expectations must be stated here and verified in every consumer.
 
 Run the engine conformance suite after the TypeScript build:
 `node --test tests/setup-contract.test.mjs`.

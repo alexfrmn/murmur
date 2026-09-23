@@ -82,6 +82,7 @@ public struct Verdict: Sendable {
 /// `missingWhy`, and `diagnosticNotes`; the menu reason never interpolates them.
 private enum StatusReason {
     private static let messages = [
+        "status.ready": "Service connected and ready",
         "status.pairingUnknown": "Pairing has not been checked yet — run a check",
         "status.schema": "The status response format is not supported — copy diagnostics for details",
         "status.unavailable": "Status is unavailable — copy diagnostics for details",
@@ -98,6 +99,7 @@ private enum StatusReason {
 
     private static func messageID(code: String, missing: [String]) -> String? {
         switch code {
+        case "ok": return "status.ready"
         case "status.unavailable", "schema.unparsable", "schema.missing-key", "schema.wrong-type", "schema.invalid-value":
             return "status.unavailable"
         case "schema.unknown": return "status.schema"
@@ -129,7 +131,17 @@ public struct StatusSnapshot: Decodable, Sendable {
         public let state: State?
         public let lastError: String?, lastErrorAt: String?
     }
-    public struct Peer: Decodable, Sendable { public let agentId: String; public let paired: Bool? }
+    public struct Peer: Decodable, Sendable {
+        public let agentId: String
+        public let paired: Bool?
+        public var exchangeDescription: String {
+            switch paired {
+            case true: return L10n.text("Exchange verified")
+            case false: return L10n.text("Exchange verification failed")
+            case nil: return L10n.text("Exchange not checked yet")
+            }
+        }
+    }
     public struct Peers: Decodable, Sendable { public let list: [Peer]?; public let unknownReason: String? }
     public struct Inbox: Decodable, Sendable { public let unread: Int?; public let unknownReason: String? }
     public struct Outbox: Decodable, Sendable {
@@ -245,11 +257,11 @@ public struct StatusSnapshot: Decodable, Sendable {
         if let list = peers.list {
             if list.isEmpty { return result(.offline, "peers.none", L10n.text("Connect your first agent")) }
             if list.contains(where: { $0.paired == false }) { return result(.offline, "peers.unpaired", "") }
-            for peer in list where peer.paired == nil { note("peers.list.\(peer.agentId).paired") }
+            // Missing proof is shown per peer; it does not measure runtime health.
         } else { note("peers.list", peers.unknownReason) }
         if inbox.unread == nil { note("inbox.unread", inbox.unknownReason) }
         if let mismatch = modeMismatch { return result(.offline, "wake.mode-mismatch", mismatch) }
-        // Required nullable flags must not silently imply effective/paired state.
+        // Required nullable runtime flags must not silently imply effective state.
         // A source reason already names the same missing measurement when present.
         if wake.config.enabled == nil && wake.config.unknownReason?.isEmpty != false { note("wake.config.enabled") }
         if wake.effective.enabled == nil && wake.effective.unknownReason?.isEmpty != false { note("wake.effective.enabled") }
@@ -259,9 +271,7 @@ public struct StatusSnapshot: Decodable, Sendable {
         if !missing.isEmpty {
             return result(.unknown, "unmeasured", "")
         }
-        let detail = wake.config.responder == "none" ? L10n.text("Connected; automatic replies are not configured")
-            : (wake.effective.enabled == false ? L10n.text("Connected; agent delivery is paused") : L10n.text("Service, broker and connections are working"))
-        return result(.ready, "ok", detail)
+        return result(.ready, "ok", L10n.text("Service connected and ready"))
     }
 
     public var diagnosticNotes: [String] {

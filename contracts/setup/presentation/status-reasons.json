@@ -24,9 +24,20 @@
     "status.wakeFault": {
       "en": "Wake failed — copy diagnostics for details",
       "ru": "Wake не сработал — подробности есть в диагностике"
+    },
+    "status.ready": {
+      "en": "Service connected and ready",
+      "ru": "Служба подключена и готова к работе"
     }
   },
   "rules": [
+    {
+      "codes": [
+        "ok"
+      ],
+      "missing": "any",
+      "messageId": "status.ready"
+    },
     {
       "codes": [
         "status.unavailable",

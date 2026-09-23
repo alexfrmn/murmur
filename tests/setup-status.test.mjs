@@ -38,7 +38,7 @@ test('status reads real durable counters, no local-key-only pairing claim or fil
   const before = await fs.readFile(f.context.configPath);
   const s = await f.read();
   assert.equal(s.outbox.queue.failed, 0); assert.equal(s.inbox.unread, 0);
-  assert.equal(s.peers.list[0].paired, null); assert.equal(statusVerdict(s, now).level, 'grey');
+  assert.equal(s.peers.list[0].paired, null); assert.equal(statusVerdict(s, now).level, 'green');
   assert.deepEqual(await fs.readFile(f.context.configPath), before);
 });
 test('fresh roundtrip proof is bound to identity, keys and one-day expiry', async t => {

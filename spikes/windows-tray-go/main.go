@@ -67,6 +67,8 @@ type app struct {
 	mStages                                           map[string]*systray.MenuItem
 	mRecheck, mPause, mCopy                           *systray.MenuItem
 	mRecent                                           []*systray.MenuItem
+	mPeersRoot                                        *systray.MenuItem
+	mPeers                                            []*systray.MenuItem
 	mSvcStar, mSvcStop, mSvcLogs, mQuit               *systray.MenuItem
 }
 
@@ -172,6 +174,13 @@ func (a *app) onReady() {
 		a.mStages[st.id] = item
 	}
 	a.mRecheck = a.mDoctorRoot.AddSubMenuItem(tr("menu.checkNow"), tr("menu.checkNowTooltip"))
+	a.mPeersRoot = systray.AddMenuItem(tr("peer.connections"), tr("peer.wakeSeparate"))
+	for i := 0; i <= peerMenuLimit; i++ {
+		item := a.mPeersRoot.AddSubMenuItem("", "")
+		item.Disable()
+		item.Hide()
+		a.mPeers = append(a.mPeers, item)
+	}
 	systray.AddSeparator()
 
 	a.mPause = systray.AddMenuItem(tr("menu.pause"), tr("menu.pauseTooltip"))
@@ -269,6 +278,7 @@ func (a *app) render(v Verdict) {
 	a.mHeader.SetTitle(v.Reason)
 
 	a.renderRecent()
+	a.renderPeers()
 
 	for i, item := range a.mHistory {
 		if i < len(v.History) {
@@ -522,6 +532,20 @@ func (a *app) renderLanguageSelection() {
 	}
 }
 
+func (a *app) renderPeers() {
+	a.mu.Lock()
+	lines := peerLinesForStatus(a.status)
+	a.mu.Unlock()
+	for i, item := range a.mPeers {
+		if i < len(lines) {
+			item.SetTitle(lines[i])
+			item.Show()
+		} else {
+			item.Hide()
+		}
+	}
+}
+
 func (a *app) changeLocale(locale string) {
 	if !validLocale(locale) || locale == currentLocale() {
 		return
@@ -537,6 +561,8 @@ func (a *app) changeLocale(locale string) {
 }
 
 func (a *app) applyLocale() {
+	a.mPeersRoot.SetTitle(tr("peer.connections"))
+	a.mPeersRoot.SetTooltip(tr("peer.wakeSeparate"))
 	a.mDoctorRoot.SetTitle(tr("menu.doctor"))
 	a.mDoctorRoot.SetTooltip(tr("menu.doctorTooltip"))
 	a.mRecheck.SetTitle(tr("menu.checkNow"))

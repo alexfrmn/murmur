@@ -190,6 +190,19 @@ struct MurmurHomeView: View {
                 if let agent = model.agentID { Text(L10n.text("Your assistant: %@", agent)) }
             }
             if model.hasSetupSteps { setupSteps }
+            if let peers = model.status?.peers.list, !peers.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(L10n.text("Connections")).font(.headline)
+                    ForEach(peers, id: \.agentId) { peer in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(peer.agentId).font(.subheadline).textSelection(.enabled)
+                            Text(peer.exchangeDescription).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(L10n.text("Exchange verification does not test automatic agent wake."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }.fixedSize(horizontal: false, vertical: true)
+            }
             MurmurOutboxView(model: model)
             if model.status != nil && !model.isDemo { MurmurClientSetupView(model: model) }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
