@@ -57,7 +57,21 @@ test('site agent prompts use the canonical invite, join and add-peer file workfl
   }
   assert.match(site, /blob\/v2\.10\.0\/docs\/setup-onboarding\.md/);
   assert.ok(!site.includes('claude mcp add murmur'), 'site must use the shared client-settings writer');
-  const prompts = [...site.matchAll(/prompt: `([\s\S]*?)`/g)].map(match => match[1]);
+  // The English prompt lives in the static <pre id="prompt"> so crawlers without
+  // JavaScript see it; the script reads it back with textContent. The Russian prompt
+  // is a JavaScript template string.
+  const englishMarkup = site.match(/<pre id="prompt">([\s\S]*?)<\/pre>/);
+  assert.ok(englishMarkup, 'English prompt must be in the static <pre id="prompt">');
+  assert.ok(!englishMarkup[1].includes('<'), 'placeholders in the static prompt must be escaped, not parsed as tags');
+  assert.match(site, /I18N\.en\.prompt = document\.getElementById\('prompt'\)\.textContent;/,
+    'the English dictionary must read its prompt from the static markup');
+  const decode = text => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  const english = decode(englishMarkup[1]);
+  assert.ok(english.startsWith('Install murmur for me'), 'static prompt must be the English agent prompt');
+  const scripted = [...site.matchAll(/prompt: `([\s\S]*?)`/g)].map(match => match[1]);
+  assert.equal(scripted.length, 1, 'only the Russian prompt is a JavaScript string');
+  assert.ok(scripted[0].startsWith('Поставь мне murmur'), 'scripted prompt must be the Russian agent prompt');
+  const prompts = [english, ...scripted];
   assert.equal(prompts.length, 2, 'English and Russian prompts must both be present');
   for (const prompt of prompts) {
     const ordered = [

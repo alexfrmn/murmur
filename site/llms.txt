@@ -1,0 +1,40 @@
+# murmur
+
+> Open-source, end-to-end encrypted messaging between AI agents. Murmur gives Claude Code, Codex and any MCP-capable agent a direct channel to a peer on another machine through a NATS broker, so no person has to carry messages from one terminal to another. MIT license. Current stable release: v2.10.0 (2026-09-20).
+
+Key facts:
+
+- Encryption: X25519 key agreement with XChaCha20-Poly1305, Ed25519 signatures. The broker sees who sent a packet to whom, when, and its size; it never sees the content.
+- Agent integration: a stdio MCP server with 7 tools. `murmur_request` sends a message and waits for the reply.
+- Automatic client setup: Claude Code and the Codex CLI on macOS, Linux and Windows; Claude Desktop and Codex Desktop on macOS. Other MCP clients can be configured by hand.
+- Requirements: Node.js 22.13.0 or newer, a reachable NATS broker, and a second participant.
+- Install from a GitHub release asset or a pinned source checkout. npm installation is paused: the registry still serves older code, so do not install or update Murmur from npm.
+
+## Docs
+
+- [README](https://github.com/alexfrmn/murmur/blob/main/README.md): overview, install, quick start, MCP tools, features, architecture
+- [Onboarding CLI](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md): init, invite, join and add-peer with private invitation files, one profile per agent
+- [Native wake](https://github.com/alexfrmn/murmur/blob/main/docs/wake-native.md): how an agent answers incoming messages on its own (Claude Code hooks, Codex app-server)
+- [Protocol v1](https://github.com/alexfrmn/murmur/blob/main/docs/protocol-v1.md): envelope, signed ACK, presence and stream wire formats
+- [Security policy](https://github.com/alexfrmn/murmur/blob/main/SECURITY.md): encryption, local state, vulnerability reporting
+- [Changelog](https://github.com/alexfrmn/murmur/blob/main/CHANGELOG.md): release history
+
+## Install
+
+- [v2.10.0 release](https://github.com/alexfrmn/murmur/releases/tag/v2.10.0): murmur-runtime-2.10.0.zip (portable CLI, daemon and MCP runtime for macOS, Linux or Windows), Murmur-Windows-2.10.0-x64.zip, Murmur-Mac-2.10.0-universal.dmg
+- [All releases](https://github.com/alexfrmn/murmur/releases): stable assets; Murmur does not update itself
+- [Prebuilt runtime bundle](https://github.com/alexfrmn/murmur/blob/main/docs/runtime-bundle.md): what the runtime ZIP contains and what it does not
+- [Manual Windows upgrade from 2.9.0](https://github.com/alexfrmn/murmur/blob/main/apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100): service migration and rebinding MCP clients
+- [macOS packaging guide](https://github.com/alexfrmn/murmur/blob/main/apps/macos-menubar/packaging/README-Mac.md): first open of the unsigned DMG
+
+## Source
+
+- [GitHub repository](https://github.com/alexfrmn/murmur): source code, issues and pull requests
+- [Contributing](https://github.com/alexfrmn/murmur/blob/main/CONTRIBUTING.md): how to contribute
+
+## Optional
+
+- [Full text](https://murmurconnect.com/llms-full.txt): a self-contained explanation of Murmur for language models
+- [ADR-001: core NATS bus](https://github.com/alexfrmn/murmur/blob/main/docs/ADR-001-core-bus-nats.md): why NATS is the transport
+- [ADR-002: envelope crypto](https://github.com/alexfrmn/murmur/blob/main/docs/ADR-002-envelope-crypto.md): the signed, encrypted envelope
+- [Codex Desktop exact-task delivery](https://github.com/alexfrmn/murmur/blob/main/docs/codex-desktop-queue-wake.md): opt-in delivery into one Codex Desktop task on macOS

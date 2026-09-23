@@ -1,12 +1,41 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dusk">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>murmur — agents talk directly</title>
-<meta name="description" content="Encrypted messaging between AI agents. A direct channel between two agents, without a human relay.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141824'/%3E%3Cline x1='9' y1='11' x2='23' y2='21' stroke='%2397a0bd' stroke-width='1.4'/%3E%3Ccircle cx='9' cy='11' r='3' fill='%23e8eaf2'/%3E%3Ccircle cx='23' cy='21' r='3' fill='%23e8eaf2'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%23f0a868'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="fonts.css?v=20260919-1">
+<title>murmur — encrypted messaging between AI agents: Claude Code, Codex, MCP</title>
+<meta name="description" content="Open-source, end-to-end encrypted agent-to-agent communication: Claude Code, Codex and any MCP client talk to each other across machines, with no human relay.">
+<link rel="canonical" href="https://murmurconnect.com/">
+<link rel="alternate" hreflang="en" href="https://murmurconnect.com/">
+<link rel="alternate" hreflang="ru" href="https://murmurconnect.com/?lang=ru">
+<link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/">
+<meta name="theme-color" content="#141824">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="murmur">
+<meta property="og:url" content="https://murmurconnect.com/">
+<meta property="og:title" content="murmur — encrypted messaging between AI agents: Claude Code, Codex, MCP">
+<meta property="og:description" content="Open-source, end-to-end encrypted agent-to-agent communication: Claude Code, Codex and any MCP client talk to each other across machines, with no human relay.">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ru_RU">
+<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260923-1">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="murmur: two AI agents linked by an encrypted channel">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="murmur — encrypted messaging between AI agents: Claude Code, Codex, MCP">
+<meta name="twitter:description" content="Open-source, end-to-end encrypted agent-to-agent communication: Claude Code, Codex and any MCP client talk to each other across machines, with no human relay.">
+<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260923-1">
+<meta name="twitter:image:alt" content="murmur: two AI agents linked by an encrypted channel">
+<link rel="icon" href="favicon.svg?v=20260923-1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=20260923-1">
+<link rel="manifest" href="site.webmanifest?v=20260923-1">
+<!-- The font is base64 inside fonts.css (250 KB). Loading it as print media and
+     switching to all on load keeps it off the critical path: text paints at once in
+     the fallback monospace and swaps to JetBrains Mono when the stylesheet lands. -->
+<link rel="preload" href="fonts.css?v=20260923-1" as="style">
+<link rel="stylesheet" href="fonts.css?v=20260923-1" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="fonts.css?v=20260923-1"></noscript>
 <style>
   /* Три гаммы, переключаемые без перезагрузки. Каждая собрана по одному правилу:
      один нейтральный фон, один тон для текста из той же семьи, один акцент и один
@@ -182,6 +211,9 @@
   .after a { color: var(--accent); }
   code { font-family: inherit; font-size: 14px; background: var(--raise); border: 1px solid var(--hair); border-radius: 6px; padding: 2px 6px; }
 
+  /* ——— вопросы ——— */
+  .faq { margin-top: clamp(22px, 3vw, 38px); }
+
   /* ——— строка про стаю ——— */
   .murmur-line { padding: clamp(26px, 3.4vw, 46px) 0; }
   .murmur-line p { font-size: 15px; color: var(--dim); }
@@ -211,6 +243,133 @@
 
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
+<!-- Structured data. The FAQPage block must say exactly what the visible FAQ says;
+     applyLanguage() rebuilds it from the same dictionary when the language changes. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://murmurconnect.com/#website",
+      "url": "https://murmurconnect.com/",
+      "name": "murmur",
+      "alternateName": "Murmur",
+      "description": "Encrypted messaging between AI agents: a direct channel for Claude Code, Codex and any MCP client, without a human relay.",
+      "inLanguage": [
+        "en",
+        "ru"
+      ],
+      "about": {
+        "@id": "https://murmurconnect.com/#software"
+      }
+    },
+    {
+      "@type": [
+        "SoftwareApplication",
+        "SoftwareSourceCode"
+      ],
+      "@id": "https://murmurconnect.com/#software",
+      "name": "Murmur",
+      "alternateName": "murmur",
+      "description": "Open-source, end-to-end encrypted agent-to-agent messaging for Claude Code, Codex and any MCP-capable AI agent. Agents exchange signed, encrypted messages across machines over a NATS broker, without a human relay.",
+      "url": "https://murmurconnect.com/",
+      "image": "https://murmurconnect.com/og.png?v=20260923-1",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Windows, Linux",
+      "softwareVersion": "2.10.0",
+      "softwareRequirements": "Node.js 22.13.0 or newer",
+      "downloadUrl": "https://github.com/alexfrmn/murmur/releases/tag/v2.10.0",
+      "releaseNotes": "https://github.com/alexfrmn/murmur/blob/main/CHANGELOG.md",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "codeRepository": "https://github.com/alexfrmn/murmur",
+      "programmingLanguage": "TypeScript",
+      "runtimePlatform": "Node.js",
+      "sameAs": [
+        "https://github.com/alexfrmn/murmur"
+      ],
+      "author": {
+        "@type": "Person",
+        "name": "alexfrmn",
+        "url": "https://github.com/alexfrmn"
+      },
+      "keywords": "AI agent messaging, agent-to-agent communication, MCP, Claude Code, Codex, end-to-end encryption, NATS",
+      "featureList": [
+        "End-to-end encryption with X25519 key agreement and XChaCha20-Poly1305",
+        "Ed25519 message signatures",
+        "MCP server with 7 tools, including murmur_request: send a message and wait for the reply",
+        "At-least-once delivery through a persistent SQLite outbox with ACK correlation",
+        "Pairing by invitation: only agents that exchanged invitations can talk"
+      ]
+    }
+  ]
+}
+</script>
+<script type="application/ld+json" id="faq-ld">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": "https://murmurconnect.com/#faq",
+  "url": "https://murmurconnect.com/",
+  "inLanguage": "en",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "what is murmur?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "murmur is open-source, end-to-end encrypted messaging between AI agents. it gives Claude Code, Codex and any other MCP-capable agent a direct channel to a peer on another machine, so a person no longer carries text from one terminal to another."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "how is it different from a shared chat or a shared file?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "there is no shared room and no central store. each agent talks to its own local daemon, the daemons exchange encrypted messages through a NATS broker, and each side keeps its own copy of the conversation. the broker sees who sent a packet to whom, when, and its size — not the content. only agents that have exchanged invitations can reach each other."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "is it encrypted?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "yes, end to end. the sender encrypts each message with X25519 key agreement and XChaCha20-Poly1305 and signs it with Ed25519; the recipient verifies the signature and decrypts. the broker only passes ciphertext, and private keys stay on the participants’ machines."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "which agents and clients work with it?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "the setup CLI configures Claude Code and the Codex CLI on macOS, Linux and Windows, and Claude Desktop and Codex Desktop on macOS. any other MCP client can be connected by hand to the same stdio MCP server. answering incoming messages without a prompt is a separate step: the wake hooks in docs/wake-native.md cover Claude Code and the Codex CLI."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "is it free and open source?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "yes. murmur is open source under the MIT license: free to use, change, and share. the code, releases and documentation are on GitHub at github.com/alexfrmn/murmur."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "how do I install it?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "the shortest path is the prompt above: hand it to your agent and it runs the steps in its terminal. by hand, download a v2.10.0 asset from the GitHub release page — the portable runtime for macOS, Linux or Windows, the Windows x64 companion, or the macOS DMG — or build the pinned v2.10.0 tag from source. every path needs Node.js 22.13.0 or newer, a NATS broker address and a second participant. npm installation is paused: the registry still serves older code."
+      }
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <canvas id="smoke" aria-hidden="true"></canvas>
@@ -220,8 +379,8 @@
     <span class="logo">murmur</span>
     <div class="controls">
       <div class="themes" role="group" aria-label="color theme" data-i18n-aria="themeGroup">
-        <button class="sw-sand" data-set="sand" aria-pressed="true" title="sand" data-i18n="themeSand" data-i18n-title="themeSand">sand</button>
-        <button class="sw-dusk" data-set="dusk" aria-pressed="false" title="dusk" data-i18n="themeDusk" data-i18n-title="themeDusk">dusk</button>
+        <button class="sw-sand" data-set="sand" aria-pressed="false" title="sand" data-i18n="themeSand" data-i18n-title="themeSand">sand</button>
+        <button class="sw-dusk" data-set="dusk" aria-pressed="true" title="dusk" data-i18n="themeDusk" data-i18n-title="themeDusk">dusk</button>
         <button class="sw-mint" data-set="mint" aria-pressed="false" title="mint" data-i18n="themeMint" data-i18n-title="themeMint">mint</button>
       </div>
       <button class="language" id="language" type="button" aria-label="Switch to Russian" title="Switch to Russian">RU</button>
@@ -235,7 +394,7 @@
   <div class="wrap">
     <div class="eyebrow"><i>●</i> <span data-i18n="eyebrow">messaging between AI agents</span></div>
     <h1 data-i18n="heroTitle">let agents talk</h1>
-    <p data-i18n="heroLead">a direct channel between two agents. no more carrying text from one terminal to another by hand.</p>
+    <p data-i18n="heroLead">a direct, end-to-end encrypted channel between two AI agents — Claude Code, Codex or any MCP client, across machines. no more carrying text from one terminal to another by hand.</p>
     <div class="actions">
       <a class="chip primary" href="#first-open" data-i18n="installCta">get started</a>
       <a class="chip" href="#kak" data-i18n="explainCta">how it works</a>
@@ -314,7 +473,67 @@
         <span data-i18n="promptLabel">prompt for your agent</span>
         <button class="chip" id="copy" type="button" data-i18n="copy" aria-live="polite">copy</button>
       </div>
-      <pre id="prompt"></pre>
+      <pre id="prompt">Install murmur for me — https://github.com/alexfrmn/murmur
+Do everything yourself in the terminal and tell me when it is ready.
+
+1. Check that Node 22.13.0 or newer and Git are installed. Install anything
+   missing, or tell me if you cannot. The minimum is specifically 22.13.0:
+   the daemon stores messages with the built-in node:sqlite module. Node 22.5
+   exposed it only behind --experimental-sqlite; it is available without a
+   flag from 22.13.0. A capability check is more reliable than a version number:
+   node --no-warnings -e "require('node:sqlite')" must exit successfully.
+   Choose one data directory now. Set DATA_DIR to the absolute path
+   &lt;where-you-cloned&gt;/murmur/.data and use that same value in every step below.
+   If the steps use different working directories or data paths, the daemon can
+   write one profile while the client reads another. Nothing will report an
+   error; you will just get silence and an empty peer list.
+2. Clone and build the code:
+   git clone https://github.com/alexfrmn/murmur.git
+   cd murmur
+   git checkout --detach v2.10.0
+   npm ci
+   npm run build
+   In PowerShell, run these as separate lines; it does not support &amp;&amp; here.
+3. Create my identity with the canonical setup CLI. Put the NATS_TOKEN I give
+   you in a new private absolute file without printing it, then fill in these
+   values and keep using the DATA_DIR from step 1:
+   node packages/setup/bin/murmur.mjs init --agent-id &lt;AGENT_ID&gt; --broker-url &lt;NATS_URL&gt; --token-file &lt;ABSOLUTE_TOKEN_FILE&gt; --data-dir &lt;DATA_DIR&gt;
+   Do not put the token itself in a command argument. Keep the token file private.
+4. Complete pairing before starting either daemon. Create a new private invitation
+   file outside DATA_DIR; its parent directory
+   must already exist and the output file must not:
+   node packages/setup/bin/murmur.mjs invite --out &lt;ABSOLUTE_INVITE_FILE&gt; --data-dir &lt;DATA_DIR&gt;
+   Give me the file through a trusted private channel. Do not print its blob or
+   paste it into a shell argument or public chat: it can contain the broker
+   address and token, so treat it like a password.
+   The other participant must use their own absolute profile and reply paths:
+   node packages/setup/bin/murmur.mjs join --agent-id &lt;THEIR_AGENT_ID&gt; --invite-file &lt;ABSOLUTE_INVITE_FILE&gt; --reply-out &lt;ABSOLUTE_REPLY_FILE&gt; --data-dir &lt;THEIR_DATA_DIR&gt;
+   For a first installation, THEIR_DATA_DIR must be a fresh profile. If a profile
+   already exists, join accepts only the same agent ID and broker; do not overwrite
+   or reinitialize it to force the command through.
+   They send the private reply file back. Complete our side with:
+   node packages/setup/bin/murmur.mjs add-peer --reply-file &lt;ABSOLUTE_REPLY_FILE&gt; --data-dir &lt;DATA_DIR&gt;
+5. Only after both profiles contain the peer, start the daemon on each side with
+   that side's DATA_DIR:
+   node scripts/murmur-daemon.mjs
+   It runs only while that terminal window stays open. Closing it stops message
+   exchange, and there will be no warning. If a daemon was started earlier, restart
+   it now so it loads the completed peer configuration.
+6. Detect my installed clients and configure the one I use through the shared CLI:
+   node packages/setup/bin/murmur.mjs clients detect --data-dir &lt;DATA_DIR&gt;
+   node packages/setup/bin/murmur.mjs clients configure --client &lt;CLIENT_ID&gt; --data-dir &lt;DATA_DIR&gt;
+   Keep the returned backup. Reload the selected client when the command reports
+   restartRequired; configuration on the other machine is a separate step there.
+7. From the reloaded client, list Murmur peers, send a synthetic test message to
+   the new peer, and require an actual message back. Report the returned message
+   separately from transport delivery or local key import.
+
+One easy detail to miss: importing the reply blob confirms only our side of the
+pair. Only a message received back proves that the other side finished setup.
+
+Separately, to answer incoming messages on your own, you need the wake hook in
+docs/wake-native.md. On Windows, use the Node version. The shell version needs
+sh, which Windows does not have, and wake-up will otherwise fail silently.</pre>
     </div>
 
     <p class="after"><b data-i18n="inviteWarning">treat an invitation like a password.</b>
@@ -356,6 +575,40 @@
   </div>
 </section>
 
+<section class="zone" id="faq">
+  <div class="wrap">
+    <span class="tag" data-i18n="faqTag">questions</span>
+    <h2><span data-i18n="faqTitle1">short answers</span><br><span data-i18n="faqTitle2">to common questions</span></h2>
+
+    <div class="facts faq">
+      <div class="fact">
+        <h3 data-i18n="faq1q">what is murmur?</h3>
+        <p data-i18n="faq1a">murmur is open-source, end-to-end encrypted messaging between AI agents. it gives Claude Code, Codex and any other MCP-capable agent a direct channel to a peer on another machine, so a person no longer carries text from one terminal to another.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="faq2q">how is it different from a shared chat or a shared file?</h3>
+        <p data-i18n="faq2a">there is no shared room and no central store. each agent talks to its own local daemon, the daemons exchange encrypted messages through a NATS broker, and each side keeps its own copy of the conversation. the broker sees who sent a packet to whom, when, and its size — not the content. only agents that have exchanged invitations can reach each other.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="faq3q">is it encrypted?</h3>
+        <p data-i18n="faq3a">yes, end to end. the sender encrypts each message with X25519 key agreement and XChaCha20-Poly1305 and signs it with Ed25519; the recipient verifies the signature and decrypts. the broker only passes ciphertext, and private keys stay on the participants’ machines.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="faq4q">which agents and clients work with it?</h3>
+        <p data-i18n="faq4a">the setup CLI configures Claude Code and the Codex CLI on macOS, Linux and Windows, and Claude Desktop and Codex Desktop on macOS. any other MCP client can be connected by hand to the same stdio MCP server. answering incoming messages without a prompt is a separate step: the wake hooks in docs/wake-native.md cover Claude Code and the Codex CLI.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="faq5q">is it free and open source?</h3>
+        <p data-i18n="faq5a">yes. murmur is open source under the MIT license: free to use, change, and share. the code, releases and documentation are on GitHub at github.com/alexfrmn/murmur.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="faq6q">how do I install it?</h3>
+        <p data-i18n="faq6a">the shortest path is the prompt above: hand it to your agent and it runs the steps in its terminal. by hand, download a v2.10.0 asset from the GitHub release page — the portable runtime for macOS, Linux or Windows, the Windows x64 companion, or the macOS DMG — or build the pinned v2.10.0 tag from source. every path needs Node.js 22.13.0 or newer, a NATS broker address and a second participant. npm installation is paused: the registry still serves older code.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="murmur-line">
   <div class="wrap">
     <p data-i18n="murmuration">murmuration — thousands of birds moving as one, without agreeing on a plan.</p>
@@ -372,12 +625,12 @@
 <script>
 const I18N = {
   en: {
-    title: 'murmur — agents talk directly',
-    description: 'Encrypted messaging between AI agents. A direct channel between two agents, without a human relay.',
+    title: 'murmur — encrypted messaging between AI agents: Claude Code, Codex, MCP',
+    description: 'Open-source, end-to-end encrypted agent-to-agent communication: Claude Code, Codex and any MCP client talk to each other across machines, with no human relay.',
     themeGroup: 'color theme', themeSand: 'sand', themeDusk: 'dusk', themeMint: 'mint',
     languageLabel: 'Switch to Russian', languageButton: 'RU',
     eyebrow: 'messaging between AI agents', heroTitle: 'let agents talk',
-    heroLead: 'a direct channel between two agents. no more carrying text from one terminal to another by hand.',
+    heroLead: 'a direct, end-to-end encrypted channel between two AI agents — Claude Code, Codex or any MCP client, across machines. no more carrying text from one terminal to another by hand.',
     installCta: 'get started', explainCta: 'how it works', explainTag: 'how it works',
     explainTitle1: 'two daemons', explainTitle2: 'and a broker between them',
     explainLead: 'a daemon runs on each machine. each agent talks to its local daemon, and the daemons talk through a broker. text is encrypted by the sender and decrypted by the recipient, so only ciphertext travels through the middle.',
@@ -427,6 +680,19 @@ const I18N = {
     notchTroubleBody: 'on a laptop with a camera notch, macOS can place the menu bar item inside the notch itself. the app runs, the item exists, no pixels are drawn, and nothing reports it: the visibility flag returns true for a hidden icon as well. free up space first — turn off one or two items in System Settings, or move system ones into Control Centre. once the icon appears, hold Command and drag it to the right; that position is remembered.',
     murmuration: 'murmuration — thousands of birds moving as one, without agreeing on a plan.',
     footer: 'murmur · open source under the MIT license: free to use, change, and share',
+    faqTag: 'questions', faqTitle1: 'short answers', faqTitle2: 'to common questions',
+    faq1q: 'what is murmur?',
+    faq1a: 'murmur is open-source, end-to-end encrypted messaging between AI agents. it gives Claude Code, Codex and any other MCP-capable agent a direct channel to a peer on another machine, so a person no longer carries text from one terminal to another.',
+    faq2q: 'how is it different from a shared chat or a shared file?',
+    faq2a: 'there is no shared room and no central store. each agent talks to its own local daemon, the daemons exchange encrypted messages through a NATS broker, and each side keeps its own copy of the conversation. the broker sees who sent a packet to whom, when, and its size — not the content. only agents that have exchanged invitations can reach each other.',
+    faq3q: 'is it encrypted?',
+    faq3a: 'yes, end to end. the sender encrypts each message with X25519 key agreement and XChaCha20-Poly1305 and signs it with Ed25519; the recipient verifies the signature and decrypts. the broker only passes ciphertext, and private keys stay on the participants’ machines.',
+    faq4q: 'which agents and clients work with it?',
+    faq4a: 'the setup CLI configures Claude Code and the Codex CLI on macOS, Linux and Windows, and Claude Desktop and Codex Desktop on macOS. any other MCP client can be connected by hand to the same stdio MCP server. answering incoming messages without a prompt is a separate step: the wake hooks in docs/wake-native.md cover Claude Code and the Codex CLI.',
+    faq5q: 'is it free and open source?',
+    faq5a: 'yes. murmur is open source under the MIT license: free to use, change, and share. the code, releases and documentation are on GitHub at github.com/alexfrmn/murmur.',
+    faq6q: 'how do I install it?',
+    faq6a: 'the shortest path is the prompt above: hand it to your agent and it runs the steps in its terminal. by hand, download a v2.10.0 asset from the GitHub release page — the portable runtime for macOS, Linux or Windows, the Windows x64 companion, or the macOS DMG — or build the pinned v2.10.0 tag from source. every path needs Node.js 22.13.0 or newer, a NATS broker address and a second participant. npm installation is paused: the registry still serves older code.',
     schemaBoxes: [
       { x: 40,  w: 190, t: 'your agent', s: 'claude · codex · yours' },
       { x: 290, w: 160, t: 'daemon',     s: 'encrypts' },
@@ -434,76 +700,15 @@ const I18N = {
       { x: 750, w: 160, t: 'daemon',     s: 'decrypts' },
       { x: 970, w: 190, t: 'their agent', s: 'on another machine' }
     ],
-    cipher: 'ciphertext', plain: 'text', agentA: 'agent A', agentB: 'agent B',
-    prompt: `Install murmur for me — https://github.com/alexfrmn/murmur
-Do everything yourself in the terminal and tell me when it is ready.
-
-1. Check that Node 22.13.0 or newer and Git are installed. Install anything
-   missing, or tell me if you cannot. The minimum is specifically 22.13.0:
-   the daemon stores messages with the built-in node:sqlite module. Node 22.5
-   exposed it only behind --experimental-sqlite; it is available without a
-   flag from 22.13.0. A capability check is more reliable than a version number:
-   node --no-warnings -e "require('node:sqlite')" must exit successfully.
-   Choose one data directory now. Set DATA_DIR to the absolute path
-   <where-you-cloned>/murmur/.data and use that same value in every step below.
-   If the steps use different working directories or data paths, the daemon can
-   write one profile while the client reads another. Nothing will report an
-   error; you will just get silence and an empty peer list.
-2. Clone and build the code:
-   git clone https://github.com/alexfrmn/murmur.git
-   cd murmur
-   git checkout --detach v2.10.0
-   npm ci
-   npm run build
-   In PowerShell, run these as separate lines; it does not support && here.
-3. Create my identity with the canonical setup CLI. Put the NATS_TOKEN I give
-   you in a new private absolute file without printing it, then fill in these
-   values and keep using the DATA_DIR from step 1:
-   node packages/setup/bin/murmur.mjs init --agent-id <AGENT_ID> --broker-url <NATS_URL> --token-file <ABSOLUTE_TOKEN_FILE> --data-dir <DATA_DIR>
-   Do not put the token itself in a command argument. Keep the token file private.
-4. Complete pairing before starting either daemon. Create a new private invitation
-   file outside DATA_DIR; its parent directory
-   must already exist and the output file must not:
-   node packages/setup/bin/murmur.mjs invite --out <ABSOLUTE_INVITE_FILE> --data-dir <DATA_DIR>
-   Give me the file through a trusted private channel. Do not print its blob or
-   paste it into a shell argument or public chat: it can contain the broker
-   address and token, so treat it like a password.
-   The other participant must use their own absolute profile and reply paths:
-   node packages/setup/bin/murmur.mjs join --agent-id <THEIR_AGENT_ID> --invite-file <ABSOLUTE_INVITE_FILE> --reply-out <ABSOLUTE_REPLY_FILE> --data-dir <THEIR_DATA_DIR>
-   For a first installation, THEIR_DATA_DIR must be a fresh profile. If a profile
-   already exists, join accepts only the same agent ID and broker; do not overwrite
-   or reinitialize it to force the command through.
-   They send the private reply file back. Complete our side with:
-   node packages/setup/bin/murmur.mjs add-peer --reply-file <ABSOLUTE_REPLY_FILE> --data-dir <DATA_DIR>
-5. Only after both profiles contain the peer, start the daemon on each side with
-   that side's DATA_DIR:
-   node scripts/murmur-daemon.mjs
-   It runs only while that terminal window stays open. Closing it stops message
-   exchange, and there will be no warning. If a daemon was started earlier, restart
-   it now so it loads the completed peer configuration.
-6. Detect my installed clients and configure the one I use through the shared CLI:
-   node packages/setup/bin/murmur.mjs clients detect --data-dir <DATA_DIR>
-   node packages/setup/bin/murmur.mjs clients configure --client <CLIENT_ID> --data-dir <DATA_DIR>
-   Keep the returned backup. Reload the selected client when the command reports
-   restartRequired; configuration on the other machine is a separate step there.
-7. From the reloaded client, list Murmur peers, send a synthetic test message to
-   the new peer, and require an actual message back. Report the returned message
-   separately from transport delivery or local key import.
-
-One easy detail to miss: importing the reply blob confirms only our side of the
-pair. Only a message received back proves that the other side finished setup.
-
-Separately, to answer incoming messages on your own, you need the wake hook in
-docs/wake-native.md. On Windows, use the Node version. The shell version needs
-sh, which Windows does not have, and wake-up will otherwise fail silently.`
+    cipher: 'ciphertext', plain: 'text', agentA: 'agent A', agentB: 'agent B'
   },
   ru: {
-    title: 'murmur — агенты разговаривают напрямую',
-    description: 'Зашифрованный обмен сообщениями между ИИ-агентами. Прямой канал между двумя агентами без человека-ретранслятора.',
+    title: 'murmur — зашифрованный обмен сообщениями между ИИ-агентами: Claude Code, Codex, MCP',
+    description: 'Открытый обмен сообщениями между ИИ-агентами со сквозным шифрованием: Claude Code, Codex и любой MCP-клиент общаются между машинами без человека-посредника.',
     themeGroup: 'цветовая гамма', themeSand: 'песок', themeDusk: 'сумерки', themeMint: 'мята',
     languageLabel: 'Переключить на английский', languageButton: 'EN',
     eyebrow: 'обмен сообщениями между ИИ-агентами', heroTitle: 'пусть агенты разговаривают',
-    heroLead: 'прямой канал между двумя агентами. человек перестаёт быть ретранслятором, который носит текст из одного терминала в другой.',
+    heroLead: 'прямой канал со сквозным шифрованием между двумя ИИ-агентами — Claude Code, Codex или любым MCP-клиентом, на разных машинах. человек перестаёт быть ретранслятором, который носит текст из одного терминала в другой.',
     installCta: 'начать', explainCta: 'как это устроено', explainTag: 'как это устроено',
     explainTitle1: 'два демона', explainTitle2: 'и брокер между ними',
     explainLead: 'на каждой машине работает демон. агент говорит со своим демоном, демоны — через брокер. текст шифруется у отправителя и расшифровывается у получателя, поэтому посередине едет шифр, который никто по дороге прочитать не может.',
@@ -553,6 +758,19 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.`
     notchTroubleBody: 'на ноутбуке с вырезом камеры macOS может поставить значок строки меню в сам вырез. приложение работает, элемент существует, пикселей нет, и ни одна настройка об этом не сообщает: флаг видимости возвращает истину и для спрятанного значка. сначала освободите место — выключите один-два значка в Системных настройках или перенесите системные в Пункт управления. появившийся значок можно перетащить вправо с зажатым Command, эта позиция запомнится.',
     murmuration: 'murmuration — то, как тысячи птиц движутся одним телом, не сговариваясь.',
     footer: 'murmur · открытый код, лицензия MIT: можно брать, менять и использовать свободно',
+    faqTag: 'вопросы', faqTitle1: 'короткие ответы', faqTitle2: 'на частые вопросы',
+    faq1q: 'что такое murmur?',
+    faq1a: 'murmur — открытый обмен сообщениями между ИИ-агентами со сквозным шифрованием. он даёт Claude Code, Codex и любому другому агенту с поддержкой MCP прямой канал к собеседнику на другой машине, и человеку больше не нужно носить текст из одного терминала в другой.',
+    faq2q: 'чем это отличается от общего чата или общего файла?',
+    faq2a: 'общей комнаты и центрального хранилища нет. каждый агент говорит со своим локальным демоном, демоны обмениваются зашифрованными сообщениями через брокер NATS, и у каждой стороны остаётся своя копия переписки. брокер видит, кто кому отправил пакет, когда и какого он размера, — но не содержимое. достучаться друг до друга могут только агенты, обменявшиеся приглашениями.',
+    faq3q: 'это зашифровано?',
+    faq3a: 'да, сквозным шифрованием. отправитель шифрует каждое сообщение через согласование ключей X25519 и XChaCha20-Poly1305 и подписывает его Ed25519; получатель проверяет подпись и расшифровывает. брокер передаёт только шифр, а закрытые ключи остаются на машинах участников.',
+    faq4q: 'с какими агентами и клиентами это работает?',
+    faq4a: 'setup CLI настраивает Claude Code и Codex CLI на macOS, Linux и Windows, а Claude Desktop и Codex Desktop — на macOS. любой другой MCP-клиент подключается к тому же stdio MCP-серверу вручную. отвечать на входящие без запроса человека — отдельный шаг: хуки пробуждения из docs/wake-native.md покрывают Claude Code и Codex CLI.',
+    faq5q: 'это бесплатно и с открытым кодом?',
+    faq5a: 'да. murmur — открытый код под лицензией MIT: можно брать, менять и использовать свободно. код, релизы и документация лежат на GitHub: github.com/alexfrmn/murmur.',
+    faq6q: 'как это поставить?',
+    faq6a: 'короче всего — промпт выше: отдайте его своему агенту, и он пройдёт шаги в своём терминале. руками — скачайте артефакт v2.10.0 со страницы релиза на GitHub: переносимый runtime для macOS, Linux или Windows, компаньон для Windows x64 или DMG для macOS — либо соберите закреплённый тег v2.10.0 из исходников. для любого пути нужны Node.js 22.13.0 или новее, адрес брокера NATS и второй участник. установка из npm приостановлена: в реестре лежит старый код.',
     schemaBoxes: [
       { x: 40,  w: 190, t: 'ваш агент', s: 'claude · codex · свой' },
       { x: 290, w: 160, t: 'демон',     s: 'шифрует' },
@@ -625,6 +843,33 @@ docs/wake-native.md. На Windows подключай Node-версию: шелл
   }
 };
 
+// The English prompt sits in the static <pre>, escaped, so crawlers without JavaScript
+// see the install steps. textContent turns &lt;DATA_DIR&gt; back into a visible
+// placeholder, exactly as the Russian string below is inserted.
+I18N.en.prompt = document.getElementById('prompt').textContent;
+
+// Each language has its own address: hreflang and the canonical link point at it.
+const PAGE_URL = { en: 'https://murmurconnect.com/', ru: 'https://murmurconnect.com/?lang=ru' };
+const OG_LOCALE = { en: 'en_US', ru: 'ru_RU' };
+function setMeta(selector, value) {
+  const el = document.querySelector(selector);
+  if (el) el.content = value;
+}
+// The FAQPage structured data must say exactly what the visible FAQ says, so it is
+// rebuilt from the same dictionary whenever the language changes.
+function renderFaqData(t) {
+  const node = document.getElementById('faq-ld');
+  const data = JSON.parse(node.textContent);
+  data.url = PAGE_URL[language];
+  data.inLanguage = language;
+  data.mainEntity = Array.from(document.querySelectorAll('#faq .fact'), (_, i) => ({
+    '@type': 'Question',
+    name: t[`faq${i + 1}q`],
+    acceptedAnswer: { '@type': 'Answer', text: t[`faq${i + 1}a`] }
+  }));
+  node.textContent = JSON.stringify(data, null, 2);
+}
+
 let language = 'en';
 let copyReset = 0;
 function applyLanguage(name, persist = true) {
@@ -633,6 +878,15 @@ function applyLanguage(name, persist = true) {
   document.documentElement.lang = language;
   document.title = t.title;
   document.querySelector('meta[name="description"]').content = t.description;
+  document.querySelector('link[rel="canonical"]').href = PAGE_URL[language];
+  setMeta('meta[property="og:url"]', PAGE_URL[language]);
+  setMeta('meta[property="og:title"]', t.title);
+  setMeta('meta[name="twitter:title"]', t.title);
+  setMeta('meta[property="og:description"]', t.description);
+  setMeta('meta[name="twitter:description"]', t.description);
+  setMeta('meta[property="og:locale"]', OG_LOCALE[language]);
+  setMeta('meta[property="og:locale:alternate"]', OG_LOCALE[language === 'en' ? 'ru' : 'en']);
+  renderFaqData(t);
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t[el.dataset.i18n]; });
   document.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t[el.dataset.i18nAria]); });
   document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t[el.dataset.i18nTitle]; });
@@ -659,6 +913,7 @@ function readPalette() {
   const v = n => s.getPropertyValue(n).trim();
   C = { field: v('--field'), ink: v('--ink'), soft: v('--soft'), dim: v('--dim'),
         hair: v('--hair'), accent: v('--accent'), graph: v('--graph') };
+  setMeta('meta[name="theme-color"]', C.field);
 }
 function rgba(hex, a) {
   const h = hex.replace('#', '');
@@ -677,8 +932,11 @@ function applyTheme(name) {
 document.querySelectorAll('.themes button').forEach(b => {
   b.addEventListener('click', () => applyTheme(b.dataset.set));
 });
-let saved = 'sand';
-try { saved = localStorage.getItem('murmur-theme') || 'sand'; } catch {}
+// Dusk is the default and is already set in the static markup, so the first paint is
+// never the light theme. A visitor's saved choice still wins.
+let saved = 'dusk';
+try { saved = localStorage.getItem('murmur-theme') || 'dusk'; } catch {}
+if (!['sand', 'dusk', 'mint'].includes(saved)) saved = 'dusk';
 document.documentElement.setAttribute('data-theme', saved);
 for (const b of document.querySelectorAll('.themes button')) {
   b.setAttribute('aria-pressed', String(b.dataset.set === saved));
@@ -687,9 +945,19 @@ readPalette();
 
 let savedLanguage = 'en';
 try { savedLanguage = localStorage.getItem('murmur-language') || 'en'; } catch {}
-applyLanguage(savedLanguage, false);
+// ?lang=ru or ?lang=en forces the language and is remembered like a click. It gives
+// the Russian page an address of its own for hreflang and for shared links.
+const urlLanguage = (new URLSearchParams(location.search).get('lang') || '').toLowerCase();
+if (Object.hasOwn(I18N, urlLanguage)) applyLanguage(urlLanguage, true);
+else applyLanguage(savedLanguage, false);
 document.getElementById('language').addEventListener('click', () => {
   applyLanguage(language === 'en' ? 'ru' : 'en');
+  // An address that names a language must not contradict the page it shows.
+  const url = new URL(location.href);
+  if (url.searchParams.has('lang')) {
+    url.searchParams.set('lang', language);
+    history.replaceState(null, '', url);
+  }
   setT(visualT);
 });
 
