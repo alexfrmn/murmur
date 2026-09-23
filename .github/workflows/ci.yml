@@ -85,6 +85,13 @@ jobs:
           name: windows-companion-bundle
           path: ${{ runner.temp }}/windows-output/*
           if-no-files-found: error
+      - name: Install npm tarballs and execute packaged CLI, MCP and native helper
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          node scripts/test-npm-cli.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Installed npm CLI probe failed' }
 
   updates-windows:
     name: Update CLI (Windows)
@@ -135,6 +142,13 @@ jobs:
 
       - name: Unit tests
         run: node --test tests/*.test.mjs
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/windows-service-go/go.mod
+          cache-dependency-path: spikes/windows-service-go/go.sum
+      - name: Install npm tarballs without build tools or checkout dependencies
+        run: node scripts/test-npm-cli.mjs
 
   # Go-часть: значок и адаптер службы под Windows. Собирается и проверяется на Windows
   # намеренно — оба модуля целиком платформенные, и проверка на Linux доказывала бы не то.

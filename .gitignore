@@ -1,6 +1,8 @@
 node_modules/
 dist/
 packages/*/dist/
+packages/setup/runtime/
+packages/setup/.npm-runtime-*/
 .data/
 .data-*/
 

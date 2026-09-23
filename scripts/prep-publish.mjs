@@ -4,13 +4,14 @@
 //   - preserve `private: true` packages byte-for-byte (publication is opt-in)
 //   - set license: "MIT" + repository (with directory) + publishConfig.access=public
 //   - add a short `description` (npm hygiene; stubs marked experimental)
-//   - rewrite intra-workspace `@murmurv2/*` deps (file:../x or pinned) to `^<version>`
+//   - convert local workspace protocols; preserve compatible registry ranges
 //   - `prepack: npm run build` guard so a publish/pack can never ship an empty dist
 //   - files: ["dist/src", "LICENSE"] (+ "schema" when present) — ships compiled JS+d.ts,
 //     drops dist/tsconfig.tsbuildinfo noise
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import semver from "semver";
 
 const REPO_URL = "git+https://github.com/alexfrmn/murmur.git";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -32,6 +33,7 @@ const DESCRIPTIONS = {
   "@murmurv2/bridge-murmur": "Murmur V2 Murmur-to-Murmur bridge (experimental placeholder/stub).",
   "@murmurv2/bridge-openclaw": "Murmur V2 OpenClaw bridge (legacy/experimental).",
   "@murmurv2/observability": "Murmur V2 observability helpers (scaffold).",
+  "@murmurv2/cli": "Murmur CLI — invite-based setup, background service, client configuration and diagnostics.",
 };
 
 // Read and validate the entire graph before changing any manifest. A typo in a
@@ -48,6 +50,7 @@ for (const dir of readdirSync(pkgsDir).sort()) {
   packages.push({ dir, file, original, pkg });
 }
 const changes = [];
+const directories = new Map(packages.map(({ dir, pkg }) => [pkg.name, path.join(pkgsDir, dir)]));
 for (const { dir, file, original, pkg } of packages) {
   if (pkg.private === true) continue;
   if (typeof pkg.version !== "string" || !pkg.version) throw new Error(`Missing version: ${pkg.name}`);
@@ -67,15 +70,33 @@ for (const { dir, file, original, pkg } of packages) {
       if (!dependency) throw new Error(`${pkg.name}: unknown workspace dependency ${name}`);
       if (dependency.private === true) throw new Error(`${pkg.name}: private workspace dependency ${name} is not publishable`);
       if (typeof dependency.version !== "string" || !dependency.version) throw new Error(`Missing version: ${name}`);
-      deps[name] = `^${dependency.version}`;
+      let range = deps[name];
+      if (typeof range !== "string") throw new Error(`${pkg.name}: invalid range for ${name}`);
+      if (range.startsWith("file:")) {
+        if (path.resolve(pkgsDir, dir, range.slice(5)) !== directories.get(name)) {
+          throw new Error(`${pkg.name}: local path for ${name} does not select its workspace`);
+        }
+        range = `^${dependency.version}`;
+      } else if (range.startsWith("workspace:")) {
+        range = range.slice(10);
+        if (range === "*") range = dependency.version;
+        else if (range === "^" || range === "~") range += dependency.version;
+      }
+      if (!semver.validRange(range) || !semver.satisfies(dependency.version, range)) {
+        throw new Error(`${pkg.name}: ${key}.${name} range ${JSON.stringify(range)} excludes ${dependency.version}; update the version contract explicitly`);
+      }
+      deps[name] = range;
     }
   }
 
   // build guard: npm pack/publish always rebuilds dist first → never ship an empty tarball
-  pkg.scripts = { ...(pkg.scripts || {}), prepack: "npm run build" };
+  const cli = pkg.name === "@murmurv2/cli";
+  pkg.scripts = { ...(pkg.scripts || {}), prepack: cli
+    ? "npm run build --prefix ../.. && node ../../scripts/prepare-cli-package.mjs"
+    : "npm run build" };
 
   // ship only the compiled output + LICENSE (+ schema where present); excludes tsbuildinfo
-  const files = ["dist/src", "LICENSE"];
+  const files = cli ? ["bin/murmur-npm.mjs", "runtime", "LICENSE"] : ["dist/src", "LICENSE"];
   if (existsSync(path.join(pkgsDir, dir, "schema"))) files.splice(1, 0, "schema");
   pkg.files = files;
 
