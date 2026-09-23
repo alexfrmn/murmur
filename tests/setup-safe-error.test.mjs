@@ -42,13 +42,22 @@ test('join with an unreadable invite reports access denied, not operation-failed
   const invite = path.join(root, 'invite.txt');
   await fs.writeFile(invite, 'MURMUR:e30=\n');
   if (process.platform === 'win32') {
-    // The failure seen on the night of 2.11: a DACL that grants only SYSTEM. The owner keeps WRITE_DAC for cleanup.
-    const lock = spawnSync('icacls', [invite, '/inheritance:r', '/grant:r', '*S-1-5-18:(F)'], { encoding: 'utf8' });
+    // An explicit Deny read ACE for this user's SID: it comes first in canonical order and binds an
+    // elevated administrator too (a grant-only-SYSTEM DACL did not, on the GitHub runner). The owner
+    // keeps WRITE_DAC, so /reset works for cleanup.
+    const system32 = tool => path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', tool);
+    const sid = /"(S-1-5-[0-9-]+)"\s*$/.exec(spawnSync(system32('whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' }).stdout.trim())?.[1];
+    assert.ok(sid, 'current user SID');
+    const lock = spawnSync(system32('icacls.exe'), [invite, '/deny', `*${sid}:(R)`], { encoding: 'utf8' });
     assert.equal(lock.status, 0, lock.stdout + lock.stderr);
-    t.after(async () => { spawnSync('icacls', [invite, '/reset']); await fs.rm(root, { recursive: true, force: true }); });
+    t.after(async () => { spawnSync(system32('icacls.exe'), [invite, '/reset']); await fs.rm(root, { recursive: true, force: true }); });
   } else {
     await fs.chmod(invite, 0);
     t.after(async () => { await fs.chmod(invite, 0o600); await fs.rm(root, { recursive: true, force: true }); });
   }
+  // The fixture must really be unreadable here; an environment that still reads it (for example with
+  // the backup privilege enabled) cannot exercise this path and says so instead of passing silently.
+  const readable = await fs.readFile(invite).then(() => true, e => (e.code === 'EPERM' || e.code === 'EACCES' ? false : Promise.reject(e)));
+  if (readable) return t.skip('this environment can read a file whose DACL denies the current user');
   assert.equal(await joinError(root, invite), 'onboarding.invite-file-access-denied');
 });
