@@ -54,7 +54,9 @@
 // exits silently either — the reason goes to stderr and the exit code stays 0.
 //
 // Env (all optional; same contract as wake-drain-claude.sh plus lock/poll knobs):
-//   MURMUR_DB               daemon SQLite store path (default: .data/murmur.db)
+//   MURMUR_DB               daemon SQLite store path (default: .data/murmur.db); --db PATH
+//                           wins, because a Windows hook command cannot set environment
+//                           variables portably
 //   MURMUR_WAKE_SESSION_KEY overrides the key used to build the default cursor/lock names
 //                           (defaults to CLAUDE_CODE_SESSION_ID, first 8 chars)
 //   MURMUR_WAKE_CURSOR      file holding the last-drained inbound rowid
@@ -82,7 +84,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const HOME = homedir();
-const DB = process.env.MURMUR_DB || ".data/murmur.db";
+const dbArgument = process.argv.indexOf("--db");
+const DB = (dbArgument > 0 && process.argv[dbArgument + 1]) || process.env.MURMUR_DB || ".data/murmur.db";
 
 // Session key: one cursor and one lock per Claude Code session. A shared cursor means
 // the first session to reach the hook advances it past the message and every other live
