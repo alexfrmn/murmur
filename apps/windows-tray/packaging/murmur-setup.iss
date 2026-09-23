@@ -9,13 +9,22 @@
 #ifndef OutputDir
   #define OutputDir "."
 #endif
+#ifdef AcceptanceTest
+  #define InstallerId "Murmur.CodexWin.Installer.Acceptance"
+  #define InstallerName "Murmur CodexWin Installer Test"
+  #define InstallFolder "Murmur-codex-win-acceptance-only"
+#else
+  #define InstallerId "{{427756A9-E238-4E87-B289-8DA6AD302E8C}"
+  #define InstallerName "Murmur"
+  #define InstallFolder "Murmur"
+#endif
 
 [Setup]
-AppId={{427756A9-E238-4E87-B289-8DA6AD302E8C}
-AppName=Murmur
+AppId={#InstallerId}
+AppName={#InstallerName}
 AppVersion={#ReleaseVersion}
 AppPublisher=Murmur
-DefaultDirName={localappdata}\Programs\Murmur
+DefaultDirName={localappdata}\Programs\{#InstallFolder}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -23,7 +32,7 @@ DisableProgramGroupPage=yes
 DisableWelcomePage=no
 UninstallDisplayIcon={app}\murmur-tray.exe
 OutputDir={#OutputDir}
-OutputBaseFilename=Murmur-{#ReleaseVersion}-windows-x64-setup
+OutputBaseFilename={#InstallerName}-{#ReleaseVersion}-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -39,10 +48,10 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userprograms}\Murmur\Murmur"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Open-Murmur.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\murmur-tray.exe"; Comment: "Open Murmur"
+Name: "{userprograms}\{#InstallerName}\Murmur"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur-tray.exe"; Comment: "Open Murmur"
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Open-Murmur.ps1"""; Description: "{cm:LaunchProgram,Murmur}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\murmur-tray.exe"; Description: "{cm:LaunchProgram,Murmur}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runhidden
 
 ; No profile directories, SCM operations, wildcard uninstall deletion, or user
 ; client configuration are included. Inno removes only its installed payload.

@@ -2,7 +2,7 @@
 
 Build from the same verified extracted payload as the Windows ZIP. The installer
 does not download Node, invent a profile, install a service, or configure a client.
-It preserves the launcher's first-run flow and therefore cannot repair missing
+It opens the tray directly (no PowerShell console) and cannot repair missing
 onboarding in an older payload. A 2.10 rehearsal is not 2.11 GUI acceptance.
 
 ```powershell
@@ -22,7 +22,7 @@ itself requires no administrator token. A later service operation may request
 elevation through the application.
 
 Shortcut ownership is coordinated with the launcher: setup owns only
-`Programs\Murmur\Murmur.lnk`, pointing to installed Open-Murmur.ps1. The launcher
+`Programs\Murmur\Murmur.lnk`, pointing to installed murmur-tray.exe. The launcher
 owns flat Programs, Desktop and Startup links and supplies the selected profile
 and service. Uninstall removes those launcher links only when description,
 PowerShell target, working directory and quoted launcher path match this install.
@@ -40,3 +40,9 @@ Acceptance remains separate: visible wizard pages, clean install, launch,
 owned-shortcut cleanup and uninstall; preserve an unrelated shortcut/profile
 sentinel. Startup-after-login and application onboarding need their own live
 checks. Do not call compilation alone installation acceptance.
+
+For local acceptance compile with `/DAcceptanceTest=1`: a distinct AppId,
+application name, Start Menu folder and default install directory prevent
+registration or shortcut collisions with a real Murmur installation. This build
+is not a release artifact. A silent install deliberately does not launch the app
+(`skipifsilent`); verify launch separately using its exact installed exe path.
