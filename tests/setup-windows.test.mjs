@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createWindowsAdapter } from '../packages/setup/dist/src/platform/windows.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 const context = resolveContext({ platform: 'win32', dataDir: 'C:\\Users\\me\\profile', repoRoot: 'C:\\Program Files\\Murmur\\runtime', nodePath: 'C:\\Program Files\\nodejs\\node.exe', serviceName: 'MurmurFixture' });
@@ -13,9 +14,9 @@ function native(overrides = {}) {
     observedStorePath: context.storePath, observedStoreUnknownReason: null,
     restartCount: 0, restartWindowMs: 15000, restartsLastHour: null, restartsUnknownReason: 'service.history-window-incomplete', restartsPerHourLimit: 5, ...overrides };
 }
-function fixture(initial = native()) {
+function fixture(initial = native(), elevated = true) {
   let value = initial, failure = false; const calls = [];
-  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize,
+  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, elevated: async () => elevated,
     env: { NODE_OPTIONS: '--require injected.js', DATA_DIR: 'C:\\other', MURMUR_STORE_PATH: 'C:\\wrong.db', ProgramData: 'C:\\ProgramData' },
     run: async (file, args, options) => {
       calls.push({ file, args, options });
@@ -72,6 +73,28 @@ test('not-installed differs from an inaccessible manager, and uninstall verifies
 test('helper success without requested state does not report a successful start', async () => {
   const f = fixture(native({ state: 'stopped', pid: 0, daemonPid: null, observedStorePath: null, restartCount: null, restartWindowMs: null }));
   await assert.rejects(f.adapter.start(context), /action-unconfirmed/);
+});
+test('a non-elevated terminal is told to elevate before any SCM mutation', async () => {
+  const stopped = native({ state: 'stopped', pid: 0, daemonPid: null, observedStorePath: null, restartCount: null, restartWindowMs: null });
+  const missing = native({ manager: 'none', state: 'stopped', profile: null, pid: 0, daemonPid: null, observedStorePath: null, restartCount: null, restartWindowMs: null });
+  for (const [action, value] of [['install', missing], ['start', stopped], ['stop', native()], ['uninstall', native()]]) {
+    const f = fixture(value, false);
+    await assert.rejects(f.adapter[action](context), /^Error: service\.elevation-required$/);
+    assert.ok(f.calls.every(c => c.args[0] === 'status'), action);
+  }
+  // Nothing to change needs no elevation, and status never asks for it.
+  const f = fixture(missing, false); await f.adapter.stop(context); await f.adapter.uninstall(context);
+  assert.equal((await f.adapter.status(context)).state, 'stopped');
+});
+test('an unmeasurable integrity level leaves the decision to the service manager', async () => {
+  const f = fixture(native(), null); await f.adapter.stop(context);
+  assert.deepEqual(f.calls.map(c => c.args[0]), ['status', 'stop', 'status']);
+});
+test('this process integrity level is measured on Windows', { skip: process.platform !== 'win32' }, async () => {
+  const f = createWindowsAdapter({ helperPath: helper, canonicalize, run: async () => ({ code: 0, stdout: JSON.stringify(native()), stderr: '' }) });
+  // The fake helper never stops: an elevated run reaches it and is unconfirmed, a plain one is refused first.
+  const high = /"S-1-16-(12288|16384)"/.test(execFileSync('whoami', ['/groups', '/fo', 'csv', '/nh'], { encoding: 'utf8' }));
+  await assert.rejects(f.stop(context), new RegExp(`service\\.${high ? 'action-unconfirmed' : 'elevation-required'}$`));
 });
 test('invalid paths and names fail before any helper call', async () => {
   const f = fixture();

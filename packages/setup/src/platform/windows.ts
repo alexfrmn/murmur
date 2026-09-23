@@ -9,6 +9,8 @@ export interface WindowsOptions {
   helperPath?: string; env?: NodeJS.ProcessEnv; homeDir?: string;
   canonicalize?: (value: string) => Promise<string>;
   run?: (file: string, args: string[], options: { env: NodeJS.ProcessEnv; timeout: number }) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** true/false when the token's integrity level was measured, null when it could not be. */
+  elevated?: () => Promise<boolean | null>;
 }
 const fail = (reason: string): never => { throw new Error(`service.${reason}`); };
 const object = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -29,11 +31,18 @@ const defaultRun: NonNullable<WindowsOptions['run']> = (file, args, options) => 
     resolve({ code: error ? typeof error.code === 'number' ? error.code : -1 : 0, stdout, stderr });
   });
 });
+// SCM mutations need a High (elevated administrator) or System integrity token. Without it the helper
+// fails with a bare exit code, so a new user must be told to reopen the terminal as administrator.
+const defaultElevated = () => new Promise<boolean | null>(resolve => {
+  execFile('whoami', ['/groups', '/fo', 'csv', '/nh'], { windowsHide: true, encoding: 'utf8', timeout: 8000 }, (error, stdout) => {
+    resolve(error ? null : /"S-1-16-(12288|16384)"/.test(stdout));
+  });
+});
 
 /** Native SCM helper is the only service observer and mutator. No shell, PID guessing or registry fallback. */
 export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdapter {
   const env = options.env ?? process.env, home = options.homeDir ?? homedir();
-  const run = options.run ?? defaultRun, canonicalize = options.canonicalize ?? realpath;
+  const run = options.run ?? defaultRun, canonicalize = options.canonicalize ?? realpath, elevated = options.elevated ?? defaultElevated;
   const same = async (a: string, b: string) => (await canonicalize(a)) === (await canonicalize(b));
   async function helper(c: ServiceContext) {
     const explicit = options.helperPath ?? env.MURMUR_SERVICE_BIN;
@@ -102,6 +111,8 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
       if (action === 'stop' || action === 'uninstall') return;
       fail('not-installed');
     }
+    // An unmeasurable level leaves the decision to SCM rather than refusing a real administrator.
+    if (await elevated() === false) fail('elevation-required');
     await invoke(c, action);
     const after = await inspect(c);
     if (action === 'uninstall' ? after.installed : !after.installed
