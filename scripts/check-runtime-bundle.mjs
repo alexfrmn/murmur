@@ -27,7 +27,7 @@ async function verify(dir, prefix = '') {
 }
 await verify(runtime); assert.equal(inventory.size, 0, 'Missing manifest files');
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur runtime probe '));
-let child;
+let child, childClosed, report, probeError;
 try {
   const profile = path.join(temp, 'profile');
   const env = { ...process.env, NODE_OPTIONS: '', NODE_PATH: '', DATA_DIR: profile,
@@ -38,6 +38,9 @@ try {
   assert.equal(cli(['init', '--data-dir', profile, '--agent-id', 'runtime-probe', '--broker-url', 'nats://127.0.0.1:4222']).agentId, 'runtime-probe');
   assert.equal(cli(['status', '--data-dir', profile]).agentId, 'runtime-probe');
   child = spawn(process.execPath, [path.join(runtime, 'packages/mcp-server/dist/src/index.js')], { cwd: temp, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  // Register immediately: exit may precede pipe closure and Windows releasing
+  // the child's working directory. Cleanup must wait for close even after exit.
+  childClosed = new Promise(resolve => child.once('close', resolve));
   child.stderr.resume();
   const reader = createInterface({ input: child.stdout });
   const replies = new Map();
@@ -60,11 +63,19 @@ try {
   assert.ok(listed.tools.some(tool => tool.name === 'murmur_request'));
   await request(3, 'tools/call', { name: 'murmur_peers', arguments: {} });
   reader.close();
-  console.log(JSON.stringify({ ok: true, sourceCommit: manifest.sourceCommit, version: manifest.declaredVersion,
-    files: Object.keys(manifest.files).length, cli: ['version', 'init', 'status'], mcp: ['initialize', 'tools/list', 'murmur_peers'], roundtrip: 'not-tested' }));
+  report = { ok: true, sourceCommit: manifest.sourceCommit, version: manifest.declaredVersion,
+    files: Object.keys(manifest.files).length, cli: ['version', 'init', 'status'], mcp: ['initialize', 'tools/list', 'murmur_peers'], roundtrip: 'not-tested' };
+} catch (error) {
+  probeError = error;
 } finally {
-  if (child && child.exitCode === null && child.signalCode === null) {
-    const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited;
+  try {
+    if (child && child.exitCode === null && child.signalCode === null) child.kill();
+    if (childClosed) await childClosed;
+    await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (cleanupError) {
+    // A secondary EBUSY must not hide the actual CLI/MCP assertion or timeout.
+    throw probeError ? new AggregateError([probeError, cleanupError], 'Runtime probe and cleanup failed') : cleanupError;
   }
-  await fs.rm(temp, { recursive: true, force: true });
 }
+if (probeError) throw probeError;
+console.log(JSON.stringify(report));
