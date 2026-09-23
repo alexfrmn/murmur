@@ -301,7 +301,10 @@ function Install-MissingShortcuts($plan) {
                 }catch{
                     # WScript.Shell passes paths through the system ANSI code page. A bundle or shortcut folder
                     # with other characters cannot be saved; opening Murmur does not depend on the shortcut.
-                    Write-Host "Murmur shortcut was not $(if($entry.OldBytes){'updated'}else{'created'}): Windows cannot save a shortcut for a path with characters outside code page $([Text.Encoding]::Default.CodePage): $($entry.Path). Murmur still opens; start murmur-tray.exe from this bundle folder, or move the bundle to a folder with such characters removed."
+                    $ansi=[Text.Encoding]::Default
+                    $outside=@($entry.Path,$entry.Target,$entry.WorkingDirectory) | Where-Object {$ansi.GetString($ansi.GetBytes([string]$_)) -cne $_}
+                    $reason=if($outside){" A path contains characters outside code page $($ansi.CodePage); move the bundle to a folder without them to get the shortcut."}else{''}
+                    Write-Host "Murmur shortcut was not $(if($entry.OldBytes){'updated'}else{'created'}): Windows could not save the shortcut $($entry.Path).$reason Murmur still opens; start murmur-tray.exe from this bundle folder."
                     continue
                 }
                 $temporaryItem=Get-Item -LiteralPath $temporary -Force

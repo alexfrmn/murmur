@@ -528,7 +528,8 @@ test('Without a profile named, the launcher opens the tray instead of a folder d
 test('A migrated launcher shortcut is replaced only as recognized and rolls back to its old bytes', { skip: process.platform !== 'win32' }, async () => {
   // ASCII with a space and an apostrophe: WScript.Shell cannot save paths outside the system ANSI
   // code page (covered by its own test below), and CI runners use 1252.
-  const dir = await mkdtemp(path.join(tmpdir(), "Murmur migration it's "));
+  // Long form: a runner's temp folder is an 8.3 name, WScript.Shell stores targets in the long form.
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), "Murmur migration it's ")));
   try {
     const shortcut = path.join(dir, 'Murmur.lnk');
     const tray = path.join(dir, 'murmur-tray.exe');
@@ -572,7 +573,7 @@ test('A shortcut Windows cannot save for a path outside the ANSI code page is sk
   assert.equal(probe.status, 0, probe.stdout + probe.stderr);
   const { codePage, char } = parsePowerShellJson(probe.stdout);
   if (!char) return t.skip(`every candidate character is representable in code page ${codePage}`);
-  const dir = await mkdtemp(path.join(tmpdir(), 'Murmur ansi '));
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'Murmur ansi ')));
   try {
     const bundle = path.join(dir, `bundle ${char}`);
     await mkdir(bundle);
@@ -594,7 +595,8 @@ test('A shortcut Windows cannot save for a path outside the ANSI code page is sk
       `$created=@(Install-MissingShortcuts @($fresh,$older));Write-Output ('created=' + $created.Count)`);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /created=0/);
-    assert.match(result.stdout, new RegExp(`Murmur shortcut was not created: Windows cannot save a shortcut for a path with characters outside code page ${codePage}`));
+    assert.match(result.stdout, /Murmur shortcut was not created: Windows could not save the shortcut /);
+    assert.match(result.stdout, new RegExp(`A path contains characters outside code page ${codePage}`));
     assert.match(result.stdout, /Murmur shortcut was not updated: /);
     assert.equal(await stat(fresh).then(() => true, () => false), false);
     assert.deepEqual(await readFile(older), olderBytes);
