@@ -49,5 +49,12 @@ export function safeError(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error ?? "");
   if (value === "database is locked") return value;
   // Neither command output nor transport errors may leak tokens/message content.
-  return /^[a-zA-Z][a-zA-Z0-9_.:-]{0,150}$/.test(value) ? value : "operation-failed";
+  if (/^[a-zA-Z][a-zA-Z0-9_.:-]{0,150}$/.test(value)) return value;
+  // System error messages embed paths; their errno code and syscall alone are safe and actionable
+  // (an unreadable invite file must not surface as a bare operation-failed).
+  const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+  if (typeof code === "string" && /^E[A-Z0-9]{1,30}$/.test(code)) {
+    return typeof syscall === "string" && /^[a-z_]{1,30}$/.test(syscall) ? `system.${code}:${syscall}` : `system.${code}`;
+  }
+  return "operation-failed";
 }
