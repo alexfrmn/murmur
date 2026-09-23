@@ -157,26 +157,42 @@ begin
   end;
 end;
 
-function ShortcutConflict(const FileName: String): String;
+function IsOwnedShortcut(const FileName: String): Boolean;
 var
   Shell, Link: Variant;
+  Launcher, Arguments: String;
+  OldTarget, DirectTarget, Managed: Boolean;
 begin
-  Result := '';
+  Result := False;
   if not FileExists(FileName) then exit;
   try
     Shell := CreateOleObject('WScript.Shell');
     Link := Shell.CreateShortcut(FileName);
-    if (CompareText(String(Link.TargetPath), ExpandConstant('{app}\murmur-tray.exe')) = 0) and
-      (String(Link.Arguments) = '') and
-      (CompareText(String(Link.WorkingDirectory), ExpandConstant('{app}')) = 0) and
-      ((String(Link.Description) = 'Open Murmur controls (managed by Murmur)') or
-       ((FileName = ExpandConstant('{userprograms}\{#InstallerName}\Murmur.lnk')) and (String(Link.Description) = 'Open Murmur'))) then exit;
+    Launcher := ExpandConstant('{app}\Open-Murmur.ps1');
+    Arguments := Link.Arguments;
+    OldTarget := ((CompareText(String(Link.TargetPath), ExpandConstant('{win}\System32\WindowsPowerShell\v1.0\powershell.exe')) = 0) or
+      (CompareText(String(Link.TargetPath), ExpandConstant('{win}\SysWOW64\WindowsPowerShell\v1.0\powershell.exe')) = 0)) and
+      ((Pos(Lowercase('-File "' + Launcher + '"'), Lowercase(Arguments)) > 0) or
+       (Pos(Lowercase('"-File" "' + Launcher + '"'), Lowercase(Arguments)) > 0));
+    DirectTarget := (CompareText(String(Link.TargetPath), ExpandConstant('{app}\murmur-tray.exe')) = 0) and
+      (Arguments = '');
+    Managed := (String(Link.Description) = 'Open Murmur controls (managed by Murmur)') or
+      (DirectTarget and (CompareText(FileName, ExpandConstant('{userprograms}\{#InstallerName}\Murmur.lnk')) = 0) and
+       (String(Link.Description) = 'Open Murmur'));
+    Result := Managed and (CompareText(String(Link.WorkingDirectory), ExpandConstant('{app}')) = 0) and
+      (OldTarget or DirectTarget);
   except
-    Log('Could not verify shortcut ownership.');
+    Log('Leaving unreadable or unrecognized shortcut unchanged.');
   end;
-  Result := 'A shortcut at ' + FileName + ' belongs to another installation. Choose another installation folder or remove that shortcut yourself.';
 end;
 
+function ShortcutConflict(const FileName: String): String;
+begin
+  Result := '';
+  if not FileExists(FileName) then exit;
+  if IsOwnedShortcut(FileName) then exit;
+  Result := 'A shortcut at ' + FileName + ' belongs to another installation. Choose another installation folder or remove that shortcut yourself.';
+end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := ServiceDependencyError();
@@ -200,33 +216,9 @@ begin
 end;
 
 procedure RemoveOwnedLauncherShortcut(const FileName: String);
-var
-  Shell, Link: Variant;
-  Launcher, Arguments: String;
-  OldTarget, DirectTarget: Boolean;
 begin
-  if not FileExists(FileName) then exit;
-  try
-    Shell := CreateOleObject('WScript.Shell');
-    Link := Shell.CreateShortcut(FileName);
-    Launcher := ExpandConstant('{app}\Open-Murmur.ps1');
-    Arguments := Link.Arguments;
-    { The uninstaller system-directory constant can resolve to SysWOW64. Recognize both explicit
-      Windows PowerShell locations written by the native launcher. }
-    OldTarget := ((CompareText(String(Link.TargetPath), ExpandConstant('{win}\System32\WindowsPowerShell\v1.0\powershell.exe')) = 0) or
-      (CompareText(String(Link.TargetPath), ExpandConstant('{win}\SysWOW64\WindowsPowerShell\v1.0\powershell.exe')) = 0)) and
-      (Pos(Lowercase('"' + Launcher + '"'), Lowercase(Arguments)) > 0);
-    DirectTarget := (CompareText(String(Link.TargetPath), ExpandConstant('{app}\murmur-tray.exe')) = 0) and
-      (Arguments = '');
-    if (String(Link.Description) = 'Open Murmur controls (managed by Murmur)') and
-       (CompareText(String(Link.WorkingDirectory), ExpandConstant('{app}')) = 0) and
-       (OldTarget or DirectTarget) then
-      DeleteFile(FileName);
-  except
-    Log('Leaving unreadable or unrecognized shortcut unchanged.');
-  end;
+  if IsOwnedShortcut(FileName) then DeleteFile(FileName);
 end;
-
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ExitCode: Integer;
