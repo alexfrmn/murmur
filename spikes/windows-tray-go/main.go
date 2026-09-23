@@ -62,6 +62,7 @@ type app struct {
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
 	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
+	mConnect                                          *systray.MenuItem
 	mLanguageRoot, mLangEnglish, mLangRussian, mGuide *systray.MenuItem
 	mHistory                                          []*systray.MenuItem
 	mStages                                           map[string]*systray.MenuItem
@@ -155,6 +156,9 @@ func (a *app) onReady() {
 
 	a.mHeader = systray.AddMenuItem(tr("menu.initialStatus"), "")
 	a.mHeader.Disable()
+	// Shown only while no profile exists: the first thing a new user can do from the tray.
+	a.mConnect = systray.AddMenuItem(tr("menu.connect"), tr("menu.connectTooltip"))
+	a.mConnect.Hide()
 	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
 	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
 	for i := 0; i < historyLines; i++ {
@@ -267,6 +271,11 @@ func (a *app) render(v Verdict) {
 	a.mu.Unlock()
 	systray.SetTooltip(statusTooltip(v, n, available))
 	a.mHeader.SetTitle(v.Reason)
+	if v.Code == "profile.not-configured" {
+		a.mConnect.Show()
+	} else {
+		a.mConnect.Hide()
+	}
 
 	a.renderRecent()
 
@@ -381,6 +390,8 @@ func (a *app) handleClicks() {
 			a.changeLocale(localeRussian)
 		case <-a.mGuide.ClickedCh:
 			go a.showGuide()
+		case <-a.mConnect.ClickedCh:
+			go a.connectToColleague()
 		case <-a.mQuit.ClickedCh:
 			if confirmTrayExit() {
 				systray.Quit()
@@ -596,3 +607,7 @@ func (a *app) showGuide() {
 		}
 	}
 }
+
+// connectToColleague starts first-profile setup. Until the in-tray onboarding lands it opens the
+// guide, which explains how to get an invitation file and where Murmur lives.
+func (a *app) connectToColleague() { a.showGuide() }

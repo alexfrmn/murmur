@@ -15,8 +15,77 @@ import (
 
 type cliBinding struct{ Node, Entry, Profile, Service string }
 
+// notConfigured: the tray was opened on its own and no profile exists yet. The menu offers
+// to connect to a colleague instead of pointing at a launcher the user never saw.
+func notConfigured() error { return &statusError{"profile.not-configured", tr("status.notConfigured")} }
+
+// Discovery seams, replaced in tests.
+var (
+	trayExecutable = os.Executable
+	lookNode       = func() (string, error) { return exec.LookPath("node") }
+)
+
+var serviceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$`)
+
+// discoverCLI finds what the launcher would pass when the tray starts by itself (Start menu,
+// Startup, a double click on the exe): the CLI of this bundle, Node next to the tray or on PATH
+// (as the launcher does), and the profile last opened by the launcher or the default one.
+func discoverCLI() (cliBinding, error) {
+	b := cliBinding{}
+	exe, err := trayExecutable()
+	if err != nil {
+		return b, errors.New(tr("binding.select"))
+	}
+	dir := filepath.Dir(exe)
+	b.Entry = filepath.Join(dir, "runtime", "packages", "setup", "bin", "murmur.mjs")
+	if info, err := os.Stat(b.Entry); err != nil || !info.Mode().IsRegular() {
+		return b, errors.New(tr("binding.select"))
+	}
+	if info, err := os.Stat(filepath.Join(dir, "node.exe")); err == nil && info.Mode().IsRegular() {
+		b.Node = filepath.Join(dir, "node.exe")
+	} else if b.Node, err = lookNode(); err != nil {
+		return b, errors.New(tr("binding.noNode"))
+	}
+	if b.Node, err = filepath.Abs(b.Node); err != nil {
+		return b, errors.New(tr("binding.noNode"))
+	}
+	local := os.Getenv("LOCALAPPDATA")
+	if !filepath.IsAbs(local) {
+		return b, notConfigured()
+	}
+	// The launcher records the profile and service it opened; reuse that selection.
+	var saved struct {
+		DataDir     string  `json:"dataDir"`
+		ServiceName *string `json:"serviceName"`
+	}
+	if data, err := os.ReadFile(filepath.Join(local, "Murmur", "tray-launch-binding.json")); err == nil && len(data) <= 65536 && json.Unmarshal(data, &saved) == nil &&
+		filepath.IsAbs(saved.DataDir) && isProfile(saved.DataDir) && (saved.ServiceName == nil || serviceNamePattern.MatchString(*saved.ServiceName)) {
+		b.Profile = saved.DataDir
+		if saved.ServiceName != nil {
+			b.Service = *saved.ServiceName
+		}
+		return b, nil
+	}
+	if def := filepath.Join(local, "Murmur"); isProfile(def) {
+		b.Profile = def
+		return b, nil
+	}
+	return b, notConfigured()
+}
+
+func isProfile(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "agent-config.json"))
+	return err == nil && info.Mode().IsRegular()
+}
+
 func selectedCLI() (cliBinding, error) {
 	b := cliBinding{os.Getenv("MURMUR_BIN"), os.Getenv("MURMUR_CLI"), os.Getenv("MURMUR_PROFILE"), os.Getenv("MURMUR_SERVICE_NAME")}
+	if b.Node == "" && b.Entry == "" && b.Profile == "" && b.Service == "" {
+		var err error
+		if b, err = discoverCLI(); err != nil {
+			return b, err
+		}
+	}
 	for _, p := range []string{b.Node, b.Entry, b.Profile} {
 		if !filepath.IsAbs(p) || strings.ContainsAny(p, "\x00\r\n") {
 			return b, errors.New(tr("binding.select"))
@@ -28,7 +97,7 @@ func selectedCLI() (cliBinding, error) {
 			return b, errors.New(tr("binding.moved"))
 		}
 	}
-	if b.Service != "" && !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$`).MatchString(b.Service) {
+	if b.Service != "" && !serviceNamePattern.MatchString(b.Service) {
 		return b, errors.New(tr("binding.invalidService"))
 	}
 	return b, nil
