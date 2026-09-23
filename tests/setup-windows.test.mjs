@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { createWindowsAdapter } from '../packages/setup/dist/src/platform/windows.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 const context = resolveContext({ platform: 'win32', dataDir: 'C:\\Users\\me\\profile', repoRoot: 'C:\\Program Files\\Murmur\\runtime', nodePath: 'C:\\Program Files\\nodejs\\node.exe', serviceName: 'MurmurFixture' });
@@ -93,8 +95,23 @@ test('an unmeasurable integrity level leaves the decision to the service manager
 test('this process integrity level is measured on Windows', { skip: process.platform !== 'win32' }, async () => {
   const f = createWindowsAdapter({ helperPath: helper, canonicalize, run: async () => ({ code: 0, stdout: JSON.stringify(native()), stderr: '' }) });
   // The fake helper never stops: an elevated run reaches it and is unconfirmed, a plain one is refused first.
-  const high = /"S-1-16-(12288|16384)"/.test(execFileSync('whoami', ['/groups', '/fo', 'csv', '/nh'], { encoding: 'utf8' }));
-  await assert.rejects(f.stop(context), new RegExp(`service\\.${high ? 'action-unconfirmed' : 'elevation-required'}$`));
+  await assert.rejects(f.stop(context), new RegExp(`service\\.${highIntegrity() ? 'action-unconfirmed' : 'elevation-required'}$`));
+});
+const whoami = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe');
+const highIntegrity = () => /"S-1-16-(12288|16384)"/.test(execFileSync(whoami, ['/groups', '/fo', 'csv', '/nh'], { encoding: 'utf8' }));
+test('a whoami.exe planted earlier in PATH does not decide elevation', { skip: process.platform !== 'win32' }, async t => {
+  const fake = await mkdtemp(path.join(tmpdir(), 'murmur-fake-whoami-'));
+  t.after(() => rm(fake, { recursive: true, force: true }));
+  // Not an executable: a PATH lookup would fail to start it and fall back to "unmeasured", skipping the check.
+  await writeFile(path.join(fake, 'whoami.exe'), 'not a program');
+  const adapterUrl = new URL('../packages/setup/dist/src/platform/windows.js', import.meta.url).href;
+  const script = `const { createWindowsAdapter } = await import(${JSON.stringify(adapterUrl)});
+const native = ${JSON.stringify(native())}, context = ${JSON.stringify(context)};
+const adapter = createWindowsAdapter({ helperPath: ${JSON.stringify(helper)}, canonicalize: async v => v.toLowerCase(), run: async () => ({ code: 0, stdout: JSON.stringify(native), stderr: '' }) });
+await adapter.stop(context).then(() => console.log('stopped'), e => console.log(e.message));`;
+  const pathKey = Object.keys(process.env).find(k => k.toLowerCase() === 'path') ?? 'Path';
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, [pathKey]: `${fake};${process.env[pathKey]}` } });
+  assert.equal(run.stdout.trim(), highIntegrity() ? 'service.action-unconfirmed' : 'service.elevation-required', run.stderr);
 });
 test('invalid paths and names fail before any helper call', async () => {
   const f = fixture();

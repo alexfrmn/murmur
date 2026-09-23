@@ -34,7 +34,8 @@ const defaultRun: NonNullable<WindowsOptions['run']> = (file, args, options) => 
 // SCM mutations need a High (elevated administrator) or System integrity token. Without it the helper
 // fails with a bare exit code, so a new user must be told to reopen the terminal as administrator.
 const defaultElevated = () => new Promise<boolean | null>(resolve => {
-  execFile('whoami', ['/groups', '/fo', 'csv', '/nh'], { windowsHide: true, encoding: 'utf8', timeout: 8000 }, (error, stdout) => {
+  // By absolute path: a whoami.exe planted earlier in PATH must not decide this.
+  execFile(paths.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe'), ['/groups', '/fo', 'csv', '/nh'], { windowsHide: true, encoding: 'utf8', timeout: 8000 }, (error, stdout) => {
     resolve(error ? null : /"S-1-16-(12288|16384)"/.test(stdout));
   });
 });
