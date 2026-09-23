@@ -3,6 +3,7 @@ import path from "node:path";
 import { realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { loadConfig, readJson, safeError, type AgentConfig } from "./config.js";
+import { readOutboxAttention } from "./outbox-attention.js";
 import type { PlatformAdapter, ServiceContext, ServiceSnapshot } from "./types.js";
 
 export type Measurement = { measuredAt: string | null; unknownReason: string | null };
@@ -68,6 +69,7 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
     unknownReason: configError, measurements: { config: config ? measured(at) : unknown(configError ?? "config.unavailable"), store: unknown("store.unavailable"), proof: unknown("peers.proof-unavailable") },
   };
   let deliveries: Array<Record<string, unknown>> | null = null;
+  let attention: Awaited<ReturnType<typeof readOutboxAttention>> | { unknownReason: string } = { unknownReason: 'store.unavailable' };
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(c.storePath, { readOnly: true });
@@ -89,6 +91,10 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
     const error = db.prepare("SELECT last_error,updated_at FROM outbox WHERE last_error IS NOT NULL AND last_error!='' ORDER BY updated_at DESC LIMIT 1").get() as any;
     outbox.lastError = error ? safeError(error.last_error) : null; outbox.lastErrorAt = error?.updated_at ?? null;
     outbox.measurements.store = measured(at);
+    if (config) {
+      try { attention = await readOutboxAttention(c, config.agentId, db); }
+      catch (error) { attention = { unknownReason: safeError(error) }; }
+    }
     try {
       const rows = Object.fromEntries(db.prepare("SELECT wake_status,COUNT(*) AS n FROM local_messages WHERE direction='inbound' GROUP BY wake_status").all().map((r: any) => [r.wake_status, Number(r.n)]));
       wake.storedOnly = rows["stored-only"] ?? 0;
@@ -131,6 +137,7 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       measurements: { runtime: runtimeMeasurement } },
     peers, inbox, deliveries,
     outbox: {
+      attention,
       queue: { pending: outbox.pending, inflight: outbox.inflight, delivered: outbox.delivered,
         failed: outbox.failed, dlq: outbox.dlq, oldestPendingAt: outbox.oldestPendingAt,
         unknownReason: outbox.measurements.store.unknownReason },

@@ -176,5 +176,7 @@
   "updates.rootTooltip": "Заявленный стабильный выпуск отдельно от здоровья доставки",
   "updates.unavailable": "Результат CLI недоступен; автоматического повтора не будет",
   "updates.unknown": "неизвестно",
-  "wake.settingUnknown": "Настройка wake не подтверждена"
+  "wake.settingUnknown": "Настройка wake не подтверждена",
+  "status.deadLetter": "Есть недоставленные сообщения",
+  "status.pausedPending": "Пробуждение на паузе; ожидают %s"
 }

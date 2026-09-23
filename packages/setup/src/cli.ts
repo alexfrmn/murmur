@@ -1,5 +1,6 @@
 import { configureClient, previewClientConfiguration } from './clients.js';
 import { prepareReplyTest, checkReplyTest } from './reply-test.js';
+import { listOutboxAttention, setOutboxDismissed } from './outbox-attention.js';
 import { initialize, invite, join, importPeer } from './onboarding.js';
 import { runDoctor } from './doctor.js';
 import { parseArgs } from 'node:util';
@@ -39,6 +40,7 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
   let parsed;
   try {
     parsed = parseArgs({ args, allowPositionals: true, options: {
+      'msg-id': { type: 'string' }, 'expected-state': { type: 'string' }, 'expected-agent': { type: 'string' },
       'agent-id': { type: 'string' }, 'broker-url': { type: 'string' }, 'token-file': { type: 'string' }, 'invite-file': { type: 'string' }, 'reply-file': { type: 'string' }, 'reply-out': { type: 'string' }, out: { type: 'string' },
       client: { type: 'string' }, replace: { type: 'boolean' }, 'plan-id': { type: 'string' }, 'test-token': { type: 'string' }, json: { type: 'boolean' }, line: { type: 'boolean' }, limit: { type: 'string' }, peer: { type: 'string' }, timeout: { type: 'string' }, 'data-dir': { type: 'string' }, 'service-name': { type: 'string' }, apply: { type: 'boolean' }, help: { type: 'boolean' },
     } });
@@ -47,7 +49,7 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
     throw new Error((error as NodeJS.ErrnoException).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? 'cli.unknown-option' : 'cli.invalid-arguments');
   }
   const { values, positionals } = parsed;
-  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE', 'add-peer --reply-file FILE', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients preview --client ID', 'clients configure --client ID [--replace] [--plan-id SHA256]', 'reply-test prepare --peer AGENT', 'reply-test check --test-token TOKEN', 'wake pause|resume [--apply]', 'inbox read [--limit 1..100]', 'inbox mark-read', 'mcp serve --data-dir ABSOLUTE'],
+  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite --out FILE', 'join --agent-id ID --invite-file FILE --reply-out FILE', 'add-peer --reply-file FILE', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients preview --client ID', 'clients configure --client ID [--replace] [--plan-id SHA256]', 'reply-test prepare --peer AGENT', 'reply-test check --test-token TOKEN', 'wake pause|resume [--apply]', 'inbox read [--limit 1..100]', 'inbox mark-read', 'outbox list --json', 'outbox dismiss|restore --msg-id ID --expected-state TOKEN --expected-agent ID', 'mcp serve --data-dir ABSOLUTE'],
     options: ['--data-dir ABSOLUTE', '--service-name NAME'], note: 'Windows service mutations require an elevated terminal and the matching native helper.' };
   const [command, action, extra] = positionals;
   if (extra) throw new Error('cli.unexpected-argument');
@@ -66,6 +68,9 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
     const status = await readStatus({ context, adapter });
     return values.line ? rawCliOutput(renderStatusLine(status)) : status;
   }
+  if (command === 'outbox' && action === 'list') return listOutboxAttention(context);
+  if (command === 'outbox' && ['dismiss', 'restore'].includes(action)) return setOutboxDismissed(context,
+    required('msg-id'), required('expected-state'), required('expected-agent'), action === 'dismiss');
   if (command === 'mcp' && action === 'serve') {
     if (values['data-dir'] === undefined) throw new Error('cli.required-option:data-dir');
     process.env.DATA_DIR = context.dataDir;

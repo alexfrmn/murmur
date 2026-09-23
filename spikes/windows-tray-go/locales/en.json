@@ -176,5 +176,7 @@
   "updates.rootTooltip": "Declared stable release; separate from message delivery health",
   "updates.unavailable": "CLI result unavailable; no automatic retry",
   "updates.unknown": "unknown",
-  "wake.settingUnknown": "The wake setting was not confirmed"
+  "wake.settingUnknown": "The wake setting was not confirmed",
+  "status.deadLetter": "Undelivered messages need your attention",
+  "status.pausedPending": "Agent delivery is paused; %s waiting"
 }
