@@ -8,7 +8,10 @@ import { spawn, execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import { connect } from 'nats';
+import { randomUUID } from 'node:crypto';
+import { connect, StringCodec } from 'nats';
+import { stableEnvelopePayload } from '../packages/core/dist/src/index.js';
+import { signEnvelope } from '../packages/security/dist/src/index.js';
 import { probeRoundtrip } from '../packages/setup/dist/src/doctor.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 const exec=promisify(execFile), root=fileURLToPath(new URL('../',import.meta.url));
@@ -19,7 +22,7 @@ async function stop(child) {
   const done=new Promise(resolve=>child.once('exit',resolve)); child.kill('SIGTERM');
   const timeout=setTimeout(()=>child.kill('SIGKILL'),3000); try{await done;}finally{clearTimeout(timeout);}
 }
-test('CLI invite handshake runs two real daemons and proves encrypted persisted roundtrip', { timeout:30000 }, async t=>{
+test('CLI invite handshake proves daemon roundtrip without an AI responder or wake', { timeout:30000 }, async t=>{
   try{execFileSync('nats-server',['--version'],{stdio:'ignore'});}catch{t.skip('isolated nats-server unavailable');return;}
   const base=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'murmur-onboard-live-'))), children=[];
   let nc; t.after(async()=>{if(nc)await nc.close();for(const child of children.reverse())await stop(child);await fs.rm(base,{recursive:true,force:true});});
@@ -44,9 +47,28 @@ test('CLI invite handshake runs two real daemons and proves encrypted persisted 
   const pending=probeRoundtrip(context,config,'agent-b',nc,10000); pending.catch(()=>{});
   const challenge=await until(()=>read('agent-b',"SELECT text,conversation_id FROM local_messages WHERE direction='inbound' AND conversation_id LIKE 'murmur:doctor:%' ORDER BY rowid DESC LIMIT 1"));
   const reply=/MURMUR-DOCTOR-REPLY [a-f0-9]+$/.exec(challenge.text)?.[0];assert.ok(reply);
-  const sender=spawn(process.execPath,['scripts/murmur-shell-send.mjs','--to','agent-a','--conv',challenge.conversation_id,'--stdin'],{cwd:root,env:env('agent-b'),stdio:['pipe','ignore','ignore']});children.push(sender);sender.stdin.end(reply);
-  assert.equal(await new Promise(r=>sender.once('exit',r)),0);
   const proof=await pending;assert.equal(proof.peerId,'agent-b');
   assert.equal(read('agent-a',"SELECT text FROM local_messages WHERE msg_id=?",proof.replyMsgId).text,reply);
   await until(()=>read('agent-a',"SELECT status FROM outbox WHERE msg_id=?",proof.msgId)?.status==='acked');
+  for (const [id,msgId] of [['agent-a',proof.replyMsgId],['agent-b',proof.msgId]]) {
+    const row=read(id,"SELECT wake_eligible,wake_status,wake_attempts FROM local_messages WHERE msg_id=?",msgId);
+    assert.deepEqual({...row},{wake_eligible:0,wake_status:'muted',wake_attempts:0});
+  }
+  // Authenticate before the protocol handler: an invalid signature must not
+  // persist or produce a reply, even when its plaintext would be a valid probe.
+  const original=JSON.parse(read('agent-a','SELECT envelope_json FROM outbox WHERE msg_id=?',proof.msgId).envelope_json);
+  const forged={...original,msgId:randomUUID(),signature:'invalid'};
+  const acks=nc.subscribe('ack.agent-a');let rejection;
+  const receiver=(async()=>{for await(const message of acks){const ack=JSON.parse(StringCodec().decode(message.data));if(ack.msgId===forged.msgId)rejection=ack;}})();
+  await nc.flush();nc.publish('msg.agent-b',StringCodec().encode(JSON.stringify(forged)));await nc.flush();
+  try { await until(()=>rejection);assert.equal(rejection.status,'nack'); }
+  finally { acks.unsubscribe();await receiver; }
+  assert.equal(read('agent-b','SELECT msg_id FROM local_messages WHERE msg_id=?',forged.msgId),undefined);
+  // A signed request for a different recipient is stored only and gets no reply.
+  const wrongTarget={...original,msgId:randomUUID(),recipients:['someone-else']};
+  wrongTarget.signature=await signEnvelope(stableEnvelopePayload(wrongTarget),config.keys.signing.privateKey);
+  nc.publish('msg.agent-b',StringCodec().encode(JSON.stringify(wrongTarget)));await nc.flush();
+  const wrongRow=await until(()=>read('agent-b','SELECT wake_eligible,wake_status FROM local_messages WHERE msg_id=?',wrongTarget.msgId));
+  assert.deepEqual({...wrongRow},{wake_eligible:0,wake_status:'muted'});
+  assert.equal(read('agent-b','SELECT count(*) n FROM outbox').n,1);
 });

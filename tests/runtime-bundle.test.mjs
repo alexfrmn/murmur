@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { stageRuntime, writeZip } from '../scripts/build-runtime-bundle.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -25,6 +26,8 @@ test('staged runtime is self-contained, uses locked dependencies and works outsi
   assert.ok(Object.hasOwn(manifest.files, 'plugins/claude-code/.claude-plugin/plugin.json'));
   assert.ok(Object.hasOwn(manifest.files, 'plugins/claude-code/.mcp.json'));
   assert.ok(Object.hasOwn(manifest.files, 'plugins/claude-code/scripts/statusline.mjs'));
+  const doctorProtocol = await import(pathToFileURL(path.join(output, 'scripts/doctor-protocol.mjs')));
+  assert.equal(typeof doctorProtocol.createDoctorResponder, 'function');
   for (const file of Object.keys(manifest.files)) assert.equal((await fs.lstat(path.join(output, file))).isSymbolicLink(), false);
   const cli = path.join(output, 'packages/setup/bin/murmur.mjs');
   const run = args => JSON.parse(execFileSync(process.execPath, [cli, ...args], {

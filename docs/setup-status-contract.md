@@ -163,6 +163,25 @@ leaves the diagnostic message's normal delivery lifecycle visible in the outbox.
 The peer must respond with the exact requested line in the same conversation.
 Doctor does not infer intended live-session wake from a transport roundtrip.
 
+Daemon roundtrip probes use the reserved `murmur:doctor:<uuid>` conversation
+namespace. After signature verification, decryption and channel authorization,
+the daemon answers only the exact diagnostic request with a 48-character hex
+nonce, addressed solely to this profile and bound to the configured peer's
+channel/member IDs. Requests older than 60 seconds or more than 5 seconds in the
+future are ignored. Replies are encrypted, signed and placed in the ordinary
+durable outbox; their deterministic IDs let redelivery complete an interrupted
+enqueue without resending a settled message. New responses are limited to six
+per peer and sixty total per minute per daemon process.
+
+Diagnostic requests, replies and malformed messages in this reserved namespace
+are stored with wake eligibility disabled (`muted`), without desktop/Telegram
+notifications or an AI turn. Both shipped Claude Stop drains record these muted
+diagnostic rows in their skip ledger before advancing their own cursor; ordinary
+muted rows retain their existing opt-in filter policy. External custom pollers
+must also honor `wake_eligible=0`. Diagnostics do not update live-session wake proofs.
+Ordinary conversations are unaffected. A matching signed network reply still
+needs local daemon persistence before doctor writes a key-bound pairing proof.
+
 Linux uses a per-user systemd unit and Mac a LaunchAgent. Both write stdout/stderr
 into the selected `dataDir/logs`. Windows uses the matching `murmur-svc.exe` through
 the shared CLI; unavailable or incompatible helpers produce unknown status.

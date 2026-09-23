@@ -23,6 +23,7 @@ import { SessionLeaseStore, createNativeLeaseGate } from "./lease.mjs";
 import { ensurePrivateDirectory, readPrivateJson, setPrivateUmask } from "./secure-state.mjs";
 import { createDaemonObservation } from "./daemon-observation.mjs";
 import { normalizeAckSecurity } from "./ack-security.mjs";
+import { classifyVerifiedDoctorMessage, createDoctorResponder } from "./doctor-protocol.mjs";
 // vault-guard: optional content policy hook (not included in OSS release)
 
 setPrivateUmask();
@@ -136,6 +137,7 @@ if (!wakeConfig.enabled) log("warn", "Wake dispatch paused by configuration", {
 
 const store = new SQLiteDedupeOutboxStore(dbPath);
 const msgStore = new SQLiteMessageStore(dbPath);
+const doctorResponder = createDoctorResponder({ config, outbox: store, messages: msgStore });
 
 // Scoped-channels (#82): native daemon wake becomes a lease-gated fallback. Default OFF
 // (backward-compat: no lease -> WakeMonitor behaves exactly as before). Lease lives in its
@@ -294,7 +296,8 @@ const onMessage = async (envelope) => {
     addresseeMemberId: envelope.addresseeMemberId,
   });
   if (addressing?.reject) throw new Error(`channel-addressing-rejected:${addressing.reason}`);
-  const wakeEligible = addressing?.allowWake !== false;
+  const diagnostic = classifyVerifiedDoctorMessage(config, envelope, plaintext);
+  const wakeEligible = !diagnostic && addressing?.allowWake !== false;
 
   // Durable commit first (#105): the row, its delivery id and its wake state land in
   // one transaction. Returning from here is what lets the broker mark the envelope seen
@@ -321,6 +324,9 @@ const onMessage = async (envelope) => {
       conversationId: envelope.conversationId,
       rowid: stored.rowid,
     });
+    if (diagnostic?.kind === "request" && addressing?.allowWake !== false) {
+      await doctorResponder.respond(envelope, plaintext);
+    }
     return;
   }
 
@@ -334,6 +340,15 @@ const onMessage = async (envelope) => {
     wakeEligible,
     textLen: plaintext.length,
   });
+
+  if (diagnostic) {
+    const result = diagnostic.kind === "request" && addressing?.allowWake !== false
+      ? await doctorResponder.respond(envelope, plaintext)
+      : { state: "ignored" };
+    log("info", "Doctor protocol handled", { msgId: envelope.msgId, from: senderId,
+      kind: diagnostic.kind, response: result.state, replyMsgId: result.msgId });
+    return;
+  }
 
   const payload = {
     from: senderId,

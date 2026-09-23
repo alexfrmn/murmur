@@ -115,7 +115,9 @@ while IFS='|' read -r rid elig sndr conv; do
   case "$rid" in ''|*[!0-9]*) continue ;; esac
   examined="$rid"
   reason=""
-  if in_list "$sndr" "$SKIP_SENDERS"; then
+  if [ "$elig" = "0" ] && [ "${conv#murmur:doctor:}" != "$conv" ]; then
+    reason="doctor-protocol"
+  elif in_list "$sndr" "$SKIP_SENDERS"; then
     reason="sender-filtered"
   elif in_list "$conv" "$SKIP_CONVERSATIONS"; then
     reason="conversation-filtered"
