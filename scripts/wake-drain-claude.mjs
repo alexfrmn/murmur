@@ -195,9 +195,37 @@ function adoptLegacy(file, legacy, tip) {
   }
 }
 
-function openDb() {
-  // read-only; WAL lets us read while the daemon writes.
-  return new DatabaseSync(DB, { readOnly: true });
+function openDb(timeoutMs = 5000) {
+  // WAL readers can still encounter BUSY; legacy rollback journals also need
+  // to wait for a writer. PRAGMA works on the minimum supported Node 22.13.
+  const db = new DatabaseSync(DB, { readOnly: true });
+  try { db.exec(`PRAGMA busy_timeout=${Math.max(0, Math.trunc(timeoutMs))}`); }
+  catch (error) { db.close(); throw error; }
+  return db;
+}
+
+function isBusy(error) {
+  return [5, 6].includes(Number(error?.errcode) & 0xff)
+    || /^SQLITE_(BUSY|LOCKED)(_|$)/.test(String(error?.code))
+    || /^database (?:table |schema )?is (?:locked|busy)\b/i.test(String(error?.message));
+}
+
+async function readStore(read, deadline = 0) {
+  let reported = false;
+  for (;;) {
+    let db;
+    try {
+      db = openDb(deadline ? Math.min(5000, Math.max(0, deadline - Date.now())) : 5000);
+      return read(db);
+    } catch (error) {
+      if (!deadline || !isBusy(error) || Date.now() >= deadline) throw error;
+      if (!reported) {
+        process.stderr.write(`murmur wake: store busy; retrying until polling deadline (db=${DB})\n`);
+        reported = true;
+      }
+    } finally { db?.close(); }
+    await sleep(Math.min(POLL_MS, 1000, Math.max(0, deadline - Date.now())));
+  }
 }
 
 function maxInbound(db) {
@@ -212,7 +240,10 @@ function maxInbound(db) {
 function hasWakeEligible(db) {
   try {
     return db.prepare("SELECT 1 FROM pragma_table_info('local_messages') WHERE name='wake_eligible'").get() != null;
-  } catch {
+  } catch (error) {
+    // Contention is not an old schema: falling back to eligible=1 could wake
+    // muted diagnostics. Retry the whole read before ledger/cursor mutation.
+    if (isBusy(error)) throw error;
     return false;
   }
 }
@@ -367,11 +398,10 @@ function bail(what, err) {
 async function main() {
   // DB not present (daemon never started) → nothing to do, and say which path was tried.
   try { statSync(DB); } catch (err) { bail("store not readable", err); }
+  const deadline = ONCE || SESSION ? 0 : Date.now() + MAX_SECONDS * 1000;
 
   if (legacyPending(ANCHOR, LEGACY_ANCHOR) || legacyPending(CURSOR, LEGACY_CURSOR)) {
-    const db = openDb();
-    const tip = maxInbound(db);
-    db.close();
+    const tip = await readStore(maxInbound, deadline);
     adoptLegacy(ANCHOR, LEGACY_ANCHOR, tip);
     adoptLegacy(CURSOR, LEGACY_CURSOR, tip);
   }
@@ -379,19 +409,18 @@ async function main() {
   // --session: cold-start drain. Runs before the per-session cursor exists and reads the
   // shared anchor instead, so it reports exactly what landed while nothing was listening.
   if (SESSION) {
-    const db = openDb();
-    const tip = maxInbound(db);
     const anchor = readAnchor();
+    const { tip, batch } = await readStore(db => ({
+      tip: maxInbound(db),
+      batch: anchor ? drainBatch(db, anchor) : null,
+    }));
     // No anchor yet (first install, or upgrade from a build without one): adopt the tip
     // as the baseline rather than replaying the whole store.
     if (!anchor) {
-      db.close();
       advanceAnchor(tip);
       writeCursor(tip);
       process.exit(0);
     }
-    const batch = drainBatch(db, anchor);
-    db.close();
     const rows = batch?.report ?? [];
     // Seed this session's own cursor at the tip either way: the Stop hook takes over from
     // here and must not re-report what this drain just printed. `examinedTo` comes from the
@@ -422,18 +451,14 @@ async function main() {
   let cursorExists = true;
   try { statSync(CURSOR); } catch { cursorExists = false; }
   if (!cursorExists) {
-    const db = openDb();
-    const tip = maxInbound(db);
-    db.close();
+    const tip = await readStore(maxInbound, deadline);
     writeCursor(tip);
     advanceAnchor(tip);
   }
 
   if (ONCE) {
-    const db = openDb();
     const since = readCursor();
-    const batch = drainBatch(db, since);
-    db.close();
+    const batch = await readStore(db => drainBatch(db, since));
     if (batch?.report.length) emitAndExit(batch.report, batch.examinedTo);
     // Nothing to wake on, but rows were examined: move the cursor past them. They are in
     // the ledger, so "skipped" and "never happened" stay different things.
@@ -445,16 +470,12 @@ async function main() {
   if (!acquireLock()) process.exit(0);
   process.on("exit", releaseLock);
 
-  const deadline = Date.now() + MAX_SECONDS * 1000;
   while (Date.now() < deadline) {
-    const db = openDb();
-    const since = readCursor();
-    const batch = drainBatch(db, since);
-    db.close();
+    const batch = await readStore(db => drainBatch(db, readCursor()), deadline);
     if (batch?.report.length) emitAndExit(batch.report, batch.examinedTo);
     // An all-skipped batch must not end the poll: record it, step over it, keep watching.
     if (batch) { writeCursor(batch.examinedTo); advanceAnchor(batch.examinedTo); }
-    await sleep(POLL_MS);
+    await sleep(Math.min(POLL_MS, Math.max(0, deadline - Date.now())));
   }
   releaseLock();
   process.exit(0);

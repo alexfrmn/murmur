@@ -12,6 +12,15 @@ import { DatabaseSync } from "node:sqlite";
 
 const script = path.resolve("scripts/wake-drain-claude.mjs");
 
+async function waitOr(promise, ms, fallback) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise(resolve => {
+      timer = setTimeout(() => resolve(fallback), ms);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
 function store() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-wake-first- пробел Мой-"));
   const dbPath = path.join(dir, "murmur.db");
@@ -36,24 +45,35 @@ function poll(s, args = []) {
   });
   let stderr = "";
   child.stderr.on("data", chunk => { stderr += chunk; });
-  const exited = new Promise(done => child.on("exit", code => done({ code, stderr })));
-  return { child, exited };
+  const result = { child, closed: false };
+  result.exited = new Promise((done, reject) => {
+    child.once("error", reject);
+    child.once("close", code => { result.closed = true; done({ code, stderr }); });
+  });
+  return result;
 }
 
 test("the first Stop of a new session seeds the cursor and keeps polling", async t => {
   const s = store();
-  t.after(() => { s.db.close(); fs.rmSync(s.dir, { recursive: true, force: true }); });
+  let run;
+  t.after(async () => {
+    if (run) {
+      if (!run.closed) run.child.kill();
+      await run.exited;
+    }
+    s.db.close();
+    fs.rmSync(s.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
   s.insert("history-1", "agent-old");
-  const run = poll(s);
-  t.after(() => run.child.kill());
+  run = poll(s);
   // Seeded at the tip without reporting history, and still running.
   for (let i = 0; i < 50 && !fs.existsSync(path.join(s.dir, "cursor")); i++) await new Promise(r => setTimeout(r, 100));
   assert.equal(fs.readFileSync(path.join(s.dir, "cursor"), "utf8").trim(), "1");
-  const early = await Promise.race([run.exited, new Promise(r => setTimeout(() => r(null), 600))]);
+  const early = await waitOr(run.exited, 600, null);
   assert.equal(early, null, `the first run must not exit after seeding: ${JSON.stringify(early)}`);
 
   s.insert("new-1", "agent-mac-fresh");
-  const result = await Promise.race([run.exited, new Promise(r => setTimeout(() => r({ timeout: true }), 10000))]);
+  const result = await waitOr(run.exited, 10000, { timeout: true });
   assert.equal(result.code, 2, `the first idle wait must wake: ${JSON.stringify(result)}`);
   assert.match(result.stderr, /Murmur wake: 1 new inbound message\(s\):\n {2}rowid=2 \[agent-mac-fresh\]/);
   assert.doesNotMatch(result.stderr, /agent-old/, "history before the session is not replayed");

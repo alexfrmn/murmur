@@ -13,12 +13,29 @@ import { DatabaseSync } from "node:sqlite";
 
 const script = path.resolve("scripts/wake-drain-claude.mjs");
 
+async function waitOr(promise, ms, fallback) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise(resolve => {
+      timer = setTimeout(() => resolve(fallback), ms);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
 function setup(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-wake-store-key- Мой-"));
   const home = path.join(root, "home");
   fs.mkdirSync(home);
   const stores = [];
-  t.after(() => { for (const s of stores) s.db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const children = [];
+  t.after(async () => {
+    for (const result of children) {
+      if (!result.closed) result.child.kill();
+      await result.exited;
+    }
+    for (const s of stores) s.db.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
   const store = (name, rows) => {
     const dbPath = path.join(root, name, "murmur.db");
     fs.mkdirSync(path.dirname(dbPath));
@@ -41,7 +58,7 @@ function setup(t) {
   });
   const run = (s, session, args) => spawnSync(process.execPath, ["--no-warnings", script, "--db", s.dbPath, ...args], { env: env(session), encoding: "utf8" });
   const key = (s) => createHash("sha256").update(process.platform === "win32" ? s.dbPath.toLowerCase() : s.dbPath).digest("hex").slice(0, 8);
-  return { home, store, run, env, key };
+  return { home, store, run, env, key, children };
 }
 
 test("two stores in one home keep separate anchors, cursors and cold starts", t => {
@@ -100,18 +117,23 @@ test("a poller on one store does not hold the lock of another store", async t =>
   for (const s of [a, b]) assert.equal(h.run(s, "same", ["--once"]).status, 0); // seed both cursors
   const start = (s) => {
     const child = spawn(process.execPath, ["--no-warnings", script, "--db", s.dbPath, "--max-seconds", "20"], { env: h.env("same") });
-    t.after(() => child.kill());
     let stderr = "";
     child.stderr.on("data", c => { stderr += c; });
-    return { child, exited: new Promise(done => child.on("exit", code => done({ code, stderr }))) };
+    const result = { child, closed: false };
+    result.exited = new Promise((done, reject) => {
+      child.once("error", reject);
+      child.once("close", code => { result.closed = true; done({ code, stderr }); });
+    });
+    h.children.push(result);
+    return result;
   };
   const pollA = start(a);
   for (let i = 0; i < 50 && !fs.existsSync(path.join(h.home, `.murmur-wake-lock-${h.key(a)}-same`)); i++) await new Promise(r => setTimeout(r, 100));
   const pollB = start(b);
   await new Promise(r => setTimeout(r, 600));
   b.insert("b-2", "agent-mac-fresh");
-  const result = await Promise.race([pollB.exited, new Promise(r => setTimeout(() => r({ timeout: true }), 10000))]);
+  const result = await waitOr(pollB.exited, 10000, { timeout: true });
   assert.equal(result.code, 2, `store b must wake while a's poller runs: ${JSON.stringify(result)}`);
-  const stillA = await Promise.race([pollA.exited, new Promise(r => setTimeout(() => r(null), 300))]);
+  const stillA = await waitOr(pollA.exited, 300, null);
   assert.equal(stillA, null, "store a's poller keeps running");
 });

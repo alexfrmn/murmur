@@ -120,6 +120,8 @@ jobs:
         run: node --test tests/claude-statusline-windows.test.mjs
       - name: Check MCP peer refresh and bounded requests on Windows
         run: node --test tests/mcp-peer-refresh.test.mjs tests/mcp-request-reply.test.mjs tests/mcp-presence.test.mjs tests/broker-reconnect-options.test.mjs
+      - name: Check Claude Stop listener contention and profile isolation on Windows
+        run: node --test tests/wake-drain-busy.test.mjs tests/wake-drain-store-key.test.mjs tests/wake-drain-first-stop.test.mjs
 
   build-and-test:
     runs-on: ubuntu-latest

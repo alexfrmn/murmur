@@ -69,11 +69,19 @@ json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 [ -r "$DB" ] || exit 0
 
+# A transient writer lock is not an empty store or an old schema. Wait before
+# failing this one-shot hook, and leave the cursor unchanged on a failed read.
+read_store() { sqlite3 -readonly -cmd '.timeout 5000' "$@"; }
+read_failed() {
+  printf 'murmur wake: store read failed; cursor unchanged (db=%s)\n' "$DB" >&2
+  exit 0
+}
+
 # ── seed-to-tip: первый запуск в новой сессии НЕ вываливает всю историю ──
 if [ ! -f "$CURSOR" ]; then
-  seed="$(sqlite3 "$DB" \
+  if ! seed="$(read_store "$DB" \
     "SELECT COALESCE(MAX(rowid), 0) FROM local_messages WHERE direction='inbound';" \
-    2>/dev/null || echo 0)"
+    2>/dev/null)"; then read_failed; fi
   case "$seed" in ''|*[!0-9]*) seed=0 ;; esac
   mkdir -p "$(dirname "$CURSOR")" 2>/dev/null || true
   seed_tmp="${CURSOR}.$$"
@@ -88,20 +96,20 @@ case "$last" in ''|*[!0-9]*) last=0 ;; esac
 
 # wake_eligible arrived in a later schema; an older store simply has no such column. This
 # is a schema question, not a row question, so asking it separately cannot race rows.
-has_eligible="$(sqlite3 "$DB" \
+if ! has_eligible="$(read_store "$DB" \
   "SELECT COUNT(*) FROM pragma_table_info('local_messages') WHERE name='wake_eligible';" \
-  2>/dev/null || echo 0)"
+  2>/dev/null)"; then read_failed; fi
 case "$has_eligible" in ''|*[!0-9]*) has_eligible=0 ;; esac
 if [ "$has_eligible" -gt 0 ]; then eligible_col="COALESCE(wake_eligible, 1)"; else eligible_col="1"; fi
 
 # ONE select. The rows to report, the rows to skip and the rowid the cursor advances to all
 # come from this single snapshot - that is the whole point of the cursor rule above.
 # Field order puts the free-text ids last so a '|' inside one cannot shift the numbers.
-batch="$(sqlite3 -separator '|' "$DB" \
+if ! batch="$(read_store -separator '|' "$DB" \
   "SELECT rowid, $eligible_col, sender, COALESCE(conversation_id, '') \
    FROM local_messages \
    WHERE direction='inbound' AND rowid > $last \
-   ORDER BY rowid;" 2>/dev/null || true)"
+   ORDER BY rowid;" 2>/dev/null)"; then read_failed; fi
 
 [ -z "$batch" ] && exit 0
 
