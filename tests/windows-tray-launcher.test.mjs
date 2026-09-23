@@ -324,6 +324,18 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         assert.deepEqual(await readFile(statePath), stateBeforeCheck);
         const processesAfterRefusal = exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe'));
         assert.deepEqual(processesAfterRefusal.map(value => value.ProcessId), [state.pid]);
+
+        // Installed by setup.exe: the installer owns the shortcuts, so the launcher changes none of
+        // them — a missing one is not created, a foreign one does not block opening.
+        await rm(shortcutPaths[0]);
+        const before = await Promise.all(shortcutPaths.map(shortcut => readFile(shortcut).catch(() => null)));
+        await writeFile(path.join(canonicalDir, 'murmur-install.json'), '{"schema":"murmur.windows-install/1"}\r\n');
+        const installedOpen = spawnSync('powershell.exe', launchArgs, launchOptions);
+        assert.equal(installedOpen.status, 0, installedOpen.stdout + installedOpen.stderr);
+        assert.match(installedOpen.stdout, /Murmur controls opened/);
+        assert.deepEqual(await Promise.all(shortcutPaths.map(shortcut => readFile(shortcut).catch(() => null))), before);
+        assert.equal(before[0], null);
+        assert.deepEqual(exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe')).map(value => value.ProcessId), [state.pid]);
       } else if (mode === 'valid') {
         assert.equal(result.status, 0, result.stdout + result.stderr + JSON.stringify(observed));
         const output = JSON.parse(result.stdout.replace(/^\uFEFF/, ''));

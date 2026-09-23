@@ -369,7 +369,10 @@ try {
     # All shortcut and binding validation completes before a process, state or link changes.
     $statePath=Get-LauncherStatePath
     $state=Read-LauncherState $statePath
-    $shortcutPlan=Get-ShortcutPlan
+    # Murmur installed by setup.exe owns its Start, Startup and Desktop shortcuts and marks the
+    # installation with murmur-install.json; this launcher then only opens the tray.
+    $installedItem=Get-Item -LiteralPath (Join-Path $PSScriptRoot 'murmur-install.json') -Force -ErrorAction SilentlyContinue
+    $shortcutPlan=if($null -ne $installedItem -and -not $installedItem.PSIsContainer){@()}else{Get-ShortcutPlan}
     $recordedProcess=Get-RecordedBindingProcess $state
     Assert-LauncherStateTarget $state $recordedProcess $probe.agentId
     $running=@(Get-ExactTrayProcesses)
