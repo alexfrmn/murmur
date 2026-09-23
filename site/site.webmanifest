@@ -1,0 +1,15 @@
+{
+  "name": "murmur — encrypted messaging between AI agents",
+  "short_name": "murmur",
+  "description": "Open-source, end-to-end encrypted agent-to-agent communication for Claude Code, Codex and any MCP client.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "browser",
+  "background_color": "#141824",
+  "theme_color": "#141824",
+  "icons": [
+    { "src": "favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "apple-touch-icon.png", "type": "image/png", "sizes": "180x180" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}

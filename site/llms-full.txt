@@ -1,0 +1,112 @@
+# murmur — full text for language models
+
+> Murmur is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct, encrypted channel to a peer on another machine through a NATS broker, so a person no longer relays text between terminals. MIT license. Current stable release: v2.10.0, released 2026-09-20.
+
+Website: https://murmurconnect.com/
+Source: https://github.com/alexfrmn/murmur
+Releases: https://github.com/alexfrmn/murmur/releases
+Everything below is taken from the repository's README, SECURITY.md, CHANGELOG.md and docs/ as of v2.10.0. When this file and the repository disagree, the repository wins.
+
+## What problem it solves
+
+AI agents are usually isolated. A coding assistant cannot ask another agent for context or a review, so a person ends up as the relay, copying messages from one terminal to another. Murmur gives agents direct, encrypted communication, so two agents can exchange requests and replies without a human in the loop.
+
+The name comes from a murmuration: thousands of starlings moving as one without a central coordinator. There is no central orchestrator in Murmur either, and trust is explicit: every peer is added by an exchange of invitations.
+
+## How it works
+
+- Each machine runs a Murmur daemon. The agent talks to its local Murmur MCP server (JSON-RPC over stdio), and the daemons exchange messages through a NATS broker.
+- The sender encrypts each message (X25519 key agreement, XChaCha20-Poly1305) and signs it (Ed25519), then enqueues it in a local SQLite outbox. The daemon publishes the encrypted envelope to NATS.
+- The recipient's daemon verifies the signature, decrypts, and stores the message locally. Each side keeps its own copy of the conversation; there is no shared store.
+- Delivery is at-least-once: a persistent SQLite outbox with ACK correlation, retries with exponential backoff and jitter, and a dead-letter queue for messages that keep failing. JetStream durability is optional and off by default; the SQLite outbox stays the source of truth.
+- Delivery acknowledgements are signed with Ed25519 and bound to the message digest, conversation, sender, intended recipient, status, timestamp and nonce. Unsigned, stale, replayed and wrong-recipient ACKs are rejected.
+
+## Security model
+
+- End to end: messages are encrypted by the sender and decrypted only by the recipient. The broker passes ciphertext and never sees plaintext payloads.
+- What the broker can see: who sent a packet to whom, when, and its size.
+- Keys: long-term private keys stay on each participant's machine, in a profile file written with mode 0600 inside a 0700 directory. Symlinked or wrong-owner state paths are rejected, and the daemon runs with umask 0077.
+- Who can talk: only agents that have exchanged invitations. Messages without the right keys are rejected.
+- Invitations: an invitation file contains public peer keys and can contain the broker address and token. Treat it like a password and send it only through a trusted private channel. The reply file contains public peer keys, not the broker token or private keys.
+- Local storage: decrypted message bodies are stored as plaintext in the local SQLite database for search and history. File permissions limit other users, but not a compromised daemon identity; SECURITY.md recommends a dedicated OS user and disk or volume encryption until database encryption exists.
+- Not yet shipped: transport hardening that makes non-loopback plain nats:// configurations fail closed (TLS plus per-peer broker auth) is reviewed but held for a coordinated rollout. MLS group encryption (RFC 9420) is only a scaffold interface; there is no group forward secrecy today.
+- Vulnerabilities are reported through GitHub Security Advisories: https://github.com/alexfrmn/murmur/security/advisories/new
+
+## MCP tools
+
+The Murmur MCP server exposes 7 tools.
+
+Agent to agent (need a configured peer):
+
+- murmur_request: send a message and wait for the reply. It polls the inbox until a response arrives or the timeout passes, which removes the "polling gap" where an agent forgets to check for replies.
+- murmur_send: send an encrypted message and return right after it is enqueued.
+- murmur_inbox: read inbound messages from peers.
+- murmur_peers: list known peers and their key status.
+
+Local storage:
+
+- send_message: store a local message in the conversation store.
+- list_conversations: list conversations by recency.
+- search_messages: full-text search across stored messages.
+
+## Which agents and clients work
+
+- The setup CLI (`clients detect`, then `clients configure --client <id>`) writes the Murmur MCP entry for Claude Code and the Codex CLI on macOS, Linux and Windows, and for Claude Desktop and Codex Desktop on macOS. It preserves unrelated settings and saves a private backup; replacing an existing Murmur entry needs an explicit `--replace`.
+- Any other MCP client can be connected by hand: point it at the absolute Node executable and the MCP server entry of the same runtime, with DATA_DIR and MURMUR_STORE_PATH set to the same profile.
+- Delivery and wake are separate. Answering incoming messages without a human prompt needs a wake hook (docs/wake-native.md): for Claude Code, an asyncRewake hook plus a SessionStart drain for messages that arrived while no session was running; for the Codex CLI, a turn started through the app-server. Codex Desktop can receive messages into one exact task on macOS (opt-in, docs/codex-desktop-queue-wake.md). On Windows, use the Node version of the wake hook: the shell version needs sh.
+
+## Install
+
+npm installation and updates are paused. The npm registry still serves older @murmurv2/* packages from the 2.6.x era without later delivery fixes, and publishing is blocked. Do not install or update Murmur from npm; use a GitHub release asset or a pinned source checkout.
+
+Every path needs Node.js 22.13.0 or newer with the built-in node:sqlite module available without a flag, a reachable NATS broker (address and credentials from its owner), and a second participant.
+
+Stable v2.10.0 assets (https://github.com/alexfrmn/murmur/releases/tag/v2.10.0):
+
+- murmur-runtime-2.10.0.zip: portable CLI, daemon and MCP runtime for macOS, Linux or Windows. No Git, npm or build needed on the receiving machine.
+- Murmur-Windows-2.10.0-x64.zip: Windows x64 tray and native service companion.
+- Murmur-Mac-2.10.0-universal.dmg: macOS 13 or newer on Intel or Apple Silicon.
+
+The builds are unsigned, so macOS and Windows show a first-open warning. GitHub's automatically generated "Source code" archives are source checkouts, not prebuilt runtimes. Murmur does not update itself; existing Windows service users follow the manual upgrade guide in apps/windows-tray/packaging/README-Windows.md.
+
+Source path:
+
+    git clone https://github.com/alexfrmn/murmur.git
+    cd murmur
+    git checkout --detach v2.10.0
+    npm ci
+    npm run build
+
+On Windows PowerShell, run `npm.cmd ci` and `npm.cmd run build` as separate lines.
+
+## Setup outline
+
+The CLI is `node packages/setup/bin/murmur.mjs`, and every profile-specific command takes the same absolute `--data-dir`.
+
+1. `init --agent-id ID --broker-url URL --token-file ABSOLUTE_FILE` creates a private identity. The broker token stays in a private file, never on the command line.
+2. `invite --out ABSOLUTE_FILE` writes a private invitation file for the other participant.
+3. On the other machine, `join --agent-id ID --invite-file FILE --reply-out FILE` imports it and writes a reply file.
+4. `add-peer --reply-file FILE` completes the first side.
+5. `service install` and `service start` run the daemon as a service on each machine.
+6. `clients detect` and `clients configure --client <id>` connect the AI client; reload the client afterwards.
+7. Send a test message with murmur_request and require a reply. Importing keys confirms only one side of the pair; only a message received back proves that both sides are set up.
+
+The Murmur website also offers this setup as a prompt to hand to an agent, which then runs the steps in its own terminal.
+
+## Troubleshooting
+
+- No identity, empty peers, or silence: the daemon and the MCP server must use the same absolute DATA_DIR. A different working directory can silently create a second, empty store.
+- Messages arrive but the agent does not answer: delivery and wake are separate states; check that the responder and the wake hook are installed and running.
+- A peer was added but nothing comes back: send a test message and require a reply; the round trip is the proof.
+
+## Other features
+
+- Notification adapters for Telegram and Discord.
+- Federation with org/agent addressing and a signed per-org key directory, proven in isolation; a real partner organisation is still pending.
+- An A2A protocol bridge, with a live client-to-bridge-to-NATS round trip proven; a real remote agent is still pending.
+- A loopback-only observability dashboard that verifies every envelope signature before display.
+- Deployment examples: systemd unit, Docker Compose for NATS, Kubernetes manifests.
+
+## License
+
+MIT. Free to use, change and share. Copyright (c) 2026 alexfrmn.

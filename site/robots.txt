@@ -1,0 +1,37 @@
+# murmur — https://murmurconnect.com/
+# Everything on this site is public. Search engines and AI assistants are welcome
+# to crawl, index, quote and cite it. A short summary for language models lives at
+# https://murmurconnect.com/llms.txt and the full text at /llms-full.txt.
+
+User-agent: *
+Allow: /
+
+# Search engines
+User-agent: Googlebot
+User-agent: Bingbot
+User-agent: YandexBot
+User-agent: DuckDuckBot
+User-agent: Applebot
+Allow: /
+
+# AI search indexes and pages fetched on a user's request
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: MistralAI-User
+Allow: /
+
+# AI model training
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: Amazonbot
+User-agent: meta-externalagent
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://murmurconnect.com/sitemap.xml
