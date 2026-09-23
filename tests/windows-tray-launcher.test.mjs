@@ -41,7 +41,9 @@ async function copyNativeBundleFiles(dir) {
 }
 
 function runPowerShell(command) {
-  return spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+  // Windows PowerShell 5.1 writes stdout in the OEM code page; a localized Desktop such as
+  // "Рабочий стол" would come back garbled and name a shortcut path that does not exist.
+  return spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);${command}`], {
     encoding: 'utf8', timeout: 20_000, windowsHide: true,
   });
 }
