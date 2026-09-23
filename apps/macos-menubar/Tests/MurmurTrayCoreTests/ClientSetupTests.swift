@@ -74,11 +74,11 @@ func runClientSetupChecks(fixtures: URL) throws -> Int {
     let helper = ClientSetupClient(executable: executable, profile: profile,
         environment: ["HOME": directory.path, "CODEX_HOME": directory.appendingPathComponent("custom codex").path,
                       "CLAUDE_CONFIG_DIR": "/custom-claude", "NODE_OPTIONS": "bad", "OPENAI_API_KEY": "fixture-never-inherit", "DATA_DIR": "/wrong"])
-    try check(try helper.detect(expectedAgent: "agent-misha").count == 1, "Detection from canonical CLI"); count += 1
-    let preview = try helper.preview(.codexCLI, expectedAgent: "agent-misha")
-    _ = try helper.configure(preview, expectedAgent: "agent-misha")
-    let prepared = try helper.prepareTest(peerID: "peer-one", expectedAgent: "agent-misha")
-    _ = try helper.checkTest(prepared, expectedAgent: "agent-misha")
+    try check(try measuredChecks("ClientSetup detect") { try helper.detect(expectedAgent: "agent-misha") }.count == 1, "Detection from canonical CLI"); count += 1
+    let preview = try measuredChecks("ClientSetup preview") { try helper.preview(.codexCLI, expectedAgent: "agent-misha") }
+    _ = try measuredChecks("ClientSetup configure") { try helper.configure(preview, expectedAgent: "agent-misha") }
+    let prepared = try measuredChecks("ClientSetup prepare") { try helper.prepareTest(peerID: "peer-one", expectedAgent: "agent-misha") }
+    _ = try measuredChecks("ClientSetup check") { try helper.checkTest(prepared, expectedAgent: "agent-misha") }
     let callsFile = directory.appendingPathComponent("calls.jsonl")
     let calls = try String(contentsOf: callsFile, encoding: .utf8).split(separator: "\n").map {
         try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String: Any]
