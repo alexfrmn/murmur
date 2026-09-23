@@ -2,7 +2,8 @@ import { constants } from 'node:fs';
 import { mkdir, open, rmdir, lstat, unlink, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
+import { execFile } from 'node:child_process';
 import { SQLiteDedupeOutboxStore } from '@murmurv2/core';
 import { createKeyPair, createSigningKeyPair } from '@murmurv2/security';
 import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerConfig } from './config.js';
@@ -62,17 +63,39 @@ async function validateOutput(c: ServiceContext, file: string) {
     if (path.dirname(ancestor) === ancestor) break;
   }
 }
+const execFileAsync = promisify(execFile);
+let userSid: Promise<string> | undefined;
+/**
+ * POSIX modes do not restrict Windows files: a new file inherits its folder's DACL, which on a
+ * non-system drive grants Authenticated Users modify. Replace it with a protected DACL for the
+ * current user and SYSTEM (the LocalSystem service reads the profile). Only paths this process
+ * has just created are changed; an existing profile keeps the ACL its owner chose.
+ */
+async function restrictToCurrentUser(target: string, directory: boolean) {
+  if (process.platform !== 'win32') return;
+  userSid ??= execFileAsync('whoami', ['/user', '/fo', 'csv', '/nh'], { windowsHide: true }).then(({ stdout }) => {
+    const sid = /"(S-1-5-[0-9-]+)"\s*$/.exec(stdout.trim())?.[1];
+    if (!sid) throw new Error('onboarding.user-sid-unavailable');
+    return sid;
+  });
+  const inherit = directory ? '(OI)(CI)' : '';
+  await execFileAsync('icacls', [target, '/inheritance:r', '/grant:r', `*${await userSid}:${inherit}(F)`, `*S-1-5-18:${inherit}(F)`], { windowsHide: true })
+    .catch(() => { throw new Error('onboarding.private-acl-failed'); });
+}
 async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
   if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
   const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
   try {
+    // Before any content: an invite carries the broker token.
+    await restrictToCurrentUser(file, false);
     await beforeWrite?.();
     await handle.writeFile(prefix + Buffer.from(JSON.stringify(value)).toString('base64') + '\n'); await handle.sync();
   } catch (error) { await unlink(file).catch(() => {}); throw error; }
   finally { await handle.close(); }
 }
 async function locked<T>(c: ServiceContext, fn: () => Promise<T>) {
-  await mkdir(c.dataDir, { recursive: true, mode: 0o700 });
+  // mkdir reports a path only when it created something: never rewrite an existing profile's ACL.
+  if (await mkdir(c.dataDir, { recursive: true, mode: 0o700 }) !== undefined) await restrictToCurrentUser(c.dataDir, true);
   const lock = path.join(c.dataDir, '.setup-write.lock');
   await mkdir(lock, { mode: 0o700 });
   try { return await fn(); } finally { await rmdir(lock); }
