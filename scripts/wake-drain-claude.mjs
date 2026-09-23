@@ -54,14 +54,21 @@
 // exits silently either — the reason goes to stderr and the exit code stays 0.
 //
 // Env (all optional; same contract as wake-drain-claude.sh plus lock/poll knobs):
-//   MURMUR_DB               daemon SQLite store path (default: .data/murmur.db)
+//   MURMUR_DB               daemon SQLite store path (default: .data/murmur.db); --db PATH
+//                           wins, because a Windows hook command cannot set environment
+//                           variables portably
 //   MURMUR_WAKE_SESSION_KEY overrides the key used to build the default cursor/lock names
 //                           (defaults to CLAUDE_CODE_SESSION_ID, first 8 chars)
 //   MURMUR_WAKE_CURSOR      file holding the last-drained inbound rowid
-//   MURMUR_WAKE_LOCK        single-poller lock file
-//   MURMUR_WAKE_MAX_SECONDS poll lifetime in seconds (default 1200)
+//                           (default: ~/.murmur-wake-cursor-<store>-<session>)
+//   MURMUR_WAKE_LOCK        single-poller lock file (default: ~/.murmur-wake-lock-<store>-<session>)
+//   MURMUR_WAKE_MAX_SECONDS poll lifetime in seconds (default 1200); --max-seconds N wins
 //   MURMUR_WAKE_POLL_MS     poll interval in ms (default 10000)
 //   MURMUR_WAKE_ANCHOR      shared cross-session cursor used by --session
+//                           (default: ~/.murmur-wake-anchor-<store>)
+//
+// <store> is the first 8 hex digits of the SHA-256 of the store's absolute path, so two
+// profiles on one machine never share a cursor, a lock or an anchor.
 //   MURMUR_WAKE_SESSION_MAX max messages --session prints (default 20; older ones
 //                           are counted, not printed)
 //   MURMUR_WAKE_SKIP_SENDERS        comma-separated sender ids not to wake on
@@ -78,11 +85,13 @@ import {
   readFileSync, writeFileSync, renameSync, rmSync,
   openSync, closeSync, writeSync, statSync, appendFileSync, mkdirSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const HOME = homedir();
-const DB = process.env.MURMUR_DB || ".data/murmur.db";
+const dbArgument = process.argv.indexOf("--db");
+const DB = (dbArgument > 0 && process.argv[dbArgument + 1]) || process.env.MURMUR_DB || ".data/murmur.db";
 
 // Session key: one cursor and one lock per Claude Code session. A shared cursor means
 // the first session to reach the hook advances it past the message and every other live
@@ -90,9 +99,19 @@ const DB = process.env.MURMUR_DB || ".data/murmur.db";
 // murmur-coldidle-watch.sh for the measurement that produced this).
 const SESSION_KEY = (process.env.MURMUR_WAKE_SESSION_KEY || process.env.CLAUDE_CODE_SESSION_ID || "").slice(0, 8);
 const suffix = SESSION_KEY ? `-${SESSION_KEY}` : "";
-const CURSOR = process.env.MURMUR_WAKE_CURSOR || join(HOME, `.murmur-wake-cursor${suffix}`);
-const LOCK = process.env.MURMUR_WAKE_LOCK || join(HOME, `.murmur-wake-lock${suffix}`);
-const MAX_SECONDS = Number(process.env.MURMUR_WAKE_MAX_SECONDS || 1200);
+// Store key: cursor, lock and anchor describe one store. Shared between two profiles (or a
+// test next to a live profile), the store with larger rowids moves the other's anchor forward
+// and its cold start then skips real messages.
+const STORE_PATH = resolve(DB);
+const STORE_KEY = createHash("sha256")
+  .update(process.platform === "win32" ? STORE_PATH.toLowerCase() : STORE_PATH)
+  .digest("hex").slice(0, 8);
+const CURSOR = process.env.MURMUR_WAKE_CURSOR || join(HOME, `.murmur-wake-cursor-${STORE_KEY}${suffix}`);
+const LOCK = process.env.MURMUR_WAKE_LOCK || join(HOME, `.murmur-wake-lock-${STORE_KEY}${suffix}`);
+// Names written by builds before the store key. Read once to carry the position over, never written.
+const LEGACY_CURSOR = process.env.MURMUR_WAKE_CURSOR ? null : join(HOME, `.murmur-wake-cursor${suffix}`);
+const maxArgument = process.argv.indexOf("--max-seconds");
+const MAX_SECONDS = Number((maxArgument > 0 && process.argv[maxArgument + 1]) || process.env.MURMUR_WAKE_MAX_SECONDS || 1200);
 const POLL_MS = Number(process.env.MURMUR_WAKE_POLL_MS || 10000);
 const ONCE = process.argv.includes("--once");
 const SESSION = process.argv.includes("--session");
@@ -101,7 +120,8 @@ const SESSION_MAX = Number(process.env.MURMUR_WAKE_SESSION_MAX || 20);
 // Shared across sessions on purpose: this one is NOT suffixed with the session key.
 // It answers "how far has anyone drained this store", which is what a cold start
 // needs to know and what a per-session cursor cannot say.
-const ANCHOR = process.env.MURMUR_WAKE_ANCHOR || join(HOME, ".murmur-wake-anchor");
+const ANCHOR = process.env.MURMUR_WAKE_ANCHOR || join(HOME, `.murmur-wake-anchor-${STORE_KEY}`);
+const LEGACY_ANCHOR = process.env.MURMUR_WAKE_ANCHOR ? null : join(HOME, ".murmur-wake-anchor");
 
 // --- deliberate skips ---------------------------------------------------------
 // Shared across sessions like the anchor: "which rows did this contour decline to wake
@@ -150,6 +170,26 @@ function advanceAnchor(v) {
   try {
     writeFileSync(tmp, `${v}\n`);
     renameSync(tmp, ANCHOR);
+  } catch {
+    try { rmSync(tmp, { force: true }); } catch {}
+  }
+}
+
+// A legacy file may have been written for another store. A value above this store's tip cannot
+// be ours and would make undelivered rows look drained, so it is ignored (baseline at the tip
+// instead). A value at or below the tip is adopted; if it was another store's, the worst case
+// is a message reported twice, never one lost.
+const exists = (file) => { try { statSync(file); return true; } catch { return false; } };
+const legacyPending = (file, legacy) => Boolean(legacy) && !exists(file) && exists(legacy);
+function adoptLegacy(file, legacy, tip) {
+  if (!legacyPending(file, legacy)) return;
+  let value;
+  try { value = parseInt(readFileSync(legacy, "utf8").trim(), 10); } catch { return; }
+  if (!(Number.isFinite(value) && value > 0 && value <= tip)) return;
+  const tmp = `${file}.${process.pid}`;
+  try {
+    writeFileSync(tmp, `${value}\n`);
+    renameSync(tmp, file);
   } catch {
     try { rmSync(tmp, { force: true }); } catch {}
   }
@@ -325,6 +365,14 @@ async function main() {
   // DB not present (daemon never started) → nothing to do, and say which path was tried.
   try { statSync(DB); } catch (err) { bail("store not readable", err); }
 
+  if (legacyPending(ANCHOR, LEGACY_ANCHOR) || legacyPending(CURSOR, LEGACY_CURSOR)) {
+    const db = openDb();
+    const tip = maxInbound(db);
+    db.close();
+    adoptLegacy(ANCHOR, LEGACY_ANCHOR, tip);
+    adoptLegacy(CURSOR, LEGACY_CURSOR, tip);
+  }
+
   // --session: cold-start drain. Runs before the per-session cursor exists and reads the
   // shared anchor instead, so it reports exactly what landed while nothing was listening.
   if (SESSION) {
@@ -365,7 +413,9 @@ async function main() {
     process.exit(0);
   }
 
-  // First run ever: establish a baseline at the current tip, do not dump history.
+  // First run ever: establish a baseline at the current tip, do not dump history — and then
+  // go on in the requested mode. The installed hook is a Stop hook only, so a run that seeded
+  // and exited left the first idle wait of every new session deaf.
   let cursorExists = true;
   try { statSync(CURSOR); } catch { cursorExists = false; }
   if (!cursorExists) {
@@ -374,7 +424,6 @@ async function main() {
     db.close();
     writeCursor(tip);
     advanceAnchor(tip);
-    process.exit(0);
   }
 
   if (ONCE) {

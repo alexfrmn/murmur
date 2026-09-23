@@ -3,6 +3,7 @@
 // that must be reported instead of swallowed.
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -142,8 +143,10 @@ test("node drain keeps a separate cursor per session key", () => {
   assert.equal(drainAs(homeA, "aaaaaaaa-1111").status, 2, "session A must wake");
   assert.equal(drainAs(homeB, "bbbbbbbb-2222").status, 2, "session B must wake on the same message");
 
-  assert.ok(fs.existsSync(path.join(homeA, ".murmur-wake-cursor-aaaaaaaa")));
-  assert.ok(fs.existsSync(path.join(homeB, ".murmur-wake-cursor-bbbbbbbb")));
+  // Default names also carry the store key (the first 8 hex digits of the store path's SHA-256).
+  const store = createHash("sha256").update(process.platform === "win32" ? ctx.dbPath.toLowerCase() : ctx.dbPath).digest("hex").slice(0, 8);
+  assert.ok(fs.existsSync(path.join(homeA, `.murmur-wake-cursor-${store}-aaaaaaaa`)));
+  assert.ok(fs.existsSync(path.join(homeB, `.murmur-wake-cursor-${store}-bbbbbbbb`)));
 });
 
 // A hook that dies without a word is the failure this script was written to fix, so a
