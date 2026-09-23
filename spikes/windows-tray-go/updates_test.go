@@ -291,22 +291,27 @@ func TestCachedUpdateBeforeFirstStatusIsUnmeasured(t *testing.T) {
 	}
 }
 
-func TestUpdateTogglesOfferOnlyTheOppositeOfAMeasuredPreference(t *testing.T) {
+func TestUpdateToggleShowsOnlyTheOppositeOfAMeasuredPreference(t *testing.T) {
 	on, off := &updateSnapshot{Enabled: true}, &updateSnapshot{Enabled: false}
 	for _, c := range []struct {
 		name            string
 		s               *updateSnapshot
 		busy, envOptOut bool
-		enable, disable bool
+		want            toggleView
 	}{
-		{"unknown state offers neither", nil, false, false, false, false},
-		{"enabled offers disable", on, false, false, false, true},
-		{"disabled offers enable", off, false, false, true, false},
-		{"busy offers neither", on, true, false, false, false},
-		{"environment opt-out offers neither", off, false, true, false, false},
+		{"unknown state shows neither", nil, false, false, toggleView{}},
+		{"unknown state while checking shows neither", nil, true, false, toggleView{}},
+		{"enabled shows only Disable", on, false, false, toggleView{showDisable: true, clickable: true}},
+		{"disabled shows only Enable", off, false, false, toggleView{showEnable: true, clickable: true}},
+		{"a running check keeps the one item visible but not clickable", on, true, false, toggleView{showDisable: true}},
+		{"environment opt-out shows neither", off, false, true, toggleView{}},
 	} {
-		if e, d := updateToggles(c.s, c.busy, c.envOptOut); e != c.enable || d != c.disable {
-			t.Errorf("%s: got enable=%v disable=%v", c.name, e, d)
+		got := updateToggleView(c.s, c.busy, c.envOptOut)
+		if got != c.want {
+			t.Errorf("%s: got %+v want %+v", c.name, got, c.want)
+		}
+		if got.showEnable && got.showDisable {
+			t.Errorf("%s: both opposite actions visible", c.name)
 		}
 	}
 }

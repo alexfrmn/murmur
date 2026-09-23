@@ -201,14 +201,18 @@ func setUpdatesEnabled(ctx context.Context, enabled bool) error {
 	return nil
 }
 
-// updateToggles decides which of Enable/Disable is offered. Only a measured preference can be
-// toggled: with no reply from the CLI the tray does not know the state, and offering both
-// opposite actions at once (seen in 2.10) says nothing to the user.
-func updateToggles(s *updateSnapshot, busy, envOptOut bool) (enable, disable bool) {
-	if busy || envOptOut || s == nil {
-		return false, false
+// updateToggleView decides which single preference action the menu shows and whether it can be
+// clicked. Only a measured preference is offered: with no reply from the CLI, or with the
+// environment opt-out, neither Enable nor Disable is shown ("Check for updates now" stays), and
+// the two opposite actions are never visible together (seen in 2.10). While a check runs the
+// applicable one stays visible but disabled.
+type toggleView struct{ showEnable, showDisable, clickable bool }
+
+func updateToggleView(s *updateSnapshot, busy, envOptOut bool) toggleView {
+	if envOptOut || s == nil {
+		return toggleView{}
 	}
-	return !s.Enabled, s.Enabled
+	return toggleView{showEnable: !s.Enabled, showDisable: s.Enabled, clickable: !busy}
 }
 
 // displayedVersion prefers the version the CLI reports and falls back to the version this

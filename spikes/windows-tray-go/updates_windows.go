@@ -108,14 +108,20 @@ func (a *app) renderUpdateState() {
 	if !busy && err == nil && s.page(now) != "" {
 		a.mUpdatePage.Enable()
 	}
-	a.mUpdateEnable.Disable()
-	a.mUpdateDisable.Disable()
-	enable, disable := updateToggles(s, busy, os.Getenv("MURMUR_UPDATE_CHECK") == "0")
-	if enable {
-		a.mUpdateEnable.Enable()
-	}
-	if disable {
-		a.mUpdateDisable.Enable()
+	view := updateToggleView(s, busy, os.Getenv("MURMUR_UPDATE_CHECK") == "0")
+	for _, item := range []struct {
+		menu *systray.MenuItem
+		show bool
+	}{{a.mUpdateEnable, view.showEnable}, {a.mUpdateDisable, view.showDisable}} {
+		item.menu.Disable()
+		if !item.show {
+			item.menu.Hide()
+			continue
+		}
+		item.menu.Show()
+		if view.clickable {
+			item.menu.Enable()
+		}
 	}
 }
 func (a *app) requestUpdatePreference(enabled bool) {
