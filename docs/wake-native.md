@@ -163,6 +163,10 @@ Same env and the same per-session cursor as the shell version (`MURMUR_DB`,
 non-polling check (e.g. a PostToolUse hook). Requires Node with `node:sqlite`
 (22.13.0+).
 
+Unlike the shell version, the first run in a new session seeds the cursor at the tip and
+then keeps polling: the installed hook is a Stop hook only, so a run that seeded and exited
+would leave the first idle wait of every session deaf.
+
 A fault — no store, an unreadable store, no `node:sqlite` — prints one line to stderr
 and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
 silently is the failure this port exists to remove, so it does neither.

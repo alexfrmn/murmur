@@ -369,7 +369,9 @@ async function main() {
     process.exit(0);
   }
 
-  // First run ever: establish a baseline at the current tip, do not dump history.
+  // First run ever: establish a baseline at the current tip, do not dump history — and then
+  // go on in the requested mode. The installed hook is a Stop hook only, so a run that seeded
+  // and exited left the first idle wait of every new session deaf.
   let cursorExists = true;
   try { statSync(CURSOR); } catch { cursorExists = false; }
   if (!cursorExists) {
@@ -378,7 +380,6 @@ async function main() {
     db.close();
     writeCursor(tip);
     advanceAnchor(tip);
-    process.exit(0);
   }
 
   if (ONCE) {
