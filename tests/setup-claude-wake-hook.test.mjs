@@ -122,3 +122,19 @@ test('--max-seconds bounds the drain poll and wins over MURMUR_WAKE_MAX_SECONDS'
   assert.equal(polled.status, 0, polled.stdout + polled.stderr);
   assert.ok(Date.now() - started < 15_000, `poll lasted ${Date.now() - started} ms`);
 });
+
+test('no hook is installed when this runtime does not ship the wake drain', async t => {
+  const f = await fixture(t);
+  const bare = path.join(f.root, 'runtime-without-drain');
+  await fs.mkdir(path.join(bare, 'scripts'), { recursive: true });
+  const context = resolveContext({ dataDir: f.context.dataDir, repoRoot: bare });
+  await assert.rejects(configureClient(context, f.adapter, 'claude-code'), /^Error: client\.wake-drain-missing$/);
+  await assert.rejects(fs.stat(f.configPath), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(f.settingsPath), { code: 'ENOENT' });
+});
+
+test('the released runtime and npm package carry the script the installed hook runs', async () => {
+  const { SCRIPTS } = await import('../scripts/build-runtime-bundle.mjs');
+  assert.ok(SCRIPTS.includes('wake-drain-claude.mjs'));
+  for (const script of SCRIPTS) assert.ok((await fs.stat(path.join(repoRoot, 'scripts', script))).isFile(), script);
+});

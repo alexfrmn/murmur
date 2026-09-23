@@ -1,6 +1,6 @@
 import * as TOML from '@iarna/toml';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, rename, rmdir, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, rename, rmdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -135,6 +135,9 @@ export async function configureClient(c: ServiceContext, adapter: PlatformAdapte
   if (expectedPlan !== undefined && !/^[a-f0-9]{64}$/.test(expectedPlan)) throw new Error('client.plan-invalid');
   if (client.id !== 'claude-code') return configureMcpEntry(c, client, replace, expectedPlan);
   const settingsFile = claudeSettingsPath(client.configPath), settings = await readClientFile(settingsFile);
+  // A hook must never point at a file this runtime does not ship (an older or partial bundle).
+  const drain = await stat(path.join(c.repoRoot, 'scripts', 'wake-drain-claude.mjs')).catch(() => null);
+  if (!drain?.isFile()) throw new Error('client.wake-drain-missing');
   // Refuse a foreign variant of the hook before anything is written, as for the MCP entry.
   if (planWakeHook(c, settings.text).action === 'replace' && !replace) throw new Error('client.wake-hook-conflict');
   const result = await configureMcpEntry(c, client, replace, expectedPlan, settings);

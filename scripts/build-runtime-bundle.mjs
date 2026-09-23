@@ -13,7 +13,9 @@ const HERE = fileURLToPath(import.meta.url);
 export const WORKSPACES = ['core', 'security', 'broker-nats', 'broker-ws', 'mcp-server', 'setup'];
 export const SCRIPTS = ['murmur-daemon.mjs', 'murmur-shell-send.mjs', 'runtime-capability.mjs',
   'notify-router.mjs', 'codex-app-server-wake.mjs', 'murmur-jetstream-advisory.mjs',
-  'wake-monitor.mjs', 'lease.mjs', 'secure-state.mjs', 'daemon-observation.mjs', 'ack-security.mjs'];
+  'wake-monitor.mjs', 'lease.mjs', 'secure-state.mjs', 'daemon-observation.mjs', 'ack-security.mjs',
+  // The Claude Code Stop hook that "murmur clients configure --client claude-code" installs runs this.
+  'wake-drain-claude.mjs'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const json = async file => JSON.parse(await fs.readFile(file, 'utf8'));
 const posix = value => value.split(path.sep).join('/');
