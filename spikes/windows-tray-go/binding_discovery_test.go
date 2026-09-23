@@ -125,3 +125,32 @@ func quoteJSON(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+func TestAProfileChosenInTheTrayWinsAndMustBeAProfile(t *testing.T) {
+	_, local, _ := discoveryFixture(t)
+	launcherChoice := filepath.Join(local, "Murmur-from-launcher")
+	writeProfile(t, launcherChoice)
+	if err := os.MkdirAll(filepath.Join(local, "Murmur"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	saved := `{"dataDir":` + quoteJSON(launcherChoice) + `,"serviceName":null}`
+	if err := os.WriteFile(filepath.Join(local, "Murmur", "tray-launch-binding.json"), []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notProfile := filepath.Join(local, "Documents")
+	if err := os.MkdirAll(notProfile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := chooseTrayProfile(notProfile); err == nil || err.Error() != tr("profile.notAProfile") {
+		t.Fatalf("a folder without agent-config.json must be refused, got %v", err)
+	}
+	chosen := filepath.Join(local, "Мой профиль")
+	writeProfile(t, chosen)
+	if err := chooseTrayProfile(chosen); err != nil {
+		t.Fatal(err)
+	}
+	b, err := selectedCLI()
+	if err != nil || b.Profile != chosen || b.Service != "" {
+		t.Fatalf("got %+v %v", b, err)
+	}
+}

@@ -142,3 +142,45 @@ func desktopFolder() string {
 	}
 	return ""
 }
+
+// browseInfo mirrors BROWSEINFOW.
+type browseInfo struct {
+	owner       windows.Handle
+	root        uintptr
+	displayName *uint16
+	title       *uint16
+	flags       uint32
+	callback    uintptr
+	param       uintptr
+	image       int32
+}
+
+var (
+	shell32            = windows.NewLazySystemDLL("shell32.dll")
+	procBrowseFolder   = shell32.NewProc("SHBrowseForFolderW")
+	procPathFromIDList = shell32.NewProc("SHGetPathFromIDListW")
+	procTaskMemFree    = windows.NewLazySystemDLL("ole32.dll").NewProc("CoTaskMemFree")
+)
+
+// folderDialog picks an existing folder; only the expert "Open an existing profile…" uses it.
+func folderDialog(title string) (string, bool) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED); err == nil {
+		defer windows.CoUninitialize()
+	}
+	const returnOnlyFSDirs, newDialogStyle, noNewFolder = 0x1, 0x40, 0x200
+	name := make([]uint16, windows.MAX_PATH)
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	info := browseInfo{displayName: &name[0], title: titlePtr, flags: returnOnlyFSDirs | newDialogStyle | noNewFolder}
+	pidl, _, _ := procBrowseFolder.Call(uintptr(unsafe.Pointer(&info)))
+	if pidl == 0 {
+		return "", false
+	}
+	defer procTaskMemFree.Call(pidl)
+	path := make([]uint16, 32768)
+	if ok, _, _ := procPathFromIDList.Call(pidl, uintptr(unsafe.Pointer(&path[0]))); ok == 0 {
+		return "", false
+	}
+	return windows.UTF16ToString(path), true
+}

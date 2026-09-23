@@ -64,7 +64,7 @@ type app struct {
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
 	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
-	mConnect                                          *systray.MenuItem
+	mConnect, mOpenProfile                            *systray.MenuItem
 	mLanguageRoot, mLangEnglish, mLangRussian, mGuide *systray.MenuItem
 	mHistory                                          []*systray.MenuItem
 	mStages                                           map[string]*systray.MenuItem
@@ -161,6 +161,8 @@ func (a *app) onReady() {
 	// Shown only while no profile exists: the first thing a new user can do from the tray.
 	a.mConnect = systray.AddMenuItem(tr("menu.connect"), tr("menu.connectTooltip"))
 	a.mConnect.Hide()
+	a.mOpenProfile = systray.AddMenuItem(tr("menu.openProfile"), tr("menu.openProfileTooltip"))
+	a.mOpenProfile.Hide()
 	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
 	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
 	for i := 0; i < historyLines; i++ {
@@ -275,8 +277,10 @@ func (a *app) render(v Verdict) {
 	a.mHeader.SetTitle(v.Reason)
 	if v.Code == "profile.not-configured" {
 		a.mConnect.Show()
+		a.mOpenProfile.Show()
 	} else {
 		a.mConnect.Hide()
+		a.mOpenProfile.Hide()
 	}
 
 	a.renderRecent()
@@ -397,6 +401,8 @@ func (a *app) handleClicks() {
 			go a.showGuide()
 		case <-a.mConnect.ClickedCh:
 			go a.connectToColleague()
+		case <-a.mOpenProfile.ClickedCh:
+			go a.openExistingProfile()
 		case <-a.mQuit.ClickedCh:
 			if confirmTrayExit() {
 				systray.Quit()
@@ -683,4 +689,21 @@ func (a *app) connectToColleague() {
 		return
 	}
 	tell(tr("onboarding.title"), tr("onboarding.done", r.AgentID))
+}
+
+// openExistingProfile is for people who already made a profile with the CLI: pick its folder,
+// and the tray uses it from now on.
+func (a *app) openExistingProfile() {
+	dir, ok := folderDialog(tr("menu.openProfile"))
+	if !ok {
+		return
+	}
+	if err := chooseTrayProfile(dir); err != nil {
+		tell(tr("menu.openProfile"), err.Error())
+		return
+	}
+	a.mu.Lock()
+	a.pinnedAgent = "" // a different profile is a different identity
+	a.mu.Unlock()
+	a.refreshStatus()
 }

@@ -16,3 +16,12 @@ func TestOpenFileNameMatchesTheWindowsLayout(t *testing.T) {
 		t.Fatalf("sizeof(OPENFILENAMEW) = %d, want 152", got)
 	}
 }
+
+func TestBrowseInfoMatchesTheWindowsLayout(t *testing.T) {
+	if unsafe.Sizeof(uintptr(0)) != 8 {
+		t.Skip("64-bit layout")
+	}
+	if got := unsafe.Sizeof(browseInfo{}); got != 64 {
+		t.Fatalf("sizeof(BROWSEINFOW) = %d, want 64", got)
+	}
+}

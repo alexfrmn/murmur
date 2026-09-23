@@ -53,6 +53,16 @@ func discoverCLI() (cliBinding, error) {
 	if !filepath.IsAbs(local) {
 		return b, notConfigured()
 	}
+	// A profile chosen in the tray ("Open an existing profile…") comes first.
+	if data, err := os.ReadFile(trayProfilePath(local)); err == nil && len(data) <= 4096 {
+		var chosen struct {
+			DataDir string `json:"dataDir"`
+		}
+		if json.Unmarshal(data, &chosen) == nil && filepath.IsAbs(chosen.DataDir) && isProfile(chosen.DataDir) {
+			b.Profile = chosen.DataDir
+			return b, nil
+		}
+	}
 	// The launcher records the profile and service it opened; reuse that selection.
 	var saved struct {
 		DataDir     string  `json:"dataDir"`
@@ -221,4 +231,24 @@ func runSetupCLI(ctx context.Context, b cliBinding, args ...string) ([]byte, err
 		return nil, err
 	}
 	return stdout.Bytes(), nil
+}
+
+func trayProfilePath(local string) string { return filepath.Join(local, "Murmur", "tray-profile.json") }
+
+// chooseTrayProfile records an existing profile picked in the tray. Only a folder holding
+// agent-config.json is accepted; the service name stays the one the CLI derives from the path.
+func chooseTrayProfile(dir string) error {
+	local := os.Getenv("LOCALAPPDATA")
+	if !filepath.IsAbs(local) || !filepath.IsAbs(dir) || !isProfile(dir) {
+		return errors.New(tr("profile.notAProfile"))
+	}
+	data, _ := json.Marshal(map[string]string{"schema": "murmur.tray-profile/1", "dataDir": dir})
+	if err := os.MkdirAll(filepath.Dir(trayProfilePath(local)), 0o700); err != nil {
+		return err
+	}
+	temporary := trayProfilePath(local) + ".tmp"
+	if err := os.WriteFile(temporary, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(temporary, trayProfilePath(local))
 }
