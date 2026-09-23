@@ -200,3 +200,25 @@ func setUpdatesEnabled(ctx context.Context, enabled bool) error {
 	}
 	return nil
 }
+
+// updateToggles decides which of Enable/Disable is offered. Only a measured preference can be
+// toggled: with no reply from the CLI the tray does not know the state, and offering both
+// opposite actions at once (seen in 2.10) says nothing to the user.
+func updateToggles(s *updateSnapshot, busy, envOptOut bool) (enable, disable bool) {
+	if busy || envOptOut || s == nil {
+		return false, false
+	}
+	return !s.Enabled, s.Enabled
+}
+
+// displayedVersion prefers the version the CLI reports and falls back to the version this
+// bundle was built as, so "unknown" appears only for a development build without a reply.
+func displayedVersion(s *updateSnapshot) string {
+	if s != nil && s.CurrentVersion != nil {
+		return *s.CurrentVersion
+	}
+	if releaseVersion != "" && releaseVersion != "development" {
+		return releaseVersion
+	}
+	return tr("updates.unknown")
+}

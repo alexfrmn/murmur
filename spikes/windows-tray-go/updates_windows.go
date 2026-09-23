@@ -86,11 +86,7 @@ func (a *app) renderUpdateState() {
 		a.mUpdateCheck.SetTitle(tr("updates.checkNow"))
 		a.mUpdateCheck.Enable()
 	}
-	version := tr("updates.unknown")
-	if s != nil && s.CurrentVersion != nil {
-		version = *s.CurrentVersion
-	}
-	a.mUpdateVersion.SetTitle(tr("updates.current", version))
+	a.mUpdateVersion.SetTitle(tr("updates.current", displayedVersion(s)))
 	a.mUpdateTime.SetTitle(s.observation(now))
 	reason := ""
 	if s != nil {
@@ -114,13 +110,12 @@ func (a *app) renderUpdateState() {
 	}
 	a.mUpdateEnable.Disable()
 	a.mUpdateDisable.Disable()
-	if !busy && os.Getenv("MURMUR_UPDATE_CHECK") != "0" {
-		if s == nil || !s.Enabled {
-			a.mUpdateEnable.Enable()
-		}
-		if s == nil || s.Enabled {
-			a.mUpdateDisable.Enable()
-		}
+	enable, disable := updateToggles(s, busy, os.Getenv("MURMUR_UPDATE_CHECK") == "0")
+	if enable {
+		a.mUpdateEnable.Enable()
+	}
+	if disable {
+		a.mUpdateDisable.Enable()
 	}
 }
 func (a *app) requestUpdatePreference(enabled bool) {

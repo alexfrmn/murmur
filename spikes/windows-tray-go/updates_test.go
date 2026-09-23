@@ -290,3 +290,40 @@ func TestCachedUpdateBeforeFirstStatusIsUnmeasured(t *testing.T) {
 		t.Fatal("startup icon absent")
 	}
 }
+
+func TestUpdateTogglesOfferOnlyTheOppositeOfAMeasuredPreference(t *testing.T) {
+	on, off := &updateSnapshot{Enabled: true}, &updateSnapshot{Enabled: false}
+	for _, c := range []struct {
+		name            string
+		s               *updateSnapshot
+		busy, envOptOut bool
+		enable, disable bool
+	}{
+		{"unknown state offers neither", nil, false, false, false, false},
+		{"enabled offers disable", on, false, false, false, true},
+		{"disabled offers enable", off, false, false, true, false},
+		{"busy offers neither", on, true, false, false, false},
+		{"environment opt-out offers neither", off, false, true, false, false},
+	} {
+		if e, d := updateToggles(c.s, c.busy, c.envOptOut); e != c.enable || d != c.disable {
+			t.Errorf("%s: got enable=%v disable=%v", c.name, e, d)
+		}
+	}
+}
+
+func TestDisplayedVersionFallsBackToTheBundleVersion(t *testing.T) {
+	old := releaseVersion
+	t.Cleanup(func() { releaseVersion = old })
+	cli := "2.11.0"
+	releaseVersion = "2.11.0-rc1"
+	if got := displayedVersion(&updateSnapshot{CurrentVersion: &cli}); got != "2.11.0" {
+		t.Fatalf("CLI version must win, got %q", got)
+	}
+	if got := displayedVersion(nil); got != "2.11.0-rc1" {
+		t.Fatalf("bundle version expected without a CLI reply, got %q", got)
+	}
+	releaseVersion = "development"
+	if got := displayedVersion(nil); got != tr("updates.unknown") {
+		t.Fatalf("development build without a reply is unknown, got %q", got)
+	}
+}
