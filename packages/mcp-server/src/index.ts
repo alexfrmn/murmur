@@ -3,8 +3,6 @@ import {
   chmodSync,
   closeSync,
   constants,
-  fstatSync,
-  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -24,40 +22,16 @@ import {
   type LocalMessageRecord,
 } from "@murmurv2/core";
 import { encryptPayload, signEnvelope } from "@murmurv2/security";
-import { NatsBroker, type BrokerSubscription } from "@murmurv2/broker-nats";
+import { NatsBroker } from "@murmurv2/broker-nats";
 import { codexTaskConversationId, defaultPeerConversationId } from "./codex-routing.js";
-import { buildReplyMatcher, waitForReply } from "./request-reply.js";
+import { buildReplyMatcher, createReplySignalTap, requestDelivery, requestTiming, waitForReply } from "./request-reply.js";
+import { AgentConfigCache, type AgentConfig } from "./agent-config.js";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
   id?: string | number;
   method: string;
   params?: Record<string, unknown>;
-}
-
-interface AgentConfig {
-  agentId: string;
-  memberId?: string;
-  natsUrl: string;
-  natsToken?: string;
-  subject: string;
-  subjectScoping?: { enabled?: boolean; channelIds?: string[] };
-  dataDir: string;
-  keys: {
-    encryption: { publicKey: string; privateKey: string };
-    signing: { publicKey: string; privateKey: string };
-  };
-  peers: Record<
-    string,
-    {
-      encryption: { publicKey: string };
-      signing: { publicKey: string };
-      subject: string;
-      subjectScoping?: boolean;
-      channelId?: string;
-      memberId?: string;
-    }
-  >;
 }
 
 // --- Load agent config (optional — gracefully degrade if missing) ---
@@ -162,48 +136,16 @@ const clearSynchronousReplySuppression = (markerPath: string | null): void => {
   }
 };
 
-const readPrivateAgentConfig = (filePath: string): AgentConfig => {
-  process.umask(0o077);
-  const dirStats = lstatSync(path.dirname(filePath));
-  if (dirStats.isSymbolicLink() || !dirStats.isDirectory()) throw new Error("agent-config-directory-invalid");
-  if (typeof process.getuid === "function" && dirStats.uid !== process.getuid()) {
-    throw new Error("agent-config-directory-owner-mismatch");
-  }
-  chmodSync(path.dirname(filePath), 0o700);
-
-  const pathStats = lstatSync(filePath);
-  if (pathStats.isSymbolicLink() || !pathStats.isFile()) throw new Error("agent-config-file-invalid");
-  if (typeof process.getuid === "function" && pathStats.uid !== process.getuid()) {
-    throw new Error("agent-config-file-owner-mismatch");
-  }
-  chmodSync(filePath, 0o600);
-
-  const fd = openSync(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const openedStats = fstatSync(fd);
-    if (!openedStats.isFile()) throw new Error("agent-config-file-invalid");
-    if (typeof process.getuid === "function" && openedStats.uid !== process.getuid()) {
-      throw new Error("agent-config-file-owner-mismatch");
-    }
-    return JSON.parse(readFileSync(fd, "utf8")) as AgentConfig;
-  } finally {
-    closeSync(fd);
-  }
-};
-
-let agentConfig: AgentConfig | null = null;
-try {
-  agentConfig = readPrivateAgentConfig(configPath);
-} catch {
-  // Agent config not found — send/inbox/peers tools will be unavailable
-}
+const configCache = new AgentConfigCache(configPath);
+let initialConfig: AgentConfig | null = null;
+try { initialConfig = configCache.read(); } catch { /* Optional until a config-bound tool is used. */ }
 
 const store = new SQLiteMessageStore(dbPath);
 const channelRoster = new ChannelRosterStore(channelRosterPath);
 
 // Outbox store — shared with daemon, only created if agent config exists
 let outbox: SQLiteDedupeOutboxStore | null = null;
-if (agentConfig) {
+if (initialConfig) {
   outbox = new SQLiteDedupeOutboxStore(dbPath);
 }
 
@@ -213,25 +155,36 @@ if (agentConfig) {
 // startup doesn't permanently fall back to slow polling (per CODEX-VOLT review).
 const WAKE_BROKER_RETRY_COOLDOWN_MS = 30_000;
 let wakeBroker: NatsBroker | null = null;
+let wakeBrokerConnecting: Promise<NatsBroker | null> | null = null;
 let wakeBrokerNextRetry = 0;
-const getWakeBroker = async (now: () => number = Date.now): Promise<NatsBroker | null> => {
-  if (!agentConfig) return null;
+const getWakeBroker = async (agentConfig: AgentConfig, now: () => number = Date.now): Promise<NatsBroker | null> => {
   if (wakeBroker) return wakeBroker;
+  if (wakeBrokerConnecting) return wakeBrokerConnecting;
   if (now() < wakeBrokerNextRetry) return null; // in cooldown after a recent failure
-  try {
-    const broker = new NatsBroker({
-      url: agentConfig.natsUrl,
-      token: agentConfig.natsToken,
-      jetstream: false,
-    });
-    await broker.connect();
-    wakeBroker = broker;
-  } catch {
-    // graceful degrade — store polling still resolves the reply; retry after cooldown
-    wakeBroker = null;
-    wakeBrokerNextRetry = now() + WAKE_BROKER_RETRY_COOLDOWN_MS;
-  }
-  return wakeBroker;
+  const broker = new NatsBroker({
+    url: agentConfig.natsUrl,
+    token: agentConfig.natsToken,
+    jetstream: false,
+    // The tap is optional. Daemon reconnect policy must not make this tool wait
+    // forever before it can poll the durable local store.
+    waitOnFirstConnect: false,
+    maxReconnectAttempts: 0,
+    connectMaxAttempts: 1,
+    connectTimeoutMs: 2_000,
+  });
+  wakeBrokerConnecting = (async () => {
+    try {
+      await broker.connect();
+      wakeBroker = broker;
+    } catch {
+      // graceful degrade — store polling still resolves the reply; retry after cooldown
+      wakeBroker = null;
+      wakeBrokerNextRetry = now() + WAKE_BROKER_RETRY_COOLDOWN_MS;
+      void broker.close().catch(() => {});
+    }
+    return wakeBroker;
+  })();
+  try { return await wakeBrokerConnecting; } finally { wakeBrokerConnecting = null; }
 };
 
 // stableEnvelopePayload is the canonical signing form from @murmurv2/core
@@ -294,7 +247,16 @@ const resolveRoutingMetadata = (
 };
 
 // --- Tool handlers ---
+const CONFIG_TOOLS = new Set(["murmur_send", "murmur_request", "murmur_inbox", "murmur_peers",
+  "channel_presence_heartbeat", "channel_presence_leave"]);
 const handleTool = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
+  const startedAt = Date.now();
+  // Capture one immutable snapshot for this call. Another concurrent request may
+  // refresh the peer list without changing the keys/routing of this in-flight call.
+  let agentConfig = CONFIG_TOOLS.has(name) ? configCache.read() : null;
+  if (agentConfig && (name === "murmur_send" || name === "murmur_request")
+      && !Object.hasOwn(agentConfig.peers, String(args.to ?? "").trim())) agentConfig = configCache.read(true);
+  if (agentConfig && !outbox) outbox = new SQLiteDedupeOutboxStore(dbPath);
   // === Original tools ===
   if (name === "send_message") {
     const text = String(args.text ?? "").trim();
@@ -417,7 +379,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     const text = String(args.text ?? "").trim();
     if (!text) throw new Error("'text' is required");
 
-    const peer = agentConfig.peers[to];
+    const peer = Object.hasOwn(agentConfig.peers, to) ? agentConfig.peers[to] : undefined;
     if (!peer) throw new Error(`unknown peer: ${to} — add to peers in agent-config.json`);
 
     const conversationId = String(args.conversationId ?? defaultPeerConversationId({
@@ -496,11 +458,10 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     const text = String(args.text ?? "").trim();
     if (!text) throw new Error("'text' is required");
 
-    const peer = agentConfig.peers[to];
+    const peer = Object.hasOwn(agentConfig.peers, to) ? agentConfig.peers[to] : undefined;
     if (!peer) throw new Error(`unknown peer: ${to} — add to peers in agent-config.json`);
 
-    const timeoutMs = Number(args.timeout_ms ?? 300_000);
-    const pollMs = Number(args.poll_interval_ms ?? 10_000);
+    const { requestedTimeoutMs, timeoutMs, pollMs, graceMs } = requestTiming(args);
     const conversationId = String(args.conversationId ?? defaultPeerConversationId({
       to,
       agentId: agentConfig.agentId,
@@ -568,40 +529,18 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     // an optional read-only NATS tap on our own subject accelerates the wait by
     // re-checking the store as soon as a matching envelope is observed. The tap is
     // signal-only — the daemon stays the source of truth for decrypt + persistence.
-    const graceMs = Number(args.grace_ms ?? 250);
-    const deadline = Date.now() + timeoutMs;
+    const deadline = startedAt + timeoutMs;
     const matchReply = buildReplyMatcher(conversationId, to, routing.addresseeMemberId);
-
-    const broker = await getWakeBroker();
-    // Holder object: the tap is attached inside a callback, so a plain `let` would be
-    // narrowed to `null` by control-flow analysis. A mutable property keeps its type.
-    const tap: { attach: Promise<void> | null; sub: BrokerSubscription | null } = {
-      attach: null,
-      sub: null,
-    };
+    const snapshot = agentConfig;
+    const subjects = [snapshot.subject];
+    if (snapshot.subjectScoping?.enabled === true && routing.channelId) subjects.push(channelScopedSubject(snapshot.subject, routing.channelId));
+    const tap: { current?: ReturnType<typeof createReplySignalTap> } = {};
     let wokenBySignal = false;
-    let onSignal: ((wake: () => void) => void) | undefined;
-    if (broker) {
-      onSignal = (wake) => {
-        const subjects = [agentConfig!.subject];
-        if (agentConfig!.subjectScoping?.enabled === true && routing.channelId) subjects.push(channelScopedSubject(agentConfig!.subject, routing.channelId));
-        const subscriptions: BrokerSubscription[] = [];
-        tap.sub = { unsubscribe: async () => { for (const sub of subscriptions) await sub.unsubscribe(); } };
-        tap.attach = Promise.all(subjects.map((subject) => broker
-          .subscribeRaw(subject, (env) => {
-            if (matchReply(env)) {
-              wokenBySignal = true;
-              wake();
-            }
-          })
-          .then((sub) => {
-            subscriptions.push(sub);
-          })
-          .catch(() => {
-            /* tap failed to attach — store polling still resolves the reply */
-          }))).then(() => undefined);
-      };
-    }
+    const onSignal = (wake: () => void) => {
+      tap.current = createReplySignalTap(() => getWakeBroker(snapshot), subjects, env => {
+        if (matchReply(env)) { wokenBySignal = true; wake(); }
+      });
+    };
 
     let reply: LocalMessageRecord | null = null;
     try {
@@ -622,14 +561,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
       clearSynchronousReplySuppression(suppressionMarker);
       throw error;
     } finally {
-      if (tap.attach) await tap.attach;
-      if (tap.sub) {
-        try {
-          await tap.sub.unsubscribe();
-        } catch {
-          /* ignore unsubscribe errors */
-        }
-      }
+      tap.current?.close();
     }
 
     if (reply) {
@@ -644,7 +576,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
         // Precise telemetry (per CODEX-VOLT review): tapAttached = the read-only NATS
         // tap was live for this wait; wokenBySignal = a matching envelope actually
         // short-circuited the poll (true acceleration, not merely "broker available").
-        tapAttached: tap.sub !== null,
+        tapAttached: tap.current?.hasAttached() ?? false,
         wokenBySignal,
       };
     }
@@ -652,13 +584,15 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     clearSynchronousReplySuppression(suppressionMarker);
 
     return {
-      status: "timeout",
+      status: "awaiting_reply",
       msgId,
       conversationId,
       sentAt,
       ...routing,
       timeout_ms: timeoutMs,
-      hint: "Use murmur_inbox to check for late responses",
+      requested_timeout_ms: requestedTimeoutMs,
+      delivery: requestDelivery((await outbox.getOutboxRecord(msgId))?.status),
+      hint: "No reply yet. Use murmur_inbox and match conversationId to read a later reply; do not resend this request.",
     };
   }
 
@@ -835,7 +769,7 @@ const tools = [
   {
     name: "murmur_request",
     description:
-      "Send a message and wait for the reply. Combines murmur_send with a durable store-poll, accelerated by a read-only NATS tap so the reply is returned as soon as it lands (falls back to pure polling when NATS is unavailable). The tool blocks until the peer responds or timeout is reached. Ideal for autonomous agent-to-agent conversations.",
+      "Send a message and wait up to 45 seconds for the reply, using the durable local store and an optional NATS tap. A slower reply returns a normal awaiting_reply result with delivery status and conversationId. Read later replies with murmur_inbox; do not resend. Delivery is confirmed only by an ACK, and does not prove automatic agent wake.",
     inputSchema: {
       type: "object",
       properties: {
@@ -845,7 +779,7 @@ const tools = [
         channelId: { type: "string", description: "Optional typed-channel ID; may default from peer config" },
         senderMemberId: { type: "string", description: "Optional sender member identity; may default from local config" },
         addresseeMemberId: { type: "string", description: "Optional target member identity; may default from peer config" },
-        timeout_ms: { type: "number", description: "Max wait time in ms (default: 300000 = 5 min)" },
+        timeout_ms: { type: "number", description: "Max wait time in ms (default and cap: 45000); larger values are capped to fit desktop host tool limits" },
         poll_interval_ms: { type: "number", description: "Store-poll fallback interval in ms (default: 10000 = 10s)" },
         grace_ms: { type: "number", description: "Delay after a wake signal before re-checking the store, to let the daemon persist (default: 250)" },
       },

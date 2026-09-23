@@ -118,6 +118,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows setup tests failed' }
       - name: Check Claude statusline native Windows composition
         run: node --test tests/claude-statusline-windows.test.mjs
+      - name: Check MCP peer refresh and bounded requests on Windows
+        run: node --test tests/mcp-peer-refresh.test.mjs tests/mcp-request-reply.test.mjs tests/mcp-presence.test.mjs tests/broker-reconnect-options.test.mjs
 
   build-and-test:
     runs-on: ubuntu-latest

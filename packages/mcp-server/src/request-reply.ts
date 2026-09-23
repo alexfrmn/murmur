@@ -1,4 +1,54 @@
-import type { LocalMessageRecord } from "@murmurv2/core";
+import type { EnvelopeV1, LocalMessageRecord, OutboxStatus } from "@murmurv2/core";
+
+// Leave room below desktop hosts' common 60-second tool limit. A larger caller
+// timeout must not turn a healthy but slower peer into a host-level tool error.
+export const MAX_REQUEST_WAIT_MS = 45_000;
+export function requestTiming(args: Record<string, unknown>) {
+  const number = (key: string, fallback: number, minimum: number) => {
+    const value = args[key] ?? fallback;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
+      throw new Error(`${key} must be an integer >= ${minimum}`);
+    }
+    return value;
+  };
+  const requestedTimeoutMs = number("timeout_ms", MAX_REQUEST_WAIT_MS, 1);
+  const timeoutMs = Math.min(requestedTimeoutMs, MAX_REQUEST_WAIT_MS);
+  return { requestedTimeoutMs, timeoutMs,
+    pollMs: Math.min(number("poll_interval_ms", 10_000, 1), timeoutMs),
+    graceMs: Math.min(number("grace_ms", 250, 0), timeoutMs) };
+}
+
+export function requestDelivery(status: OutboxStatus | undefined) {
+  return { status: status === "acked" ? "delivered" : status === "dlq" ? "failed" : status ? "pending" : "unknown",
+    acknowledged: status === "acked", outboxStatus: status ?? "unknown" };
+}
+
+interface SignalSubscription { unsubscribe(): void | Promise<void>; }
+interface SignalBroker {
+  subscribeRaw(subject: string, onEnvelope: (envelope: EnvelopeV1) => void): Promise<SignalSubscription>;
+}
+
+/** Optional acceleration never blocks store polling or completion, even while
+ * connecting. A subscription that attaches after close is immediately released. */
+export function createReplySignalTap(connect: () => Promise<SignalBroker | null>, subjects: string[],
+  onEnvelope: (envelope: EnvelopeV1) => void) {
+  let closed = false, attached = false;
+  const subscriptions: SignalSubscription[] = [];
+  const release = (sub: SignalSubscription) => {
+    try { void Promise.resolve(sub.unsubscribe()).catch(() => {}); } catch { /* optional tap */ }
+  };
+  void Promise.resolve().then(connect).then(async broker => {
+    if (!broker || closed) return;
+    await Promise.all(subjects.map(async subject => {
+      try {
+        const sub = await broker.subscribeRaw(subject, envelope => { if (!closed) onEnvelope(envelope); });
+        if (closed) release(sub);
+        else { attached = true; subscriptions.push(sub); }
+      } catch { /* Store polling remains the durable fallback. */ }
+    }));
+  }).catch(() => {});
+  return { hasAttached: () => attached, close: () => { closed = true; subscriptions.splice(0).forEach(release); } };
+}
 
 /**
  * Pure wait-loop for the request/reply ("native-request-reply") flow.
