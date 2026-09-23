@@ -59,13 +59,21 @@ function Get-LauncherStatePath {
     Assert-OrdinaryDirectory $local 'The per-user application data folder'
     return [IO.Path]::Combine($local,'Murmur','tray-launch-binding.json')
 }
-function Assert-OrdinaryDirectory([string]$path,[string]$label,[switch]$AllowMissing) {
+# True for junctions and symbolic links. A OneDrive file or folder is a cloud-files reparse point
+# without LinkType and does not redirect elsewhere; it is treated as an ordinary item.
+function Test-LinkedItem($item) { return [bool]($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and [bool]$item.LinkType }
+function Assert-OrdinaryDirectory([string]$path,[string]$label,[switch]$AllowMissing,[switch]$AllowCloudFolder) {
     if(-not(Test-Path -LiteralPath $path)){
         if($AllowMissing){return}
         throw "$label is unavailable."
     }
     $item=Get-Item -LiteralPath $path -Force
-    if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw "$label must be an ordinary directory."}
+    if(-not $item.PSIsContainer){throw "$label must be an ordinary directory."}
+    if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){
+        # A Desktop moved into OneDrive is a cloud-files reparse point, not a link: it has no LinkType.
+        # Junctions and symbolic links still redirect writes elsewhere and stay refused.
+        if(-not $AllowCloudFolder -or $item.LinkType){throw "$label must be an ordinary directory."}
+    }
 }
 function Read-LauncherState([string]$path) {
     $parent=[IO.Path]::GetDirectoryName($path)
@@ -239,7 +247,7 @@ function Get-ShortcutPlan {
     $desktop=[Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
     foreach($folder in @($programs,$desktop)){
         if([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::IsPathRooted($folder)){throw 'A per-user shortcut folder is unavailable.'}
-        Assert-OrdinaryDirectory $folder 'A per-user shortcut folder'
+        Assert-OrdinaryDirectory $folder 'A per-user shortcut folder' -AllowCloudFolder
     }
     $powershell=(Get-Item -LiteralPath (Join-Path $PSHOME 'powershell.exe')).FullName
     $parts=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-NodePath',$NodePath,'-DataDir',$DataDir)
@@ -253,7 +261,7 @@ function Get-ShortcutPlan {
         $exists=Test-Path -LiteralPath $path
         if($exists){
             $item=Get-Item -LiteralPath $path -Force
-            if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 1048576){throw "Shortcut location is occupied by an unmanaged item: $path. Remove the old shortcut before opening this selection."}
+            if($item.PSIsContainer -or (Test-LinkedItem $item) -or $item.Length -gt 1048576){throw "Shortcut location is occupied by an unmanaged item: $path. Remove the old shortcut before opening this selection."}
             try{$link=$shell.CreateShortcut($path)}catch{throw "Shortcut location is occupied by an unreadable item: $path. Remove the old shortcut before opening this selection."}
             $savedIcon=([string]$link.IconLocation) -replace ',\s*([0-9]+)$',',$1'
             if($link.TargetPath -ine $powershell -or $link.Arguments -cne $arguments -or $link.WorkingDirectory -ine $PSScriptRoot -or
@@ -275,7 +283,7 @@ function Install-MissingShortcuts($plan) {
                 $link.TargetPath=$entry.Target;$link.Arguments=$entry.Arguments;$link.WorkingDirectory=$entry.WorkingDirectory
                 $link.Description=$entry.Description;$link.IconLocation=$entry.Icon;$link.WindowStyle=1;$link.Save()
                 $temporaryItem=Get-Item -LiteralPath $temporary -Force
-                if($temporaryItem.PSIsContainer -or ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $temporaryItem.Length -gt 1048576){throw "The staged shortcut is invalid: $($entry.Path)"}
+                if($temporaryItem.PSIsContainer -or (Test-LinkedItem $temporaryItem) -or $temporaryItem.Length -gt 1048576){throw "The staged shortcut is invalid: $($entry.Path)"}
                 $temporaryBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($temporary))
                 try{[IO.File]::Move($temporary,$entry.Path)}catch{throw "Shortcut location became occupied before it could be created: $($entry.Path)"}
                 $created+=@([pscustomobject]@{Path=$entry.Path;Bytes=$temporaryBytes})
@@ -299,7 +307,7 @@ function Test-ExactCreatedShortcut($created) {
     if($null -eq $created -or -not(Test-Path -LiteralPath $created.Path -PathType Leaf)){return $false}
     try{
         $item=Get-Item -LiteralPath $created.Path -Force
-        if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 1048576){return $false}
+        if((Test-LinkedItem $item) -or $item.Length -gt 1048576){return $false}
         return [Convert]::ToBase64String([IO.File]::ReadAllBytes($created.Path)) -ceq $created.Bytes
     }catch{return $false}
 }
@@ -326,7 +334,7 @@ try {
     $iconPath=Join-Path $PSScriptRoot 'murmur.ico'
     foreach($file in @($cli,$tray,$iconPath)){if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'Extract the complete Windows bundle first: tray, launcher, icon and runtime must remain together.'}}
     $iconItem=Get-Item -LiteralPath $iconPath -Force
-    if(($iconItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $iconItem.Length -lt 22 -or $iconItem.Length -gt 1048576){throw 'The adjacent murmur.ico is not a bounded ordinary icon file.'}
+    if((Test-LinkedItem $iconItem) -or $iconItem.Length -lt 22 -or $iconItem.Length -gt 1048576){throw 'The adjacent murmur.ico is not a bounded ordinary icon file.'}
     $iconHeader=[IO.File]::ReadAllBytes($iconPath)
     if($iconHeader[0] -ne 0 -or $iconHeader[1] -ne 0 -or $iconHeader[2] -ne 1 -or $iconHeader[3] -ne 0 -or $iconHeader[4] -lt 1 -or $iconHeader[5] -ne 0){throw 'The adjacent murmur.ico is invalid.'}
     if(-not $NodePath){
