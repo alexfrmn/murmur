@@ -31,6 +31,13 @@ export const skipPosixServiceHost = windows && 'emulates a POSIX service manager
 /** The .sh wake drain needs a POSIX shell and the sqlite3 CLI; Windows uses the native wake-drain-claude.mjs. */
 export const skipPosixShell = windows && 'POSIX shell script; on Windows the native scripts/wake-drain-claude.mjs is the wake drain (docs/wake-native.md)';
 
+/**
+ * Codex app-server wake speaks WebSocket over a Unix-domain socket only: ws+unix:// in
+ * scripts/codex-app-server-wake.mjs and "--listen unix://PATH" in docs/wake-native.md. Node serves
+ * local sockets on Windows as named pipes, and Murmur has no Windows transport for this wake.
+ */
+export const skipUnixSocketWake = windows && 'Codex app-server wake is WebSocket over a Unix-domain socket only (scripts/codex-app-server-wake.mjs ws+unix://, docs/wake-native.md); no Windows transport';
+
 /** `murmur logs path` is intentionally unavailable on Windows (logs.windows-native-location-unavailable). */
 export const skipPosixLogs = windows && 'logs path is intentionally unavailable on Windows; covered by the Windows test in setup-windows';
 

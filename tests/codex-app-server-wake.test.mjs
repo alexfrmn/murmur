@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { WebSocketServer } from "ws";
+import { skipUnixSocketWake } from "./windows-host.mjs";
 import { ChannelRosterStore } from "../packages/core/dist/src/index.js";
 import { WakeMonitor, normalizeWakeConfig } from "../scripts/wake-monitor.mjs";
 import {
@@ -196,7 +197,7 @@ test("buildThreadStartParams preserves legacy nulled defaults without binding", 
   assert.equal(params.ephemeral, false);
 });
 
-test("Codex app-server client initializes before turn/start over WS-over-UDS", async () => {
+test("Codex app-server client initializes before turn/start over WS-over-UDS", { skip: skipUnixSocketWake }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-codex-wake-"));
   const socketPath = path.join(dir, "codex.sock");
   const received = [];
@@ -237,7 +238,7 @@ test("Codex app-server client initializes before turn/start over WS-over-UDS", a
   assert.match(received[2].params.input[0].text, /hello codex/);
 });
 
-test("Codex app-server client fails loud on initialize errors", async () => {
+test("Codex app-server client fails loud on initialize errors", { skip: skipUnixSocketWake }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-codex-wake-"));
   const socketPath = path.join(dir, "codex.sock");
   const httpServer = http.createServer();
@@ -264,7 +265,7 @@ test("Codex app-server client fails loud on initialize errors", async () => {
   httpServer.close();
 });
 
-test("Codex app-server client reports close before response", async () => {
+test("Codex app-server client reports close before response", { skip: skipUnixSocketWake }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-codex-wake-"));
   const socketPath = path.join(dir, "codex.sock");
   const httpServer = http.createServer();
@@ -593,7 +594,7 @@ test("Codex app-server injector does not restart a turn whose reply is already q
 // #106 — a turn that ended with status "failed" or "interrupted" is not a success, whatever
 // text it produced. The status and error come from `turn/completed` itself.
 
-test("Codex app-server client surfaces the turn status and error from turn/completed", async () => {
+test("Codex app-server client surfaces the turn status and error from turn/completed", { skip: skipUnixSocketWake }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-codex-wake-"));
   const socketPath = path.join(dir, "codex.sock");
   const httpServer = http.createServer();
