@@ -15,6 +15,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { skipPosixShell } from "./windows-host.mjs";
 
 const shellScript = path.resolve("scripts/wake-drain-claude.sh");
 const nodeScript = path.resolve("scripts/wake-drain-claude.mjs");
@@ -64,6 +65,7 @@ const envFor = (ctx, extra) => ({
 const runners = [
   {
     name: "shell drain",
+    skip: skipPosixShell,
     run: (ctx, extra = {}) => spawnSync(shellScript, [], { env: envFor(ctx, extra), encoding: "utf8" }),
   },
   {
@@ -94,8 +96,8 @@ const FILTER = {
   MURMUR_WAKE_SKIP_CONVERSATIONS: "conv-owned",
 };
 
-for (const { name, run } of runners) {
-  test(`${name}: filtered rows are recorded in state, reported rows do not repeat`, () => {
+for (const { name, run, skip } of runners) {
+  test(`${name}: filtered rows are recorded in state, reported rows do not repeat`, { skip }, () => {
     const ctx = withDb();
     assert.equal(run(ctx).status, 0, "first run seeds the cursor at an empty tip");
 
@@ -134,7 +136,7 @@ for (const { name, run } of runners) {
     assert.equal(ledgerOf(ctx).length, 2, "a second pass must not re-record the same skipped rows");
   });
 
-  test(`${name}: an all-filtered batch advances the cursor, records every row and wakes nobody`, () => {
+  test(`${name}: an all-filtered batch advances the cursor, records every row and wakes nobody`, { skip }, () => {
     const ctx = withDb();
     assert.equal(run(ctx).status, 0);
 
@@ -148,7 +150,7 @@ for (const { name, run } of runners) {
     assert.equal(cursorOf(ctx), 2, "the cursor still moves — the rows are accounted for");
   });
 
-  test(`${name}: with no filter set every inbound row is reported and no ledger is written`, () => {
+  test(`${name}: with no filter set every inbound row is reported and no ledger is written`, { skip }, () => {
     const ctx = withDb();
     assert.equal(run(ctx).status, 0);
 
@@ -161,7 +163,7 @@ for (const { name, run } of runners) {
     assert.equal(fs.existsSync(ctx.skippedPath), false, "an unset filter must skip nothing at all");
   });
 
-  test(`${name}: wake_eligible=0 is passed over only when the drain is asked to`, () => {
+  test(`${name}: wake_eligible=0 is passed over only when the drain is asked to`, { skip }, () => {
     const ctx = withDb();
     assert.equal(run(ctx).status, 0);
 
@@ -185,7 +187,7 @@ for (const { name, run } of runners) {
 
 // A store from before the wake_eligible column exists must still drain: the drain asks the
 // schema, not the rows, and falls back to "everything is eligible".
-test("both drains work against a store without the wake_eligible column", () => {
+test("both drains work against a store without the wake_eligible column", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-wake-legacy-"));
   const dbPath = path.join(dir, "murmur.db");
   const db = new DatabaseSync(dbPath);
@@ -204,7 +206,8 @@ test("both drains work against a store without the wake_eligible column", () => 
     VALUES ('m1', '2026-09-15T00:00:00.000Z', 'agent-peer', 'conv-open', 'inbound', 'hello')
   `).run();
 
-  for (const { name, run } of runners) {
+  for (const { name, run, skip } of runners) {
+    if (skip) { t.diagnostic(`${name} not run: ${skip}`); continue; }
     const ctx = {
       dir, dbPath,
       cursorPath: path.join(dir, `cursor-${name.replace(/\s+/g, "-")}`),

@@ -28,6 +28,9 @@ export const skipWithoutSymlinks = !symlinks && 'symlinks need SeCreateSymbolicL
 /** Tests that drive the launchd/systemd adapters against real files need POSIX absolute paths and modes. */
 export const skipPosixServiceHost = windows && 'emulates a POSIX service manager on real files; needs a POSIX host';
 
+/** The .sh wake drain needs a POSIX shell and the sqlite3 CLI; Windows uses the native wake-drain-claude.mjs. */
+export const skipPosixShell = windows && 'POSIX shell script; on Windows the native scripts/wake-drain-claude.mjs is the wake drain (docs/wake-native.md)';
+
 /** `murmur logs path` is intentionally unavailable on Windows (logs.windows-native-location-unavailable). */
 export const skipPosixLogs = windows && 'logs path is intentionally unavailable on Windows; covered by the Windows test in setup-windows';
 

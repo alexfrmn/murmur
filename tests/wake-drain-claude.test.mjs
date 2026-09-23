@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { skipPosixShell } from "./windows-host.mjs";
 
 const script = path.resolve("scripts/wake-drain-claude.sh");
 
@@ -48,7 +49,7 @@ function drain({ dbPath, cursorPath }, extraEnv = {}) {
 // A session that has never drained has no cursor file. Seeding it to the current
 // tip is what makes the per-session cursor usable at all: without it the first
 // drain of every new session would replay the whole inbound history as "new".
-test("Claude wake drain seeds the cursor to the tip on first run and stays silent", () => {
+test("Claude wake drain seeds the cursor to the tip on first run and stays silent", { skip: skipPosixShell }, () => {
   const ctx = withDb();
   insertMessage(ctx.db, { msgId: "inbound-old-1", text: "history one" });
   insertMessage(ctx.db, { msgId: "inbound-old-2", text: "history two" });
@@ -60,7 +61,7 @@ test("Claude wake drain seeds the cursor to the tip on first run and stays silen
   assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "2");
 });
 
-test("Claude wake drain exits 0 when there are no new inbound messages", () => {
+test("Claude wake drain exits 0 when there are no new inbound messages", { skip: skipPosixShell }, () => {
   const ctx = withDb();
   insertMessage(ctx.db, { msgId: "outbound-1", direction: "outbound", text: "ignore me" });
 
@@ -74,7 +75,7 @@ test("Claude wake drain exits 0 when there are no new inbound messages", () => {
   assert.equal(result.stderr, "");
 });
 
-test("Claude wake drain emits new inbound rows and advances the cursor", () => {
+test("Claude wake drain emits new inbound rows and advances the cursor", { skip: skipPosixShell }, () => {
   const ctx = withDb();
   drain(ctx); // seed at an empty tip
 
@@ -93,7 +94,7 @@ test("Claude wake drain emits new inbound rows and advances the cursor", () => {
   assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "3");
 });
 
-test("Claude wake drain cursor dedup prevents repeat wakes", () => {
+test("Claude wake drain cursor dedup prevents repeat wakes", { skip: skipPosixShell }, () => {
   const ctx = withDb();
   drain(ctx); // seed
 
@@ -111,7 +112,7 @@ test("Claude wake drain cursor dedup prevents repeat wakes", () => {
 // The point of the per-session cursor: one inbound message must wake EVERY live
 // session, not just whichever one reached the hook first. With a shared cursor
 // the second session below would see nothing.
-test("Claude wake drain keeps a separate cursor per session key", () => {
+test("Claude wake drain keeps a separate cursor per session key", { skip: skipPosixShell }, () => {
   const ctx = withDb();
   const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-wake-home-a-"));
   const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-wake-home-b-"));
