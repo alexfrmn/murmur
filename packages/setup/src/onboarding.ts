@@ -64,6 +64,8 @@ async function validateOutput(c: ServiceContext, file: string) {
   }
 }
 const execFileAsync = promisify(execFile);
+// These tools set the ACL of files holding keys and the broker token: never resolve them through PATH.
+const system32 = (tool: string) => path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', tool);
 let userSid: Promise<string> | undefined;
 /**
  * POSIX modes do not restrict Windows files: a new file inherits its folder's DACL, which on a
@@ -73,13 +75,13 @@ let userSid: Promise<string> | undefined;
  */
 async function restrictToCurrentUser(target: string, directory: boolean) {
   if (process.platform !== 'win32') return;
-  userSid ??= execFileAsync('whoami', ['/user', '/fo', 'csv', '/nh'], { windowsHide: true }).then(({ stdout }) => {
+  userSid ??= execFileAsync(system32('whoami.exe'),['/user', '/fo', 'csv', '/nh'], { windowsHide: true }).then(({ stdout }) => {
     const sid = /"(S-1-5-[0-9-]+)"\s*$/.exec(stdout.trim())?.[1];
     if (!sid) throw new Error('onboarding.user-sid-unavailable');
     return sid;
   });
   const inherit = directory ? '(OI)(CI)' : '';
-  await execFileAsync('icacls', [target, '/inheritance:r', '/grant:r', `*${await userSid}:${inherit}(F)`, `*S-1-5-18:${inherit}(F)`], { windowsHide: true })
+  await execFileAsync(system32('icacls.exe'), [target, '/inheritance:r', '/grant:r', `*${await userSid}:${inherit}(F)`, `*S-1-5-18:${inherit}(F)`], { windowsHide: true })
     .catch(() => { throw new Error('onboarding.private-acl-failed'); });
 }
 async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
