@@ -23,6 +23,9 @@ export function resolveContext(options: { dataDir?: string; repoRoot?: string; n
   }
   const dataDir = paths.normalize(selected);
   if (!paths.isAbsolute(dataDir)) throw new Error("config.data-dir-must-be-absolute");
+  // The default service name hashes the path as written (see AGENTS.md), and shell completion appends
+  // a separator to folders: refuse it rather than silently select a second service for one profile.
+  if (dataDir.length > paths.parse(dataDir).root.length && /[\\/]$/.test(dataDir)) throw new Error("profile.trailing-separator");
   const repoRoot = paths.normalize(options.repoRoot ?? fileURLToPath(new URL("../../../../", import.meta.url))).replace(/[\\/]$/, "");
   const nodePath = paths.normalize(options.nodePath ?? process.execPath);
   if (!paths.isAbsolute(repoRoot) || !paths.isAbsolute(nodePath)) throw new Error("config.runtime-path-must-be-absolute");
