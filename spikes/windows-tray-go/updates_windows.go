@@ -86,11 +86,7 @@ func (a *app) renderUpdateState() {
 		a.mUpdateCheck.SetTitle(tr("updates.checkNow"))
 		a.mUpdateCheck.Enable()
 	}
-	version := tr("updates.unknown")
-	if s != nil && s.CurrentVersion != nil {
-		version = *s.CurrentVersion
-	}
-	a.mUpdateVersion.SetTitle(tr("updates.current", version))
+	a.mUpdateVersion.SetTitle(tr("updates.current", displayedVersion(s)))
 	a.mUpdateTime.SetTitle(s.observation(now))
 	reason := ""
 	if s != nil {
@@ -112,14 +108,19 @@ func (a *app) renderUpdateState() {
 	if !busy && err == nil && s.page(now) != "" {
 		a.mUpdatePage.Enable()
 	}
-	a.mUpdateEnable.Disable()
-	a.mUpdateDisable.Disable()
-	if !busy && os.Getenv("MURMUR_UPDATE_CHECK") != "0" {
-		if s == nil || !s.Enabled {
-			a.mUpdateEnable.Enable()
+	view := updateToggleView(s, busy, os.Getenv("MURMUR_UPDATE_CHECK") == "0")
+	for _, item := range []struct {
+		menu *systray.MenuItem
+		show bool
+	}{{a.mUpdateEnable, view.showEnable}, {a.mUpdateDisable, view.showDisable}} {
+		item.menu.Disable()
+		if !item.show {
+			item.menu.Hide()
+			continue
 		}
-		if s == nil || s.Enabled {
-			a.mUpdateDisable.Enable()
+		item.menu.Show()
+		if view.clickable {
+			item.menu.Enable()
 		}
 	}
 }

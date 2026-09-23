@@ -8,11 +8,22 @@ The runtime is the prebuilt portable engine; Windows adds its matching native
 `runtime/bin/murmur-svc.exe`. Node.js 22.13.0 or newer is external. No Go/npm/build is
 needed on the recipient's machine. Unsigned binaries may trigger Windows warnings.
 
-Initialize/join and install the service through the CLI first, using one explicit
-profile. Double-click `Open-Murmur.cmd`, then select that existing profile folder.
+No terminal is needed: with no profile yet, the tray offers "Connect to a colleague…"
+(choose the invitation file; it creates the profile, saves the reply for the colleague,
+installs the service after one Windows consent prompt and connects Claude Code and Codex)
+and, for profiles made with the CLI, "Open an existing profile…". Double-click `Open-Murmur.cmd` or `murmur-tray.exe`: the tray finds the profile the launcher
+last opened or the default one, and says "Murmur is not set up yet" when there is none.
+An explicit `-DataDir` still selects another existing profile.
 The launcher checks the local runtime and actual tray-to-CLI identity before
-opening the menu. It neither creates a profile nor writes client config or login
-startup. A custom service name must be supplied for the initial selection:
+opening the menu. It does not create a profile or write client config. After the
+first successful open it adds a Murmur shortcut to the Start menu, the Desktop and
+the per-user Startup folder. They start murmur-tray.exe directly, without a PowerShell
+window, so the tray comes back after sign-in (the service already starts with Windows).
+Delete those shortcuts to undo it. Only one tray runs per bundle in a Windows session: opening
+a shortcut or `murmur-tray.exe` again opens the menu of the running tray instead of adding a
+second icon. "Open an existing profile…" uses the service name the CLI derives from the
+profile path; a profile with a custom service name is opened with the launcher (known limitation
+of 2.11). A custom service name must be supplied for the initial selection:
 
 ```powershell
 .\Open-Murmur.cmd -DataDir 'C:\Users\you\AppData\Local\Murmur' -ServiceName MurmurDaemon
@@ -22,7 +33,8 @@ The wrapper uses a per-process PowerShell execution-policy override; it does not
 change the machine policy. `-NodePath` explicitly selects another installed Node.
 `-Check -DataDir ABSOLUTE` performs the read-only binding probe without opening a
 window. Ordinary users can inspect status and change the configured wake pause;
-SCM start/stop requires an elevated CLI terminal. The tray does not elevate itself.
+Service Start/Stop in the tray asks Windows for administrator consent (UAC) once
+per action and runs the same CLI command elevated; declining changes nothing.
 
 The tray is English on a fresh profile regardless of the Windows display language. Use
 `-Language ru` to open it in Russian; `-Language en` switches back to English. The
@@ -66,9 +78,9 @@ Murmur не меняет настройки панели задач и закр�
 второй подсказки.
 
 After a successful first launch, the launcher creates **Murmur** shortcuts on your
-Desktop and in your per-user Start menu. Both remember the selected Node, bundle,
-profile and service name. Open either shortcut to show the controls of the same
-running tray, including when Windows has put its icon under the hidden-icons arrow.
+Desktop and in your per-user Start menu. They open this bundle's tray, which uses the profile
+and service name the launcher last selected. Open either shortcut to show the controls of the
+same running tray, including when Windows has put its icon under the hidden-icons arrow.
 The shortcuts carry the same purple logo as the tray.
 
 Windows controls which icons appear directly on the taskbar. Murmur keeps its icon

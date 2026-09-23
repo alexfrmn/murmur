@@ -290,3 +290,45 @@ func TestCachedUpdateBeforeFirstStatusIsUnmeasured(t *testing.T) {
 		t.Fatal("startup icon absent")
 	}
 }
+
+func TestUpdateToggleShowsOnlyTheOppositeOfAMeasuredPreference(t *testing.T) {
+	on, off := &updateSnapshot{Enabled: true}, &updateSnapshot{Enabled: false}
+	for _, c := range []struct {
+		name            string
+		s               *updateSnapshot
+		busy, envOptOut bool
+		want            toggleView
+	}{
+		{"unknown state shows neither", nil, false, false, toggleView{}},
+		{"unknown state while checking shows neither", nil, true, false, toggleView{}},
+		{"enabled shows only Disable", on, false, false, toggleView{showDisable: true, clickable: true}},
+		{"disabled shows only Enable", off, false, false, toggleView{showEnable: true, clickable: true}},
+		{"a running check keeps the one item visible but not clickable", on, true, false, toggleView{showDisable: true}},
+		{"environment opt-out shows neither", off, false, true, toggleView{}},
+	} {
+		got := updateToggleView(c.s, c.busy, c.envOptOut)
+		if got != c.want {
+			t.Errorf("%s: got %+v want %+v", c.name, got, c.want)
+		}
+		if got.showEnable && got.showDisable {
+			t.Errorf("%s: both opposite actions visible", c.name)
+		}
+	}
+}
+
+func TestDisplayedVersionFallsBackToTheBundleVersion(t *testing.T) {
+	old := releaseVersion
+	t.Cleanup(func() { releaseVersion = old })
+	cli := "2.11.0"
+	releaseVersion = "2.11.0-rc1"
+	if got := displayedVersion(&updateSnapshot{CurrentVersion: &cli}); got != "2.11.0" {
+		t.Fatalf("CLI version must win, got %q", got)
+	}
+	if got := displayedVersion(nil); got != "2.11.0-rc1" {
+		t.Fatalf("bundle version expected without a CLI reply, got %q", got)
+	}
+	releaseVersion = "development"
+	if got := displayedVersion(nil); got != tr("updates.unknown") {
+		t.Fatalf("development build without a reply is unknown, got %q", got)
+	}
+}
