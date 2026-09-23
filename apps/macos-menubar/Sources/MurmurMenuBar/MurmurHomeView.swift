@@ -192,8 +192,7 @@ struct MurmurHomeView: View {
             if model.hasSetupSteps { setupSteps }
             if model.status != nil && !model.isDemo { MurmurClientSetupView(model: model) }
             if let mismatch = model.status?.modeMismatch { Text(mismatch) }
-            if let error = model.operationError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            if let message = model.operationMessage { Text(message) }
+            operationFeedback
             if let count = model.status?.inbox.unread { Text(L10n.text("Unread: %@", String(count))) }
             if let count = model.status?.wake.delivery.pendingUndelivered {
                 Text(L10n.text("Waiting for agent delivery: %@", String(count)))
@@ -219,6 +218,7 @@ struct MurmurHomeView: View {
     private var settingsContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(L10n.text("Settings")).font(.title2.weight(.semibold))
+            operationFeedback
             MurmurDisclosure(title: L10n.text("Background operation"), explanation: L10n.text("What keeps running when you close the window")) { service }
             Divider()
             MurmurDisclosure(title: L10n.text("Connection check"), explanation: L10n.text("Understand a problem and find the next step")) { diagnostics }
@@ -269,6 +269,7 @@ struct MurmurHomeView: View {
 
     private var service: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text(serviceStateTitle).font(.headline)
             Text(L10n.text("When the background service is running, you can close this window and messages will still be delivered. Stopping the service stops delivery. Your AI assistant needs its own active session to answer."))
                 .fixedSize(horizontal: false, vertical: true)
             if let enabled = model.status?.wake.config.enabled { Text(L10n.text("Configured: %@", model.wakeState(enabled))) }
@@ -280,11 +281,32 @@ struct MurmurHomeView: View {
                     .disabled(!model.canControl)
             }
             HStack {
-                Button(L10n.text("Start")) { model.perform(.start) }.disabled(!model.canControl)
-                Button(L10n.text("Stop")) { model.perform(.stop) }.disabled(!model.canControl)
+                Button(L10n.text("Start")) { model.perform(.start) }
+                    .disabled(!model.canControl || model.status?.service.state == .running)
+                Button(L10n.text("Stop")) { model.perform(.stop) }
+                    .disabled(!model.canControl || model.status?.service.state == .stopped)
             }
             Button(L10n.text("Open configured log folder")) { model.openLogs() }.disabled(!model.canControl)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var operationFeedback: some View {
+        if let error = model.operationError {
+            Label(error, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.red).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+        }
+        if let message = model.operationMessage {
+            Text(message).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+        }
+    }
+
+    private var serviceStateTitle: String {
+        switch model.status?.service.state {
+        case .running: L10n.text("Service running")
+        case .stopped: L10n.text("Service stopped")
+        case .failed: L10n.text("Service failed")
+        default: L10n.text("Service status unknown")
+        }
     }
 
     private var diagnostics: some View {

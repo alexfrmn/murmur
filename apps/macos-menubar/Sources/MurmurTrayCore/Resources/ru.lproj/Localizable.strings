@@ -139,6 +139,14 @@
 "Service failed" = "Служба завершилась с ошибкой";
 "Service status unknown" = "Состояние службы неизвестно";
 "Service stopped" = "Служба остановлена";
+"Service running" = "Служба работает";
+"Edit" = "Правка";
+"Undo" = "Отменить";
+"Redo" = "Повторить";
+"Cut" = "Вырезать";
+"Copy" = "Копировать";
+"Paste" = "Вставить";
+"Select All" = "Выбрать всё";
 "Service, broker and connections are working" = "Служба, брокер и подключения работают";
 "Service: %@" = "Служба: %@";
 "Settings" = "Настройки";

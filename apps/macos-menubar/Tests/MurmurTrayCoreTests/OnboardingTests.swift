@@ -69,7 +69,12 @@ func runOnboardingChecks(fixtures: URL) throws -> Int {
         defer { try? fm.removeItem(at: folder) }
         guard let resolved = realpath(folder.path, nil) else { throw CheckFailure(message: "Missing test realpath") }
         defer { free(resolved) }
-        try test(OnboardingFixture(directory: URL(fileURLWithPath: String(cString: resolved)), fixtures: fixtures))
+        do {
+            try test(OnboardingFixture(directory: URL(fileURLWithPath: String(cString: resolved)), fixtures: fixtures))
+        } catch {
+            FileHandle.standardError.write(Data("FAIL onboarding: \(name): \(error)\n".utf8))
+            throw error
+        }
         count += 1; print("PASS onboarding: \(name)")
     }
     try scenario("init uses literal explicit profile and verifies identity, without starting service") { f in
