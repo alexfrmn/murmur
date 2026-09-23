@@ -7,6 +7,7 @@ import { SQLiteDedupeOutboxStore } from '@murmurv2/core';
 import { createKeyPair, createSigningKeyPair } from '@murmurv2/security';
 import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerConfig } from './config.js';
 import { writeState } from './state.js';
+import { refuseVirtualizedAppData } from './appdata.js';
 import type { ServiceContext } from './types.js';
 
 type PrivateFile = 'invite-file' | 'reply-file' | 'token-file';
@@ -118,6 +119,7 @@ function addPeer(config: AgentConfig, peer: { agentId: string; subject: string; 
   return { ...config, peers: { ...config.peers, [peer.agentId]: next } };
 }
 export async function initialize(c: ServiceContext, options: { agentId: string; brokerUrl: string; tokenFile?: string }) {
+  await refuseVirtualizedAppData(c.dataDir);
   return locked(c, async () => {
     const previous = await existing(c);
     if (previous) {
@@ -147,6 +149,8 @@ export async function invite(c: ServiceContext, outFile: string) {
 export async function join(c: ServiceContext, options: { agentId: string; inviteFile: string; replyOut: string }) {
   await validateOutput(c, options.replyOut);
   const incoming = await readBlob(options.inviteFile, 'MURMUR:', 'invite');
+  // Before anything is created: a profile the service cannot see must not be written at all.
+  await refuseVirtualizedAppData(c.dataDir);
   return locked(c, async () => {
     const previous = await existing(c);
     if (previous && (previous.agentId !== options.agentId || previous.natsUrl !== incoming.natsUrl)) throw new Error('onboarding.existing-profile-conflict');
