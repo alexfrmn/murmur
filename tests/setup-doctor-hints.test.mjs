@@ -24,7 +24,12 @@ test('doctor tells a new user the next command for a missing profile and a stopp
   const down = await runDoctor({ context, adapter: stopped });
   assert.equal(down.summary.failedStage, 'daemon');
   assert.equal(down.stages[1].reason, 'daemon.not-running');
-  assert.match(down.stages[1].fixHint, /murmur service install --data-dir/);
+  assert.match(down.stages[1].fixHint, /murmur service install --data-dir <this profile> --service-name murmur-[0-9a-f]{12} /);
   // Skipped stages and an unknown failure keep null: a hint is only given where the next step is known.
   assert.ok(down.stages.slice(2).every(s => s.fixHint === null));
+
+  // A custom service chosen with --service-name must survive into the suggested command.
+  const custom = await runDoctor({ context: resolveContext({ dataDir, serviceName: 'MurmurCodexWin' }), adapter: stopped });
+  assert.match(custom.stages[1].fixHint, / --service-name MurmurCodexWin /);
+  assert.doesNotMatch(custom.stages[1].fixHint, /murmur-[0-9a-f]{12}/);
 });
