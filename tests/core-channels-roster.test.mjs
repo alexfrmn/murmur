@@ -7,10 +7,12 @@ import { buildChannelThreadStartBinding, ChannelRosterStore, SQLiteMessageStore 
 
 async function withRoster(fn) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "murmur-channels-"));
+  let store;
   try {
-    const store = new ChannelRosterStore(path.join(dir, "channel-roster.db"));
+    store = new ChannelRosterStore(path.join(dir, "channel-roster.db"));
     return await fn(store);
   } finally {
+    store?.close();
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -69,9 +71,11 @@ test("ChannelRosterStore creates typed channel roster with personality-ready mem
 
 test("channelId is separate from conversationId and legacy conversation listing still works", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "murmur-channels-legacy-"));
+  let messages;
+  let roster;
   try {
-    const messages = new SQLiteMessageStore(path.join(dir, "murmur.db"));
-    const roster = new ChannelRosterStore(path.join(dir, "channel-roster.db"));
+    messages = new SQLiteMessageStore(path.join(dir, "murmur.db"));
+    roster = new ChannelRosterStore(path.join(dir, "channel-roster.db"));
     await messages.append({
       conversationId: "codex:task:legacy",
       msgId: "msg-1",
@@ -98,6 +102,8 @@ test("channelId is separate from conversationId and legacy conversation listing 
     assert.equal(channels[0].channelId, "chan:dm:jarvis-codex");
     assert.equal(channels[0].conversationId, "codex:task:legacy");
   } finally {
+    messages?.close();
+    roster?.close();
     await rm(dir, { recursive: true, force: true });
   }
 });

@@ -12,6 +12,7 @@ import {
 } from '../scripts/build-windows-bundle.mjs';
 import { writeZip } from '../scripts/build-runtime-bundle.mjs';
 import { verifyWindowsBundle } from '../scripts/check-windows-bundle.mjs';
+import { skipWithoutSymlinks } from './windows-host.mjs';
 
 const temporary = async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur windows bundle '));
@@ -41,6 +42,12 @@ test('npm runs through a validated npm-cli.js beside the selected Node executabl
   await fs.mkdir(path.dirname(explicit), { recursive: true }); await fs.writeFile(explicit, 'explicit');
   assert.equal(await resolveNpmCli(node, { npm_execpath: explicit }), explicit);
   await assert.rejects(resolveNpmCli(node, { npm_execpath: 'relative/npm-cli.js' }), /absolute/);
+});
+test('npm refuses a symlinked npm-cli.js', { skip: skipWithoutSymlinks }, async t => {
+  const dir = await temporary(t);
+  const node = path.join(dir, 'node.exe'); await fs.writeFile(node, 'node');
+  const explicit = path.join(dir, 'other', 'npm-cli.js');
+  await fs.mkdir(path.dirname(explicit), { recursive: true }); await fs.writeFile(explicit, 'explicit');
   const linked = path.join(dir, 'linked', 'npm-cli.js'); await fs.mkdir(path.dirname(linked));
   await fs.symlink(explicit, linked);
   await assert.rejects(resolveNpmCli(node, { npm_execpath: linked }), /regular file/);
@@ -73,7 +80,7 @@ test('release manifest inventories every payload byte and records exact provenan
   assert.equal(Object.hasOwn(written.files, 'release-manifest.json'), false);
 });
 
-test('manifest and ZIP creation reject symlinks', async t => {
+test('manifest and ZIP creation reject symlinks', { skip: skipWithoutSymlinks }, async t => {
   const bundle = await temporary(t);
   await fs.writeFile(path.join(bundle, 'payload'), 'data');
   await fs.symlink(path.join(bundle, 'payload'), path.join(bundle, 'alias'));

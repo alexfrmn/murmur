@@ -16,7 +16,13 @@ const T0 = Date.parse("2026-09-12T12:00:00.000Z");
 const withStore = () => {
   const dir = mkdtempSync(join(tmpdir(), "murmur-wake-delivery-"));
   const store = new SQLiteMessageStore(join(dir, "murmur.db"));
-  return { store, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    store,
+    cleanup: () => {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 };
 
 const receive = async (store, msgId) => {

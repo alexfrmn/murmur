@@ -65,8 +65,10 @@ test("murmur-shell-send accepts --msg-id and a repeat with the same id enqueues 
     assert.equal(second.status, "already-queued");
 
     const db = new DatabaseSync(dbPath);
-    assert.equal(db.prepare("SELECT COUNT(*) as n FROM outbox WHERE msg_id = ?").get(msgId).n, 1);
-    assert.equal(db.prepare("SELECT COUNT(*) as n FROM local_messages WHERE msg_id = ?").get(msgId).n, 1);
+    try {
+      assert.equal(db.prepare("SELECT COUNT(*) as n FROM outbox WHERE msg_id = ?").get(msgId).n, 1);
+      assert.equal(db.prepare("SELECT COUNT(*) as n FROM local_messages WHERE msg_id = ?").get(msgId).n, 1);
+    } finally { db.close(); }
   } finally {
     cleanup();
   }

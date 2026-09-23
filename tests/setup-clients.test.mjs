@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import * as TOML from '@iarna/toml';
 import { configureClient } from '../packages/setup/dist/src/clients.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
+import { assertMode, skipWithoutSymlinks } from './windows-host.mjs';
 async function fixture(t, format) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-mcp-config-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
   const file = path.join(root, `config.${format}`), context = resolveContext({ dataDir: path.join(root, 'data'), repoRoot: fileURLToPath(new URL('../', import.meta.url)) });
@@ -20,7 +21,7 @@ for (const format of ['json', 'toml']) test(`${format}: patch keeps auth rails, 
   await fs.writeFile(f.file, source);
   const result = await configureClient(f.context, f.adapter, 'codex-cli');
   assert.equal(await fs.readFile(result.backup, 'utf8'), source);
-  assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
+  assertMode(t, (await fs.stat(result.backup)).mode, 0o600, 'backup mode');
   const output = await fs.readFile(f.file, 'utf8'), parsed = format === 'json' ? JSON.parse(output) : TOML.parse(output);
   assert.equal(parsed[key].murmur.env.DATA_DIR, f.context.dataDir);
   delete parsed[key].murmur; assert.deepEqual(parsed, input);
@@ -34,11 +35,14 @@ test('existing other Murmur contour requires explicit replacement and retains ba
   const changed = await configureClient(f.context, f.adapter, 'codex-cli', true);
   assert.equal(await fs.readFile(changed.backup, 'utf8'), before);
 });
-test('malformed config and symlink are rejected without rewriting their target', async t => {
+test('malformed config is rejected without rewriting it', async t => {
   const f = await fixture(t, 'json'); await fs.writeFile(f.file, 'not json');
   await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'), /config-parse-failed/);
   assert.equal(await fs.readFile(f.file, 'utf8'), 'not json');
-  const target = path.join(f.root, 'unrelated'); await fs.writeFile(target, '{}'); await fs.unlink(f.file); await fs.symlink(target, f.file);
+});
+test('a symlinked config is rejected without rewriting its target', { skip: skipWithoutSymlinks }, async t => {
+  const f = await fixture(t, 'json');
+  const target = path.join(f.root, 'unrelated'); await fs.writeFile(target, '{}'); await fs.symlink(target, f.file);
   await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'));
   assert.equal(await fs.readFile(target, 'utf8'), '{}');
 });

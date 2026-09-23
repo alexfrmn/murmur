@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createDarwinAdapter } from '../packages/setup/dist/src/platform/darwin.js';
+import { skipPosixServiceHost, skipWithoutSymlinks } from './windows-host.mjs';
 
 const missing = { code: 113, stdout: '', stderr: 'Could not find service in domain for user gui: 501' };
 const ok = (stdout = '') => ({ code: 0, stdout, stderr: '' });
@@ -22,7 +23,7 @@ async function fixture(t, runner) {
   return { adapter, home, ctx, calls, plist };
 }
 
-test('install produces private escaped plist, stays unloaded and is idempotent', async t => {
+test('install produces private escaped plist, stays unloaded and is idempotent', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t);
   await f.adapter.install(f.ctx);
   const initial = await fs.readFile(f.plist, 'utf8');
@@ -46,12 +47,15 @@ test('install backs up only an owned changed plist', async t => {
   assert.equal(await fs.readFile(path.join(path.dirname(f.plist), backups[0]), 'utf8'), original);
 });
 
-test('install refuses unmanaged and symlink plist', async t => {
+test('install refuses an unmanaged plist', async t => {
   const f = await fixture(t);
   await fs.mkdir(path.dirname(f.plist), { recursive: true });
   await fs.writeFile(f.plist, '<plist>some other service</plist>');
   await assert.rejects(f.adapter.install(f.ctx), /unmanaged/);
-  await fs.unlink(f.plist);
+});
+test('install refuses a symlinked plist', { skip: skipWithoutSymlinks }, async t => {
+  const f = await fixture(t);
+  await fs.mkdir(path.dirname(f.plist), { recursive: true });
   const target = path.join(f.home, 'unrelated'); await fs.writeFile(target, 'do not change');
   await fs.symlink(target, f.plist);
   await assert.rejects(f.adapter.install(f.ctx), /nonregular/);
@@ -83,7 +87,7 @@ test('status distinguishes absent service from unreadable service without leakin
   assert.ok(!JSON.stringify(value).includes('SECRET'));
 });
 
-test('running state reports actual FD store evidence and start time', async t => {
+test('running state reports actual FD store evidence and start time', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t, (file, args, ctx, home) => {
     if (file === '/bin/launchctl') return ok(`path = ${path.join(home, 'Library', 'LaunchAgents', ctx.serviceName + '.plist')}\n state = running\n pid = 123\n last exit code = 0\n`);
     if (file === '/bin/ps') return ok('Sat Sep 19 12:00:00 2026\n');
@@ -140,7 +144,7 @@ test('never operates an unrelated loaded service sharing the requested label', a
   await assert.rejects(other.stop(f.ctx), /other-loaded-service/);
 });
 
-test('client detection uses executable permission and desktop bundle IDs; never writes config', async t => {
+test('client detection uses executable permission and desktop bundle IDs; never writes config', { skip: skipPosixServiceHost }, async t => {
   const f = await fixture(t);
   const bin = path.join(f.home, 'bin'); await fs.mkdir(bin);
   await fs.writeFile(path.join(bin, 'claude'), '#!/bin/sh\n', { mode: 0o700 });

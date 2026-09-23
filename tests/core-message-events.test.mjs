@@ -7,9 +7,12 @@ import { SQLiteMessageStore } from "../packages/core/dist/src/index.js";
 
 const withStore = async (fn) => {
   const dir = mkdtempSync(join(tmpdir(), "murmur-events-"));
+  let store;
   try {
-    await fn(new SQLiteMessageStore(join(dir, "murmur.db")));
+    store = new SQLiteMessageStore(join(dir, "murmur.db"));
+    await fn(store);
   } finally {
+    store?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 };

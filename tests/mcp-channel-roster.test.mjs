@@ -84,7 +84,9 @@ test("MCP channel roster tools create/list/evaluate addressing", async () => {
     assert.equal(decision.decision.allowAppend, true);
     assert.equal(decision.decision.allowWake, false);
   } finally {
+    const exited = proc.exitCode === null ? new Promise((resolve) => proc.once("exit", resolve)) : null;
     proc.kill();
+    await exited;
     await rm(dir, { recursive: true, force: true });
   }
 });
