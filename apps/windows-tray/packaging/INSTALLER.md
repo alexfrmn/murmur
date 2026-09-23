@@ -1,52 +1,27 @@
 # Per-user Windows installer
 
-Build from the same verified extracted payload as the Windows ZIP. The installer
-does not download Node, invent a profile, install a service, or configure a client.
-It opens the tray directly (no PowerShell console) and cannot repair missing
-onboarding in an older payload. A 2.10 rehearsal is not 2.11 GUI acceptance.
+Build from a verified extracted Windows release bundle using build-setup.ps1:
 
 ```powershell
-./apps/windows-tray/packaging/build-setup.ps1 `
-  -BundleDir C:\release\windows-extracted -OutputDir C:\release\output `
-  -Compiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+./apps/windows-tray/packaging/build-setup.ps1 -BundleDir C:\release\windows-extracted -OutputDir C:\release\output -Compiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-For an older verified release with its own checker, pass `-BundleChecker` pointing
-to that release's checker explicitly. Never compile an unverified directory.
-The wrapper checks the payload, takes the version from its manifest, compiles,
-and records artifact SHA256 and bundle provenance alongside the executable.
+For an older bundle, explicitly pass its matching -BundleChecker. The wrapper verifies payload files, uses the manifest version, and records installer SHA256 and source provenance. This installer requires external Node as specified by the bundle; it does not configure identities, clients or SCM services. PrivilegesRequired=lowest, default destination LOCALAPPDATA/Programs/Murmur, HKCU uninstall registration.
 
-Setup uses `PrivilegesRequired=lowest`, installs under
-`%LOCALAPPDATA%\Programs\Murmur`, and registers an HKCU uninstaller. Installation
-itself requires no administrator token. A later service operation may request
-elevation through the application.
+## Installed and portable ownership
 
-Shortcut ownership is coordinated with the launcher: setup owns only
-`Programs\Murmur\Murmur.lnk`, pointing to installed murmur-tray.exe. The launcher
-owns flat Programs, Desktop and Startup links and supplies the selected profile
-and service. Uninstall removes those launcher links only when description,
-PowerShell target, working directory and quoted launcher path match this install.
-Foreign links are retained. Profile directories and SCM services are never
-deleted. A service referencing the installed runtime must be managed separately
-before uninstalling its runtime; this installer does not silently stop it.
+Setup owns one Start Menu entry Programs/Murmur/Murmur.lnk. Its Startup task is selected by default and creates Startup/Murmur.lnk minimized; Desktop/Murmur.lnk is optional. Every shortcut targets the installed murmur-tray.exe with empty arguments and the installed working directory. Setup writes murmur-install.json containing installer=setup, appId and version. The portable launcher must detect this marker and leave installed shortcuts alone; without the marker the ZIP launcher owns its shortcuts. That matching launcher change is a release dependency.
 
-CI handoff to release maintainer: on the native Windows bundle job, provision
-Inno Setup 6, run this wrapper against the verified extracted release directory,
-then upload `Murmur-*-windows-x64-setup.exe` and its `.json` proof beside the ZIP.
-Use the same source checkout and release version. Publishing remains a separate
-release action. Unsigned installers retain Windows first-open warnings.
+Setup refuses an occupied shortcut belonging to another installation. It removes an old owned flat Programs/Murmur.lnk to avoid duplicate Start entries. Legacy cleanup recognizes either Windows PowerShell with a quoted installed Open-Murmur.ps1 argument or the installed tray with empty arguments; both require the exact managed description and installation working directory. Foreign shortcuts are preserved.
 
-Acceptance remains separate: visible wizard pages, clean install, launch,
-owned-shortcut cleanup and uninstall; preserve an unrelated shortcut/profile
-sentinel. Startup-after-login and application onboarding need their own live
-checks. Do not call compilation alone installation acceptance.
+## Update and uninstall
 
-For local acceptance compile with `/DAcceptanceTest=1`: a distinct AppId,
-application name, Start Menu folder and default install directory prevent
-registration or shortcut collisions with a real Murmur installation. This build
-is not a release artifact. A silent install deliberately does not launch the app
-(`skipifsilent`); verify launch separately using its exact installed exe path.
+Before copying or deleting files, setup queries Windows services read-only and refuses if a registered service references this installation. The service must be managed separately; profiles and services are never deleted or stopped by setup. The service path check does not resolve junction/short-name aliases.
 
-Setup/upgrade and uninstall now refuse while any registered Windows service ImagePath references this installation directory (including a runtime path in arguments). The check is read-only and also protects stopped services; no service is stopped or deleted automatically. Failure to enumerate services aborts. Paths using junction or short-name aliases are not resolved by this string check and remain an acceptance limitation.
+Setup then enumerates tray processes through WMI and terminates only processes whose ExecutablePath equals the installed murmur-tray.exe, waiting for exit. It never terminates another bundle by process name alone. An update restarts a previously running tray, including silent updates. A fresh silent install does not launch; an interactive install offers launch on completion. If the tray cannot be stopped, a clear refusal replaces the file-in-use failure. Uninstall removes the ownership marker and installed files/shortcuts.
 
-Managed launcher shortcut cleanup accepts both the original PowerShell/Open-Murmur.ps1 target and the direct installed murmur-tray.exe target with empty arguments. Both require the exact managed description and installation working directory; a shortcut into another installation is preserved.
+## Build and acceptance
+
+Provision Inno Setup 6 on the native Windows bundle job and run the wrapper against that job's verified payload. Upload executable and adjacent proof JSON alongside ZIP; publishing remains a separate release action. Unsigned binaries retain Windows first-open warnings.
+
+Compile local tests with /DAcceptanceTest=1 for separate AppId, install directory and shortcut names. Tests should cover clean install, marker/default Startup, upgrade with a running tray (one restarted process), uninstall (zero own processes/files), foreign-bundle survival and foreign-shortcut refusal. Native tests and shortcut inspection do not prove a reboot/login or complete onboarding GUI journey.
