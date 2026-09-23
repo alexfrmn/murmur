@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows: one tray per bundle.** Start, Desktop and Startup shortcuts start `murmur-tray.exe`
   directly; a second launch now opens the running tray's menu and exits with 0 instead of adding
   a second icon (session-local named mutex keyed by the executable path).
+- **Windows: shortcuts from earlier builds are updated in place.** A Murmur shortcut that still
+  starts Windows PowerShell with this bundle's `Open-Murmur.ps1` is rewritten to start
+  `murmur-tray.exe` directly the next time the launcher opens that bundle (staged, rolled back on
+  failure). Other shortcuts named Murmur are left alone and, as before, stop the launcher.
+- **Windows: an installed Murmur keeps its installer's shortcuts.** With `murmur-install.json`
+  next to the launcher (written by setup.exe) the launcher creates, updates and removes no shortcuts.
 
 ### Known limitations
 - **Windows tray: "Open an existing profile…"** uses the service name derived from the profile

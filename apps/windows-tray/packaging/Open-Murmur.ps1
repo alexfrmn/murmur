@@ -260,19 +260,29 @@ function Get-ShortcutPlan {
     $arguments=''
     $description='Open Murmur controls (managed by Murmur)'
     $icon=$iconPath+',0'
+    # Earlier launchers wrote shortcuts that ran Windows PowerShell with this launcher. Such a shortcut
+    # of THIS bundle (managed description, Windows PowerShell target, this bundle as working directory,
+    # this launcher as -File) is rewritten in place; anything else still refuses.
+    $legacyTargets=@('System32','SysWOW64' | ForEach-Object {[IO.Path]::Combine($env:SystemRoot,$_,'WindowsPowerShell\v1.0\powershell.exe')})
+    $legacyScript='"-File" '+(Quote-Argument $PSCommandPath)
     $shell=New-Object -ComObject WScript.Shell
     $plan=@()
     foreach($path in @((Join-Path $programs 'Murmur.lnk'),(Join-Path $desktop 'Murmur.lnk'),(Join-Path $startup 'Murmur.lnk'))){
         $exists=Test-Path -LiteralPath $path
+        $oldBytes=$null
         if($exists){
             $item=Get-Item -LiteralPath $path -Force
             if($item.PSIsContainer -or (Test-LinkedItem $item) -or $item.Length -gt 1048576){throw "Shortcut location is occupied by an unmanaged item: $path. Remove the old shortcut before opening this selection."}
             try{$link=$shell.CreateShortcut($path)}catch{throw "Shortcut location is occupied by an unreadable item: $path. Remove the old shortcut before opening this selection."}
             $savedIcon=([string]$link.IconLocation) -replace ',\s*([0-9]+)$',',$1'
-            if($link.TargetPath -ine $target -or $link.Arguments -cne $arguments -or $link.WorkingDirectory -ine $PSScriptRoot -or
-               $link.Description -cne $description -or $savedIcon -ine $icon){throw "Shortcut location is occupied by another target: $path. Remove the old shortcut before opening this selection."}
+            $current=$link.TargetPath -ieq $target -and $link.Arguments -ceq $arguments -and $link.WorkingDirectory -ieq $PSScriptRoot -and
+               $link.Description -ceq $description -and $savedIcon -ieq $icon
+            $legacy=-not $current -and $link.Description -ceq $description -and $link.WorkingDirectory -ieq $PSScriptRoot -and
+               $legacyTargets -contains [string]$link.TargetPath -and ([string]$link.Arguments).IndexOf($legacyScript,[StringComparison]::OrdinalIgnoreCase) -ge 0
+            if(-not $current -and -not $legacy){throw "Shortcut location is occupied by another target: $path. Remove the old shortcut before opening this selection."}
+            if($legacy){$oldBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($path))}
         }
-        $plan+=@{Path=$path;Exists=$exists;Target=$target;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon;WindowStyle=1}
+        $plan+=@{Path=$path;Exists=($exists -and $null -eq $oldBytes);OldBytes=$oldBytes;Target=$target;Arguments=$arguments;WorkingDirectory=$PSScriptRoot;Description=$description;Icon=$icon;WindowStyle=1}
     }
     return @($plan)
 }
@@ -290,8 +300,14 @@ function Install-MissingShortcuts($plan) {
                 $temporaryItem=Get-Item -LiteralPath $temporary -Force
                 if($temporaryItem.PSIsContainer -or (Test-LinkedItem $temporaryItem) -or $temporaryItem.Length -gt 1048576){throw "The staged shortcut is invalid: $($entry.Path)"}
                 $temporaryBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($temporary))
-                try{[IO.File]::Move($temporary,$entry.Path)}catch{throw "Shortcut location became occupied before it could be created: $($entry.Path)"}
-                $created+=@([pscustomobject]@{Path=$entry.Path;Bytes=$temporaryBytes})
+                if($entry.OldBytes){
+                    # Replace only the exact old shortcut that was recognized; its bytes are kept for rollback.
+                    if(-not(Test-ExactCreatedShortcut ([pscustomobject]@{Path=$entry.Path;Bytes=$entry.OldBytes}))){throw "The old Murmur shortcut changed before it could be updated: $($entry.Path)"}
+                    try{[IO.File]::Replace($temporary,$entry.Path,[NullString]::Value)}catch{throw "The old Murmur shortcut could not be updated: $($entry.Path)"}
+                }else{
+                    try{[IO.File]::Move($temporary,$entry.Path)}catch{throw "Shortcut location became occupied before it could be created: $($entry.Path)"}
+                }
+                $created+=@([pscustomobject]@{Path=$entry.Path;Bytes=$temporaryBytes;OldBytes=$entry.OldBytes})
                 $temporary=$null
             }finally{
                 if($temporary -and (Test-Path -LiteralPath $temporary -PathType Leaf)){
@@ -319,14 +335,22 @@ function Test-ExactCreatedShortcut($created) {
 function Notify-CreatedShortcuts($paths) {
     foreach($created in @($paths)){
         if(-not(Test-ExactCreatedShortcut $created)){continue}
+        if($created.OldBytes){Write-Host "Updated the Murmur shortcut to open the tray directly: $($created.Path)"}
         try{Initialize-TrayActivationApi;[MurmurTrayActivation]::ShortcutCreated([string]$created.Path)}catch{}
     }
 }
 function Remove-CreatedShortcuts($paths) {
     foreach($created in @($paths)){
         if(-not(Test-ExactCreatedShortcut $created)){continue}
+        $path=[string]$created.Path
+        if($created.OldBytes){
+            # A migrated shortcut goes back to its old bytes, not away.
+            $restore=[IO.Path]::Combine([IO.Path]::GetDirectoryName($path),'.murmur-'+[guid]::NewGuid().ToString('N')+'.tmp.lnk')
+            try{[IO.File]::WriteAllBytes($restore,[Convert]::FromBase64String($created.OldBytes));[IO.File]::Replace($restore,$path,[NullString]::Value)}catch{}
+            finally{if(Test-Path -LiteralPath $restore -PathType Leaf){Remove-Item -LiteralPath $restore -Force -ErrorAction SilentlyContinue}}
+            continue
+        }
         try{
-            $path=[string]$created.Path
             Remove-Item -LiteralPath $path -Force
             if(-not(Test-Path -LiteralPath $path)){Initialize-TrayActivationApi;[MurmurTrayActivation]::ShortcutDeleted($path)}
         }catch{}
