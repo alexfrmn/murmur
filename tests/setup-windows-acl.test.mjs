@@ -53,6 +53,23 @@ test('an existing profile directory keeps the ACL its owner chose', { skip: !win
   assert.deepEqual(aces(profile), before);
 });
 
+test('a failed ACL step leaves nothing that a retry could take for an existing profile', { skip: !windows && 'Windows DACL' }, async t => {
+  const root = await broadParent(t), profile = path.join(root, 'nested', 'agent-a');
+  const args = initArgs(root).map(a => a === path.join(root, 'agent-a') ? profile : a);
+  const systemRoot = process.env.SystemRoot;
+  process.env.SystemRoot = path.join(root, 'no-windows-here');
+  try {
+    // whoami or icacls, depending on whether this process already knows the user SID.
+    await assert.rejects(main(args, { manager: 'none' }), /^Error: onboarding\.(user-sid-unavailable|private-acl-failed)$/);
+  } finally { process.env.SystemRoot = systemRoot; }
+  // Neither the profile nor the parent that mkdir created for it survives, so no key was written anywhere.
+  await assert.rejects(fs.stat(path.join(root, 'nested')), { code: 'ENOENT' });
+  const retry = await main(args, { manager: 'none' });
+  assert.equal(retry.existing, false);
+  assertOwnerOnly(profile);
+  assertOwnerOnly(path.join(profile, 'agent-config.json'));
+});
+
 test('icacls and whoami planted earlier in PATH are not the ones that run', { skip: !windows && 'Windows DACL' }, async t => {
   const root = await broadParent(t), fake = path.join(root, 'fake-bin');
   await fs.mkdir(fake);

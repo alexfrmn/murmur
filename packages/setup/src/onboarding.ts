@@ -75,13 +75,15 @@ let userSid: Promise<string> | undefined;
  */
 async function restrictToCurrentUser(target: string, directory: boolean) {
   if (process.platform !== 'win32') return;
-  userSid ??= execFileAsync(system32('whoami.exe'),['/user', '/fo', 'csv', '/nh'], { windowsHide: true }).then(({ stdout }) => {
+  userSid ??= execFileAsync(system32('whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { windowsHide: true }).then(({ stdout }) => {
     const sid = /"(S-1-5-[0-9-]+)"\s*$/.exec(stdout.trim())?.[1];
     if (!sid) throw new Error('onboarding.user-sid-unavailable');
     return sid;
-  });
+  }, () => { throw new Error('onboarding.user-sid-unavailable'); });
+  // A failed lookup is not remembered: the next attempt in this process measures again.
+  const sid = await userSid.catch((error) => { userSid = undefined; throw error; });
   const inherit = directory ? '(OI)(CI)' : '';
-  await execFileAsync(system32('icacls.exe'), [target, '/inheritance:r', '/grant:r', `*${await userSid}:${inherit}(F)`, `*S-1-5-18:${inherit}(F)`], { windowsHide: true })
+  await execFileAsync(system32('icacls.exe'), [target, '/inheritance:r', '/grant:r', `*${sid}:${inherit}(F)`, `*S-1-5-18:${inherit}(F)`], { windowsHide: true })
     .catch(() => { throw new Error('onboarding.private-acl-failed'); });
 }
 async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
@@ -97,7 +99,19 @@ async function outputBlob(file: string, value: unknown, prefix: string, beforeWr
 }
 async function locked<T>(c: ServiceContext, fn: () => Promise<T>) {
   // mkdir reports a path only when it created something: never rewrite an existing profile's ACL.
-  if (await mkdir(c.dataDir, { recursive: true, mode: 0o700 }) !== undefined) await restrictToCurrentUser(c.dataDir, true);
+  const created = await mkdir(c.dataDir, { recursive: true, mode: 0o700 });
+  if (created !== undefined) {
+    try { await restrictToCurrentUser(c.dataDir, true); }
+    catch (error) {
+      // Left in place, the unprotected directory would pass as an existing profile on retry and
+      // receive the keys under its inherited DACL. Remove exactly what mkdir just created (all empty).
+      for (let dir = c.dataDir; ; dir = path.dirname(dir)) {
+        await rmdir(dir).catch(() => {});
+        if (dir === created || path.dirname(dir) === dir) break;
+      }
+      throw error;
+    }
+  }
   const lock = path.join(c.dataDir, '.setup-write.lock');
   await mkdir(lock, { mode: 0o700 });
   try { return await fn(); } finally { await rmdir(lock); }
