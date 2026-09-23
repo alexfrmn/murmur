@@ -60,3 +60,7 @@ profile-contained `logs path` contract cannot represent this location and return
 
 Tests of the native helper, the shared CLI, a returned message, tray UI, login and
 reboot are separate acceptance gates. Passing one does not imply the others.
+
+When a service command fails, the CLI prints one code; `service.helper.<key>`
+codes and what to do about each are listed in
+[windows-helper-reasons.md](windows-helper-reasons.md).
