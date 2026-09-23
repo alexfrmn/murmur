@@ -47,6 +47,7 @@ export interface BrokerConfig {
   connectMaxAttempts?: number;
   connectBaseBackoffMs?: number;
   connectJitterRatio?: number;
+  connectTimeoutMs?: number;
   maxReconnectAttempts?: number;
   reconnectTimeWait?: number;
   reconnectJitter?: number;
@@ -107,6 +108,7 @@ export const buildNatsConnectionOptions = (config: BrokerConfig): ConnectionOpti
   pingInterval: config.pingInterval ?? 20000,
   maxPingOut: config.maxPingOut ?? 2,
   waitOnFirstConnect: config.waitOnFirstConnect ?? true,
+  ...(config.connectTimeoutMs === undefined ? {} : { timeout: config.connectTimeoutMs }),
 });
 
 const ADVISORY_FAILURE_LOG_INTERVAL_MS = 60_000;

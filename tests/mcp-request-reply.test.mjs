@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildReplyMatcher,
+  createReplySignalTap,
+  requestDelivery,
+  requestTiming,
   waitForReply,
 } from "../packages/mcp-server/dist/src/request-reply.js";
 import {
@@ -69,7 +72,7 @@ test("A: resolves via store-poll fallback when no wake signal is wired", async (
   assert.ok(calls >= 2, `expected >=2 store checks, got ${calls}`);
 });
 
-// --- B: timeout returns null (caller maps to status:timeout) ------------------
+// --- B: timeout returns null (caller returns a normal awaiting_reply result) --
 
 test("B: returns null on timeout when no reply ever lands", async () => {
   let calls = 0;
@@ -154,4 +157,48 @@ test("D: signal fired during checkStore is not lost (armed before check)", async
   });
   assert.equal(res?.msgId, "r-lostwake");
   assert.equal(calls, 2);
+});
+
+test("request wait stays below desktop limits and rejects invalid timers before sending", async () => {
+  const timing = requestTiming({timeout_ms:600_000,poll_interval_ms:600_000,grace_ms:90_000});
+  assert.deepEqual(timing,{requestedTimeoutMs:600_000,timeoutMs:45_000,pollMs:45_000,graceMs:45_000});
+  assert.equal(requestTiming({}).timeoutMs,45_000);
+  assert.equal(requestTiming({timeout_ms:100}).timeoutMs,100);
+  for (const invalid of [0,-1,NaN,Infinity,1.5,'600000']) assert.throws(()=>requestTiming({timeout_ms:invalid}),/timeout_ms/);
+  assert.throws(()=>requestTiming({poll_interval_ms:0}),/poll_interval_ms/);
+  assert.throws(()=>requestTiming({grace_ms:-1}),/grace_ms/);
+  let now = 0;
+  await waitForReply({checkStore:async()=>null,pollMs:timing.pollMs,graceMs:timing.graceMs,
+    deadline:timing.timeoutMs,now:()=>now,sleep:async ms=>{now+=ms;}});
+  assert.equal(now,45_000);
+});
+
+test("only an ACK is reported as delivered; retries and terminal DLQ remain distinct",()=>{
+  assert.deepEqual(requestDelivery('acked'),{status:'delivered',acknowledged:true,outboxStatus:'acked'});
+  for(const state of ['pending','sent','failed']) assert.deepEqual(requestDelivery(state),{status:'pending',acknowledged:false,outboxStatus:state});
+  assert.deepEqual(requestDelivery('dlq'),{status:'failed',acknowledged:false,outboxStatus:'dlq'});
+  assert.deepEqual(requestDelivery(undefined),{status:'unknown',acknowledged:false,outboxStatus:'unknown'});
+});
+
+const tick = ()=>new Promise(resolve=>setImmediate(resolve));
+test("optional tap connecting forever cannot block store polling or cleanup",async()=>{
+  let clock=0,tap;
+  const result=await waitForReply({checkStore:async()=>null,pollMs:100,graceMs:0,deadline:100,
+    now:()=>clock,sleep:async ms=>{clock+=ms;},
+    onSignal:wake=>{tap=createReplySignalTap(()=>new Promise(()=>{}),['msg.a'],wake);}});
+  tap.close();assert.equal(result,null);assert.equal(clock,100);assert.equal(tap.hasAttached(),false);
+});
+
+test("tap releases a subscription that finishes attaching after the request completes",async()=>{
+  let finishSubscribe,unsubscribed=0,delivered=0,callback;
+  const broker={subscribeRaw:async(subject,onEnvelope)=>{callback=onEnvelope;return new Promise(resolve=>{finishSubscribe=resolve;});}};
+  const tap=createReplySignalTap(async()=>broker,['msg.a'],()=>{delivered++;});
+  await tick();tap.close();finishSubscribe({unsubscribe:()=>{unsubscribed++;}});await tick();
+  callback({});assert.equal(unsubscribed,1);assert.equal(delivered,0);assert.equal(tap.hasAttached(),false);
+});
+
+test("tap detaches active subscriptions without waiting on optional cleanup",async()=>{
+  let unsubscribed=0;
+  const tap=createReplySignalTap(async()=>({subscribeRaw:async()=>({unsubscribe:()=>{unsubscribed++;return new Promise(()=>{});}})}),['msg.a'],()=>{});
+  await tick();assert.equal(tap.hasAttached(),true);tap.close();tap.close();assert.equal(unsubscribed,1);
 });

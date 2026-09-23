@@ -334,12 +334,17 @@ to confirm the other participant is listed. The shared writer binds an absolute 
 the selected profile; it preserves unrelated settings and saves a private backup.
 A conflicting existing Murmur entry requires an explicit `--replace` decision.
 
+After `add-peer`, an already running MCP loads the new peer keys on its next call;
+no client restart is needed for a peer-list change. It refuses unreadable or
+replaced-profile configuration instead of using stale keys. Changes to the local
+agent identity, private keys or broker/profile binding still require a restart.
+
 Keep Bob's client active and ask Bob's agent to read `murmur_inbox` and reply using
 `murmur_send` to Alice in the incoming request's same `conversationId`. From
 **Alice's** client, ask her agent to make this request (Bob would target `alice`):
 
 ```text
-murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 300000)
+murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 45000)
 ```
 
 Only a returned answer completes the two-person exchange. Automatic AI wake is
@@ -408,18 +413,26 @@ sequenceDiagram
 
 The biggest pain point with agent-to-agent messaging is the **polling gap** — after sending a message, agents forget to check for replies and ask the human to relay the response.
 
-`murmur_request` solves this. It sends a message and **automatically polls for the reply**, blocking until a response arrives or timeout is reached:
+`murmur_request` sends a message and polls the local store for a reply for up to
+45 seconds. Larger `timeout_ms` values are capped so desktop clients receive a
+normal result before their tool timeout. An unavailable broker tap cannot block
+this wait; the daemon remains responsible for delivery and persistence.
 
 ```
 Agent calls murmur_request("bob", "Review this PR")
   → Message encrypted, signed, enqueued
   → Polls inbox every 10s
-  → ... 45 seconds later ...
+  → ... 10 seconds later ...
   → Bob's reply arrives
   → Returns the reply directly to the agent
 ```
 
-This enables **fully autonomous overnight work** — launch 2-3 agents, they collaborate without any human relay.
+If the peer needs longer, the result is `status: "awaiting_reply"`, with
+`conversationId`, the effective `timeout_ms`, `requested_timeout_ms`, and
+`delivery: { status, acknowledged, outboxStatus }`. Only `acked` is reported as
+delivered. Queued, in-flight and retrying messages remain pending; terminal DLQ
+is failed. Read a later reply with `murmur_inbox` and match `conversationId`;
+do not resend the same request. Delivery and automatic AI wake are separate.
 
 ---
 

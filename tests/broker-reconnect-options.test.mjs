@@ -27,6 +27,7 @@ test("buildNatsConnectionOptions allows bounded operator overrides", () => {
     pingInterval: 30000,
     maxPingOut: 3,
     waitOnFirstConnect: false,
+    connectTimeoutMs: 2000,
   });
 
   assert.equal(options.maxReconnectAttempts, 10);
@@ -35,4 +36,5 @@ test("buildNatsConnectionOptions allows bounded operator overrides", () => {
   assert.equal(options.pingInterval, 30000);
   assert.equal(options.maxPingOut, 3);
   assert.equal(options.waitOnFirstConnect, false);
+  assert.equal(options.timeout, 2000);
 });
