@@ -11,7 +11,8 @@ const requiredKeys = [
   ["wake.delivery.pendingUndelivered", "number"],
 ] as const;
 const counterPaths = ["inbox.unread", "inbox.total", "outbox.queue.pending", "outbox.queue.inflight",
-  "outbox.queue.delivered", "outbox.queue.failed", "outbox.queue.dlq", "wake.delivery.pendingUndelivered", "service.restartsLastHour"];
+  "outbox.queue.delivered", "outbox.queue.failed", "outbox.queue.dlq", "wake.delivery.pendingUndelivered", "service.restartsLastHour",
+  "outbox.attention.total", "outbox.attention.pending", "outbox.attention.dismissed"];
 function lookup(input: unknown, path: string): { present: boolean; value?: unknown } {
   let value = input;
   for (const key of path.split(".")) {
@@ -37,7 +38,7 @@ function schemaFailure(input: unknown): string | null {
   return null;
 }
 
-/** Frozen 44b882d packet-one policy. The caller supplies the clock; fixtures own expectations. */
+/** Shared policy, including 2.11 dead-letter acknowledgement and effective pause. */
 export function statusVerdict(input: unknown, now = Date.now()): StatusVerdict {
   const s = record(input) ? input : {};
   const missing: string[] = [];
@@ -64,9 +65,11 @@ export function statusVerdict(input: unknown, now = Date.now()): StatusVerdict {
   const queue = s.outbox?.queue ?? {}, wake = s.wake ?? {};
   const failed = need("outbox.queue.failed", queue.failed);
   const dlq = need("outbox.queue.dlq", queue.dlq);
-  if ((failed ?? 0) > 0 || (dlq ?? 0) > 0) return out("red", "outbox.undelivered");
+  if ((failed ?? 0) > 0) return out("red", "outbox.undelivered");
   if (typeof wake.faults?.lastFault === "string" && wake.faults.lastFault) return out("red", "wake.fault");
-  if ((need("wake.delivery.pendingUndelivered", wake.delivery?.pendingUndelivered) ?? 0) > 0) return out("red", "wake.pending");
+  const pendingWake = need("wake.delivery.pendingUndelivered", wake.delivery?.pendingUndelivered) ?? 0;
+  const paused = wake.config?.enabled === false && wake.effective?.enabled === false && !wake.effective?.unknownReason;
+  if (pendingWake > 0 && !paused) return out("red", "wake.pending");
   for (const [name, reason] of [
     ["outbox.faults", s.outbox?.faults?.unknownReason],
     ["wake.faults", wake.faults?.unknownReason],
@@ -92,6 +95,12 @@ export function statusVerdict(input: unknown, now = Date.now()): StatusVerdict {
   // Missing required fields never constitute measured health, even in malformed input.
   if (typeof wake.config?.enabled !== "boolean" && !wake.config?.unknownReason) note("wake.config.enabled");
   if (typeof wake.effective?.enabled !== "boolean" && !wake.effective?.unknownReason) note("wake.effective.enabled");
+  const attention = s.outbox?.attention;
+  const pendingDlq = attention?.schema === 'murmur.outbox-attention/1' && attention.unknownReason == null
+    && count(attention.total) && attention.total === dlq && count(attention.pending) && count(attention.dismissed)
+    && attention.pending + attention.dismissed === attention.total ? attention.pending : dlq;
+  if ((pendingDlq ?? 0) > 0) return out('yellow', 'outbox.dead-letter');
+  if (paused && pendingWake > 0) return out('yellow', 'wake.paused-pending');
   return missing.length ? out("grey", "unmeasured") : out("green", "ok");
 }
 

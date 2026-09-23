@@ -48,6 +48,7 @@ func validateStatusObject(_ data: Data) throws -> [String: Any] {
 
     let counters = ["inbox.unread", "inbox.total", "outbox.queue.pending", "outbox.queue.inflight",
                     "outbox.queue.delivered", "outbox.queue.failed", "outbox.queue.dlq",
+                    "outbox.attention.total", "outbox.attention.pending", "outbox.attention.dismissed",
                     "wake.delivery.pendingUndelivered", "service.restartsLastHour",
                     // Additional measurements already decoded by this native consumer.
                     "wake.delivery.storedOnly", "service.restartCount", "service.restartWindowMs"]

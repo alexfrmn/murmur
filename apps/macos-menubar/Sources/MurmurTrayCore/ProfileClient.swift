@@ -174,6 +174,22 @@ public struct ProfileClient: Sendable {
         return try ControlReceipt.decode(result.data, for: action)
     }
 
+    public func setOutboxDismissed(_ item: OutboxAttentionItem, dismissed: Bool, expectedAgent: String) throws {
+        guard item.canSelect else { throw ProfileError.invalidResponse }
+        let fresh = try readStatus()
+        guard try verifiedAgent(in: fresh) == expectedAgent else { throw ProfileError.identityChanged }
+        guard fresh.outbox.attention?.verifiedPending(total: fresh.outbox.queue.dlq) != nil,
+              fresh.outbox.attention?.items?.contains(where: { $0.msgId == item.msgId && $0.token == item.token }) == true else {
+            throw ProfileError.stale
+        }
+        let result = try probe(timeout: actionTimeout).invoke(["outbox", dismissed ? "dismiss" : "restore",
+            "--msg-id", item.msgId, "--expected-state", item.token, "--expected-agent", expectedAgent])
+        guard let receipt = try? JSONDecoder().decode(OutboxActionReceipt.self, from: result.data),
+              receipt.schema == "murmur.outbox-action/1", receipt.agentId == expectedAgent,
+              receipt.msgId == item.msgId, receipt.token == item.token, receipt.dismissed == dismissed,
+              receipt.transportState == "dlq", receipt.historyPreserved, !receipt.resent else { throw ProfileError.invalidResponse }
+    }
+
 
     /// Explicit first-run action. Recheck identity between installation and start.
     public func installAndStart(expectedAgent: String) throws -> ControlReceipt {

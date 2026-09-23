@@ -73,6 +73,9 @@ var counterPaths = []string{
 	"outbox.queue.delivered",
 	"outbox.queue.failed",
 	"outbox.queue.dlq",
+	"outbox.attention.total",
+	"outbox.attention.pending",
+	"outbox.attention.dismissed",
 	"wake.delivery.pendingUndelivered",
 	"service.restartsLastHour",
 }

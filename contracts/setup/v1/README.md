@@ -2,6 +2,14 @@
 
 Frozen consumer revision: `44b882d48f0139592dea9bd65d89b8a3f11c23cc`.
 
+2.11 policy extension: terminal DLQ records warn (`outbox.dead-letter`) while
+active send failures still fail. Reversible local acknowledgements affect warning
+attention only; an inconsistent/missing summary falls back to the actual DLQ count.
+A backlog with both configured and observed wake paused warns
+(`wake.paused-pending`); unapplied pause and recorded wake faults still fail.
+Nine additive fixtures cover this extension across TypeScript, Swift and Go.
+The original fixtures and required wire leaves below are preserved.
+
 All platforms read this directory directly. Do not keep private fixture copies or
 expected verdict tables. Status files are JSON status responses with reserved test
 metadata: `$expect` contains `level`, `unread`, `code`, and optional `missing` / `missingWhy`.
