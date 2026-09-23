@@ -6,9 +6,10 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 async function powershell(file, script) {
+  // Match the product's hang guard without rejecting cold PowerShell startup.
   const { stdout } = await exec(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop';\n$env:PSModulePath=[System.IO.Path]::Combine($PSHOME, 'Modules');\n" + script, 'utf16le').toString('base64')],
-    { env: { ...process.env, MURMUR_TEST_ACL_FILE: file }, windowsHide: true, timeout: 10000 });
+    { env: { ...process.env, MURMUR_TEST_ACL_FILE: file }, windowsHide: true, timeout: 60_000 });
   return stdout.trim();
 }
 

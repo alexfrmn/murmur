@@ -68,10 +68,12 @@ async function prepareFile(file: string, handle: FileHandle, accessSource?: stri
     throw new Error('private-file.access-source-invalid');
   }
   try {
+    // Cold Windows PowerShell 5.1 startup (including antivirus checks) can exceed
+    // ten seconds. This ceiling bounds a hung ACL command, not its normal path.
     await exec(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(protect, 'utf16le').toString('base64')],
       { env: { ...process.env, MURMUR_SETUP_PRIVATE_FILE: file, MURMUR_SETUP_ACCESS_SOURCE: sourceBefore ? accessSource : '' },
-        windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 });
+        windowsHide: true, timeout: 60_000, maxBuffer: 64 * 1024 });
   } catch (error) {
     // Keep paths, command text and arbitrary PowerShell stderr out of diagnostics.
     const failure = error as { killed?: boolean; code?: string | number; stderr?: string };
