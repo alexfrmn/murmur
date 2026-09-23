@@ -337,12 +337,10 @@ try {
     $NodePath=(Get-Item -LiteralPath $NodePath).FullName
     if(-not $DataDir){
         if($Check){throw '-Check requires an explicit -DataDir; no dialog is opened.'}
-        Add-Type -AssemblyName System.Windows.Forms
-        $picker=New-Object System.Windows.Forms.FolderBrowserDialog
-        $picker.Description='Select the existing Murmur profile created by CLI init/join.'
-        $picker.ShowNewFolderButton=$false
-        if($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){exit 0}
-        $DataDir=$picker.SelectedPath
+        # No profile named: open the tray itself. It finds the last or default profile, or says Murmur
+        # is not set up and offers to connect to a colleague. A folder dialog helps nobody here.
+        if(@(Get-ExactTrayProcesses).Count -eq 0){Start-Process -FilePath $tray -WorkingDirectory $PSScriptRoot}
+        exit 0
     }
     if(-not [IO.Path]::IsPathRooted($DataDir) -or -not(Test-Path -LiteralPath $DataDir -PathType Container)){throw 'Select an existing absolute profile folder. Initialize it with the CLI first.'}
     $DataDir=(Get-Item -LiteralPath $DataDir).FullName

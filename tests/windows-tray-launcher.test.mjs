@@ -435,3 +435,37 @@ test('Windows launcher does not overwrite locale while rejecting a profile', { s
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('Without a profile named, the launcher opens the tray instead of a folder dialog', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Murmur no profile named '));
+  const tray = path.join(dir, 'murmur-tray.exe');
+  const stopTray = () => { for (const found of exactTrayProcesses(tray)) { try { process.kill(found.ProcessId); } catch {} } };
+  try {
+    await cp(path.join(root, 'apps/windows-tray/packaging'), dir, { recursive: true });
+    await copyNativeBundleFiles(dir);
+    await mkdir(path.join(dir, 'runtime/packages/setup/bin'), { recursive: true });
+    await writeFile(path.join(dir, 'runtime/packages/setup/bin/murmur.mjs'), '// not reached');
+    const env = { ...process.env, LOCALAPPDATA: path.join(dir, 'local'), MURMUR_UPDATE_CHECK: '0' };
+    // A dialog would block until the timeout; the launcher must return at once and leave one tray running.
+    const launched = spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+      path.join(dir, 'Open-Murmur.ps1'), '-NodePath', process.execPath], { timeout: 20_000, encoding: 'utf8', windowsHide: true, env });
+    assert.equal(launched.error, undefined, String(launched.error));
+    assert.equal(launched.status, 0, launched.stdout + launched.stderr);
+    for (let i = 0; i < 50 && exactTrayProcesses(tray).length === 0; i++) await new Promise(r => setTimeout(r, 100));
+    assert.equal(exactTrayProcesses(tray).length, 1);
+    // A second open does not start another tray.
+    assert.equal(spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+      path.join(dir, 'Open-Murmur.ps1'), '-NodePath', process.execPath], { timeout: 20_000, encoding: 'utf8', windowsHide: true, env }).status, 0);
+    assert.equal(exactTrayProcesses(tray).length, 1);
+    stopTray();
+    // The .cmd without arguments starts the tray itself, without PowerShell.
+    const cmd = spawnSync(path.join(process.env.SystemRoot, 'System32', 'cmd.exe'), ['/d', '/c', path.join(dir, 'Open-Murmur.cmd')], { timeout: 20_000, encoding: 'utf8', windowsHide: true, env });
+    assert.equal(cmd.status, 0, cmd.stdout + cmd.stderr);
+    for (let i = 0; i < 50 && exactTrayProcesses(tray).length === 0; i++) await new Promise(r => setTimeout(r, 100));
+    assert.equal(exactTrayProcesses(tray).length, 1);
+  } finally {
+    stopTray();
+    await new Promise(r => setTimeout(r, 300));
+    await rm(dir, { recursive: true, force: true });
+  }
+});

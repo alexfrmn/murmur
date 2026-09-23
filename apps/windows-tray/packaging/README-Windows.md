@@ -9,7 +9,9 @@ The runtime is the prebuilt portable engine; Windows adds its matching native
 needed on the recipient's machine. Unsigned binaries may trigger Windows warnings.
 
 Initialize/join and install the service through the CLI first, using one explicit
-profile. Double-click `Open-Murmur.cmd`, then select that existing profile folder.
+profile. Double-click `Open-Murmur.cmd` or `murmur-tray.exe`: the tray finds the profile the launcher
+last opened or the default one, and says "Murmur is not set up yet" when there is none.
+An explicit `-DataDir` still selects another existing profile.
 The launcher checks the local runtime and actual tray-to-CLI identity before
 opening the menu. It neither creates a profile nor writes client config or login
 startup. A custom service name must be supplied for the initial selection:
