@@ -16,13 +16,19 @@ profile. In an npm installation replace the source entry with `murmur`.
 
 On Windows, setup protects new identity state, invitations, client configuration
 and backups with a non-inheriting file ACL before writing secrets.
-Only the creating account, SYSTEM (used by the native service) and local
-Administrators receive access. This uses built-in Windows PowerShell without
-changing the parent directory ACL; if protection cannot be applied and verified,
+Only the creating account and SYSTEM (used by the native service) receive access.
+File protection uses built-in Windows PowerShell without changing the parent
+directory ACL; if protection cannot be applied and verified,
 the write fails. Replacing an existing state or client configuration file preserves
 its Windows access policy, including intentional service or sandbox readers; it
 does not audit or tighten that existing policy. Its new backup is private. Preview
 and unchanged client entries do not change permissions.
+
+When `init` or `join` creates the profile directory, it first applies the same
+owner-and-SYSTEM policy with the system `icacls.exe`. An existing profile directory
+keeps its ACL. If protecting a newly created directory fails, setup removes the
+empty directories it just created before returning the error, so a retry cannot
+mistake an unprotected directory for an existing private profile.
 
 The older `scripts/murmur-invite.mjs`, `scripts/murmur-join.mjs` and
 `scripts/murmur-add-peer.mjs` entrypoints are disabled compatibility notices.
