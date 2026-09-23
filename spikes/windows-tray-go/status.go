@@ -58,6 +58,8 @@ func presentationMessageKey(code string, missing []string) string {
 		return "status.schema"
 	case "wake.fault":
 		return "status.wakeFault"
+	case "profile.not-configured":
+		return "status.notConfigured"
 	case "peers.unpaired":
 		return "status.unpaired"
 	case "unmeasured":
@@ -129,6 +131,13 @@ type Status struct {
 	// база ответила, а лог прочитать не удалось, «вся секция неизвестна» было бы
 	// неправдой, и в серое ушло бы то, что на самом деле измерено.
 	Outbox struct {
+		Attention *struct {
+			Schema        string  `json:"schema"`
+			Total         *int    `json:"total"`
+			Pending       *int    `json:"pending"`
+			Dismissed     *int    `json:"dismissed"`
+			UnknownReason *string `json:"unknownReason"`
+		} `json:"attention"`
 		Queue struct {
 			Pending         *int    `json:"pending"`
 			Inflight        *int    `json:"inflight"`
@@ -312,13 +321,15 @@ func resolve(s *Status, err error) Verdict {
 
 	failed, okFailed := need("outbox.queue.failed", s.Outbox.Queue.Failed)
 	dlq, okDLQ := need("outbox.queue.dlq", s.Outbox.Queue.DLQ)
-	if (okFailed && failed > 0) || (okDLQ && dlq > 0) {
+	if okFailed && failed > 0 {
 		return out(LevelRed, "outbox.undelivered", tr("status.undelivered", num(s.Outbox.Queue.Failed), num(s.Outbox.Queue.DLQ)))
 	}
 	if fault := str(s.Wake.Faults.LastFault); fault != "" {
 		return out(LevelRed, "wake.fault", tr(presentationMessageKey("wake.fault", nil)))
 	}
-	if pending, okPending := need("wake.delivery.pendingUndelivered", s.Wake.Delivery.PendingUndelivered); okPending && pending > 0 {
+	pending, okPending := need("wake.delivery.pendingUndelivered", s.Wake.Delivery.PendingUndelivered)
+	paused := s.Wake.Config.Enabled != nil && !*s.Wake.Config.Enabled && s.Wake.Effective.Enabled != nil && !*s.Wake.Effective.Enabled && str(s.Wake.Effective.UnknownReason) == ""
+	if okPending && pending > 0 && !paused {
 		return out(LevelRed, "wake.pending", tr("status.pendingWake", messageCount(pending)))
 	}
 	// Журнал отказов — отдельный источник от очереди: null в поле последней ошибки
@@ -402,6 +413,18 @@ func resolve(s *Status, err error) Verdict {
 		return out(LevelYellow, "wake.mode-mismatch", reason)
 	}
 
+	pendingDLQ := dlq
+	if a := s.Outbox.Attention; a != nil && a.Schema == "murmur.outbox-attention/1" && a.UnknownReason == nil &&
+		a.Total != nil && a.Pending != nil && a.Dismissed != nil && okDLQ && *a.Total == dlq &&
+		*a.Pending >= 0 && *a.Pending <= *a.Total && *a.Dismissed == *a.Total-*a.Pending {
+		pendingDLQ = *a.Pending
+	}
+	if okDLQ && pendingDLQ > 0 {
+		return out(LevelYellow, "outbox.dead-letter", tr("status.deadLetter"))
+	}
+	if paused && okPending && pending > 0 {
+		return out(LevelYellow, "wake.paused-pending", tr("status.pausedPending", messageCount(pending)))
+	}
 	if len(missing) > 0 {
 		return out(LevelGrey, "unmeasured", tr(presentationMessageKey("unmeasured", missing)))
 	}

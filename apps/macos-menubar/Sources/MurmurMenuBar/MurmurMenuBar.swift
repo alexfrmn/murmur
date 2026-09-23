@@ -680,6 +680,25 @@ final class TrayModel: ObservableObject {
         value.map { $0 ? L10n.text("agent delivery enabled") : L10n.text("agent delivery paused") } ?? L10n.text("not measured")
     }
 
+    func setOutboxDismissed(_ item: OutboxAttentionItem, dismissed: Bool) {
+        guard canControl, let client, let agentID else { return }
+        operating = true; operationError = nil; operationMessage = nil
+        let selected = selectionID
+        Task {
+            let result = await Task.detached { () -> Result<Void, Error> in
+                Result { try client.setOutboxDismissed(item, dismissed: dismissed, expectedAgent: agentID) }
+            }.value
+            guard selected == selectionID else { return }
+            switch result {
+            case .success:
+                operationMessage = L10n.text(dismissed ? "Warning dismissed. Message history was kept; nothing was resent." : "Warning restored. Message history is unchanged.")
+            case .failure(let error): operationError = error.localizedDescription
+            }
+            operating = false
+            refreshStatus()
+        }
+    }
+
     func openLogs() {
         guard canControl, let client, let agentID else { return }
         operating = true; operationError = nil; operationMessage = nil

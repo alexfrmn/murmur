@@ -414,3 +414,22 @@
 "Other participant" = "Другой участник";
 "Choose a participant" = "Выберите участника";
 "Prepare test request" = "Подготовить тестовый запрос";
+
+"Undelivered messages need your attention" = "Есть недоставленные сообщения";
+"Agent delivery is paused; %@ messages are waiting" = "Пробуждение на паузе; ожидают сообщений: %@";
+"The connection closed while sending" = "Соединение закрылось во время отправки";
+"No delivery receipt was received" = "Подтверждение доставки не получено";
+"Delivery could not be completed" = "Не удалось завершить доставку";
+"Time not recorded" = "Время не записано";
+"Undelivered messages: %@" = "Недоставленных сообщений: %@";
+"These messages were not delivered. Dismissing a warning keeps their history and does not resend them." = "Эти сообщения не доставлены. Можно убрать предупреждение: история сохранится, повторной отправки не будет.";
+"To %@ · %@" = "Кому: %@ · %@";
+"Unknown participant" = "Неизвестный участник";
+"Warning dismissed; delivery is still unconfirmed" = "Предупреждение убрано; доставка не подтверждена";
+"Restore warning" = "Вернуть предупреждение";
+"Dismiss warning" = "Убрать предупреждение";
+"Show more messages" = "Показать ещё сообщения";
+"Message details are unavailable. Refresh status; no warning has been dismissed." = "Сведения о сообщениях недоступны. Обновите статус; предупреждения не были убраны.";
+"Resume saves the setting. If status says a service restart is required, stop and start this profile's service in Settings." = "Кнопка сохранит настройку. Если потребуется перезапуск службы, остановите и запустите её в настройках этого профиля.";
+"Warning dismissed. Message history was kept; nothing was resent." = "Предупреждение убрано. История сохранена, повторной отправки не было.";
+"Warning restored. Message history is unchanged." = "Предупреждение возвращено. История сообщений не менялась.";

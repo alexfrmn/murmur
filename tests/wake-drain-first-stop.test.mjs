@@ -1,0 +1,70 @@
+// The installed Claude Code hook is a Stop hook only (no SessionStart --session). Its very
+// first run in a new session has no cursor: it must seed the baseline AND keep polling, or the
+// first idle wait of every session is deaf (letter 048, reproduced on the server).
+
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+
+const script = path.resolve("scripts/wake-drain-claude.mjs");
+
+function store() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-wake-first- пробел Мой-"));
+  const dbPath = path.join(dir, "murmur.db");
+  const db = new DatabaseSync(dbPath);
+  db.exec("CREATE TABLE local_messages (msg_id TEXT PRIMARY KEY, created_at TEXT, sender TEXT, conversation_id TEXT, direction TEXT, text TEXT)");
+  const insert = (msgId, sender = "agent-peer") => db.prepare(
+    "INSERT INTO local_messages VALUES (?, '2026-09-24T00:00:00.000Z', ?, 'c-1', 'inbound', 'hello')",
+  ).run(msgId, sender);
+  return { dir, dbPath, db, insert };
+}
+
+function poll(s, args = []) {
+  const child = spawn(process.execPath, ["--no-warnings", script, "--db", s.dbPath, "--max-seconds", "20", ...args], {
+    env: {
+      ...process.env,
+      MURMUR_DB: "",
+      MURMUR_WAKE_POLL_MS: "100",
+      MURMUR_WAKE_CURSOR: path.join(s.dir, "cursor"),
+      MURMUR_WAKE_LOCK: path.join(s.dir, "lock"),
+      MURMUR_WAKE_ANCHOR: path.join(s.dir, "anchor"),
+    },
+  });
+  let stderr = "";
+  child.stderr.on("data", chunk => { stderr += chunk; });
+  const exited = new Promise(done => child.on("exit", code => done({ code, stderr })));
+  return { child, exited };
+}
+
+test("the first Stop of a new session seeds the cursor and keeps polling", async t => {
+  const s = store();
+  t.after(() => { s.db.close(); fs.rmSync(s.dir, { recursive: true, force: true }); });
+  s.insert("history-1", "agent-old");
+  const run = poll(s);
+  t.after(() => run.child.kill());
+  // Seeded at the tip without reporting history, and still running.
+  for (let i = 0; i < 50 && !fs.existsSync(path.join(s.dir, "cursor")); i++) await new Promise(r => setTimeout(r, 100));
+  assert.equal(fs.readFileSync(path.join(s.dir, "cursor"), "utf8").trim(), "1");
+  const early = await Promise.race([run.exited, new Promise(r => setTimeout(() => r(null), 600))]);
+  assert.equal(early, null, `the first run must not exit after seeding: ${JSON.stringify(early)}`);
+
+  s.insert("new-1", "agent-mac-fresh");
+  const result = await Promise.race([run.exited, new Promise(r => setTimeout(() => r({ timeout: true }), 10000))]);
+  assert.equal(result.code, 2, `the first idle wait must wake: ${JSON.stringify(result)}`);
+  assert.match(result.stderr, /Murmur wake: 1 new inbound message\(s\):\n {2}rowid=2 \[agent-mac-fresh\]/);
+  assert.doesNotMatch(result.stderr, /agent-old/, "history before the session is not replayed");
+});
+
+test("--once on the first run still only seeds and exits 0", async t => {
+  const s = store();
+  t.after(() => { s.db.close(); fs.rmSync(s.dir, { recursive: true, force: true }); });
+  s.insert("history-1");
+  const result = await poll(s, ["--once"]).exited;
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.equal(fs.readFileSync(path.join(s.dir, "cursor"), "utf8").trim(), "1");
+});

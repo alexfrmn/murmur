@@ -414,3 +414,22 @@
 "Other participant" = "Other participant";
 "Choose a participant" = "Choose a participant";
 "Prepare test request" = "Prepare test request";
+
+"Undelivered messages need your attention" = "Undelivered messages need your attention";
+"Agent delivery is paused; %@ messages are waiting" = "Agent delivery is paused; %@ messages are waiting";
+"The connection closed while sending" = "The connection closed while sending";
+"No delivery receipt was received" = "No delivery receipt was received";
+"Delivery could not be completed" = "Delivery could not be completed";
+"Time not recorded" = "Time not recorded";
+"Undelivered messages: %@" = "Undelivered messages: %@";
+"These messages were not delivered. Dismissing a warning keeps their history and does not resend them." = "These messages were not delivered. Dismissing a warning keeps their history and does not resend them.";
+"To %@ · %@" = "To %@ · %@";
+"Unknown participant" = "Unknown participant";
+"Warning dismissed; delivery is still unconfirmed" = "Warning dismissed; delivery is still unconfirmed";
+"Restore warning" = "Restore warning";
+"Dismiss warning" = "Dismiss warning";
+"Show more messages" = "Show more messages";
+"Message details are unavailable. Refresh status; no warning has been dismissed." = "Message details are unavailable. Refresh status; no warning has been dismissed.";
+"Resume saves the setting. If status says a service restart is required, stop and start this profile's service in Settings." = "Resume saves the setting. If status says a service restart is required, stop and start this profile's service in Settings.";
+"Warning dismissed. Message history was kept; nothing was resent." = "Warning dismissed. Message history was kept; nothing was resent.";
+"Warning restored. Message history is unchanged." = "Warning restored. Message history is unchanged.";

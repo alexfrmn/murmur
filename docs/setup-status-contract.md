@@ -53,6 +53,7 @@ reason. Empty collections and zero mean a successful measurement of emptiness.
 | `outbox.queue.pending`, `inflight`, `delivered`, `failed`, `dlq` | integer or null | SQLite: pending/sent/acked/failed/dlq respectively |
 | `outbox.queue.oldestPendingAt` | RFC3339 or null | pending/sent/failed rows in same transaction |
 | `outbox.faults.lastError`, `lastErrorAt` | stable reason/RFC3339 or null | nonempty outbox last_error and updated_at |
+| `outbox.attention` | optional `murmur.outbox-attention/1` object or unknown reason | terminal DLQ metadata plus private local acknowledgements; never message bodies |
 | `deliveries` | array or null, newest 20 | durable inbox/outbox rows, not broker publish success |
 | `wake.config.enabled`, `mode`, `responder` | boolean/consumer enums or null | validated config; custom hook identity is unknown unless declared |
 | `wake.effective.enabled`, `needsRestart`, `observedAt` | boolean/boolean/RFC3339 or null | fresh PID/store-bound daemon observation versus config |
@@ -72,6 +73,31 @@ A missing runtime observation never erases measured queue counters. Additional
 Null historical errors assert no recorded failure only when the corresponding
 source was measured. Runtime-only monitor crashes are a separate observation
 source; durable records alone must not be described as complete process history.
+
+### Terminal send warnings (2.11)
+
+An active `outbox.queue.failed > 0` remains red. A terminal DLQ record is a yellow
+`outbox.dead-letter` warning, after current service, wake-fault, broker and peer
+failures have been considered. This deliberately extends the v1 consumer policy
+in TypeScript, Swift and Go together; original fixture bytes remain unchanged.
+It does not turn an undelivered message into a delivered one.
+
+The Mac profile view shows recipient, original send time and a safe explanation
+for each terminal failure. **Dismiss warning** acknowledges exactly that message
+and observed failure state; **Restore warning** reverses it. All records remain
+in the outbox, and no action sends, retries, deletes or marks them delivered.
+A later change to that record invalidates the acknowledgement and warns again.
+Metadata is bounded to 200 failures; larger or unreadable sets fail closed.
+The view displays 50 at a time, with **Show more messages** to reach older records.
+
+`murmur outbox list --json --data-dir ABSOLUTE` reads only metadata. Mutations are
+`outbox dismiss|restore --msg-id ID --expected-state TOKEN --expected-agent AGENT`
+with the same profile selection. The token comes from `outbox list` and binds the
+exact observed state. A fresh identity/state check precedes the action. Only
+private `outbox-attention.json` changes, under the setup lock and the existing
+private-file/ACL writer; the database is opened read-only. An absent, malformed,
+foreign or inconsistent acknowledgement summary cannot hide a DLQ warning.
+Queue totals, delivered totals, historical errors and the inbox cursor stay intact.
 
 ### Pair proof
 
@@ -97,6 +123,12 @@ it must not claim the daemon paused merely because a JSON file was changed.
 The separate stored-only count describes a mode, not failure/success. A paused
 queue preserves pending messages and shows that mode explicitly. Doctor always
 names missing responders or paused wake, without claiming a successful wake test.
+When configured and observed wake are both paused, a backlog alone is yellow
+`wake.paused-pending`, with its waiting count and an explicit resume action.
+A recorded wake fault stays red, and a pending queue is still red when pause has
+not been observed. The Mac resume button saves the setting; it explains the
+separate service restart when the daemon has not applied it. Merely opening the
+view never resumes wake or replays a backlog.
 
 ## Source checkout CLI
 

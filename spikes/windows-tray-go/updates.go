@@ -200,3 +200,29 @@ func setUpdatesEnabled(ctx context.Context, enabled bool) error {
 	}
 	return nil
 }
+
+// updateToggleView decides which single preference action the menu shows and whether it can be
+// clicked. Only a measured preference is offered: with no reply from the CLI, or with the
+// environment opt-out, neither Enable nor Disable is shown ("Check for updates now" stays), and
+// the two opposite actions are never visible together (seen in 2.10). While a check runs the
+// applicable one stays visible but disabled.
+type toggleView struct{ showEnable, showDisable, clickable bool }
+
+func updateToggleView(s *updateSnapshot, busy, envOptOut bool) toggleView {
+	if envOptOut || s == nil {
+		return toggleView{}
+	}
+	return toggleView{showEnable: !s.Enabled, showDisable: s.Enabled, clickable: !busy}
+}
+
+// displayedVersion prefers the version the CLI reports and falls back to the version this
+// bundle was built as, so "unknown" appears only for a development build without a reply.
+func displayedVersion(s *updateSnapshot) string {
+	if s != nil && s.CurrentVersion != nil {
+		return *s.CurrentVersion
+	}
+	if releaseVersion != "" && releaseVersion != "development" {
+		return releaseVersion
+	}
+	return tr("updates.unknown")
+}

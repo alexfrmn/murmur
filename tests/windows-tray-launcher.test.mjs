@@ -41,7 +41,9 @@ async function copyNativeBundleFiles(dir) {
 }
 
 function runPowerShell(command) {
-  return spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+  // Windows PowerShell 5.1 writes stdout in the OEM code page; a localized Desktop such as
+  // "Рабочий стол" would come back garbled and name a shortcut path that does not exist.
+  return spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);${command}`], {
     encoding: 'utf8', timeout: 20_000, windowsHide: true,
   });
 }
@@ -99,14 +101,15 @@ async function waitForCommandTrace(tracePrefix, command) {
 function userShortcutPaths() {
   const result = runPowerShell(`ConvertTo-Json -Compress -InputObject @(
     [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::Programs),'Murmur.lnk'),
-    [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),'Murmur.lnk'))`);
+    [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),'Murmur.lnk'),
+    [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::Startup),'Murmur.lnk'))`);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   return parsePowerShellJson(result.stdout);
 }
 
 function inspectShortcut(shortcutPath) {
   const result = runPowerShell(`$shell=New-Object -ComObject WScript.Shell;$link=$shell.CreateShortcut(${psLiteral(shortcutPath)});` +
-    `[ordered]@{target=$link.TargetPath;arguments=$link.Arguments;workingDirectory=$link.WorkingDirectory;description=$link.Description;icon=$link.IconLocation}|ConvertTo-Json -Compress`);
+    `[ordered]@{target=$link.TargetPath;arguments=$link.Arguments;workingDirectory=$link.WorkingDirectory;description=$link.Description;icon=$link.IconLocation;windowStyle=$link.WindowStyle}|ConvertTo-Json -Compress`);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   return parsePowerShellJson(result.stdout);
 }
@@ -136,10 +139,10 @@ function waitForMainWindowTitle(processId, title) {
   return result.stdout.replace(/^\uFEFF/, '').trim();
 }
 
-function removeOwnedShortcuts(shortcutPaths, launcherPath) {
+function removeOwnedShortcuts(shortcutPaths, trayPath) {
   const command = `$shell=New-Object -ComObject WScript.Shell;foreach($path in @(${shortcutPaths.map(psLiteral).join(',')})){` +
     `if(Test-Path -LiteralPath $path -PathType Leaf){try{$link=$shell.CreateShortcut($path);` +
-    `if($link.Description -ceq 'Open Murmur controls (managed by Murmur)' -and $link.Arguments.Contains(${psLiteral(launcherPath)})){Remove-Item -LiteralPath $path -Force}}catch{}}}`;
+    `if($link.Description -ceq 'Open Murmur controls (managed by Murmur)' -and $link.TargetPath -ieq ${psLiteral(trayPath)}){Remove-Item -LiteralPath $path -Force}}catch{}}}`;
   const result = runPowerShell(command);
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
@@ -275,14 +278,14 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
 
         for (const shortcut of shortcutPaths) {
           const link = inspectShortcut(shortcut);
-          assert.equal(link.target.toLowerCase(), systemPowerShell.toLowerCase());
+          // The shortcut starts the tray itself, without a PowerShell window or arguments; the tray
+          // finds the profile and service from the binding the launcher just recorded.
+          assert.equal(link.target.toLowerCase(), path.join(canonicalDir, 'murmur-tray.exe').toLowerCase());
           assert.equal(link.workingDirectory.toLowerCase(), canonicalDir.toLowerCase());
           assert.equal(link.description, 'Open Murmur controls (managed by Murmur)');
           assert.equal(link.icon.replace(/,\s*0$/, ',0').toLowerCase(), `${path.join(canonicalDir, 'murmur.ico')},0`.toLowerCase());
-          assert.match(link.arguments, /"-NoProfile"/);
-          assert.ok(link.arguments.includes(`"${launcher}"`), link.arguments);
-          assert.ok(link.arguments.includes(`"${canonicalProfile}"`), link.arguments);
-          assert.ok(link.arguments.includes('"ChosenService"'), link.arguments);
+          assert.equal(link.arguments, '');
+          assert.equal(link.windowStyle, 1, shortcut);
         }
 
         assert.equal(waitForMainWindowTitle(state.pid, 'Murmur'), 'Murmur');
@@ -349,7 +352,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         }
       }
       if (foreignShortcut) await rm(foreignShortcut, { force: true });
-      if (shortcutPaths.length) removeOwnedShortcuts(shortcutPaths, launcherPathForCleanup);
+      if (shortcutPaths.length) removeOwnedShortcuts(shortcutPaths, path.join(path.dirname(launcherPathForCleanup), 'murmur-tray.exe'));
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -432,6 +435,40 @@ test('Windows launcher does not overwrite locale while rejecting a profile', { s
     const preference = JSON.parse(await readFile(preferencePath, 'utf8'));
     assert.deepEqual(preference, { schema: 'murmur.tray-preferences/1', locale: 'ru' });
   } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Without a profile named, the launcher opens the tray instead of a folder dialog', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Murmur no profile named '));
+  const tray = path.join(dir, 'murmur-tray.exe');
+  const stopTray = () => { for (const found of exactTrayProcesses(tray)) { try { process.kill(found.ProcessId); } catch {} } };
+  try {
+    await cp(path.join(root, 'apps/windows-tray/packaging'), dir, { recursive: true });
+    await copyNativeBundleFiles(dir);
+    await mkdir(path.join(dir, 'runtime/packages/setup/bin'), { recursive: true });
+    await writeFile(path.join(dir, 'runtime/packages/setup/bin/murmur.mjs'), '// not reached');
+    const env = { ...process.env, LOCALAPPDATA: path.join(dir, 'local'), MURMUR_UPDATE_CHECK: '0' };
+    // A dialog would block until the timeout; the launcher must return at once and leave one tray running.
+    const launched = spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+      path.join(dir, 'Open-Murmur.ps1'), '-NodePath', process.execPath], { timeout: 20_000, encoding: 'utf8', windowsHide: true, env });
+    assert.equal(launched.error, undefined, String(launched.error));
+    assert.equal(launched.status, 0, launched.stdout + launched.stderr);
+    for (let i = 0; i < 50 && exactTrayProcesses(tray).length === 0; i++) await new Promise(r => setTimeout(r, 100));
+    assert.equal(exactTrayProcesses(tray).length, 1);
+    // A second open does not start another tray.
+    assert.equal(spawnSync(systemPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+      path.join(dir, 'Open-Murmur.ps1'), '-NodePath', process.execPath], { timeout: 20_000, encoding: 'utf8', windowsHide: true, env }).status, 0);
+    assert.equal(exactTrayProcesses(tray).length, 1);
+    stopTray();
+    // The .cmd without arguments starts the tray itself, without PowerShell.
+    const cmd = spawnSync(path.join(process.env.SystemRoot, 'System32', 'cmd.exe'), ['/d', '/c', path.join(dir, 'Open-Murmur.cmd')], { timeout: 20_000, encoding: 'utf8', windowsHide: true, env });
+    assert.equal(cmd.status, 0, cmd.stdout + cmd.stderr);
+    for (let i = 0; i < 50 && exactTrayProcesses(tray).length === 0; i++) await new Promise(r => setTimeout(r, 100));
+    assert.equal(exactTrayProcesses(tray).length, 1);
+  } finally {
+    stopTray();
+    await new Promise(r => setTimeout(r, 300));
     await rm(dir, { recursive: true, force: true });
   }
 });

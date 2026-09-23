@@ -116,7 +116,7 @@ private enum StatusReason {
     }
 }
 
-/// Frozen consumer contract 44b882d, packet one. Unknown measurements never imply success.
+/// Shared contract with 2.11 acknowledgement/pause policy. Unknown measurements never imply success.
 public struct StatusSnapshot: Decodable, Sendable {
     public struct Service: Decodable, Sendable {
         public enum State: String, Decodable, Sendable { case running, stopped, failed, unknown }
@@ -137,12 +137,14 @@ public struct StatusSnapshot: Decodable, Sendable {
         public struct Faults: Decodable, Sendable { public let lastError: String?, lastErrorAt: String?, unknownReason: String? }
         public let queue: Queue
         public let faults: Faults
-        private enum CodingKeys: String, CodingKey { case queue, faults }
+        public let attention: OutboxAttentionSnapshot?
+        private enum CodingKeys: String, CodingKey { case queue, faults, attention }
         public init(from decoder: Decoder) throws {
             let fields = try decoder.container(keyedBy: CodingKeys.self)
             queue = try fields.decode(Queue.self, forKey: .queue)
             faults = try fields.decodeIfPresent(Faults.self, forKey: .faults)
                 ?? Faults(lastError: nil, lastErrorAt: nil, unknownReason: nil)
+            attention = try fields.decodeIfPresent(OutboxAttentionSnapshot.self, forKey: .attention)
         }
     }
     public struct Wake: Decodable, Sendable {
@@ -221,12 +223,14 @@ public struct StatusSnapshot: Decodable, Sendable {
         }
         if outbox.queue.failed == nil { note("outbox.queue.failed") }
         if outbox.queue.dlq == nil { note("outbox.queue.dlq") }
-        if (outbox.queue.failed ?? 0) > 0 || (outbox.queue.dlq ?? 0) > 0 {
+        if (outbox.queue.failed ?? 0) > 0 {
             return result(.failed, "outbox.undelivered", L10n.text("Undelivered: %@; dead-letter queue: %@", String(describing: (outbox.queue.failed.map(String.init) ?? L10n.text("not measured"))), String(describing: (outbox.queue.dlq.map(String.init) ?? L10n.text("not measured")))))
         }
         if wake.faults.lastFault?.isEmpty == false { return result(.failed, "wake.fault", "") }
         if wake.delivery.pendingUndelivered == nil { note("wake.delivery.pendingUndelivered") }
-        if (wake.delivery.pendingUndelivered ?? 0) > 0 { return result(.failed, "wake.pending", L10n.text("Some messages have not reached the agent")) }
+        let pendingWake = wake.delivery.pendingUndelivered ?? 0
+        let paused = wake.config.enabled == false && wake.effective.enabled == false && wake.effective.unknownReason?.isEmpty != false
+        if pendingWake > 0 && !paused { return result(.failed, "wake.pending", L10n.text("Some messages have not reached the agent")) }
         for (path, reason) in [("outbox.faults", outbox.faults.unknownReason), ("wake.faults", wake.faults.unknownReason),
                                ("outbox.queue", outbox.queue.unknownReason), ("wake.delivery", wake.delivery.unknownReason),
                                ("wake.config", wake.config.unknownReason), ("wake.effective", wake.effective.unknownReason)] {
@@ -249,6 +253,9 @@ public struct StatusSnapshot: Decodable, Sendable {
         // A source reason already names the same missing measurement when present.
         if wake.config.enabled == nil && wake.config.unknownReason?.isEmpty != false { note("wake.config.enabled") }
         if wake.effective.enabled == nil && wake.effective.unknownReason?.isEmpty != false { note("wake.effective.enabled") }
+        let pendingDlq = outbox.attention?.verifiedPending(total: outbox.queue.dlq) ?? outbox.queue.dlq ?? 0
+        if pendingDlq > 0 { return result(.offline, "outbox.dead-letter", L10n.text("Undelivered messages need your attention")) }
+        if paused && pendingWake > 0 { return result(.offline, "wake.paused-pending", L10n.text("Agent delivery is paused; %@ messages are waiting", String(pendingWake))) }
         if !missing.isEmpty {
             return result(.unknown, "unmeasured", "")
         }

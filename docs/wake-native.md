@@ -163,9 +163,30 @@ Same env and the same per-session cursor as the shell version (`MURMUR_DB`,
 non-polling check (e.g. a PostToolUse hook). Requires Node with `node:sqlite`
 (22.13.0+).
 
+Its default cursor, lock and anchor names carry a store key, the first 8 hex digits of the
+SHA-256 of the store's absolute path (`~/.murmur-wake-cursor-<store>-<session>`,
+`~/.murmur-wake-lock-<store>-<session>`, `~/.murmur-wake-anchor-<store>`), so two profiles
+on one machine never share them. Names written by earlier builds are read once to carry the
+position over; a value above this store's tip belonged to another store and is ignored.
+
+Unlike the shell version, the first run in a new session seeds the cursor at the tip and
+then keeps polling: the installed hook is a Stop hook only, so a run that seeded and exited
+would leave the first idle wait of every session deaf.
+
 A fault — no store, an unreadable store, no `node:sqlite` — prints one line to stderr
 and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
 silently is the failure this port exists to remove, so it does neither.
+
+### Installed by `murmur clients configure --client claude-code`
+
+The CLI registers this drain as a Stop hook in `~/.claude/settings.json` (next to
+`~/.claude.json`) with `--db <profile>/murmur.db --max-seconds 28800`; a second run changes
+nothing, and a different Murmur wake hook is replaced only with `--replace`.
+
+Known limitation: the session is woken only within the window after the end of its last turn
+(8 hours for the installed hook, 20 minutes by default). A message that arrives later wakes it
+at the next human turn. One poller runs per cursor (the lock above); after Claude Code is
+closed, that poller stays alive until its window ends, then exits.
 
 ### Cold start: what arrived while nothing was listening
 
@@ -175,7 +196,7 @@ session has no cursor and seeds its baseline at the current tip. Anything that
 landed while no session was alive is then skipped by every session that follows.
 
 `--session` closes that gap. It reads a **shared** anchor
-(`MURMUR_WAKE_ANCHOR`, default `~/.murmur-wake-anchor`) that records how far the
+(`MURMUR_WAKE_ANCHOR`, default `~/.murmur-wake-anchor-<store>` for the node drain) that records how far the
 contour as a whole has been drained, reports what came in past it, and moves the
 anchor forward. Register it on `SessionStart`:
 
