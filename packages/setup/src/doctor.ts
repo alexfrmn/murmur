@@ -67,6 +67,12 @@ export async function probeRoundtrip(c: ServiceContext, config: AgentConfig, pee
   } finally { db?.close(); for (const sub of subs) sub.unsubscribe(); await listener; }
 }
 
+// The next command for a failure a new user meets first. Keyed by the stable reason code only.
+const failureHints: Record<string, string> = {
+  'config.missing': 'No profile here yet: run murmur join --data-dir <this profile> --agent-id <your-agent-id> --invite-file <invite file> --reply-out <new reply file>',
+  'daemon.not-running': 'Install or start the service: murmur service install --data-dir <this profile> (or service start if installed; on Windows from an administrator terminal)',
+};
+
 export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: DoctorOptions) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60000) throw new Error('doctor.invalid-timeout');
   const generatedAt = new Date().toISOString(), stages: Array<Record<string, unknown>> = [];
@@ -83,7 +89,7 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
         elapsedMs: id === 'wake' ? null : Date.now() - start, measuredAt: new Date().toISOString() });
     } catch (e) {
       failedStage = id; worst = 'fail';
-      stages.push({ id, title, state: 'fail', reason: safeError(e), detail: `${title}: ${safeError(e)}`, fixHint: null,
+      stages.push({ id, title, state: 'fail', reason: safeError(e), detail: `${title}: ${safeError(e)}`, fixHint: failureHints[safeError(e)] ?? null,
         elapsedMs: id === 'wake' ? null : Date.now() - start, measuredAt: new Date().toISOString() });
     }
   };
