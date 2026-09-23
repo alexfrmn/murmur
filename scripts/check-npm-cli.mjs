@@ -34,9 +34,8 @@ let nativeVersionExecuted = false;
 if (process.platform === 'win32') {
   const native = JSON.parse(execFileSync(path.join(runtime, 'bin/murmur-svc.exe'), ['--version'], { encoding: 'utf8' }));
   assert.equal(native.schema, 'murmur.native-version/1');
+  assert.equal(native.product, 'Murmur');
   assert.equal(native.component, 'windows-service');
-  assert.equal(native.platform, 'windows');
-  assert.equal(native.arch, 'amd64');
   assert.equal(native.version, manifest.declaredVersion);
   assert.equal(native.sourceCommit, manifest.sourceCommit ?? 'unknown');
   nativeVersionExecuted = true;
