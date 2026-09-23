@@ -121,7 +121,7 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
   inbox.unknownReason = reason(inbox.measurements); outbox.unknownReason = reason(outbox.measurements);
   wake.unknownReason = reason(wake.measurements); peers.unknownReason = reason(peers.measurements);
   return {
-    schema: "murmur.status/1" as const, generatedAt: at, agentId: config?.agentId ?? null,
+    schema: "murmur.status/1" as const, generatedAt: at, agentId: config?.agentId ?? null, serviceName: c.serviceName,
     service: { ...service, lastFailureAt: null, restartsLastHour, restartFailureThreshold: 5,
       unknownReason: service.state === "unknown" ? service.detail ?? "service.unavailable" : null,
       measurements: { manager: service.state === "unknown" ? unknown(service.detail ?? "service.unavailable") : measured(at), history: unknown("service.history-unavailable") } },

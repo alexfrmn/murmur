@@ -123,13 +123,13 @@ export async function initialize(c: ServiceContext, options: { agentId: string; 
     if (previous) {
       if (previous.agentId !== options.agentId || previous.natsUrl !== options.brokerUrl) throw new Error('onboarding.existing-profile-conflict');
       // Re-running init never rotates keys or replaces credentials.
-      return { schema: 'murmur.init/1', agentId: previous.agentId, dataDir: c.dataDir, existing: true };
+      return { schema: 'murmur.init/1', agentId: previous.agentId, dataDir: c.dataDir, serviceName: c.serviceName, existing: true };
     }
     const token = options.tokenFile ? await privateText(options.tokenFile, 'token-file') : undefined;
     if (token?.includes('\n') || token?.includes('\r')) throw new Error('onboarding.token-file-invalid');
     const config = await newConfig(options.agentId, options.brokerUrl, token);
     await saveChanged(c, null, config);
-    return { schema: 'murmur.init/1', agentId: config.agentId, dataDir: c.dataDir, existing: false };
+    return { schema: 'murmur.init/1', agentId: config.agentId, dataDir: c.dataDir, serviceName: c.serviceName, existing: false };
   });
 }
 export async function invite(c: ServiceContext, outFile: string) {
@@ -157,7 +157,7 @@ export async function join(c: ServiceContext, options: { agentId: string; invite
     await outputBlob(options.replyOut, { v: 1, type: 'reply', ...publicPeer(next) }, 'MURMUR-REPLY:', async () => {
       backup = await saveChanged(c, previous, next);
     });
-    return { schema: 'murmur.join/1', agentId: next.agentId, peerId: incoming.agentId, paired: null, replyFile: options.replyOut, backup, restartRequired: true };
+    return { schema: 'murmur.join/1', agentId: next.agentId, peerId: incoming.agentId, paired: null, replyFile: options.replyOut, backup, restartRequired: true, serviceName: c.serviceName };
   });
 }
 async function clearPeerPoison(c: ServiceContext, peerId: string) {
