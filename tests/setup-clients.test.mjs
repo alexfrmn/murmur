@@ -42,7 +42,7 @@ test('malformed config is rejected without rewriting it', async t => {
 });
 test('a symlinked config is rejected without rewriting its target', { skip: skipWithoutSymlinks }, async t => {
   const f = await fixture(t, 'json');
-  const target = path.join(f.root, 'unrelated'); await fs.writeFile(target, '{}'); await fs.unlink(f.file); await fs.symlink(target, f.file);
+  const target = path.join(f.root, 'unrelated'); await fs.writeFile(target, '{}'); await fs.symlink(target, f.file);
   await assert.rejects(configureClient(f.context, f.adapter, 'codex-cli'));
   assert.equal(await fs.readFile(target, 'utf8'), '{}');
 });
