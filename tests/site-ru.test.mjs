@@ -91,3 +91,10 @@ test("the Russian page reaches assets one level up", () => {
   assert.ok(relative.length >= 5, "the icons and the stylesheet must be linked");
   assert.deepEqual(relative.filter((url) => !url.startsWith("../")), []);
 });
+
+test("the primary button leads to installation", () => {
+  for (const html of [en, ru]) {
+    assert.match(html, /<a class="chip primary" href="#install" data-i18n="installCta">/);
+    assert.match(html, /<section [^>]*id="install">/);
+  }
+});

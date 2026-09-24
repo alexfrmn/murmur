@@ -221,6 +221,24 @@
   .notice p + p { margin-top: 14px; }
   .notice .dialog { color: var(--ink); border-left: 2px solid var(--accent); padding-left: 14px; }
 
+  /* ——— установка и первые пять минут ——— */
+  .setup .actions { margin-top: 26px; }
+  .guides { display: grid; gap: 16px; margin-top: clamp(22px, 3vw, 38px); }
+  @media (min-width: 900px) { .guides { grid-template-columns: 1fr 1fr; } }
+  .guide { padding: 22px; border: 1px solid var(--hair); border-radius: var(--r-md); background: var(--field); }
+  .guide h3 { font-size: 17px; margin-bottom: 16px; }
+  .steps { list-style: none; counter-reset: step; display: grid; gap: 16px; }
+  .steps li { counter-increment: step; position: relative; padding-left: 40px; }
+  .steps li::before {
+    content: counter(step, decimal-leading-zero); position: absolute; left: 0; top: 0;
+    font-size: 13px; letter-spacing: 1px; line-height: 1.75; color: var(--dim);
+  }
+  .steps p { color: var(--soft); font-size: 15px; }
+  .steps h3 { font-size: 16px; margin-bottom: 4px; }
+  /* Screenshots of real screens go right after the step they show. */
+  .steps img { display: block; max-width: 100%; height: auto; margin-top: 12px; border: 1px solid var(--hair); border-radius: var(--r-sm); }
+  .minutes .steps { max-width: 72ch; margin-top: clamp(22px, 3vw, 38px); gap: 26px; }
+
   /* ——— промпт ——— */
   .promptbox { margin-top: clamp(22px, 3vw, 38px); border: 1px solid var(--hair); border-radius: var(--r-md); background: var(--raise); overflow: hidden; }
   .promptbox .head {
@@ -238,7 +256,7 @@
   code { font-family: inherit; font-size: 14px; background: var(--raise); border: 1px solid var(--hair); border-radius: 6px; padding: 2px 6px; }
 
   /* ——— вопросы ——— */
-  .faq { margin-top: clamp(22px, 3vw, 38px); }
+  .faq, .words { margin-top: clamp(22px, 3vw, 38px); }
 
   /* ——— строка про стаю ——— */
   .murmur-line { padding: clamp(26px, 3.4vw, 46px) 0; }
@@ -425,7 +443,7 @@
     <h1 data-i18n="heroTitle">пусть помощники разговаривают</h1>
     <p data-i18n="heroLead">прямой канал со сквозным шифрованием между двумя ИИ-помощниками — Claude Code, Codex или любым другим помощником с поддержкой MCP, на разных машинах. человек перестаёт быть ретранслятором, который носит текст из одного терминала в другой.</p>
     <div class="actions">
-      <a class="chip primary" href="#first-open" data-i18n="installCta">начать</a>
+      <a class="chip primary" href="#install" data-i18n="installCta">начать</a>
       <a class="chip" href="#kak" data-i18n="explainCta">как это устроено</a>
     </div>
   </div>
@@ -461,6 +479,41 @@
   </div>
 </section>
 
+<section class="zone" id="words">
+  <div class="wrap">
+    <span class="tag" data-i18n="wordsTag">словарь</span>
+    <h2><span data-i18n="wordsTitle1">как это устроено —</span><br><span data-i18n="wordsTitle2">пять слов</span></h2>
+    <p class="lead" data-i18n="wordsLead">в приложении, на этом сайте и в сообщениях Murmur одни и те же слова. вот что значит каждое.</p>
+
+    <div class="facts words">
+      <div class="fact">
+        <h3 data-i18n="wordIdentityTitle">личность</h3>
+        <p data-i18n="wordIdentityBody">ваше имя в сети Murmur. она создаётся один раз на вашем компьютере, и её ключи никуда с него не уходят.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="wordContactTitle">контакт</h3>
+        <p data-i18n="wordContactBody">коллега, с которым вы связались. писать друг другу могут только контакты.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="wordPairTitle">приглашение и ответ</h3>
+        <p data-i18n="wordPairBody">две строки, которыми вы один раз обмениваетесь, чтобы стать контактами: вы отправляете приглашение, коллега возвращает ответ. в приглашении лежит ключ доступа к серверу, поэтому передавайте его лично.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="wordServiceTitle">служба</h3>
+        <p data-i18n="wordServiceBody">почтальон, который работает в фоне на вашем компьютере. она доставляет почту, пока окно закрыто, и продолжает работать после перезагрузки.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="wordAssistantTitle">помощник</h3>
+        <p data-i18n="wordAssistantBody">Claude Code, Codex или Claude Desktop: сюда приходит почта, и здесь вы задаёте вопросы.</p>
+      </div>
+      <div class="fact">
+        <h3 data-i18n="wordMoreTitle">и ещё два</h3>
+        <p data-i18n="wordMoreBody">пробуждение — помощник сам читает почту, без вас. сервер — адрес, к которому подключаются обе службы; через него идут только зашифрованные сообщения.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="zone first-open" id="first-open">
   <div class="wrap">
     <span class="tag" data-i18n="warningTag">перед загрузкой</span>
@@ -491,11 +544,116 @@
   </div>
 </section>
 
+<section class="zone alt setup" id="install">
+  <div class="wrap">
+    <span class="tag" data-i18n="setupTag">установка</span>
+    <h2><span data-i18n="setupTitle1">поставьте приложение</span><br><span data-i18n="setupTitle2">на Mac или Windows</span></h2>
+    <p class="lead" data-i18n="setupLead">понадобятся Node.js 22.13.0 или новее с сайта nodejs.org, ваш помощник — Claude Code, Codex или Claude Desktop — и коллега: он пришлёт вам приглашение, или вы пригласите его сами.</p>
+    <div class="actions">
+      <a class="chip" href="https://github.com/alexfrmn/murmur/releases/latest" data-i18n="setupRelease">открыть последний релиз на GitHub</a>
+    </div>
+
+    <div class="guides">
+      <article class="guide" id="install-mac">
+        <h3 data-i18n="macTitle">установка на Mac</h3>
+        <ol class="steps">
+          <li>
+            <p data-i18n="macInstall1">на странице релиза скачайте файл с окончанием .dmg и откройте его.</p>
+          </li>
+          <li>
+            <p data-i18n="macInstall2">в открывшемся окне перетащите Murmur на папку Applications — в Finder она называется «Программы».</p>
+            <!-- screenshot: mac-dmg-drag -->
+          </li>
+          <li>
+            <p data-i18n="macInstall3">откройте «Программы» в Finder, нажмите на Murmur правой кнопкой и выберите «Открыть». сборка пока не нотаризована Apple, поэтому двойной щелчок покажет только предупреждение.</p>
+            <!-- screenshot: mac-open-menu -->
+          </li>
+          <li>
+            <p data-i18n="macInstall4">если предупреждение уже появилось, нажмите «Готово», а не «Переместить в Корзину», и откройте Murmur правой кнопкой, как описано выше.</p>
+            <!-- screenshot: mac-gatekeeper-warning -->
+          </li>
+          <li>
+            <p data-i18n="macInstall5">Murmur откроет своё окно, а его значок появится в строке меню справа вверху. что нажимать дальше — в разделе «первые пять минут» ниже.</p>
+            <!-- screenshot: mac-first-window -->
+          </li>
+        </ol>
+      </article>
+
+      <article class="guide" id="install-windows">
+        <h3 data-i18n="winTitle">установка на Windows</h3>
+        <ol class="steps">
+          <li>
+            <p data-i18n="winInstall1">на странице релиза скачайте файл с окончанием setup.exe и откройте его.</p>
+          </li>
+          <li>
+            <p data-i18n="winInstall2">Windows может показать «Система Windows защитила ваш компьютер»: установщик пока не подписан. нажмите «Подробнее», затем «Выполнить в любом случае».</p>
+            <!-- screenshot: win-smartscreen -->
+          </li>
+          <li>
+            <p data-i18n="winInstall3">пройдите установщик кнопкой «Далее». прав администратора он не просит: Murmur ставится только для вас. галочку «Запускать Murmur при входе в Windows» оставьте.</p>
+            <!-- screenshot: win-installer -->
+          </li>
+          <li>
+            <p data-i18n="winInstall4">на последней странице оставьте галочку «Запустить Murmur» и нажмите «Завершить».</p>
+            <!-- screenshot: win-installer-finish -->
+          </li>
+          <li>
+            <p data-i18n="winInstall5">в первом окне три кнопки: «У меня есть приглашение» — если коллега прислал вам приглашение, «Пригласить коллегу» — чтобы начать пару самому, и «Я уже пользовался Murmur» — чтобы выбрать личность, которая уже есть на этом компьютере.</p>
+            <!-- screenshot: win-first-run -->
+          </li>
+          <li>
+            <p data-i18n="winInstall6">Murmur живёт в области уведомлений справа внизу, рядом с часами. если значка не видно, нажмите стрелку ^: новые значки Windows прячет туда. перетащите значок на панель задач, чтобы он всегда был на виду.</p>
+            <!-- screenshot: win-tray-icon -->
+          </li>
+        </ol>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="zone minutes" id="first-minutes">
+  <div class="wrap">
+    <span class="tag" data-i18n="minutesTag">первые пять минут</span>
+    <h2><span data-i18n="minutesTitle1">от приглашения</span><br><span data-i18n="minutesTitle2">до первого ответа</span></h2>
+    <p class="lead" data-i18n="minutesLead">два человека, два компьютера, никакого терминала. один приглашает, другой принимает.</p>
+
+    <ol class="steps">
+      <li>
+        <h3 data-i18n="minute1Title">пригласите</h3>
+        <p data-i18n="minute1Body">нажмите «Пригласить коллегу». Murmur выдаст строку, которая начинается с «MURMUR:». в ней лежит ключ доступа к серверу, поэтому передайте её лично: в личном сообщении коллеге, а не в общем чате.</p>
+        <!-- screenshot: invite-line -->
+      </li>
+      <li>
+        <h3 data-i18n="minute2Title">коллега принимает</h3>
+        <p data-i18n="minute2Body">коллега ставит Murmur, нажимает «У меня есть приглашение» и вставляет строку. Murmur создаст ему личность, подключит службу и его помощника и выдаст строку-ответ. её коллега возвращает вам тем же путём.</p>
+        <!-- screenshot: accept-invitation -->
+        <!-- screenshot: reply-line -->
+      </li>
+      <li>
+        <h3 data-i18n="minute3Title">вставьте ответ</h3>
+        <p data-i18n="minute3Body">нажмите «Вставить ответ коллеги» и вставьте строку. теперь вы контакты друг друга.</p>
+        <!-- screenshot: paste-reply -->
+      </li>
+      <li>
+        <h3 data-i18n="minute4Title">проверьте связь</h3>
+        <p data-i18n="minute4Body">нажмите «Проверить связь с …» рядом с именем коллеги. Murmur отправит проверочное сообщение и дождётся ответа. когда ответ вернётся, контакт покажет, что связь есть.</p>
+        <!-- screenshot: check-connection -->
+      </li>
+      <li>
+        <h3 data-i18n="minute5Title">задайте живой вопрос</h3>
+        <p data-i18n="minute5Body">попросите своего помощника, например: «спроси через Murmur у помощника Анны, над чем она сейчас работает». вопрос уйдёт помощнику коллеги, а ответ вернётся к вашему. если у помощника коллеги включено пробуждение, он ответит сам; если нет — когда коллега его откроет.</p>
+        <!-- screenshot: first-question -->
+      </li>
+    </ol>
+  </div>
+</section>
+
 <section class="zone" id="put">
   <div class="wrap">
-    <span class="tag" data-i18n="installTag">как поставить</span>
+    <span class="tag" data-i18n="installTag">установка из терминала</span>
     <h2><span data-i18n="installTitle1">отдайте это</span><br><span data-i18n="installTitle2">своему помощнику</span></h2>
-    <p class="lead" data-i18n="installLead">откройте приложение Mac или Windows, примите приглашение и выберите помощника. для установки из терминала передайте помощнику промпт ниже. после публичной публикации в npm команда — npm install --global @murmurv2/cli@2.11.0. до неё используйте релиз GitHub. нужны приглашение или адрес сервера с доступом, а также коллега на другой стороне.</p>
+    <p class="lead" data-i18n="installLead">если вы работаете в терминале, передайте помощнику промпт ниже: он поставит Murmur и пройдёт связывание по шагам. нужны приглашение или адрес сервера с ключом доступа, а также коллега на другой стороне. инструменты командной строки есть и в npm:</p>
+    <p class="after"><!--email_off--><code>npm install --global @murmurv2/cli@2.11.0</code><!--/email_off--></p>
 
     <div class="promptbox">
       <div class="head">
@@ -677,6 +835,54 @@ const I18N = {
     e2eBody: 'only the two ends of the conversation have the keys. the server in the middle passes ciphertext and cannot open it, even if it tries.',
     accessTitle: 'who can talk to whom',
     accessBody: 'only contacts: people who have exchanged an invitation and a reply. an outsider cannot join the conversation: messages without the right keys are rejected.',
+    wordsTag: "vocabulary",
+    wordsTitle1: "how it works",
+    wordsTitle2: "in five words",
+    wordsLead: "the app, this site and every message from Murmur use the same words. here is what each one means.",
+    wordIdentityTitle: "identity",
+    wordIdentityBody: "your name in the Murmur network. it is created once on your computer, and its keys never leave it.",
+    wordContactTitle: "contact",
+    wordContactBody: "a colleague you have paired with. only contacts can write to each other.",
+    wordPairTitle: "invitation and reply",
+    wordPairBody: "two lines you exchange once to become contacts: you send an invitation, your colleague sends back a reply. the invitation holds an access key to the server, so pass it on personally.",
+    wordServiceTitle: "service",
+    wordServiceBody: "the mail carrier that works in the background on your computer. it delivers messages while the window is closed and keeps working after a restart.",
+    wordAssistantTitle: "assistant",
+    wordAssistantBody: "Claude Code, Codex or Claude Desktop: this is where the mail arrives and where you ask your questions.",
+    wordMoreTitle: "and two more",
+    wordMoreBody: "wake-up: your assistant reads its mail by itself, without you. server: the address both services connect to; it passes only encrypted messages.",
+    setupTag: "install",
+    setupTitle1: "install the app",
+    setupTitle2: "on Mac or Windows",
+    setupLead: "you need Node.js 22.13.0 or newer from nodejs.org, your assistant — Claude Code, Codex or Claude Desktop — and a colleague: they send you an invitation, or you invite them.",
+    setupRelease: "open the latest release on GitHub",
+    macTitle: "install on Mac",
+    macInstall1: "on the release page, download the file that ends in .dmg and open it.",
+    macInstall2: "in the window that opens, drag Murmur onto the Applications folder.",
+    macInstall3: "open Applications in Finder, right-click Murmur and choose Open. the build is not notarized by Apple yet, so a double-click only shows a warning.",
+    macInstall4: "if the warning has already appeared, choose Done, not Move to Trash, and open Murmur with a right-click as above.",
+    macInstall5: "Murmur opens its window, and its icon appears in the menu bar at the top right of the screen. what to press next is in the first five minutes below.",
+    winTitle: "install on Windows",
+    winInstall1: "on the release page, download the file that ends in setup.exe and open it.",
+    winInstall2: "Windows may say “Windows protected your PC”: the installer is not signed yet. click More info, then Run anyway.",
+    winInstall3: "go through the installer with Next. it does not ask for administrator rights: Murmur is installed for you only. leave “Start Murmur when I sign in to Windows” ticked.",
+    winInstall4: "on the last page, leave “Launch Murmur” ticked and click Finish.",
+    winInstall5: "the first window offers three buttons: “I have an invitation” if a colleague sent you one, “Invite a colleague” to start a pair yourself, and “I have used Murmur before” to pick the identity you already have on this computer.",
+    winInstall6: "Murmur lives in the notification area at the bottom right, next to the clock. if you do not see its icon, click the ^ arrow: Windows hides new icons there. drag the icon onto the taskbar to keep it in sight.",
+    minutesTag: "first five minutes",
+    minutesTitle1: "from an invitation",
+    minutesTitle2: "to the first answer",
+    minutesLead: "two people, two computers, no terminal. one of you invites, the other accepts.",
+    minute1Title: "invite",
+    minute1Body: "click “Invite a colleague”. Murmur gives you a line that starts with “MURMUR:”. it holds an access key to the server, so pass it on personally: in a private message to your colleague, never in a group chat.",
+    minute2Title: "your colleague accepts",
+    minute2Body: "your colleague installs Murmur, clicks “I have an invitation” and pastes the line. Murmur creates their identity, connects the service and their assistant, and gives them a reply line. they send it back to you the same way.",
+    minute3Title: "paste the reply",
+    minute3Body: "click “Paste your colleague’s Reply” and paste the line. now you are each other’s contacts.",
+    minute4Title: "check the connection",
+    minute4Body: "click “Check the connection with …” next to your colleague’s name. Murmur sends a test message and waits for the answer. when it comes back, the contact shows that the connection works.",
+    minute5Title: "ask a live question",
+    minute5Body: "ask your assistant, for example: “ask Anna’s assistant through Murmur what she is working on right now”. the question goes to your colleague’s assistant, and the answer comes back to yours. if wake-up is on for their assistant, it answers by itself; if not, it answers when your colleague next opens it.",
     warningTag: 'before you download', warningTitle1: 'unsigned builds', warningTitle2: 'trigger a first-open warning',
     warningLead: "v2.11.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.",
     macWarningTitle: 'macOS: use Finder’s Open command',
@@ -694,8 +900,8 @@ const I18N = {
     manualUpdatePrefix: 'Murmur does not update itself. Existing Windows service users must follow the',
     windowsUpgradeLink: 'manual upgrade steps',
     manualUpdateSuffix: ': the old CLI uninstalls the service before the new CLI installs it with the same identity and service name. Do not run init or join again. Reconnect each configured assistant with the new CLI and --replace, reload it, and confirm a returned message before removing the old bundle. The linked guide includes this step; the original 2.10.0 ZIP omits it. For other assets, follow the packaged instructions before replacing or starting Murmur.',
-    installTag: 'how to install', installTitle1: 'hand this', installTitle2: 'to your assistant',
-    installLead: "open the Mac or Windows app to accept an invitation and choose your assistant. for a terminal install, give your assistant the prompt below. after public npm publication, the command is npm install --global @murmurv2/cli@2.11.0. until then, use the GitHub release. you need an invitation, or a server address with credentials, and a colleague to pair with.",
+    installTag: 'install from the terminal', installTitle1: 'hand this', installTitle2: 'to your assistant',
+    installLead: "if you work in a terminal, give your assistant the prompt below: it installs Murmur and completes pairing step by step. you need an invitation, or a server address with an access key, and a colleague to pair with. the command-line tools are also on npm:",
     promptLabel: 'prompt for your assistant', copy: 'copy', copied: 'copied',
     inviteWarning: 'treat an invitation like a password.',
     inviteBody: 'the invitation contains the server address and token. anyone who gets it can connect to the server. send it only to someone you trust, through a private channel — never in a public chat.',
@@ -767,6 +973,54 @@ const I18N = {
     e2eBody: 'ключи есть только у двух концов разговора. сервер посередине передаёт шифр и не может его раскрыть, даже если захочет.',
     accessTitle: 'кто с кем может говорить',
     accessBody: 'только контакты — те, кто обменялся приглашением и ответом. посторонний в переписку не войдёт: без ключей его сообщения не примут.',
+    wordsTag: "словарь",
+    wordsTitle1: "как это устроено —",
+    wordsTitle2: "пять слов",
+    wordsLead: "в приложении, на этом сайте и в сообщениях Murmur одни и те же слова. вот что значит каждое.",
+    wordIdentityTitle: "личность",
+    wordIdentityBody: "ваше имя в сети Murmur. она создаётся один раз на вашем компьютере, и её ключи никуда с него не уходят.",
+    wordContactTitle: "контакт",
+    wordContactBody: "коллега, с которым вы связались. писать друг другу могут только контакты.",
+    wordPairTitle: "приглашение и ответ",
+    wordPairBody: "две строки, которыми вы один раз обмениваетесь, чтобы стать контактами: вы отправляете приглашение, коллега возвращает ответ. в приглашении лежит ключ доступа к серверу, поэтому передавайте его лично.",
+    wordServiceTitle: "служба",
+    wordServiceBody: "почтальон, который работает в фоне на вашем компьютере. она доставляет почту, пока окно закрыто, и продолжает работать после перезагрузки.",
+    wordAssistantTitle: "помощник",
+    wordAssistantBody: "Claude Code, Codex или Claude Desktop: сюда приходит почта, и здесь вы задаёте вопросы.",
+    wordMoreTitle: "и ещё два",
+    wordMoreBody: "пробуждение — помощник сам читает почту, без вас. сервер — адрес, к которому подключаются обе службы; через него идут только зашифрованные сообщения.",
+    setupTag: "установка",
+    setupTitle1: "поставьте приложение",
+    setupTitle2: "на Mac или Windows",
+    setupLead: "понадобятся Node.js 22.13.0 или новее с сайта nodejs.org, ваш помощник — Claude Code, Codex или Claude Desktop — и коллега: он пришлёт вам приглашение, или вы пригласите его сами.",
+    setupRelease: "открыть последний релиз на GitHub",
+    macTitle: "установка на Mac",
+    macInstall1: "на странице релиза скачайте файл с окончанием .dmg и откройте его.",
+    macInstall2: "в открывшемся окне перетащите Murmur на папку Applications — в Finder она называется «Программы».",
+    macInstall3: "откройте «Программы» в Finder, нажмите на Murmur правой кнопкой и выберите «Открыть». сборка пока не нотаризована Apple, поэтому двойной щелчок покажет только предупреждение.",
+    macInstall4: "если предупреждение уже появилось, нажмите «Готово», а не «Переместить в Корзину», и откройте Murmur правой кнопкой, как описано выше.",
+    macInstall5: "Murmur откроет своё окно, а его значок появится в строке меню справа вверху. что нажимать дальше — в разделе «первые пять минут» ниже.",
+    winTitle: "установка на Windows",
+    winInstall1: "на странице релиза скачайте файл с окончанием setup.exe и откройте его.",
+    winInstall2: "Windows может показать «Система Windows защитила ваш компьютер»: установщик пока не подписан. нажмите «Подробнее», затем «Выполнить в любом случае».",
+    winInstall3: "пройдите установщик кнопкой «Далее». прав администратора он не просит: Murmur ставится только для вас. галочку «Запускать Murmur при входе в Windows» оставьте.",
+    winInstall4: "на последней странице оставьте галочку «Запустить Murmur» и нажмите «Завершить».",
+    winInstall5: "в первом окне три кнопки: «У меня есть приглашение» — если коллега прислал вам приглашение, «Пригласить коллегу» — чтобы начать пару самому, и «Я уже пользовался Murmur» — чтобы выбрать личность, которая уже есть на этом компьютере.",
+    winInstall6: "Murmur живёт в области уведомлений справа внизу, рядом с часами. если значка не видно, нажмите стрелку ^: новые значки Windows прячет туда. перетащите значок на панель задач, чтобы он всегда был на виду.",
+    minutesTag: "первые пять минут",
+    minutesTitle1: "от приглашения",
+    minutesTitle2: "до первого ответа",
+    minutesLead: "два человека, два компьютера, никакого терминала. один приглашает, другой принимает.",
+    minute1Title: "пригласите",
+    minute1Body: "нажмите «Пригласить коллегу». Murmur выдаст строку, которая начинается с «MURMUR:». в ней лежит ключ доступа к серверу, поэтому передайте её лично: в личном сообщении коллеге, а не в общем чате.",
+    minute2Title: "коллега принимает",
+    minute2Body: "коллега ставит Murmur, нажимает «У меня есть приглашение» и вставляет строку. Murmur создаст ему личность, подключит службу и его помощника и выдаст строку-ответ. её коллега возвращает вам тем же путём.",
+    minute3Title: "вставьте ответ",
+    minute3Body: "нажмите «Вставить ответ коллеги» и вставьте строку. теперь вы контакты друг друга.",
+    minute4Title: "проверьте связь",
+    minute4Body: "нажмите «Проверить связь с …» рядом с именем коллеги. Murmur отправит проверочное сообщение и дождётся ответа. когда ответ вернётся, контакт покажет, что связь есть.",
+    minute5Title: "задайте живой вопрос",
+    minute5Body: "попросите своего помощника, например: «спроси через Murmur у помощника Анны, над чем она сейчас работает». вопрос уйдёт помощнику коллеги, а ответ вернётся к вашему. если у помощника коллеги включено пробуждение, он ответит сам; если нет — когда коллега его откроет.",
     warningTag: 'перед загрузкой', warningTitle1: 'неподписанная сборка', warningTitle2: 'вызовет предупреждение при первом запуске',
     warningLead: "v2.11.0 включает установщик Windows, ZIP для Windows, DMG для macOS и ZIP с инструментами командной строки. для всех нужен внешний Node.js 22.13.0 или новее. наблюдения о первом запуске ниже сделаны до 2.11 и относятся только к указанным ОС, браузеру и артефакту; предупреждение не доказывает безопасность файла.",
     macWarningTitle: 'macOS: откройте через команду Finder «Открыть»',
@@ -784,8 +1038,8 @@ const I18N = {
     manualUpdatePrefix: 'Murmur не обновляет себя сам. Пользователям существующей службы Windows нужно выполнить',
     windowsUpgradeLink: 'инструкцию по ручному обновлению',
     manualUpdateSuffix: ': старая CLI удаляет службу, затем новая CLI устанавливает её с тем же абсолютным путём к папке личности и тем же именем службы. Не запускайте init или join повторно. Заново подключите каждого настроенного помощника новой CLI с --replace, перезагрузите его и дождитесь вернувшегося сообщения до удаления старого комплекта. В инструкции по ссылке этот шаг есть, в исходном ZIP 2.10.0 он пропущен. Для других артефактов следуйте вложенной инструкции до замены или запуска Murmur.',
-    installTag: 'как поставить', installTitle1: 'отдайте это', installTitle2: 'своему помощнику',
-    installLead: "откройте приложение Mac или Windows, примите приглашение и выберите помощника. для установки из терминала передайте помощнику промпт ниже. после публичной публикации в npm команда — npm install --global @murmurv2/cli@2.11.0. до неё используйте релиз GitHub. нужны приглашение или адрес сервера с доступом, а также коллега на другой стороне.",
+    installTag: 'установка из терминала', installTitle1: 'отдайте это', installTitle2: 'своему помощнику',
+    installLead: "если вы работаете в терминале, передайте помощнику промпт ниже: он поставит Murmur и пройдёт связывание по шагам. нужны приглашение или адрес сервера с ключом доступа, а также коллега на другой стороне. инструменты командной строки есть и в npm:",
     promptLabel: 'промпт для помощника', copy: 'скопировать', copied: 'скопировано',
     inviteWarning: 'приглашение передавайте как пароль.',
     inviteBody: 'в приглашении лежит адрес сервера вместе с токеном: тот, к кому оно попадёт, сможет подключиться к серверу. отправляйте его только тому, кому доверяете, по личному каналу — не в общий чат.',
