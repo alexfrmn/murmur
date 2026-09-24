@@ -24,20 +24,23 @@ func TestPairingRejectsInvalidInputBeforeMutation(t *testing.T) {
 }
 func TestPairingLineTakesTheTokenOutOfMessengerText(t *testing.T) {
 	token := "MURMUR:eyJ2IjoxLCJ0eXBlIjoiaW52aXRlIn0"
-	for _, pasted := range []string{
-		token + "\n\n\u2191 Copy only the MURMUR: line above.\n\n\u2593\u2592\u2591 signature",
-		"Here is the invitation: \u00ab" + token + "\u00bb",
-		"```\n" + token + "\n```",
-		"\t" + token + "==\r\n",
+	legacy := "MURMUR:eyJ2Ijox+/eyJ0eXBlIjoi=="
+	for _, c := range []struct{ pasted, want string }{
+		{token + "\n\n\u2191 Copy only the MURMUR: line above.\n\n\u2593\u2592\u2591 signature", token},
+		{"Here is the invitation: \u00ab" + token + "\u00bb", token},
+		{"```\n" + token + "\n```", token},
+		{"\t" + token + "\r\n", token},
+		{"> " + token + "\n\n" + token + "\nthe same line quoted", token},
+		{"MURMUR:eyJ2Ijox\u200bLCJ0eXBlIjoiaW52aXRlIn0", token},
+		{"file written by v2.11: " + legacy + "\n", legacy},
 	} {
-		got, err := pairingLine(pasted)
-		if err != nil || !strings.HasPrefix(got, token) {
-			t.Fatalf("token not taken from %q: %q %v", pasted, got, err)
+		if got, err := pairingLine(c.pasted); err != nil || got != c.want {
+			t.Fatalf("from %q: got %q %v, want %q", c.pasted, got, err, c.want)
 		}
 	}
 	for _, pasted := range []string{
 		"only the prefix MURMUR: is mentioned",
-		token + "\n" + token,
+		token + "\n" + legacy,
 		"MURMUR:\u00bb",
 	} {
 		if _, err := pairingLine(pasted); err == nil {
