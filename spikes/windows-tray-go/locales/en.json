@@ -85,7 +85,7 @@
   "history.wake": "last wake-up failure",
   "home.assistantMissing": "Assistant: not connected — connect…",
   "home.assistantProblem": "Assistant: connection not confirmed — connect…",
-  "home.assistantReady": "Assistant: connection configured — connect…",
+  "home.assistantReady": "Assistant: connection configured — change…",
   "home.checkFailed": "Murmur needs attention. Open Diagnostics to see which check failed.",
   "home.checkReady": "The Service and Server checks passed. Check a Contact to confirm a reply.",
   "home.contactsMissing": "Contacts: none yet — invite a colleague…",

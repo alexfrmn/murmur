@@ -488,15 +488,6 @@ func (a *app) handleClicks() {
 	}
 }
 
-func boolText(v *bool) string {
-	if v == nil {
-		return tr("bool.unknown")
-	}
-	if *v {
-		return tr("bool.yes")
-	}
-	return tr("bool.no")
-}
 func (a *app) runCLI(args ...string) {
 	a.mu.Lock()
 	if a.actionBusy {
