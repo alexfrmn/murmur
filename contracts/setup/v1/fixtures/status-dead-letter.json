@@ -107,7 +107,7 @@
   "$stamp": "now",
   "$expect": {
     "level": "yellow",
-    "unread": true,
+    "unread": false,
     "code": "outbox.dead-letter"
   }
 }

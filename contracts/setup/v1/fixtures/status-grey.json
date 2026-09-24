@@ -107,7 +107,7 @@
   "$stamp": "now",
   "$expect": {
     "level": "grey",
-    "unread": true,
+    "unread": false,
     "code": "service.stopped"
   }
 }

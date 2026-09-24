@@ -26,6 +26,52 @@ resolved against an arbitrary launch directory.
 
 ## Status: field types and evidence
 
+### 2.12 W1 additions
+
+- `service.state = running-unmanaged` and `service.managed = false` mean a fresh
+  observation for the selected Identity/store is independently confirmed by the
+  OS: macOS `lsof`, Linux `/proc/<pid>/fd`, Windows Restart Manager through
+  `murmur-svc observe-store <pid>`. This read-only helper command does not use SCM.
+  A missing/old helper or inaccessible descriptors remain unverified. Freshness
+  alone, a PID in configuration, or a process command line cannot prove liveness.
+  Any manager-reported `failed` state is retained, including a single nonzero
+  exit reported by launchd, as well as a measured restart loop. A second store
+  probe for the manager's own PID preserves its management/Start/Stop ownership.
+  App service controls refuse to adopt
+  or start another instance over an unmanaged running Service.
+- Each Contact exposes `lastExchangeAt` (RFC3339 or null) and `connection`:
+  `connected` within 24 hours, `stale` after that, `unverified` without evidence.
+  Evidence is a persisted inbound message, an acknowledged outgoing message, or
+  an authenticated doctor proof bound to the current pair of keys. A queued,
+  failed, or dead-letter send and a heartbeat alone do not establish exchange.
+  `paired` keeps its separate, expiring roundtrip-proof semantics.
+  Message/receipt timestamps beyond now + 5 seconds are excluded before finding
+  the latest exchange. SQL compares instants, including mixed RFC3339 offsets.
+- `doctor --peer ID --json` adds nullable `peerCheck`. With a selected Contact it
+  always contains `peerId`, `state`, `lastExchangeAt`, `requestMsgId`, `replyMsgId`,
+  and `reason`. A successful roundtrip has `state=connected`, both durable message
+  IDs and a time; a failed check has `state=failed` and a stable reason, with null
+  IDs/time. Without `--peer`, `peerCheck=null`. The six-stage chain is unchanged.
+  GUI connection checks should use this result, independently of the Wake-up stage:
+  the Service's diagnostic auto-reply never proves an Assistant wake or AI reply.
+  The per-Contact check button on both platforms is deferred to the W3 screen work.
+- `inbox read` (default 20 newest messages) and `status.deliveries` expose
+  `wake_status`, `wake_updated_at`, and `assistantRead`. Only `handled` means
+  `assistantRead=true`; known other states mean false, absent/unknown legacy state
+  means null. The independent person's `unread` cursor and `inbox mark-read` never
+  change Assistant delivery state. Older stores are read without migrations.
+- Initial Server connection attempts are observable before the NATS connection
+  object exists. The observation and log record `broker.connecting`, then a safe
+  failure code (`broker.connection-refused`, `broker.name-unresolved`,
+  `broker.timeout`, `broker.unauthorized`, or `broker.connection-failed`). The
+  daemon keeps retrying with exponential backoff (2 seconds initially, 60 seconds
+  maximum before ±20% jitter), to avoid sustained rapid retries during an outage.
+  A recovered Server can therefore take up to 72 seconds plus the connection
+  attempt to be noticed during initial startup. After connection, the transport's
+  2-second reconnect policy remains unchanged. Observation writes are serialized.
+- The verdict's legacy `unread` boolean now drives a dot only for
+  `wake.delivery.pendingUndelivered > 0`. Inbox reading and marking remain separate.
+
 Every row below is always present. Unknown measurements use null, with a source
 reason. Empty collections and zero mean a successful measurement of emptiness.
 `generatedAt` is the snapshot acquisition time, not an old cache repainted fresh.

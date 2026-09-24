@@ -501,7 +501,7 @@ final class TrayModel: ObservableObject {
         }
     }
     func hideSetupSteps() {
-        guard !busy, status?.service.state == .running else { return }
+        guard !busy, status?.service.isRunning == true else { return }
         setupAgentID = nil; setupReplyFile = nil; operationMessage = nil
         for key in ["setupProfileDirectory", "setupAgentID", "setupReplyFile"] { UserDefaults.standard.removeObject(forKey: key) }
     }

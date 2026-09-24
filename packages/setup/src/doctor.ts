@@ -80,6 +80,9 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
   const generatedAt = new Date().toISOString(), stages: Array<Record<string, unknown>> = [];
   let config: AgentConfig | null = null, connection: NatsConnection | undefined;
   let snapshot: Awaited<ReturnType<typeof readStatus>> | undefined;
+  let peerCheck: { peerId: string; state: 'connected' | 'failed' | 'not-checked'; lastExchangeAt: string | null;
+    requestMsgId: string | null; replyMsgId: string | null; reason: string | null } | null = peer
+    ? { peerId: peer, state: 'not-checked', lastExchangeAt: null, requestMsgId: null, replyMsgId: null, reason: null } : null;
   let failedStage: string | null = null, worst = 'ok';
   const stage = async (id: string, title: string, fn: () => Promise<{ state?: string; reason?: string; detail: string; fixHint?: string }>) => {
     const start = Date.now();
@@ -99,7 +102,7 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
     await stage('config', 'Configuration', async () => { config = await loadConfig(context); return { detail: 'Identity, keys and peer configuration validated' }; });
     await stage('daemon', 'Daemon and store', async () => {
       snapshot = await readStatus({ context, adapter });
-      if (snapshot.service.state !== 'running') throw new Error('daemon.not-running');
+      if (!['running', 'running-unmanaged'].includes(snapshot.service.state)) throw new Error('daemon.not-running');
       if (!snapshot.service.observedStorePath || await realpath(snapshot.service.observedStorePath) !== await realpath(context.storePath)) throw new Error('daemon.store-unverified');
       return { detail: 'Service PID holds the selected database open' };
     });
@@ -120,6 +123,8 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
     await stage('roundtrip', 'Encrypted signed roundtrip', async () => {
       if (!peer) return { state: 'warn', reason: 'roundtrip.peer-required', detail: 'No diagnostic peer selected; no message sent', fixHint: 'Run murmur doctor --peer <configured-agent-id> --json' };
       const proof = await probeRoundtrip(context, config!, peer, connection!, timeoutMs);
+      peerCheck = { peerId: peer, state: 'connected', lastExchangeAt: proof.verifiedAt,
+        requestMsgId: proof.msgId, replyMsgId: proof.replyMsgId, reason: null };
       return { detail: `Authenticated reply persisted from ${proof.peerId}` };
     });
     await stage('wake', 'Wake mode and responder', async () => {
@@ -133,5 +138,10 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
       return { state: 'warn', reason: 'wake.live-proof-required', detail: 'Wake configured; intended live-session receipt requires separate proof' };
     });
   } finally { await connection?.close(); }
-  return { schema: 'murmur.doctor/1', generatedAt, agentId: (config as AgentConfig | null)?.agentId ?? null, stages, summary: { worst, failedStage } };
+  if (peerCheck && peerCheck.state !== 'connected') {
+    peerCheck.state = 'failed';
+    peerCheck.reason = String(stages.find(s => s.state === 'fail')?.reason ?? 'roundtrip.not-checked');
+  }
+  return { schema: 'murmur.doctor/1', generatedAt, agentId: (config as AgentConfig | null)?.agentId ?? null,
+    peerCheck, stages, summary: { worst, failedStage } };
 }

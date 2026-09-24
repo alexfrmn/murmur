@@ -240,7 +240,7 @@ struct ProbeChecks {
         guard let validDoctor else { throw CheckFailure(message: "Valid canonical stopped doctor chain is required") }
         for (name, path, value): (String, [String], Any) in [
             ("changed color", ["$expect", "level"], "red"),
-            ("changed unread", ["$expect", "unread"], false),
+            ("changed unread", ["$expect", "unread"], true),
             ("changed missing set", ["$expect", "missing"], ["invented.field"]),
             ("unknown clock policy", ["$stamp"], "tomorrow"),
         ] {
@@ -281,7 +281,7 @@ struct ProbeChecks {
         print("PASS missing required leaf precedes wrong type"); extraChecks += 1
 
         let nullDate = try readStatus(edited(["generatedAt"], value: NSNull(), object: base), now: clock).1
-        try check(nullDate.code == "snapshot.unparsable" && nullDate.unread, "Null timestamp remains a measurement failure")
+        try check(nullDate.code == "snapshot.unparsable" && !nullDate.unread, "Null timestamp remains a measurement failure")
         print("PASS explicit null timestamp is present"); extraChecks += 1
 
         for (name, path, value, code): (String, [String], Any?, String) in [

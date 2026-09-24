@@ -7,24 +7,31 @@ export function createDaemonObservation({ dataDir, storePath, agentId, wake, log
   const startedAt = new Date().toISOString();
   const snapshot = { schema: "murmur.runtime/1", agentId, pid: process.pid, startedAt,
     storePath: null, measuredAt: null, wake: { ...wake, lastFault: null, lastFaultAt: null },
-    broker: { state: "unknown", connectedAt: null, lastError: null, lastErrorAt: null } };
-  let writing = false;
+    broker: { state: "disconnected", connectedAt: null, lastError: "broker.connecting", lastErrorAt: startedAt } };
+  let writes = Promise.resolve();
   let timer;
-  const write = async () => {
-    if (writing) return;
-    writing = true;
+  const write = () => writes = writes.then(async () => {
     try {
       snapshot.storePath = await realpath(storePath);
       snapshot.measuredAt = new Date().toISOString();
       await writePrivateJson(path.join(dataDir, "daemon-observation.json"), snapshot);
     } catch { log("warn", "Daemon observation write failed", { reason: "runtime.observation-write-failed" }); }
-    finally { writing = false; }
-  };
+  });
   return {
-    async start() { await write(); timer = setInterval(() => { void write(); }, 5000); timer.unref(); },
+    async start() {
+      log("info", "Connecting to server", { reason: "broker.connecting" });
+      await write(); timer = setInterval(() => { void write(); }, 5000); timer.unref();
+    },
     async connected() { snapshot.broker.state = "connected"; snapshot.broker.connectedAt = new Date().toISOString(); await write(); },
     onStatus(event) {
-      if (event.type === "disconnect") {
+      if (event.type === "connect_error") {
+        const reasons = ["broker.unauthorized", "broker.connection-refused", "broker.name-unresolved", "broker.timeout", "broker.connection-failed"];
+        const reason = reasons.includes(event.data?.reason) ? event.data.reason : "broker.connection-failed";
+        snapshot.broker.state = reason === "broker.unauthorized" ? "unauthorized" : "disconnected";
+        snapshot.broker.lastError = reason;
+        snapshot.broker.lastErrorAt = new Date().toISOString();
+        log("warn", "Server connection failed; will retry", { reason });
+      } else if (event.type === "disconnect") {
         snapshot.broker.state = "disconnected";
         snapshot.broker.lastError = "broker.disconnected";
         snapshot.broker.lastErrorAt = new Date().toISOString();
@@ -32,7 +39,7 @@ export function createDaemonObservation({ dataDir, storePath, agentId, wake, log
         snapshot.broker.state = "connected";
         snapshot.broker.connectedAt = new Date().toISOString();
       }
-      void write();
+      return write();
     },
     observeLog(level, message, data) {
       // Preserve a monitor crash even when SQLite could not record the failed wake.
@@ -43,6 +50,6 @@ export function createDaemonObservation({ dataDir, storePath, agentId, wake, log
         return write();
       }
     },
-    stop() { if (timer) clearInterval(timer); },
+    async stop() { if (timer) clearInterval(timer); await writes; },
   };
 }

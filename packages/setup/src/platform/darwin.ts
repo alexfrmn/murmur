@@ -230,5 +230,10 @@ export function createDarwinAdapter(options: DarwinOptions = {}): PlatformAdapte
       { id: "codex-desktop", installed: await hasApp(["Codex.app", "ChatGPT.app"], "com.openai.codex"), configPath: codexConfig, format: "toml" },
     ];
   }
-  return { manager: "launchd" as const, status, install, start, stop, detectClients };
+  return { manager: "launchd" as const, status, install, start, stop, detectClients,
+    async observeStore(ctx, pid) {
+      validate(ctx);
+      if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+      return observedStore(pid, ctx.storePath);
+    } };
 }

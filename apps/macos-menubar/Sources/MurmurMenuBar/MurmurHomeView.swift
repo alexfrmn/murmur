@@ -185,6 +185,7 @@ struct MurmurHomeView: View {
                     Button(L10n.text("Open an existing connection")) { model.chooseProfile() }.disabled(model.busy)
                 }
             } else {
+                if let service = model.status?.service { ServiceHeading(service: service) }
                 Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
                     .font(.headline).fixedSize(horizontal: false, vertical: true)
                 if let agent = model.agentID { Text(L10n.text("Your assistant: %@", agent)) }
@@ -262,7 +263,7 @@ struct MurmurHomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button(L10n.text("Show reply file")) { model.showReplyFile() }.disabled(model.busy)
             }
-            if model.status?.service.state == .running {
+            if model.status?.service.isRunning == true {
                 Text(L10n.text("Murmur is running. Check the connection after exchanging reply files."))
                     .fixedSize(horizontal: false, vertical: true)
                 Button(L10n.text("Check connection")) { model.refreshDoctor(); model.refreshStatus() }
@@ -273,7 +274,7 @@ struct MurmurHomeView: View {
                 Button(model.operating ? L10n.text("Working…") : L10n.text("Start Murmur on this Mac")) { model.startNewProfile() }
                     .buttonStyle(.borderedProminent).disabled(!model.canStartNewProfile)
             }
-            if model.status?.service.state == .running {
+            if model.status?.service.isRunning == true {
                 Button(L10n.text("Hide setup steps")) { model.hideSetupSteps() }
                     .buttonStyle(.link).font(.caption).disabled(model.busy)
             }
@@ -283,7 +284,8 @@ struct MurmurHomeView: View {
 
     private var service: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(serviceStateTitle).font(.headline)
+            if let service = model.status?.service { ServiceHeading(service: service) }
+            else { Text(L10n.text("Service status unknown")).font(.headline) }
             Text(L10n.text("When the background service is running, you can close this window and messages will still be delivered. Stopping the service stops delivery. Your AI assistant needs its own active session to answer."))
                 .fixedSize(horizontal: false, vertical: true)
             if let enabled = model.status?.wake.config.enabled { Text(L10n.text("Configured: %@", model.wakeState(enabled))) }
@@ -296,9 +298,9 @@ struct MurmurHomeView: View {
             }
             HStack {
                 Button(L10n.text("Start")) { model.perform(.start) }
-                    .disabled(!model.canControl || model.status?.service.state == .running)
+                    .disabled(!model.canControl || model.status?.service.isRunning == true)
                 Button(L10n.text("Stop")) { model.perform(.stop) }
-                    .disabled(!model.canControl || model.status?.service.state == .stopped)
+                    .disabled(!model.canControl || model.status?.service.state == .stopped || model.status?.service.state == .runningUnmanaged)
             }
             Button(L10n.text("Open configured log folder")) { model.openLogs() }.disabled(!model.canControl)
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -311,15 +313,6 @@ struct MurmurHomeView: View {
         }
         if let message = model.operationMessage {
             Text(message).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-        }
-    }
-
-    private var serviceStateTitle: String {
-        switch model.status?.service.state {
-        case .running: L10n.text("Service running")
-        case .stopped: L10n.text("Service stopped")
-        case .failed: L10n.text("Service failed")
-        default: L10n.text("Service status unknown")
         }
     }
 

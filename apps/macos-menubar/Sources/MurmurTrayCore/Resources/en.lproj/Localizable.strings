@@ -140,6 +140,7 @@
 "Service status unknown" = "Service status unknown";
 "Service stopped" = "Service stopped";
 "Service running" = "Service running";
+"Running outside this application's control" = "Running outside this application's control";
 "Edit" = "Edit";
 "Undo" = "Undo";
 "Redo" = "Redo";
@@ -436,5 +437,8 @@
 "Service connected and ready" = "Service connected and ready";
 "Exchange verified" = "Exchange verified";
 "Exchange verification failed" = "Exchange verification failed";
-"Exchange not checked yet" = "Exchange not checked yet";
+"Exchange not checked yet" = "Check the connection with this Contact";
+"Check the connection with this Contact" = "Check the connection with this Contact";
+"Connection available" = "Connection available";
+"No exchange in the last 24 hours — check the connection" = "No exchange in the last 24 hours — check the connection";
 "Exchange verification does not test automatic agent wake." = "Exchange verification does not test wake-up.";

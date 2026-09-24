@@ -76,9 +76,11 @@ type Peer struct {
 	// Paired — null, когда парность неизвестна: наличие локальных ключей само по себе
 	// не доказывает, что пара установлена с обеих сторон, а человек читает из слова
 	// «спарен» именно это.
-	Paired        *bool  `json:"paired"`
-	LastInboundAt string `json:"lastInboundAt"`
-	LastOutbound  string `json:"lastOutboundAt"`
+	Paired         *bool  `json:"paired"`
+	LastInboundAt  string `json:"lastInboundAt"`
+	LastOutbound   string `json:"lastOutboundAt"`
+	LastExchangeAt string `json:"lastExchangeAt"`
+	Connection     string `json:"connection"`
 }
 
 type Delivery struct {
@@ -275,7 +277,7 @@ func resolve(s *Status, err error) Verdict {
 		return Verdict{Level: LevelGrey, Code: "schema.unknown", Reason: tr(presentationMessageKey("schema.unknown", nil))}
 	}
 
-	unread := s.Inbox.Unread != nil && *s.Inbox.Unread > 0
+	unread := s.Wake.Delivery.PendingUndelivered != nil && *s.Wake.Delivery.PendingUndelivered > 0
 	hist := history(s)
 	var missing []string
 	why := map[string]string{}
@@ -308,6 +310,9 @@ func resolve(s *Status, err error) Verdict {
 		return out(LevelGrey, "service.unknown", tr("status.serviceUnknown"))
 	case "failed":
 		return out(LevelRed, "service.failed", tr("status.serviceFailed"))
+	case "running", "running-unmanaged":
+	default:
+		return out(LevelGrey, "service.unknown", tr("status.serviceUnknown"))
 	}
 
 	// missing копит поля, без которых цвет не выводится. Разница между нулём и

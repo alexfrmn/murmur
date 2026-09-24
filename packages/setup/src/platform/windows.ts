@@ -130,6 +130,16 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
   }
   return {
     manager: 'windows-service',
+    async observeStore(c, pid) {
+      validate(c);
+      if (!natural(pid) || pid === 0) return null;
+      const result = await run(await helper(c), ['observe-store', String(pid)], { env: selectedEnvironment(c), timeout: 8000 });
+      if (result.code !== 0) return null; // Older helpers cannot provide this proof.
+      const v = JSON.parse(result.stdout);
+      if (!object(v) || v.schema !== 'murmur.store-proof/1' || v.pid !== pid || typeof v.observedStorePath !== 'string') return null;
+      absolute(v.observedStorePath);
+      return await same(v.observedStorePath, c.storePath) ? canonicalize(v.observedStorePath) : null;
+    },
     async status(c) {
       try { return (await inspect(c)).snapshot; }
       catch (e) { const reason = e instanceof Error && /^service\.(?:[a-z-]+|helper\.[A-Za-z][A-Za-z0-9.]*)$/.test(e.message) ? e.message : 'service.measurement-failed'; return empty(reason); }

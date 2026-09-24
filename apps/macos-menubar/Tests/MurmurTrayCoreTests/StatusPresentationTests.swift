@@ -143,7 +143,7 @@ func runStatusPresentationChecks(fixtures: URL, base: [String: Any], now: Date) 
               "Unpaired status must not display a peer ID")
     count += 1
     for (value, english, russian) in [
-        (NSNull() as Any, "Exchange not checked yet", "Обмен ещё не проверен"),
+        (NSNull() as Any, "Check the connection with this Contact", "Проверьте связь с этим Контактом"),
         (true as Any, "Exchange verified", "Обмен проверен"),
         (false as Any, "Exchange verification failed", "Проверка обмена не пройдена")
     ] {
@@ -152,6 +152,31 @@ func runStatusPresentationChecks(fixtures: URL, base: [String: Any], now: Date) 
         try check(inLanguage(.english) { peer.exchangeDescription } == english
                   && inLanguage(.russian) { peer.exchangeDescription } == russian,
                   "Peer detail must preserve each proof state in EN/RU")
+        count += 1
+    }
+    for (state, english, russian) in [
+        ("running-unmanaged", "Service running", "Служба работает"),
+        ("stopped", "Service stopped", "Служба остановлена")
+    ] {
+        let data = try JSONSerialization.data(withJSONObject: ["state": state])
+        let service = try JSONDecoder().decode(StatusSnapshot.Service.self, from: data)
+        try check(inLanguage(.english) { service.title } == english && inLanguage(.russian) { service.title } == russian,
+                  "Service heading must describe measured liveness in EN/RU")
+        if state == "running-unmanaged" {
+            try check(service.isRunning && inLanguage(.russian) { service.managementDescription } == "Работает вне управления приложения",
+                      "Unmanaged is running, with separate management detail")
+        }
+        count += 1
+    }
+    for (state, english, russian) in [
+        ("connected", "Connection available", "Связь есть"),
+        ("stale", "No exchange in the last 24 hours — check the connection", "За последние 24 часа обмена не было — проверьте связь"),
+        ("unverified", "Check the connection with this Contact", "Проверьте связь с этим Контактом")
+    ] {
+        let data = try JSONSerialization.data(withJSONObject: ["agentId": "synthetic", "connection": state])
+        let peer = try JSONDecoder().decode(StatusSnapshot.Peer.self, from: data)
+        try check(inLanguage(.english) { peer.exchangeDescription } == english && inLanguage(.russian) { peer.exchangeDescription } == russian,
+                  "Contact heading must use measured exchange in EN/RU")
         count += 1
     }
     return count

@@ -9,6 +9,20 @@ import { resolveContext } from '../packages/setup/dist/src/paths.js';
 const context = resolveContext({ platform: 'win32', dataDir: 'C:\\Users\\me\\profile', repoRoot: 'C:\\Program Files\\Murmur\\runtime', nodePath: 'C:\\Program Files\\nodejs\\node.exe', serviceName: 'MurmurFixture' });
 const helper = 'C:\\Program Files\\Murmur\\murmur-svc.exe';
 const canonicalize = async value => path.win32.normalize(value).toLowerCase();
+test('label-independent Windows store proof validates PID and store without SCM mutations', async () => {
+  let response = { schema: 'murmur.store-proof/1', pid: 200, observedStorePath: context.storePath };
+  const calls = [];
+  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, run: async (file, args, options) => {
+    calls.push(args); assert.equal(file, helper); assert.equal(options.env.DATA_DIR, context.dataDir);
+    return { code: 0, stdout: JSON.stringify(response), stderr: '' };
+  } });
+  assert.equal(await adapter.observeStore(context, 200), await canonicalize(context.storePath));
+  for (const delta of [{ pid: 201 }, { observedStorePath: 'C:\\another\\murmur.db' }, { schema: 'future' }, { observedStorePath: null }]) {
+    const original = response; response = { ...response, ...delta };
+    assert.equal(await adapter.observeStore(context, 200), null); response = original;
+  }
+  assert.ok(calls.every(args => JSON.stringify(args) === JSON.stringify(['observe-store', '200'])));
+});
 function native(overrides = {}) {
   return { schema: 'murmur.windows-service/1', serviceName: context.serviceName, manager: 'windows-service', state: 'running',
     profile: { dataDir: context.dataDir, workDir: context.repoRoot, entry: path.win32.join(context.repoRoot, 'scripts', 'murmur-daemon.mjs'), node: context.nodePath, restartsPerHourLimit: 5 },

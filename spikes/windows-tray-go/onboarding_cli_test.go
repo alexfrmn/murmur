@@ -29,7 +29,9 @@ func TestOnboardingAgainstTheRealCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	invite := filepath.Join(root, "murmur-invite.txt")
-	if _, err := runSetupCLI(ctx, inviter, "invite", "--out", invite, "--data-dir", inviter.Profile); err != nil {
+	// Invitations now require a public address (#246). This fixture never starts
+	// a service or connects; the reserved example hostname is metadata only.
+	if _, err := runSetupCLI(ctx, inviter, "invite", "--out", invite, "--broker", "nats://server.example.com:4222", "--data-dir", inviter.Profile); err != nil {
 		t.Fatal(err)
 	}
 	profile := filepath.Join(root, "Мой профиль")

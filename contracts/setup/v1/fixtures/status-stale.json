@@ -107,7 +107,7 @@
   "$stamp": "now-5m",
   "$expect": {
     "level": "grey",
-    "unread": true,
+    "unread": false,
     "code": "snapshot.stale"
   }
 }
