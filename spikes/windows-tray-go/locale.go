@@ -152,6 +152,8 @@ type trayPreferences struct {
 
 var preferencesMu sync.Mutex
 
+var systemLocale = platformLocale
+
 func defaultPreferencesPath() string {
 	base := os.Getenv("LOCALAPPDATA")
 	if base == "" {
@@ -176,7 +178,7 @@ func guideSeenPreference(path string) bool {
 }
 
 func loadTrayPreferences(path string) trayPreferences {
-	defaults := trayPreferences{Schema: "murmur.tray-preferences/1", Locale: defaultLocale}
+	defaults := trayPreferences{Schema: "murmur.tray-preferences/1", Locale: systemLocale()}
 	if path == "" {
 		return defaults
 	}
