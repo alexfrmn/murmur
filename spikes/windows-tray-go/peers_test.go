@@ -14,7 +14,7 @@ func TestPeerDetailsKeepProofSeparateFromReadiness(t *testing.T) {
 		t.Fatalf("healthy runtime should be ready: %#v", v)
 	}
 	lines := peerLinesForStatus(s)
-	if len(lines) != 2 || !strings.Contains(lines[0], "Exchange not checked yet") || s.Peers.List[0].Paired != nil {
+	if len(lines) != 2 || !strings.Contains(lines[0], "Check the connection with this Contact") || s.Peers.List[0].Paired != nil {
 		t.Fatalf("unchecked proof was hidden or fabricated: %v", lines)
 	}
 	yes, no := true, false
@@ -46,5 +46,14 @@ func TestPeerMenuIsBoundedAndPreservesUnknownLists(t *testing.T) {
 	}
 	if !strings.Contains(lines[len(lines)-1], "3") {
 		t.Fatal("overflow must be explicit")
+	}
+}
+
+func TestPeerConnectionUsesRecentExchangeBeforeLegacyProof(t *testing.T) {
+	for connection, key := range map[string]string{"connected": "peer.connected", "stale": "peer.stale", "unverified": "peer.unchecked"} {
+		yes := true
+		if got := peerConnectionKey(Peer{Connection: connection, Paired: &yes}); got != key {
+			t.Fatalf("%s: got %s, expected %s", connection, got, key)
+		}
 	}
 }

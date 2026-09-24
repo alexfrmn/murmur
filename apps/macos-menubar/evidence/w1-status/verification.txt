@@ -1,0 +1,163 @@
+W1 local verification, 2026-09-24
+Base: b7be6a556383cdfb63ac3e2fa17c35e92f1604ef
+Node 22.23.1; Go 1.26.8; isolated local nats-server 2.15.0.
+MURMUR_*, NATS_*, DATA_DIR, STORE_PATH, LOG_DIR, AGENT_CONFIG, BROKER_URL, NODE_OPTIONS and NODE_PATH removed for tests.
+Disposable profiles; local brokers bind loopback on random ports; no live service mutation.
+
+npm run build: PASS
+npm run typecheck: PASS
+
+$ npm run test:unit
+  ...
+1..765
+# tests 765
+# suites 0
+# pass 728
+# fail 0
+# cancelled 0
+# skipped 37
+# todo 0
+# duration_ms 17971.101625
+
+$ .build/debug/MurmurProbeChecks ../../contracts/setup/v1/fixtures
+PASS outbox attention: 12 native checks
+22 connection guidance checks passed
+420 checks passed; canonical 33, transport 7, boundary 38, profile controls 60, updates 78, bundled runtime 25, localization 8, presentation 27, mark 31, onboarding 49, guidance 22, client setup 30, outbox 12
+
+$ go test -json ./... (spikes/windows-tray-go; macOS portable tests)
+pass: 106
+fail: 0
+skip: 1
+TestDumpMarkAcceptance
+
+$ GOOS=windows GOARCH=amd64 go test -c (windows-service-go): PASS
+Windows service test binary cross-built, not executed on macOS; native execution belongs to Go (Windows) CI.
+
+Native development app: swift build PASS.
+First packaging invocation stopped in unchanged UpdatesClient checks with ProbeError.timedOut.
+Serial packaging retry: PASS, including all 420 native checks and 5 packaged localization checks.
+No test timeout was changed. The final UI control guard was also rebuilt incrementally for release.
+
+$ node --test tests/setup-status-live.test.mjs tests/setup-onboarding-live.test.mjs tests/setup-windows.test.mjs
+TAP version 13
+# (node:58388) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: CLI invite handshake proves daemon roundtrip without an AI responder or wake
+ok 1 - CLI invite handshake proves daemon roundtrip without an AI responder or wake
+  ---
+  duration_ms: 8666.570042
+  type: 'test'
+  ...
+# (node:58389) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: real unmanaged daemon reports its first Server failure and its live store without a service install
+ok 2 - real unmanaged daemon reports its first Server failure and its live store without a service install
+  ---
+  duration_ms: 201.309208
+  type: 'test'
+  ...
+# Subtest: label-independent Windows store proof validates PID and store without SCM mutations
+ok 3 - label-independent Windows store proof validates PID and store without SCM mutations
+  ---
+  duration_ms: 2.740375
+  type: 'test'
+  ...
+# Subtest: Windows status maps daemon PID and only observed database, preserving actual restart interval
+ok 4 - Windows status maps daemon PID and only observed database, preserving actual restart interval
+  ---
+  duration_ms: 0.670125
+  type: 'test'
+  ...
+# Subtest: missing helper or command failure stays unknown without exposing command output
+ok 5 - missing helper or command failure stays unknown without exposing command output
+  ---
+  duration_ms: 0.221416
+  type: 'test'
+  ...
+# Subtest: legacy, truncated and contradictory native replies cannot authorize service mutation
+ok 6 - legacy, truncated and contradictory native replies cannot authorize service mutation
+  ---
+  duration_ms: 3.988
+  type: 'test'
+  ...
+# Subtest: each action pins selected profile and drops ambient Node and store overrides
+ok 7 - each action pins selected profile and drops ambient Node and store overrides
+  ---
+  duration_ms: 1.054875
+  type: 'test'
+  ...
+# Subtest: wrong profile refuses start stop and uninstall before mutations
+ok 8 - wrong profile refuses start stop and uninstall before mutations
+  ---
+  duration_ms: 2.064875
+  type: 'test'
+  ...
+# Subtest: not-installed differs from an inaccessible manager, and uninstall verifies absence
+ok 9 - not-installed differs from an inaccessible manager, and uninstall verifies absence
+  ---
+  duration_ms: 0.618291
+  type: 'test'
+  ...
+# Subtest: helper success without requested state does not report a successful start
+ok 10 - helper success without requested state does not report a successful start
+  ---
+  duration_ms: 0.42825
+  type: 'test'
+  ...
+# Subtest: a non-elevated terminal is told to elevate before any SCM mutation
+ok 11 - a non-elevated terminal is told to elevate before any SCM mutation
+  ---
+  duration_ms: 0.67
+  type: 'test'
+  ...
+# Subtest: an unmeasurable integrity level leaves the decision to the service manager
+ok 12 - an unmeasurable integrity level leaves the decision to the service manager
+  ---
+  duration_ms: 0.6175
+  type: 'test'
+  ...
+# Subtest: this process integrity level is measured on Windows
+ok 13 - this process integrity level is measured on Windows # SKIP
+  ---
+  duration_ms: 0.076667
+  type: 'test'
+  ...
+# Subtest: a whoami.exe planted earlier in PATH does not decide elevation
+ok 14 - a whoami.exe planted earlier in PATH does not decide elevation # SKIP
+  ---
+  duration_ms: 0.024166
+  type: 'test'
+  ...
+# Subtest: invalid paths and names fail before any helper call
+ok 15 - invalid paths and names fail before any helper call
+  ---
+  duration_ms: 0.124291
+  type: 'test'
+  ...
+# Subtest: canonical DATA_DIR rejects conflict and explicit selection overrides ambient profiles
+ok 16 - canonical DATA_DIR rejects conflict and explicit selection overrides ambient profiles
+  ---
+  duration_ms: 0.863959
+  type: 'test'
+  ...
+# Subtest: distinct canonical case-sensitive profiles cannot authorize an action
+ok 17 - distinct canonical case-sensitive profiles cannot authorize an action
+  ---
+  duration_ms: 0.202
+  type: 'test'
+  ...
+# Subtest: Windows logs refuses to advertise a different configured folder
+ok 18 - Windows logs refuses to advertise a different configured folder # SKIP
+  ---
+  duration_ms: 0.017875
+  type: 'test'
+  ...
+1..18
+# tests 18
+# suites 0
+# pass 15
+# fail 0
+# cancelled 0
+# skipped 3
+# todo 0
+# duration_ms 8767.282166

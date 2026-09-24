@@ -121,8 +121,23 @@ private enum StatusReason {
 /// Shared contract with 2.11 acknowledgement/pause policy. Unknown measurements never imply success.
 public struct StatusSnapshot: Decodable, Sendable {
     public struct Service: Decodable, Sendable {
-        public enum State: String, Decodable, Sendable { case running, stopped, failed, unknown }
+        public enum State: String, Decodable, Sendable {
+            case running, stopped, failed, unknown
+            case runningUnmanaged = "running-unmanaged"
+        }
         public let state: State?
+        public var isRunning: Bool { state == .running || state == .runningUnmanaged }
+        public var title: String {
+            switch state {
+            case .running, .runningUnmanaged: L10n.text("Service running")
+            case .stopped: L10n.text("Service stopped")
+            case .failed: L10n.text("Service failed")
+            default: L10n.text("Service status unknown")
+            }
+        }
+        public var managementDescription: String? {
+            state == .runningUnmanaged ? L10n.text("Running outside this application's control") : nil
+        }
         public let restartCount: Int?, restartWindowMs: Int?, restartsLastHour: Int?
         public let lastFailureAt: String?, lastExitCode: Int?
     }
@@ -134,7 +149,15 @@ public struct StatusSnapshot: Decodable, Sendable {
     public struct Peer: Decodable, Sendable {
         public let agentId: String
         public let paired: Bool?
+        public let lastExchangeAt: String?
+        public let connection: String?
         public var exchangeDescription: String {
+            switch connection {
+            case "connected": return L10n.text("Connection available")
+            case "stale": return L10n.text("No exchange in the last 24 hours — check the connection")
+            case "unverified": return L10n.text("Check the connection with this Contact")
+            default: break // Older engines retain their explicit proof without inventing an exchange date.
+            }
             switch paired {
             case true: return L10n.text("Exchange verified")
             case false: return L10n.text("Exchange verification failed")
@@ -212,7 +235,7 @@ public struct StatusSnapshot: Decodable, Sendable {
     }
 
     public func verdict(now: Date = Date()) -> Verdict {
-        let unread = (inbox.unread ?? 0) > 0
+        let unread = (wake.delivery.pendingUndelivered ?? 0) > 0
         var missing: [String] = []
         var missingWhy: [String: String] = [:]
         func note(_ path: String, _ reason: String? = nil) {
@@ -231,7 +254,7 @@ public struct StatusSnapshot: Decodable, Sendable {
         case .stopped: return result(.stopped, "service.stopped", L10n.text("Service stopped"))
         case .unknown, nil: return result(.unknown, "service.unknown", L10n.text("Service status unknown"))
         case .failed: return result(.failed, "service.failed", L10n.text("Service failed"))
-        case .running: break
+        case .running, .runningUnmanaged: break
         }
         if outbox.queue.failed == nil { note("outbox.queue.failed") }
         if outbox.queue.dlq == nil { note("outbox.queue.dlq") }

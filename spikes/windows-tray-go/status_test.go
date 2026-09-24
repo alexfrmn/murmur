@@ -39,13 +39,13 @@ func TestResolveLevels(t *testing.T) {
 		want    Level
 		unread  bool
 	}{
-		{"status-green.json", LevelGreen, true},
-		{"status-yellow.json", LevelYellow, true},
-		{"status-red.json", LevelRed, true},
-		{"status-grey.json", LevelGrey, true},
+		{"status-green.json", LevelGreen, false},
+		{"status-yellow.json", LevelYellow, false},
+		{"status-red.json", LevelRed, false},
+		{"status-grey.json", LevelGrey, false},
 		{"status-no-peers.json", LevelYellow, false},
 		{"status-unmeasured.json", LevelGrey, false},
-		{"status-pairing-unknown.json", LevelGreen, true},
+		{"status-pairing-unknown.json", LevelGreen, false},
 	}
 	for _, c := range cases {
 		v := resolve(load(t, c.fixture), nil)

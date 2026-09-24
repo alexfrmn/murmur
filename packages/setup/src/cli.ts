@@ -94,6 +94,7 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
   if (command === 'inbox' && action === 'read') return readInbox(context, values.limit === undefined ? 20 : Number(values.limit));
   if (command === 'inbox' && action === 'mark-read') return markInboxRead(context);
   if (command === 'service' && ['install', 'start', 'stop', 'uninstall'].includes(action)) {
+    if ((await readStatus({ context, adapter })).service.state === 'running-unmanaged') throw new Error('service.running-unmanaged');
     const operation = adapter[action as 'install' | 'start' | 'stop' | 'uninstall'];
     if (!operation) throw new Error('service.uninstall-unavailable');
     await operation.call(adapter, context);

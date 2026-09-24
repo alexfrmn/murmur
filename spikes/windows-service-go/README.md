@@ -1,5 +1,11 @@
 # `murmur-svc` — адаптер службы Windows
 
+2.12: read-only `observe-store <pid>` checks the selected `DATA_DIR/murmur.db`
+through Restart Manager without opening SCM or changing the service. It returns
+`murmur.store-proof/1` JSON with `pid` and nullable `observedStorePath`. The setup
+engine separately verifies fresh Identity/store/PID-bound runtime observation;
+the helper does not claim that every process holding the file is a Murmur daemon.
+
 Демон Murmur это node-процесс, а диспетчер служб Windows запускает только программу,
 которая отвечает ему на управляющие сообщения. `node.exe` на них не отвечает, поэтому
 между SCM и демоном нужен хост — то, чем для чужих программ служит NSSM. Здесь он свой,

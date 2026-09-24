@@ -3,13 +3,14 @@
   "generatedAt": "1970-01-01T00:00:00Z",
   "agentId": "agent-misha",
   "service": {
-    "state": "running",
-    "manager": "windows-service",
+    "state": "running-unmanaged",
+    "manager": "none",
     "since": "2026-09-19T11:03:45Z",
     "pid": 18232,
     "lastExitCode": null,
     "lastFailureAt": null,
-    "restartsLastHour": 0
+    "restartsLastHour": 0,
+    "managed": false
   },
   "broker": {
     "url": "nats://nats.server-pilot.ru:4222",
@@ -59,7 +60,7 @@
       "inflight": 0,
       "delivered": 45,
       "failed": 0,
-      "dlq": 1,
+      "dlq": 0,
       "oldestPendingAt": null,
       "unknownReason": null
     },
@@ -106,8 +107,8 @@
   },
   "$stamp": "now",
   "$expect": {
-    "level": "yellow",
+    "level": "green",
     "unread": false,
-    "code": "outbox.dead-letter"
+    "code": "ok"
   }
 }

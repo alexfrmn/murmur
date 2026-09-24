@@ -177,6 +177,12 @@ observeLog = observation.observeLog;
 const codexAppServerInjector = createCodexAppServerInjector({ log, resolveThreadStartBinding: threadStartBindingResolver, threadStore: msgStore });
 if (channelRosterEnabled) log("info", "Channel roster thread-start binding enabled", { channelRosterPath });
 const broker = new NatsBroker({
+  // Observe every initial failure. NATS waitOnFirstConnect otherwise hides all
+  // errors inside an unresolved connect promise, before status() is available.
+  // Keep the daemon's existing unbounded startup recovery in our observable loop.
+  waitOnFirstConnect: false,
+  connectMaxAttempts: Infinity,
+  connectBaseBackoffMs: 2000,
   url: natsUrl,
   token: natsToken,
   jetstream: jetstreamEnabled,
@@ -410,7 +416,7 @@ const flushLoop = async () => {
 const shutdown = async (signal) => {
   log("info", "Shutdown signal received, draining NATS", { signal });
   running = false;
-  observation.stop();
+  await observation.stop();
   try {
     await broker.close();
   } catch (err) {

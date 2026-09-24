@@ -54,7 +54,7 @@ export interface BrokerConfig {
   pingInterval?: number;
   maxPingOut?: number;
   waitOnFirstConnect?: boolean;
-  onStatus?: (status: BrokerStatusEvent) => void;
+  onStatus?: (status: BrokerStatusEvent) => void | Promise<void>;
 }
 
 export type MessageHandler = (envelope: EnvelopeV1) => Promise<void>;
@@ -113,6 +113,18 @@ export const buildNatsConnectionOptions = (config: BrokerConfig): ConnectionOpti
 
 const ADVISORY_FAILURE_LOG_INTERVAL_MS = 60_000;
 
+/** Stable diagnostics only: never copy an endpoint, token, or arbitrary error text. */
+export function brokerConnectionReason(error: unknown): string {
+  const code = (error as { code?: string })?.code;
+  switch (code) {
+    case 'AUTHORIZATION_VIOLATION': case 'AUTHENTICATION_EXPIRED': return 'broker.unauthorized';
+    case 'ECONNREFUSED': case 'CONNECTION_REFUSED': return 'broker.connection-refused';
+    case 'ENOTFOUND': case 'EAI_AGAIN': return 'broker.name-unresolved';
+    case 'ETIMEDOUT': case 'TIMEOUT': case 'CONNECTION_TIMEOUT': return 'broker.timeout';
+    default: return 'broker.connection-failed';
+  }
+}
+
 export class NatsBroker {
   private nc?: NatsConnection;
   private js?: JetStreamClient;
@@ -149,6 +161,14 @@ export class NatsBroker {
         return;
       } catch (err) {
         lastErr = err;
+        // A connection can succeed before JetStream setup fails. Dispose that
+        // half-initialized connection before the next attempt, including its loop.
+        if (this.nc) {
+          await this.nc.close();
+          await this.statusLoop;
+          this.nc = undefined; this.js = undefined; this.jsm = undefined;
+        }
+        await this.config.onStatus?.({ type: 'connect_error', data: { reason: brokerConnectionReason(err) }, reconnects: this.reconnects });
         if (attempt >= maxAttempts) break;
         const sleepMs = applyJitter(computeBackoffMs(attempt, baseBackoffMs), jitterRatio);
         await new Promise((resolve) => setTimeout(resolve, sleepMs));

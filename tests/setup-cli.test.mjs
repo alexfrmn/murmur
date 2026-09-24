@@ -40,6 +40,10 @@ test('doctor stops at daemon and gives all six stages without broker side effect
   const f = await fixture(t); const report = await runDoctor({ context: f.context, adapter: stopped });
   assert.equal(report.summary.failedStage, 'daemon'); assert.equal(report.stages.length, 6);
   assert.deepEqual(report.stages.slice(2).map(s => s.reason), Array(4).fill('blocked-by:daemon'));
+  assert.equal(report.peerCheck, null);
+  const selected = await runDoctor({ context: f.context, adapter: stopped, peer: 'agent-b' });
+  assert.deepEqual(selected.peerCheck, { peerId: 'agent-b', state: 'failed', lastExchangeAt: null,
+    requestMsgId: null, replyMsgId: null, reason: 'daemon.not-running' });
 });
 test('pause command backs up private config and honestly reports required restart', async t => {
   const f = await fixture(t);

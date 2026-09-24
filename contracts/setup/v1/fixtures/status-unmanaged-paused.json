@@ -3,13 +3,14 @@
   "generatedAt": "1970-01-01T00:00:00Z",
   "agentId": "agent-misha",
   "service": {
-    "state": "running",
-    "manager": "windows-service",
+    "state": "running-unmanaged",
+    "manager": "none",
     "since": "2026-09-19T11:03:45Z",
     "pid": 18232,
     "lastExitCode": null,
     "lastFailureAt": null,
-    "restartsLastHour": 0
+    "restartsLastHour": 0,
+    "managed": false
   },
   "broker": {
     "url": "nats://nats.server-pilot.ru:4222",
@@ -59,7 +60,7 @@
       "inflight": 0,
       "delivered": 45,
       "failed": 0,
-      "dlq": 1,
+      "dlq": 0,
       "oldestPendingAt": null,
       "unknownReason": null
     },
@@ -82,13 +83,13 @@
   ],
   "wake": {
     "config": {
-      "enabled": true,
+      "enabled": false,
       "mode": "monitor",
       "responder": "claude-code",
       "unknownReason": null
     },
     "delivery": {
-      "pendingUndelivered": 0,
+      "pendingUndelivered": 12,
       "lastDeliveredAt": "2026-09-19T12:40:18Z",
       "unknownReason": null
     },
@@ -98,7 +99,7 @@
       "unknownReason": null
     },
     "effective": {
-      "enabled": true,
+      "enabled": false,
       "needsRestart": false,
       "observedAt": "2026-09-19T12:40:18Z",
       "unknownReason": null
@@ -107,7 +108,7 @@
   "$stamp": "now",
   "$expect": {
     "level": "yellow",
-    "unread": false,
-    "code": "outbox.dead-letter"
+    "unread": true,
+    "code": "wake.paused-pending"
   }
 }

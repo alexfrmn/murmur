@@ -12,7 +12,7 @@ export interface ServiceContext {
 export type ServiceManager = "windows-service" | "scheduled-task" | "launchd" | "systemd" | "none";
 
 export interface ServiceSnapshot {
-  state: "running" | "stopped" | "failed" | "unknown";
+  state: "running" | "running-unmanaged" | "stopped" | "failed" | "unknown";
   manager: ServiceManager;
   since: string | null;
   pid: number | null;
@@ -36,6 +36,8 @@ export interface ClientDetection {
 export interface PlatformAdapter {
   manager: ServiceManager;
   status(context: ServiceContext): Promise<ServiceSnapshot>;
+  /** Read-only proof that this PID currently holds the selected store open. */
+  observeStore?(context: ServiceContext, pid: number): Promise<string | null>;
   install(context: ServiceContext): Promise<void>;
   start(context: ServiceContext): Promise<void>;
   stop(context: ServiceContext): Promise<void>;

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { constants } from "node:fs";
-import { access, mkdir, open, readdir, readlink, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -60,8 +60,20 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
     check(c); sameLoadedPath(c, await inspect(c));
     if (await readOwned(c) !== renderLinuxUnit(c)) throw new Error("service.profile-mismatch");
   }
+  async function observeStore(c: ServiceContext, pid: number): Promise<string | null> {
+    check(c);
+    if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+    try {
+      const expected = await realpath(c.storePath), fdDir = path.join(options.procDir ?? "/proc", String(pid), "fd");
+      for (const fd of await readdir(fdDir)) {
+        try { if (await realpath(path.join(fdDir, fd)) === expected) return expected; } catch {}
+      }
+    } catch { /* Inaccessible or exited processes are not liveness evidence. */ }
+    return null;
+  }
   return {
     manager: "systemd",
+    observeStore,
     async status(c) {
       check(c);
       const result: ServiceSnapshot = { state: "unknown", manager: "systemd", since: null, pid: null,
@@ -76,14 +88,7 @@ export function createLinuxAdapter(options: LinuxOptions = {}): PlatformAdapter 
       result.lastExitCode = /^\d+$/.test(values.ExecMainStatus ?? "") ? Number(values.ExecMainStatus) : null;
       const started = Date.parse(values.ActiveEnterTimestamp ?? "");
       result.since = Number.isFinite(started) ? new Date(started).toISOString() : null;
-      if (result.pid) {
-        try {
-          const expected = await realpath(c.storePath), fdDir = path.join(options.procDir ?? "/proc", String(result.pid), "fd");
-          for (const fd of await readdir(fdDir)) {
-            try { if (await readlink(path.join(fdDir, fd)) === expected) { result.observedStorePath = expected; break; } } catch {}
-          }
-        } catch { /* Inaccessible descriptors mean unverified, not guessed from config. */ }
-      }
+      if (result.pid) result.observedStorePath = await observeStore(c, result.pid);
       return result;
     },
     async install(c) {
