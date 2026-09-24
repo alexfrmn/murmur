@@ -11,13 +11,19 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const adapter = { manager: 'none' };
 
 async function fixture(t) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-lines-'));
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-lines-'));
+  t.after(() => fs.rm(sandbox, { recursive: true, force: true }));
+  // Windows PowerShell creates AppData under USERPROFILE while applying ACLs.
+  // Keep OS home state separate so the exchange directory proves no files are needed.
+  const dir = path.join(sandbox, 'exchange'), home = path.join(sandbox, 'home');
+  await fs.mkdir(dir); await fs.mkdir(home);
   const command = (id, args, input) => main([...args, '--data-dir', path.join(dir, id)], adapter, input);
   const config = id => fs.readFile(path.join(dir, id, 'agent-config.json'), 'utf8').then(JSON.parse);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('MURMUR_') && !key.startsWith('NATS_') && !['DATA_DIR', 'STORE_PATH', 'NODE_OPTIONS', 'NODE_PATH'].includes(key)));
   const cli = (id, args, input = '') => spawnSync(process.execPath, ['packages/setup/bin/murmur.mjs', ...args, '--data-dir', path.join(dir, id)], {
-    cwd: root, env: { ...env, HOME: dir, USERPROFILE: dir }, input, encoding: 'utf8', timeout: 15000,
+    cwd: root, env: { ...env, HOME: home, USERPROFILE: home,
+      APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(home, 'AppData', 'Local') },
+    input, encoding: 'utf8', timeout: 15000,
   });
   await command('a', ['init', '--agent-id', 'a', '--broker-url', 'nats://server.example.com:4222']);
   return { dir, command, config, cli };
