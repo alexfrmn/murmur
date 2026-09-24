@@ -67,6 +67,11 @@ test("a long turn keeps the outbox moving without a second wake or reordering in
   const dir = mkdtempSync(join(tmpdir(), "flush-tick-"));
   const store = new SQLiteMessageStore(join(dir, "murmur.db"));
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // Poll instead of fixed pauses: a loaded CI runner must not turn a slow wake into a failure.
+  const until = async (check, ms = 5000) => {
+    for (const end = Date.now() + ms; Date.now() < end; await sleep(10)) if (await check()) return true;
+    return check();
+  };
   const calls = [], active = new Map(), gates = new Map();
   let maxLane = 0, outbox = 0, running = true;
   const receive = async (msgId, conversationId) => {
@@ -99,17 +104,17 @@ test("a long turn keeps the outbox moving without a second wake or reordering in
       monitor.onInbound(await receive(msgId, conversationId)).catch(() => {});
       await sleep(20);
     }
-    await sleep(200);
-    assert.ok(outbox - before >= 3, `outbox flushes during the turn: ${outbox - before}`);
-    assert.ok(calls.includes("n1"), "another conversation is woken meanwhile");
+    assert.ok(await until(() => calls.includes("n1")), "another conversation is woken meanwhile");
+    assert.ok(await until(() => outbox - before >= 3), `outbox flushes during the turn: ${outbox - before}`);
     assert.ok(!calls.includes("m2"), "the same conversation waits behind m1");
     release();
-    await sleep(300);
+    const ids = ["m1", "m2", "m3", "n1"];
+    await until(async () => (await Promise.all(ids.map((id) => store.wakeStateFor(id)))).every((state) => state.status === "handled"));
     running = false; await loop;
     assert.deepEqual(calls.filter((id) => id !== "n1"), ["m1", "m2", "m3"]);
     assert.equal(new Set(calls).size, calls.length, `no duplicate wakes: ${calls}`);
     assert.equal(maxLane, 1);
-    for (const id of ["m1", "m2", "m3", "n1"]) assert.equal((await store.wakeStateFor(id)).status, "handled");
+    for (const id of ids) assert.equal((await store.wakeStateFor(id)).status, "handled");
   } finally {
     release(); running = false; await loop;
     store.close(); rmSync(dir, { recursive: true, force: true });
