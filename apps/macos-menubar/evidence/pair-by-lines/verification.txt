@@ -39,7 +39,7 @@ PASS native ru: public-address prompt, credential gate, clipboard Invitation, le
 PASS native ru: copied Invitation stays out of visible output, with or without a Server key
 22 native checks passed; no Service or network exchange claimed
 
-Full local logs (outside git): /Users/alex/.codex/workspaces/murmur-2.12/mac-pair-by-lines-proof/
+Full local logs (outside git): <private-proof-directory>/
   review-build.log
   review-vocabulary.log
   review-native-build.log

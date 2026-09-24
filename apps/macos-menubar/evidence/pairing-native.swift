@@ -72,7 +72,9 @@ import MurmurTrayCore
                                    accessFile: name == "access-file" ? invalidAccess : nil)
             try await settled(model)
             precondition(model.creationError == expected && model.pairingError == nil && model.profile == nil)
-            try capture(MurmurHomeView(model: model), to: pictures.appendingPathComponent("after-init-\(name)-\(language).png"), height: 760)
+            // Capture the error-bearing component without exposing the recovery
+            // screen's absolute temporary profile path in published evidence.
+            try capture(CreateProfileSheet(model: model), to: pictures.appendingPathComponent("after-init-\(name)-\(language).png"), height: 760)
             precondition(model.pendingCanRetryCreation)
             model.discardEmptySetup()
             precondition(!model.hasPendingSetup)
@@ -178,6 +180,11 @@ import MurmurTrayCore
         let afterBlockedJoin = try Data(contentsOf: configFile)
         precondition(!first.showPairingSheet && first.profile == originalProfile && afterBlockedJoin == before)
         precondition(!first.hasPendingSetup && UserDefaults.standard.string(forKey: "profileDirectory") == selectedDirectory)
+        first.beginInviting()
+        let afterBlockedInvite = try Data(contentsOf: configFile)
+        precondition(!first.showCreateProfileSheet && !first.showPairingSheet && first.profile == originalProfile && afterBlockedInvite == before)
+        precondition(UserDefaults.standard.string(forKey: "profileDirectory") == selectedDirectory)
+        print("PASS native \(language): unavailable current Identity cannot open creation through Invite a colleague")
         first.status = verifiedStatus
         precondition(first.canUseInvitation && first.invitationBlockReason == nil)
         print("PASS native \(language): unverified current Identity explains blocked Invitation action and stays unchanged")
@@ -226,6 +233,6 @@ import MurmurTrayCore
         clipboard.clearContents()
         print("PASS native \(language): public-address prompt, credential gate, clipboard Invitation, legacy/Cf/quoted stdin join, clipboard Reply, legacy/Cf/quoted stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter, existing Identity form, different tokens refused unchanged, identical Cf quote accepted with Identity and keys preserved, existing Reply and both Contacts, Server conflict unchanged, changed selection refused")
         print("PASS native \(language): copied Invitation stays out of visible output, with or without a Server key")
-        print("22 native checks passed; no Service or network exchange claimed")
+        print("23 native checks passed; no Service or network exchange claimed")
     }
 }

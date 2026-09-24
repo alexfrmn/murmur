@@ -477,3 +477,7 @@
 "This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use." = "This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use.";
 "Refresh the status of this Identity before using an Invitation." = "Refresh the status of this Identity before using an Invitation.";
 "Choose an existing connection before using an Invitation." = "Choose an existing connection before using an Invitation.";
+"Message exchange" = "Message exchange";
+"The Server access key must be one line. Ask for the correct key and save it again." = "The Server access key must be one line. Ask for the correct key and save it again.";
+"The Server access file was not found. Choose it again." = "The Server access file was not found. Choose it again.";
+"The Server access file cannot be opened. Choose a file your account can read." = "The Server access file cannot be opened. Choose a file your account can read.";

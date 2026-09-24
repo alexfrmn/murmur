@@ -2,6 +2,16 @@ import Foundation
 
 public enum OnboardingError: Error, LocalizedError, Sendable {
     case invalidAgent, invalidServer, invalidFile, unsafeLocation, replyExists, invalidReceipt
+    case invalidAccessFile, accessFileMissing, accessFileDenied
+
+    static func fromCLI(code: String?) -> Self? {
+        switch code {
+        case "onboarding.token-file-invalid": .invalidAccessFile
+        case "onboarding.token-file-not-found": .accessFileMissing
+        case "onboarding.token-file-access-denied": .accessFileDenied
+        default: nil
+        }
+    }
     public var errorDescription: String? {
         switch self {
         case .invalidAgent: L10n.text("Use an agent name with letters, numbers, hyphens or underscores")
@@ -10,6 +20,9 @@ public enum OnboardingError: Error, LocalizedError, Sendable {
         case .unsafeLocation: L10n.text("Murmur could not use its private profile folder")
         case .replyExists: L10n.text("A reply file already exists. Choose the created profile to continue")
         case .invalidReceipt: L10n.text("Profile creation was not confirmed. Your files were kept")
+        case .invalidAccessFile: L10n.text("The Server access key must be one line. Ask for the correct key and save it again.")
+        case .accessFileMissing: L10n.text("The Server access file was not found. Choose it again.")
+        case .accessFileDenied: L10n.text("The Server access file cannot be opened. Choose a file your account can read.")
         }
     }
 }
