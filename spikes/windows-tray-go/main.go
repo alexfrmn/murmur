@@ -2,7 +2,7 @@
 
 package main
 
-// Значок Murmur для Windows. Окон нет, Electron нет: состояние видно цветом, детали —
+// Значок Murmur для Windows. Состояние видно цветом, детали —
 // в меню. Данные берутся только из murmur status --json и murmur doctor --json.
 
 import (
@@ -240,18 +240,25 @@ func (a *app) onReady() {
 	a.mQuit = systray.AddMenuItem(tr("menu.quit"), tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
 
+	if needsFirstRun() {
+		go a.showFirstRun()
+	}
 	go a.pollLoop()
 	go a.refreshDoctor()
 	go a.handleClicks()
 	go a.updateLoop()
 	go func() {
 		for a.instance.wait() {
-			_ = openOwnMenu()
+			if needsFirstRun() {
+				go a.showFirstRun()
+			} else {
+				_ = openOwnMenu()
+			}
 		}
 	}()
 	if a.guideSignal != nil {
 		go func() {
-			if a.guideSignal.wait() && !guideSeenPreference(a.preferencesPath) {
+			if a.guideSignal.wait() && !needsFirstRun() && !guideSeenPreference(a.preferencesPath) {
 				a.showGuide()
 			}
 		}()
@@ -606,11 +613,14 @@ func (a *app) renderPeers() {
 }
 
 func (a *app) changeLocale(locale string) {
-	if !validLocale(locale) || locale == currentLocale() {
+	if !validLocale(locale) {
 		return
 	}
 	if err := saveLocalePreference(a.preferencesPath, locale); err != nil {
 		systray.SetTooltip(tr("language.saveFailed", err))
+		return
+	}
+	if locale == currentLocale() {
 		return
 	}
 	setLocale(locale)
@@ -758,4 +768,11 @@ func (a *app) openExistingProfile() {
 	a.pinnedAgent = "" // a different profile is a different identity
 	a.mu.Unlock()
 	a.refreshStatus()
+}
+
+func (a *app) showFirstRun() {
+	err := runFirstRun(firstRunActions{withSetupNode(a.connectToColleague), withSetupNode(a.inviteColleague), withSetupNode(a.openExistingProfile)}, a.changeLocale)
+	if err != nil {
+		tell("Murmur", tr("guide.failed"))
+	}
 }

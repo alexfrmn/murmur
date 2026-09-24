@@ -1,18 +1,19 @@
 # Windows companion bundle
 
-Start with **Open-Murmur.cmd**. It binds the engine and profile and creates your
-shortcuts. `murmur-tray.exe` is the internal tray process started by that launcher.
+Open Murmur from its installed shortcut, or run **murmur-tray.exe** from the
+portable bundle. Without an Identity it opens a window with three choices:
+**I have an invitation**, **Invite a colleague**, and **I have used Murmur before**.
+The window includes English / Русский. Reopening Murmur without an Identity opens
+this window again; no launcher flag is needed.
 
 Keep `Open-Murmur.cmd`, `Open-Murmur.ps1`, `murmur-tray.exe`, `murmur.ico` and `runtime/` together.
 The runtime is the prebuilt portable engine; Windows adds its matching native
 `runtime/bin/murmur-svc.exe`. Node.js 22.13.0 or newer is external. No Go/npm/build is
 needed on the recipient's machine. Unsigned binaries may trigger Windows warnings.
 
-No terminal is needed: with no profile yet, the tray offers "Connect to a colleague…"
-(choose the invitation file; it creates the profile, saves the reply for the colleague,
-installs the service after one Windows consent prompt and connects Claude Code and Codex)
-and, for profiles made with the CLI, "Open an existing profile…". Double-click `Open-Murmur.cmd` or `murmur-tray.exe`: the tray finds the profile the launcher
-last opened or the default one, and says "Murmur is not set up yet" when there is none.
+The first choice starts setup from a colleague's Invitation. The third opens an
+existing Identity folder. The tray reuses the last selected Identity or the
+default one. The shared setup engine owns creation, Service and Assistant setup.
 An explicit `-DataDir` still selects another existing profile.
 The launcher checks the local runtime and actual tray-to-CLI identity before
 opening the menu. It does not create a profile or write client config. After the
@@ -39,7 +40,7 @@ window. Ordinary users can inspect status and change the configured wake pause;
 Service Start/Stop in the tray asks Windows for administrator consent (UAC) once
 per action and runs the same CLI command elevated; declining changes nothing.
 
-The tray is English on a fresh profile regardless of the Windows display language. Use
+On first run the tray uses the Windows display language (Russian or English). Use
 `-Language ru` to open it in Russian; `-Language en` switches back to English. The
 choice is saved in `%LOCALAPPDATA%\Murmur\tray-preferences.json`, reused when
 `-Language` is omitted, and can also be changed from the tray's **Language** menu.

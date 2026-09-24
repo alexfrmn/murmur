@@ -49,7 +49,14 @@ func discoverCLI() (cliBinding, error) {
 	if b.Node, err = filepath.Abs(b.Node); err != nil {
 		return b, errors.New(tr("binding.noNode"))
 	}
-	local := os.Getenv("LOCALAPPDATA")
+	identity, err := discoverIdentity(os.Getenv("LOCALAPPDATA"))
+	b.Profile, b.Service = identity.Profile, identity.Service
+	return b, err
+}
+
+// Shared identity selection; first run must work without Node.
+func discoverIdentity(local string) (cliBinding, error) {
+	b := cliBinding{}
 	if !filepath.IsAbs(local) {
 		return b, notConfigured()
 	}
