@@ -19,7 +19,14 @@ The tarball includes the CLI, daemon, MCP entry, and prebuilt Windows x64 servic
 helper. It does not include a desktop application. On Windows PowerShell use
 `npm.cmd` and `murmur.cmd` if execution policy blocks the PowerShell shims.
 
-Run the following with the same absolute profile path on each line:
+Use the same absolute profile path for every command below.
+
+To create an Invitation, use `murmur invite --out /private/invite.txt --data-dir /absolute/profile`.
+If the profile uses a private Server address, ask for that Server's public address
+and add `--broker nats://server.example.com:4222`. The Invitation uses this address;
+the Service keeps its existing settings. A private override is also refused.
+
+To accept an Invitation:
 
 ```sh
 murmur join --agent-id YOUR-AGENT --invite-file /private/invite.txt --reply-out /private/reply.txt --data-dir /absolute/profile

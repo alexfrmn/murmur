@@ -16,7 +16,7 @@ async function fixture(t) {
   process.env.LOCALAPPDATA = local; process.env.APPDATA = roaming;
   t.after(async () => { Object.assign(process.env, saved); await fs.rm(root, { recursive: true, force: true }); });
   const invite = path.join(root, 'invite.txt');
-  await main(['init', '--agent-id', 'agent-a', '--broker-url', 'nats://127.0.0.1:4222', '--data-dir', path.join(root, 'agent-a')], { manager: 'none' });
+  await main(['init', '--agent-id', 'agent-a', '--broker-url', 'nats://server.example.com:4222', '--data-dir', path.join(root, 'agent-a')], { manager: 'none' });
   await main(['invite', '--out', invite, '--data-dir', path.join(root, 'agent-a')], { manager: 'none' });
   const join = dataDir => main(['join', '--agent-id', 'agent-b', '--invite-file', invite, '--reply-out', path.join(root, `reply-${path.basename(dataDir)}.txt`), '--data-dir', dataDir], { manager: 'none' });
   return { root, local, cache, join };

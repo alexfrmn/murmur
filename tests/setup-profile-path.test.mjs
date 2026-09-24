@@ -28,7 +28,7 @@ test('init, join and status name the service that this exact profile path select
   const adapter = { manager: 'none', status: async () => ({ state: 'stopped', manager: 'none', pid: null, since: null, lastExitCode: null, observedStorePath: null, restartCount: null, restartWindowMs: null }) };
   const a = path.join(root, 'agent-a'), b = path.join(root, 'agent-b'), invite = path.join(root, 'invite.txt');
   const name = dir => resolveContext({ dataDir: dir }).serviceName;
-  assert.equal((await main(['init', '--agent-id', 'agent-a', '--broker-url', 'nats://127.0.0.1:4222', '--data-dir', a], adapter)).serviceName, name(a));
+  assert.equal((await main(['init', '--agent-id', 'agent-a', '--broker-url', 'nats://server.example.com:4222', '--data-dir', a], adapter)).serviceName, name(a));
   await main(['invite', '--out', invite, '--data-dir', a], adapter);
   assert.equal((await main(['join', '--agent-id', 'agent-b', '--invite-file', invite, '--reply-out', path.join(root, 'reply.txt'), '--data-dir', b], adapter)).serviceName, name(b));
   assert.equal((await main(['status', '--json', '--data-dir', b], adapter)).serviceName, name(b));

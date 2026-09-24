@@ -39,13 +39,26 @@ output and shell arguments.
 1. `init --agent-id ID --broker-url URL [--token-file ABSOLUTE_FILE]` creates a
    private identity. Repeating it with the same ID and broker preserves the keys
    and credentials. Conflicting existing identity is rejected.
-2. `invite --out ABSOLUTE_FILE` writes a new private invitation file. It contains
+2. `invite --out ABSOLUTE_FILE [--broker PUBLIC_URL]` writes a new private invitation file. It contains
    public peer keys and may contain the broker token; transfer it through a trusted
    channel. Credentials are not printed in the command result or passed as token
    arguments. An existing output file is never overwritten. Invitation and reply outputs must
    have an already-existing parent and be outside the managed data directory, including
    symlink and filesystem case aliases; a reply path
    must never name a private config, database, cursor or future runtime state file.
+   The Invitation must carry a public Server address. Private, loopback, link-local,
+   shared-address (100.64/10), unique-local IPv6 and local hostnames are refused
+   before an output file is created, including IPv4-mapped IPv6 and alternate
+   IPv4 spellings. If the current profile uses a private address, supply the same
+   Server's public address explicitly with `--broker nats://server.example.com:4222`
+   (or `tls://...`). This changes only the Invitation; the profile, Identity keys
+   and Server access key are preserved. The override must itself be public.
+   Validation does not resolve DNS or prove reachability: `doctor --peer` checks
+   the connection after both Contacts have been added. Address refusals print an
+   actionable sentence normally; `--json` retains stable error codes on stderr
+   (`onboarding.invite-public-server-required` or `onboarding.invite-server-address-invalid`).
+   The JSON response retains `containsBrokerCredential` for the application's
+   confirmation before copying an Invitation that contains a Server access key.
 3. On the other machine, `join --agent-id ID --invite-file ABSOLUTE_FILE --reply-out
    ABSOLUTE_FILE` imports the invitation and creates a private public-key reply.
 4. On the first machine, `add-peer --reply-file ABSOLUTE_FILE` completes key import.

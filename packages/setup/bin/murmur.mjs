@@ -12,7 +12,7 @@ try { await checkRuntime(); }
 catch (error) { process.stderr.write(error.message + '\n'); process.exit(1); }
 // Dynamic imports let the capability check run before the engine imports SQLite.
 const { main, isRawCliOutput } = await import('../dist/src/cli.js');
-const { safeError } = await import('../dist/src/config.js');
+const { safeError, humanError } = await import('../dist/src/config.js');
 const lineMode = process.argv[2] === 'status' && process.argv.includes('--line');
 try {
   const result = await main(process.argv.slice(2));
@@ -21,6 +21,6 @@ try {
   } else process.stdout.write(JSON.stringify(result) + '\n');
 } catch (error) {
   if (lineMode) process.stdout.write('Murmur: unknown (status.command-failed)\n');
-  process.stderr.write(safeError(error) + '\n');
+  process.stderr.write((process.argv.includes('--json') ? safeError(error) : humanError(error)) + '\n');
   process.exitCode = 1;
 }

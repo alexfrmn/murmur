@@ -44,7 +44,7 @@ async function fixture(t) {
 test('a running MCP sees add-peer and sends with its new key without restarting the client', {timeout:20000}, async t=>{
   const f=await fixture(t), call=f.client();
   assert.deepEqual((await call('murmur_peers')).peers,[]);
-  f.cli('a','invite','--out',path.join(f.root,'invite.txt'));
+  f.cli('a','invite','--broker','nats://server.example.com:4222','--out',path.join(f.root,'invite.txt'));
   f.cli('b','join','--agent-id','agent-b','--invite-file',path.join(f.root,'invite.txt'),'--reply-out',path.join(f.root,'reply.txt'));
   f.cli('a','add-peer','--reply-file',path.join(f.root,'reply.txt'));
   // A send on the cache-miss path must work even before murmur_peers refreshes.

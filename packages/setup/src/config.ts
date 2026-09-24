@@ -58,3 +58,15 @@ export function safeError(error: unknown): string {
   }
   return "operation-failed";
 }
+
+/** CLI presentation only; JSON consumers retain the stable, secret-free codes. */
+export function humanError(error: unknown): string {
+  const code = safeError(error);
+  if (code === 'onboarding.invite-public-server-required') {
+    return 'This Invitation needs a public Server address. Ask for its public address and pass it with --broker.';
+  }
+  if (code === 'onboarding.invite-server-address-invalid') {
+    return 'Enter a valid public Server address with --broker, such as nats://server.example.com:4222. Do not include an access key in the address.';
+  }
+  return code;
+}
