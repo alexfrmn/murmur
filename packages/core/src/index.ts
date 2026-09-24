@@ -829,8 +829,12 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
       if (!record) return 'not-found';
       // Group ACK semantics remain unchanged; one member cannot restart a group delivery.
       const direct = record.envelope.recipients.length === 1 && record.envelope.recipients[0] === peerId;
-      const previous = this.db.prepare(`SELECT 1 FROM outbox, json_each(outbox.envelope_json, '$.recipients') r
-        WHERE status = 'acked' AND r.value = ? AND json_extract(envelope_json, '$.senderAgentId') = ? LIMIT 1`)
+      // A group row can be settled by a different member: it proves no direct
+      // exchange with this Contact. Only a single-recipient receipt is evidence.
+      const previous = this.db.prepare(`SELECT 1 FROM outbox WHERE status = 'acked'
+        AND json_array_length(envelope_json, '$.recipients') = 1
+        AND json_extract(envelope_json, '$.recipients[0]') = ?
+        AND json_extract(envelope_json, '$.senderAgentId') = ? LIMIT 1`)
         .get(peerId, record.envelope.senderAgentId);
       const first = direct && !previous;
       if (TERMINAL_OUTBOX_STATUSES.has(record.status) && !(first && isFirstContactWaiting(record))) return 'not-in-flight';

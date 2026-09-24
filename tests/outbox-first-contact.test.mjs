@@ -66,6 +66,19 @@ test('a delayed first ACK can settle its own timeout letter without publishing i
   assert.deepEqual(f.invalid, []);
 });
 
+test('an acknowledged group letter does not prove a direct exchange with every member', async t => {
+  const f = await fixture(t); await f.enqueue('early', 'max-attempts:ack-timeout');
+  const group = { ...(await f.store.getOutboxRecord('early')).envelope,
+    msgId: 'group', recipients: ['receiver', 'another-member'] };
+  await f.store.enqueue('msg.group', group);
+  // Historical group status does not retain which member supplied its receipt.
+  await f.store.markAcked('group');
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.equal((await f.store.getOutboxRecord('early')).status, 'pending');
+  assert.equal((await f.store.getOutboxRecord('group')).status, 'acked');
+  assert.deepEqual(f.invalid, []);
+});
+
 for (const reason of ['poison-message:signature-invalid', 'policy-rejected:denied', 'max-attempts:missing-column', 'jetstream-advisory:terminated:x']) {
   test(`first ACK does not resurrect terminal failure ${reason}`, async t => {
     const f = await fixture(t); await f.enqueue('terminal', reason); await f.ack('terminal');

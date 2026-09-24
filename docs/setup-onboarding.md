@@ -117,12 +117,14 @@ map atomically, and fails closed on invalid or unreadable configuration. Wake-up
 and other runtime settings keep their existing restart semantics.
 
 A first Contact may come online after the ordinary delivery retry window. On
-its first verified positive ACK, the SQLite queue atomically retries its direct
-letters stopped by `max-attempts:ack-timeout` or `max-attempts:unknown-sender:`.
+its first verified positive ACK to a direct letter, the SQLite queue atomically
+retries its direct letters stopped by `max-attempts:ack-timeout` or
+`max-attempts:unknown-sender:`.
 A late ACK of the waiting letter itself can settle it without another send. The
 original message ID is kept so the receiver stores it once. Security, policy and
 poison verdicts, group deliveries, and established Contacts retain their existing
-terminal/bounded behavior. Verification includes signature, message binding,
+terminal/bounded behavior. An acknowledged group letter is not evidence of a
+direct exchange with each member. Verification includes signature, message binding,
 timestamp and durable nonce replay protection. This is transport evidence, not
 an Assistant Reply. In plain NATS a new message or `doctor --peer` supplies that
 first ACK; JetStream may deliver the original stored message after the Contact
