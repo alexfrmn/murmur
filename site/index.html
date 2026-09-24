@@ -665,15 +665,15 @@ Do everything yourself in the terminal and tell me when it is ready.
 
 1. Check that Node 22.13.0 or newer and npm are installed (Git for source only). Install anything
    missing, or tell me if you cannot. The minimum is specifically 22.13.0:
-   the daemon stores messages with the built-in node:sqlite module. Node 22.5
+   the service stores messages with the built-in node:sqlite module. Node 22.5
    exposed it only behind --experimental-sqlite; it is available without a
    flag from 22.13.0. A capability check is more reliable than a version number:
    node --no-warnings -e "require('node:sqlite')" must exit successfully.
    Choose one data directory now. Set DATA_DIR to the absolute path
-   &lt;permanent-private-profile-directory&gt; and use that same value in every step below.
-   If the steps use different working directories or data paths, the daemon can
-   write one profile while the client reads another. Nothing will report an
-   error; you will just get silence and an empty peer list.
+   &lt;permanent-private-identity-directory&gt; and use that same value in every step below.
+   If the steps use different working directories or data paths, the service can
+   write one identity while the assistant reads another. Nothing will report an
+   error; you will just get silence and an empty contact list.
 2. Install the CLI from npm:
    npm install --global @murmurv2/cli@2.11.0
    For this npm path, replace every node packages/setup/bin/murmur.mjs below
@@ -690,41 +690,41 @@ Do everything yourself in the terminal and tell me when it is ready.
    values and keep using the DATA_DIR from step 1:
    node packages/setup/bin/murmur.mjs init --agent-id &lt;AGENT_ID&gt; --broker-url &lt;NATS_URL&gt; --token-file &lt;ABSOLUTE_TOKEN_FILE&gt; --data-dir &lt;DATA_DIR&gt;
    Do not put the token itself in a command argument. Keep the token file private.
-4. Complete pairing before starting either daemon. Create a new private invitation
+4. Complete pairing before starting either service. Create a new private invitation
    file outside DATA_DIR; its parent directory
    must already exist and the output file must not:
    node packages/setup/bin/murmur.mjs invite --out &lt;ABSOLUTE_INVITE_FILE&gt; --data-dir &lt;DATA_DIR&gt;
-   Give me the file through a trusted private channel. Do not print its blob or
-   paste it into a shell argument or public chat: it can contain the broker
+   Give me the file through a trusted private channel. Do not print the invitation or
+   paste it into a shell argument or public chat: it can contain the server
    address and token, so treat it like a password.
-   The other participant must use their own absolute profile and reply paths:
+   My colleague uses their own absolute identity and reply paths:
    node packages/setup/bin/murmur.mjs join --agent-id &lt;THEIR_AGENT_ID&gt; --invite-file &lt;ABSOLUTE_INVITE_FILE&gt; --reply-out &lt;ABSOLUTE_REPLY_FILE&gt; --data-dir &lt;THEIR_DATA_DIR&gt;
-   For a first installation, THEIR_DATA_DIR must be a fresh profile. If a profile
-   already exists, join accepts only the same agent ID and broker; do not overwrite
-   or reinitialize it to force the command through.
-   They send the private reply file back. Complete our side with:
+   For a first installation, THEIR_DATA_DIR must be a new identity folder. If an
+   identity already exists, join accepts only the same ID and the same server; do not
+   overwrite or reinitialize the identity to get past the refusal.
+   They send back the private file with their reply. Complete our side with:
    node packages/setup/bin/murmur.mjs add-peer --reply-file &lt;ABSOLUTE_REPLY_FILE&gt; --data-dir &lt;DATA_DIR&gt;
-5. Only after both profiles contain the peer, start the daemon on each side with
-   that side's DATA_DIR:
+5. Only after both identities contain the contact, start the service on each side
+   with that side's DATA_DIR:
    node packages/setup/bin/murmur.mjs service install --data-dir &lt;DATA_DIR&gt;
    node packages/setup/bin/murmur.mjs service start --data-dir &lt;DATA_DIR&gt;
-   On Windows, run only service mutations in an elevated terminal. Keep the CLI
-   and AI client ordinary. Do not replace or restart an existing service blindly.
-6. Detect my installed clients and configure the one I use through the shared CLI:
+   On Windows, elevate only the terminal that changes the service. Run the CLI
+   and the assistant normally. Do not replace or restart an existing service blindly.
+6. Find my installed assistants and configure the one I use through the shared CLI:
    node packages/setup/bin/murmur.mjs clients detect --data-dir &lt;DATA_DIR&gt;
    node packages/setup/bin/murmur.mjs clients configure --client &lt;CLIENT_ID&gt; --data-dir &lt;DATA_DIR&gt;
-   Keep the returned backup. Reload the selected client when the command reports
-   restartRequired; configuration on the other machine is a separate step there.
-7. From the reloaded client, list Murmur peers, send a synthetic test message to
-   the new peer, and require an actual message back. Report the returned message
-   separately from transport delivery or local key import.
+   Keep the backup it creates. Reload the selected assistant when the command
+   reports restartRequired; the assistant on the other machine is configured there.
+7. In the reloaded assistant, list the Murmur contacts, send the new contact a
+   synthetic test message and require an actual message back. Report that answer
+   separately from delivery and from the local key import.
 
-One easy detail to miss: importing the reply blob confirms only our side of the
-pair. Only a message received back proves that the other side finished setup.
+One easy detail to miss: importing the reply confirms only our side of the
+pair. Only a message that comes back proves that the other side finished setup.
 
-Delivery and automatic AI wake are separate. Configuring Claude Code installs
-its Stop hook with an eight-hour window; see docs/wake-native.md. Claude Desktop
-and Codex on Windows do not automatically start AI turns on incoming messages.</pre><!--/email_off-->
+Delivery and wake-up of the assistant are separate checks. Configuring Claude Code
+installs its Stop hook with an eight-hour window; see docs/wake-native.md. Claude
+Desktop and Codex on Windows do not start an assistant turn on an incoming message.</pre><!--/email_off-->
     </div>
 
     <p class="after"><b data-i18n="inviteWarning">treat an invitation like a password.</b>
