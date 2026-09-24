@@ -20,7 +20,8 @@ import { createChannelThreadStartBindingResolver, createCodexAppServerInjector }
 import { startJetStreamAdvisoryDlqIfEnabled } from "./murmur-jetstream-advisory.mjs";
 import { WakeMonitor, createAuditShellHook, createShellHook, normalizeWakeConfig } from "./wake-monitor.mjs";
 import { SessionLeaseStore, createNativeLeaseGate } from "./lease.mjs";
-import { ensurePrivateDirectory, readPrivateJson, setPrivateUmask } from "./secure-state.mjs";
+import { ensurePrivateDirectory, setPrivateUmask } from "./secure-state.mjs";
+import { createDaemonContacts } from "./daemon-contacts.mjs";
 import { createDaemonObservation } from "./daemon-observation.mjs";
 import { normalizeAckSecurity } from "./ack-security.mjs";
 import { classifyVerifiedDoctorMessage, createDoctorResponder } from "./doctor-protocol.mjs";
@@ -39,16 +40,18 @@ const dataDir = process.env.DATA_DIR || ".data";
 const configPath = path.join(dataDir, "agent-config.json");
 
 let config;
+let contacts;
 try {
   await ensurePrivateDirectory(dataDir);
-  config = await readPrivateJson(configPath);
+  contacts = createDaemonContacts(configPath, log);
+  config = contacts.config;
 } catch (err) {
   log("fatal", "Cannot load agent config", { path: configPath, error: err.message });
   log("info", "Run: node scripts/agent-config-init.mjs");
   process.exit(1);
 }
 
-const { agentId, natsUrl, natsToken, subject, peers, keys } = config;
+const { agentId, natsUrl, natsToken, subject, keys } = config;
 const dbPath = path.join(dataDir, "murmur.db");
 const flushIntervalMs = Number(process.env.FLUSH_INTERVAL_MS) || 2000;
 const jetstreamConfig = config.jetstream || {};
@@ -199,7 +202,7 @@ const signAck = async (unsignedAck) => ({
 });
 
 const verifyAck = async (ack) => {
-  const peer = peers[ack.senderAgentId];
+  const peer = contacts.refresh()[ack.senderAgentId];
   if (!peer?.signing?.publicKey) return "key-unavailable";
   return verifyEnvelopeSignature(stableAckPayload(ack), ack.signature, peer.signing.publicKey);
 };
@@ -253,7 +256,9 @@ const proxyWakeMonitor = new WakeMonitor({
 
 const onMessage = async (envelope) => {
   const senderId = envelope.senderAgentId;
-  const peer = peers[senderId];
+  let peer;
+  try { peer = contacts.refresh()[senderId]; }
+  catch { throw new Error('contacts-unavailable:retry'); }
 
   if (!peer) {
     // Отказ обязан быть виден ПРИНИМАЮЩЕЙ стороне. Бросок уходит в
@@ -390,6 +395,7 @@ let running = true;
 const flushLoop = async () => {
   while (running) {
     try {
+      contacts.refresh();
       await broker.flushOutbox({ outbox: store, maxAttempts: 5, ackTimeoutMs, ackWindow });
     } catch (err) {
       log("error", "Outbox flush error", { error: err.message });
@@ -428,6 +434,7 @@ const shutdown = async (signal) => {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGHUP", () => { try { contacts.refresh(true); } catch { /* refresh logs a safe reason */ } });
 
 try {
   await observation.start();
@@ -500,6 +507,7 @@ try {
   const ackReceipts = typeof store.claimAckNonce === "function" ? store : undefined;
   await broker.startAckCorrelation({
     outbox: store,
+    recoverFirstContact: true,
     ackReceipts,
     ackSubject: `ack.${agentId}`,
     consumerId: `${agentId}-ack`,
@@ -543,7 +551,7 @@ try {
       hint: "set onReceive (shell hook), or wake.peers[<agentId>].mode=codex_app_server (native wake), in agent-config.json",
     });
   }
-  log("info", "Daemon ready", { agentId, peers: Object.keys(peers), wake: wakeStatus });
+  log("info", "Daemon ready", { agentId, peers: Object.keys(config.peers), wake: wakeStatus });
 } catch (err) {
   log("fatal", "Daemon startup failed", { error: err.message });
   await broker.close().catch(() => {});

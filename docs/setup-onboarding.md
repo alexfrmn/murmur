@@ -33,16 +33,17 @@ mistake an unprotected directory for an existing private profile.
 The older `scripts/murmur-invite.mjs`, `scripts/murmur-join.mjs` and
 `scripts/murmur-add-peer.mjs` entrypoints are disabled compatibility notices.
 They exit without reading or changing a profile and name the equivalent command
-below. Invitation and reply material stays in private files instead of terminal
-output and shell arguments.
+below. The current commands support private file copies and one-line exchange
+through subprocess input/output; credentials never need to be placed in shell arguments.
 
 1. `init --agent-id ID --broker-url URL [--token-file ABSOLUTE_FILE]` creates a
    private identity. Repeating it with the same ID and broker preserves the keys
    and credentials. Conflicting existing identity is rejected.
-2. `invite --out ABSOLUTE_FILE [--broker PUBLIC_URL]` writes a new private invitation file. It contains
-   public peer keys and may contain the broker token; transfer it through a trusted
-   channel. Credentials are not printed in the command result or passed as token
-   arguments. An existing output file is never overwritten. Invitation and reply outputs must
+2. `invite [--out ABSOLUTE_FILE] [--broker PUBLIC_URL]` prints one `MURMUR:`
+   base64url line and optionally writes the identical line to a private file. It
+   contains public Contact keys and may contain the Server access key. With
+   `--json`, `invitation` carries the line and `file` is null when omitted. Treat
+   both stdout and the optional file as confidential. An existing output file is never overwritten. Invitation and reply outputs must
    have an already-existing parent and be outside the managed data directory, including
    symlink and filesystem case aliases; a reply path
    must never name a private config, database, cursor or future runtime state file.
@@ -63,12 +64,24 @@ output and shell arguments.
    (`onboarding.invite-public-server-required` or `onboarding.invite-server-address-invalid`).
    The JSON response retains `containsBrokerCredential` for the application's
    confirmation before copying an Invitation that contains a Server access key.
-3. On the other machine, `join --agent-id ID --invite-file ABSOLUTE_FILE --reply-out
-   ABSOLUTE_FILE` imports the invitation and creates a private public-key reply.
-4. On the first machine, `add-peer --reply-file ABSOLUTE_FILE` completes key import.
+3. On the other machine, `join --agent-id ID --invite-stdin` reads the Invitation
+   from standard input and prints one `MURMUR:` Reply. `--invite-file ABSOLUTE_FILE`
+   remains an alternative input; `--reply-out ABSOLUTE_FILE` is an optional private
+   copy. With `--json`, `reply` contains the line and `replyFile` is null when omitted.
+   Input is bounded at 16 KiB, must be a single complete line, and is type-checked.
+   Legacy canonical base64 Invitations and `MURMUR-REPLY:` files are still accepted.
+   New output uses unpadded base64url and the shared prefix, with a type inside the data.
+4. On the first machine, `add-peer --reply-stdin` completes key import;
+   `--reply-file ABSOLUTE_FILE` remains available. Standard input and file options
+   are mutually exclusive. GUI code writes the pasted line to stdin and closes it,
+   never passing credential-bearing content in argv.
    It refuses silent key replacement, saves a private configuration backup and
    clears only that peer's poisoned dedupe entries. Failure reading the store is
-   reported as an unknown reset result, never zero.
+   reported as an unknown reset result, never zero. `restartRequired=false` applies
+   to the 2.12 Service, which observes config-file replacement and refreshes only
+   Contacts. `contactsReload={mechanism:"config-file",state:"pending"}` describes
+   a saved change awaiting observation, not an observed acknowledgement. An older
+   Service must first be upgraded; a stopped Service must be started.
 5. `clients detect` reports verified client/profile paths. `clients configure
    --client ID` updates only the Murmur MCP entry in that selected JSON or TOML
    profile. A conflicting entry requires explicit `--replace`. Existing contents
@@ -96,5 +109,25 @@ sentence does not count. Success confirms the exchange, not autonomous wake.
 
 Linux/systemd, Darwin/launchd and Windows SCM adapters use the shared CLI.
 Windows additionally needs the matching native service helper and elevation for
-service mutations; see [Windows CLI](windows-service-cli.md). An already-running service must be restarted explicitly to load
-changed peer configuration. Commands do not silently stop running processes.
+service mutations; see [Windows CLI](windows-service-cli.md). The 2.12 Service
+checks the configuration before inbound messages, delivery receipts and each
+queue flush (normally every two seconds). POSIX SIGHUP also requests a refresh.
+It pins the original Identity, Server, route and directory, replaces the Contact
+map atomically, and fails closed on invalid or unreadable configuration. Wake-up
+and other runtime settings keep their existing restart semantics.
+
+A first Contact may come online after the ordinary delivery retry window. On
+its first verified positive ACK, the SQLite queue atomically retries its direct
+letters stopped by `max-attempts:ack-timeout` or `max-attempts:unknown-sender:`.
+A late ACK of the waiting letter itself can settle it without another send. The
+original message ID is kept so the receiver stores it once. Security, policy and
+poison verdicts, group deliveries, and established Contacts retain their existing
+terminal/bounded behavior. Verification includes signature, message binding,
+timestamp and durable nonce replay protection. This is transport evidence, not
+an Assistant Reply. In plain NATS a new message or `doctor --peer` supplies that
+first ACK; JetStream may deliver the original stored message after the Contact
+starts. No heartbeat protocol or background AI request is introduced.
+
+Without `--json`, errors are actionable English sentences using the shared
+vocabulary; unrecognized codes receive a safe diagnostic action. `--json` keeps
+stable error codes on stderr, never echoing Invitation content or private paths.

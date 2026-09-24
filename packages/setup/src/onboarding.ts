@@ -90,7 +90,12 @@ async function restrictToCurrentUser(target: string, directory: boolean) {
   await execFileAsync(system32('icacls.exe'), [target, '/inheritance:r', '/grant:r', `*${sid}:${inherit}(F)`, `*S-1-5-18:${inherit}(F)`], { windowsHide: true })
     .catch(() => { throw new Error('onboarding.private-acl-failed'); });
 }
-async function outputBlob(file: string, value: unknown, prefix: string, beforeWrite?: () => Promise<void>) {
+const encodeBlob = (value: unknown) => {
+  const text = 'MURMUR:' + Buffer.from(JSON.stringify(value)).toString('base64url');
+  if (Buffer.byteLength(text + '\n') > 16384) throw new Error('onboarding.input-too-large');
+  return text;
+};
+async function outputBlob(file: string, text: string, beforeWrite?: () => Promise<void>) {
   if (!path.isAbsolute(file)) throw new Error('onboarding.output-must-be-absolute');
   const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
   let written = false;
@@ -98,7 +103,7 @@ async function outputBlob(file: string, value: unknown, prefix: string, beforeWr
     // Protect the still-empty output before writing the invitation credential.
     await protectPrivateFile(file, handle);
     await beforeWrite?.();
-    await handle.writeFile(prefix + Buffer.from(JSON.stringify(value)).toString('base64') + '\n'); await handle.sync();
+    await handle.writeFile(text + '\n'); await handle.sync();
     written = true;
   } finally { await handle.close(); if (!written) await unlink(file).catch(() => {}); }
 }
@@ -141,11 +146,17 @@ async function saveChanged(c: ServiceContext, previous: AgentConfig | null, next
 }
 const publicPeer = (c: AgentConfig) => ({ agentId: c.agentId, subject: c.subject,
   encryption: { publicKey: c.keys.encryption.publicKey }, signing: { publicKey: c.keys.signing.publicKey } });
-async function readBlob(file: string, prefix: string, type: 'invite' | 'reply') {
-  const text = await privateText(file, `${type}-file`);
+async function readBlob(input: { file?: string; text?: string }, type: 'invite' | 'reply') {
+  if ((input.file === undefined) === (input.text === undefined)) throw new Error('onboarding.input-required');
+  const text = (input.file !== undefined ? await privateText(input.file, `${type}-file`) : input.text!).trim();
+  if (Buffer.byteLength(text, 'utf8') > 16384) throw new Error('onboarding.input-too-large');
+  // Accept existing private files as well as the shared, type-tagged string format.
+  const prefix = type === 'reply' && text.startsWith('MURMUR-REPLY:') ? 'MURMUR-REPLY:' : 'MURMUR:';
   if (!text.startsWith(prefix)) throw new Error('onboarding.invalid-blob');
   const encoded = text.slice(prefix.length);
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || Buffer.from(encoded, 'base64').toString('base64') !== encoded) throw new Error('onboarding.invalid-blob');
+  const canonical = /^[A-Za-z0-9_-]+$/.test(encoded) && Buffer.from(encoded, 'base64url').toString('base64url') === encoded;
+  const legacy = /^[A-Za-z0-9+/]+={0,2}$/.test(encoded) && Buffer.from(encoded, 'base64').toString('base64') === encoded;
+  if (!canonical && !legacy) throw new Error('onboarding.invalid-blob');
   let value;
   try { value = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')); } catch { throw new Error('onboarding.invalid-blob'); }
   if (!value || value.v !== 1 || value.type !== type || !validAgentId(value.agentId) || value.subject !== `msg.${value.agentId}`) throw new Error('onboarding.invalid-peer');
@@ -178,22 +189,21 @@ export async function initialize(c: ServiceContext, options: { agentId: string; 
     return { schema: 'murmur.init/1', agentId: config.agentId, dataDir: c.dataDir, serviceName: c.serviceName, existing: false };
   });
 }
-export async function invite(c: ServiceContext, outFile: string, options: { brokerUrl?: string } = {}) {
-  await validateOutput(c, outFile);
+export async function invite(c: ServiceContext, outFile?: string, options: { brokerUrl?: string } = {}) {
+  if (outFile !== undefined) await validateOutput(c, outFile);
   const config = await loadConfig(c);
   const server = invitationServerAddress(options.brokerUrl ?? config.natsUrl);
-  await outputBlob(outFile, { v: 1, type: 'invite', ...publicPeer(config), natsUrl: server, ...(config.natsToken ? { natsToken: config.natsToken } : {}) }, 'MURMUR:');
-  // The warning names what is actually inside. A person weighs "password" and "identity"
-  // differently, and the same sentence for both teaches them to ignore it.
+  const invitation = encodeBlob({ v: 1, type: 'invite', ...publicPeer(config), natsUrl: server, ...(config.natsToken ? { natsToken: config.natsToken } : {}) });
+  if (outFile !== undefined) await outputBlob(outFile, invitation);
   const containsBrokerCredential = !!config.natsToken;
-  return { schema: 'murmur.invite/1', file: outFile, containsBrokerCredential,
+  return { schema: 'murmur.invite/1', file: outFile ?? null, invitation, containsBrokerCredential,
     instruction: containsBrokerCredential
-      ? 'This file carries the broker address and its credential. Treat it like a password: send it only through a channel you would trust with one. Importing it does not prove pairing.'
-      : 'This file carries your identity and the broker address. Send it through a channel you trust. Importing it does not prove pairing.' };
+      ? 'This Invitation contains a Server access key. Send it personally to your colleague. After exchanging the Reply, check the connection.'
+      : 'This Invitation contains your Identity and the Server address. Send it to your colleague. After exchanging the Reply, check the connection.' };
 }
-export async function join(c: ServiceContext, options: { agentId: string; inviteFile: string; replyOut: string }) {
-  await validateOutput(c, options.replyOut);
-  const incoming = await readBlob(options.inviteFile, 'MURMUR:', 'invite');
+export async function join(c: ServiceContext, options: { agentId: string; inviteFile?: string; invitation?: string; replyOut?: string }) {
+  if (options.replyOut !== undefined) await validateOutput(c, options.replyOut);
+  const incoming = await readBlob({ file: options.inviteFile, text: options.invitation }, 'invite');
   // Before anything is created: a profile the service cannot see must not be written at all.
   await refuseVirtualizedAppData(c.dataDir);
   return locked(c, async () => {
@@ -203,10 +213,13 @@ export async function join(c: ServiceContext, options: { agentId: string; invite
     const next = addPeer(config, incoming);
     let backup: string | null = null;
     // Reserve the reply path before changing config: an existing output must not half-import a profile.
-    await outputBlob(options.replyOut, { v: 1, type: 'reply', ...publicPeer(next) }, 'MURMUR-REPLY:', async () => {
-      backup = await saveChanged(c, previous, next);
-    });
-    return { schema: 'murmur.join/1', agentId: next.agentId, peerId: incoming.agentId, paired: null, replyFile: options.replyOut, backup, restartRequired: true, serviceName: c.serviceName };
+    const reply = encodeBlob({ v: 1, type: 'reply', ...publicPeer(next) });
+    const save = async () => { backup = await saveChanged(c, previous, next); };
+    if (options.replyOut !== undefined) await outputBlob(options.replyOut, reply, save);
+    else await save();
+    return { schema: 'murmur.join/1', agentId: next.agentId, peerId: incoming.agentId, paired: null,
+      replyFile: options.replyOut ?? null, reply, backup, restartRequired: false,
+      contactsReload: { mechanism: 'config-file', state: 'pending' }, serviceName: c.serviceName };
   });
 }
 async function clearPeerPoison(c: ServiceContext, peerId: string) {
@@ -222,12 +235,13 @@ async function clearPeerPoison(c: ServiceContext, peerId: string) {
     return { cleared: null, reason: 'onboarding.poison-reset-failed' };
   }
 }
-export async function importPeer(c: ServiceContext, replyFile: string) {
-  const incoming = await readBlob(replyFile, 'MURMUR-REPLY:', 'reply');
+export async function importPeer(c: ServiceContext, replyFile?: string, reply?: string) {
+  const incoming = await readBlob({ file: replyFile, text: reply }, 'reply');
   return locked(c, async () => {
     const previous = await loadConfig(c), next = addPeer(previous, incoming);
     const backup = await saveChanged(c, previous, next);
     return { schema: 'murmur.peer/1', peerId: incoming.agentId, paired: null, backup,
-      poisonReset: await clearPeerPoison(c, incoming.agentId), restartRequired: true };
+      poisonReset: await clearPeerPoison(c, incoming.agentId), restartRequired: false,
+      contactsReload: { mechanism: 'config-file', state: 'pending' } };
   });
 }

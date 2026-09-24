@@ -23,6 +23,7 @@ import {
   isSignedAckV1,
   isEnvelopeV1,
   isRecoverableRejection,
+  isFirstContactWaiting,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
   type AckReceiptStore,
@@ -670,6 +671,8 @@ export class NatsBroker {
 
   async startAckCorrelation(params: {
     outbox: OutboxStore;
+    /** Recover waiting first-contact letters on the first verified delivery ACK. */
+    recoverFirstContact?: boolean;
     /** Durable replay protection. Omit only where a restart cannot happen — without it
      *  the in-memory fallback forgets every nonce when the process dies. */
     ackReceipts?: AckReceiptStore;
@@ -749,6 +752,7 @@ export class NatsBroker {
     data: Uint8Array,
     params: {
       outbox: OutboxStore;
+      recoverFirstContact?: boolean;
       ackReceipts?: AckReceiptStore;
       verifyAck?: AckVerifier;
       /** @deprecated Signed acknowledgements are always required; false cannot downgrade verification. */
@@ -779,7 +783,9 @@ export class NatsBroker {
       }
       // 'pending' is in flight too: the peer can acknowledge between publish() and
       // markSent(). Rejecting that ACK leaves the row to time out into a spurious retry.
-      if (record.status !== "sent" && record.status !== "pending" && record.status !== "failed") {
+      const recoverable = params.recoverFirstContact && params.outbox.applyFirstContactAck
+        && decoded.status === 'ack' && isFirstContactWaiting(record);
+      if (record.status !== "sent" && record.status !== "pending" && record.status !== "failed" && !recoverable) {
         this.invalidAck(params, "message-not-in-flight", decoded);
         return;
       }
@@ -823,7 +829,9 @@ export class NatsBroker {
       }
 
       if (decoded.status === "ack") {
-        const result = await params.outbox.applyAckTransition(decoded.msgId, "ack");
+        const result = params.recoverFirstContact && params.outbox.applyFirstContactAck
+          ? await params.outbox.applyFirstContactAck(decoded.msgId, decoded.senderAgentId)
+          : await params.outbox.applyAckTransition(decoded.msgId, "ack");
         if (result !== "applied") this.invalidAck(params, `transition-${result}`, decoded);
         return;
       }

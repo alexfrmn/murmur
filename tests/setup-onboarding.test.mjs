@@ -23,7 +23,7 @@ test('two profiles can exchange private invite/reply files without shell-specifi
   const invitation = path.join(f.root, 'invite.txt'), reply = path.join(f.root, 'reply.txt');
   await f.command('agent-a', ['invite', '--out', invitation]);
   const result = await f.command('agent-b', ['join', '--agent-id', 'agent-b', '--invite-file', invitation, '--reply-out', reply]);
-  assert.equal(result.paired, null); assert.equal(result.restartRequired, true);
+  assert.equal(result.paired, null); assert.equal(result.restartRequired, false);
   await f.command('agent-a', ['add-peer', '--reply-file', reply]);
   const a = await f.config('agent-a'), b = await f.config('agent-b');
   assert.equal(a.peers['agent-b'].signing.publicKey, b.keys.signing.publicKey);
@@ -46,7 +46,7 @@ test('repeat init/add-peer preserves existing identity and rejects a peer key ch
   await assert.rejects(f.command('agent-a', ['add-peer', '--reply-file', reply]), /peer-key-conflict/);
   assert.equal((await f.config('agent-a')).peers['agent-b'].signing.publicKey, before.keys.signing.publicKey);
 });
-test('the invite warning names what is inside, and says password only when a credential is there', async t => {
+test('the Invitation warning names a Server access key only when one is present', async t => {
   const f = await fixture(t);
   await f.init('agent-a');
   const plain = await f.command('agent-a', ['invite', '--out', path.join(f.root, 'plain-invite')]);
@@ -58,11 +58,11 @@ test('the invite warning names what is inside, and says password only when a cre
   await f.command('agent-b', ['init', '--agent-id', 'agent-b', '--broker-url', 'nats://server.example.com:4222', '--token-file', token]);
   const secret = await f.command('agent-b', ['invite', '--out', path.join(f.root, 'secret-invite')]);
   assert.equal(secret.containsBrokerCredential, true);
-  assert.match(secret.instruction, /password/i, 'an invite carrying a broker credential must say so in the words a person acts on');
-  assert.match(secret.instruction, /credential/i);
+  assert.match(secret.instruction, /Server access key/);
+  assert.match(secret.instruction, /personally/);
 
   assert.notEqual(plain.instruction, secret.instruction, 'one sentence for both cases teaches people to ignore it');
-  for (const r of [plain, secret]) assert.match(r.instruction, /does not prove pairing/);
+  for (const r of [plain, secret]) assert.match(r.instruction, /check the connection/);
 });
 
 test('malformed invite fails before profile creation and never overwrites an output file', async t => {

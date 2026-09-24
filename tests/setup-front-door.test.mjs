@@ -19,10 +19,13 @@ test('murmur --version and -v answer like murmur version', () => {
   }
 });
 
-test('an unknown option is named as such instead of operation-failed', () => {
+test('an unknown option is actionable for people and retains its diagnostic code in JSON mode', () => {
   const run = murmur('status', '--no-such-option');
   assert.equal(run.status, 1);
-  assert.equal(run.stderr.trim(), 'cli.unknown-option');
+  assert.equal(run.stderr.trim(), 'This option is not available. Run with --help to check the command.');
+  const json = murmur('status', '--no-such-option', '--json');
+  assert.equal(json.status, 1);
+  assert.equal(json.stderr.trim(), 'cli.unknown-option');
 });
 
 test('the SQLite ExperimentalWarning is not printed on every command', () => {

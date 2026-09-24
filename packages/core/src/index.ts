@@ -337,6 +337,14 @@ export interface OutboxRecord {
   version?: number;
 }
 
+/** Only failures caused by an unfinished first connection may be retried on its
+ * first authenticated delivery receipt. Security/policy/poison verdicts stay final. */
+export function isFirstContactWaiting(record: OutboxRecord): boolean {
+  return record.status === 'dlq' && record.envelope.recipients.length === 1
+    && (record.lastError === 'max-attempts:ack-timeout'
+      || record.lastError?.startsWith('max-attempts:unknown-sender:') === true);
+}
+
 export interface OutboxStore {
   enqueue(subject: string, envelope: EnvelopeV1): Promise<void>;
   claimDue(limit?: number): Promise<OutboxRecord[]>;
@@ -362,6 +370,9 @@ export interface OutboxStore {
     nextAttemptAt?: string,
   ): Promise<"applied" | "not-found" | "not-in-flight">;
   requeueStaleSent?(ackTimeoutMs: number, reason?: string): Promise<number>;
+  /** Call only after signature, message binding, timestamp and replay checks.
+   * Atomically settles this ACK and requeues waiting letters on the first ACK. */
+  applyFirstContactAck?(msgId: string, peerId: string): Promise<'applied' | 'not-found' | 'not-in-flight'>;
 }
 
 interface JsonOutboxState {
@@ -570,7 +581,7 @@ const secureSqliteFiles = (filePath: string): void => {
  * Такие отказы обязаны оставаться retryable: JetStream ограничит число доставок сам и
  * положит конверт в DLQ, откуда он виден и восстановим.
  */
-export const RECOVERABLE_REJECTION_PREFIXES = ["unknown-sender:"] as const;
+export const RECOVERABLE_REJECTION_PREFIXES = ["unknown-sender:", "contacts-unavailable:"] as const;
 
 export function isRecoverableRejection(reason: string): boolean {
   return RECOVERABLE_REJECTION_PREFIXES.some((p) => reason.startsWith(p));
@@ -808,6 +819,40 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
       .run(nextStatus, nextError, nextAttemptAt, now, msgId);
     if (changed.changes > 0) return "applied";
     return this.getOutboxRow(msgId) ? "not-in-flight" : "not-found";
+  }
+
+  async applyFirstContactAck(msgId: string, peerId: string): Promise<'applied' | 'not-found' | 'not-in-flight'> {
+    this.db.exec('BEGIN IMMEDIATE');
+    let committed = false;
+    try {
+      const record = this.getOutboxRow(msgId);
+      if (!record) return 'not-found';
+      // Group ACK semantics remain unchanged; one member cannot restart a group delivery.
+      const direct = record.envelope.recipients.length === 1 && record.envelope.recipients[0] === peerId;
+      const previous = this.db.prepare(`SELECT 1 FROM outbox, json_each(outbox.envelope_json, '$.recipients') r
+        WHERE status = 'acked' AND r.value = ? AND json_extract(envelope_json, '$.senderAgentId') = ? LIMIT 1`)
+        .get(peerId, record.envelope.senderAgentId);
+      const first = direct && !previous;
+      if (TERMINAL_OUTBOX_STATUSES.has(record.status) && !(first && isFirstContactWaiting(record))) return 'not-in-flight';
+      const now = new Date().toISOString();
+      if (first) {
+        const waiting = this.db.prepare(`SELECT * FROM outbox WHERE status = 'dlq' AND subject = ?
+          AND json_extract(envelope_json, '$.senderAgentId') = ?
+          AND json_array_length(envelope_json, '$.recipients') = 1
+          AND json_extract(envelope_json, '$.recipients[0]') = ?`).all(record.subject, record.envelope.senderAgentId, peerId);
+        const retry = this.db.prepare(`UPDATE outbox SET status = 'pending', attempts = 0, last_error = NULL,
+          next_attempt_at = ?, updated_at = ?, version = version + 1 WHERE msg_id = ?`);
+        for (const row of waiting) if (isFirstContactWaiting(this.toOutboxRecord(row))) retry.run(now, now, row.msg_id);
+      }
+      this.db.prepare(`UPDATE outbox SET status = 'acked', last_error = NULL, updated_at = ?, version = version + 1
+        WHERE msg_id = ?`).run(now, msgId);
+      this.db.exec('COMMIT');
+      committed = true;
+      return 'applied';
+    } finally {
+      // Early refusals and failures cannot leave a half-recovered queue.
+      if (!committed) this.db.exec('ROLLBACK');
+    }
   }
 
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {

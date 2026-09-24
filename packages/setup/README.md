@@ -1,7 +1,7 @@
 # Murmur CLI
 
-Install once, join with a private invitation file, and connect an AI client to
-Murmur's encrypted messaging mesh. The executable is `murmur`.
+Set up your Identity, exchange an Invitation and a Reply, and connect your
+Assistant to Murmur. The executable is `murmur`.
 
 The public npm release is pending. After `@murmurv2/cli@2.11.0` is published,
 use the command below. Until publication is confirmed, use a GitHub release
@@ -21,7 +21,12 @@ helper. It does not include a desktop application. On Windows PowerShell use
 
 Use the same absolute profile path for every command below.
 
-To create an Invitation, use `murmur invite --out /private/invite.txt --data-dir /absolute/profile`.
+To create an Invitation, use `murmur invite --data-dir /absolute/profile`.
+It prints one `MURMUR:` line. Add `--out /private/invitation.txt` for a private
+file copy; `--json` returns the line in `invitation` and the
+`containsBrokerCredential` flag. If that flag is true, an application must explain
+that the Invitation contains a Server access key and obtain confirmation before
+copying it. Send it personally to your colleague.
 If the profile uses a private Server address, ask for that Server's public address
 and add `--broker nats://server.example.com:4222`. The Invitation uses this address;
 the Service keeps its existing settings. A private override is also refused.
@@ -37,10 +42,16 @@ murmur clients configure --client codex-cli --data-dir /absolute/profile
 murmur doctor --peer HOST-AGENT --data-dir /absolute/profile --json
 ```
 
-The invitation host must import your reply file and reload its own peer
-configuration before the roundtrip check can succeed. Keep the invitation and
-reply outside the profile, in an existing private directory. Do not paste them
-into chat or edit `agent-config.json` manually.
+For an application that accepts pasted lines, use `join --invite-stdin` and
+`add-peer --reply-stdin`, sending the line on the subprocess input stream, never
+as a command argument. `join` prints the Reply as one `MURMUR:` line;
+`--reply-out` is optional. With `--json`, the Reply is in `reply`.
+
+The inviting person imports the Reply with `add-peer`. A 2.12 Service reads
+changed Contacts automatically; no manual restart is needed. The command reports
+a pending reload, not proof that the running Service has applied it. Start the
+Service if it is not running, then check the connection. Keep optional files
+outside the Identity folder, in an existing private directory.
 
 Choose an installed client reported by `clients detect`; configuration preserves
 unrelated settings and refuses conflicting Murmur entries. Reload that client,

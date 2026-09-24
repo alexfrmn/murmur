@@ -225,7 +225,17 @@ func setupBinding(profile string) (cliBinding, error) {
 // runSetupCLI runs the CLI as the user and returns stdout, or the CLI's own error code (the one
 // line safeError writes to stderr) so a failed step names its reason.
 func runSetupCLI(ctx context.Context, b cliBinding, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, b.Node, append([]string{b.Entry}, args...)...)
+	// Desktop calls consume receipts and stable codes, even when an older caller
+	// omitted --json. Human CLI output may be an Invitation/Reply line or sentence.
+	cliArgs := append([]string{b.Entry}, args...)
+	jsonMode := false
+	for _, arg := range args {
+		jsonMode = jsonMode || arg == "--json"
+	}
+	if !jsonMode {
+		cliArgs = append(cliArgs, "--json")
+	}
+	cmd := exec.CommandContext(ctx, b.Node, cliArgs...)
 	cmd.Env = b.environment()
 	cmd.Dir = filepath.Dir(b.Entry)
 	hideConsole(cmd)
