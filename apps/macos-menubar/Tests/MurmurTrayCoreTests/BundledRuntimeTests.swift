@@ -51,8 +51,9 @@ func runBundledRuntimeChecks() throws -> Int {
         catch RuntimeError.missingNode {}
     }
     pass("old Node executable rejected")
-    try withCLI("[ -z \"${NODE_OPTIONS-}\" ] && [ -z \"${DATA_DIR-}\" ] || exit 80\nprintf '{\"executable\":\"/bin/sh\",\"version\":\"22.13.0\"}'") { fake in
-        let actual = try BundledRuntime.findNode(runtime: policyDirectory, candidates: [fake], environment: ["NODE_OPTIONS": "bad", "DATA_DIR": "/production"])
+    try withCLI("[ -z \"${NODE_OPTIONS-}\" ] && [ -z \"${DATA_DIR-}\" ] && [ -z \"${CODEX_HOME-}\" ] && [ -z \"${CLAUDE_CONFIG_DIR-}\" ] || exit 80\nprintf '{\"executable\":\"/bin/sh\",\"version\":\"22.13.0\"}'") { fake in
+        let actual = try BundledRuntime.findNode(runtime: policyDirectory, candidates: [fake],
+            environment: ["NODE_OPTIONS": "bad", "DATA_DIR": "/production", "CODEX_HOME": "/custom codex", "CLAUDE_CONFIG_DIR": "/custom claude"])
         try check(actual.path == "/bin/sh", "Validated executable identity should be used")
     }
     pass("spaces in executable path; sanitized actual probe")
