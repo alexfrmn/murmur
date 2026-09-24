@@ -21,6 +21,10 @@ type inviteControl struct {
 }
 
 func inviteDialogTemplate(title string, height uint16, controls []inviteControl) []byte {
+	return nativeDialogTemplate(title, 330, height, controls)
+}
+
+func nativeDialogTemplate(title string, width, height uint16, controls []inviteControl) []byte {
 	b := []byte{}
 	word := func(v uint16) { b = binary.LittleEndian.AppendUint16(b, v) }
 	dword := func(v uint32) { b = binary.LittleEndian.AppendUint32(b, v) }
@@ -34,7 +38,7 @@ func inviteDialogTemplate(title string, height uint16, controls []inviteControl)
 	word(uint16(len(controls)))
 	word(0)
 	word(0)
-	word(330)
+	word(width)
 	word(height)
 	word(0)
 	word(0)

@@ -167,7 +167,7 @@ func TestWindowsLocaleIsDefaultAndAmbientOverrideIsIgnored(t *testing.T) {
 	if args.locale != systemLocale() || args.localeExplicit {
 		t.Fatalf("default locale = %#v", args)
 	}
-	if got := resolve(nil, nil).Reason; got != "Status has not been collected yet" {
+	if got := resolve(nil, nil).Reason; got != "Not checked yet" {
 		t.Fatalf("default status text = %q", got)
 	}
 }

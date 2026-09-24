@@ -99,6 +99,7 @@ type Status struct {
 	AgentID     string `json:"agentId"`
 
 	Service struct {
+		Detail           string  `json:"detail"`
 		State            string  `json:"state"`
 		Manager          string  `json:"manager"`
 		Since            *string `json:"since"`
