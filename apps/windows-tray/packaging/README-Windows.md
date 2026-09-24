@@ -1,7 +1,7 @@
 # Windows companion bundle
 
 The installer asks before replacing an occupied Murmur shortcut, in the wizard's
-selected language. Declining keeps the shortcut. Silent setup replaces selected
+selected language. Declining keeps the shortcut and stops setup. Silent setup replaces selected
 shortcuts by default; `/SHORTCUTCONFLICT=fail` requests exit code 7 on a conflict.
 It checks external Node.js against the bundled runtime policy (22.13.0 or newer,
 including SQLite support). If no compatible installation is found, interactive
