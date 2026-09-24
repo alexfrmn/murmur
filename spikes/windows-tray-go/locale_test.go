@@ -189,13 +189,13 @@ func TestExplicitRussianAndPreferencePersistence(t *testing.T) {
 	if got := resolve(nil, nil).Reason; got != "Статус ещё не снят" {
 		t.Fatalf("Russian status text = %q", got)
 	}
-	for n, want := range map[int]string{0: "0 пиров", 1: "1 пир", 2: "2 пира", 5: "5 пиров", 11: "11 пиров", 21: "21 пир", 104: "104 пира"} {
+	for n, want := range map[int]string{0: "0 контактов", 1: "1 контакт", 2: "2 контакта", 5: "5 контактов", 11: "11 контактов", 21: "21 контакт", 104: "104 контакта"} {
 		if got := peerCount(n); got != want {
 			t.Errorf("peerCount(%d) = %q, want %q", n, got, want)
 		}
 	}
 	setLocale(localeEnglish)
-	if peerCount(1) != "1 peer" || peerCount(2) != "2 peers" || messageCount(1) != "1 message" || messageCount(2) != "2 messages" {
+	if peerCount(1) != "1 contact" || peerCount(2) != "2 contacts" || messageCount(1) != "1 message" || messageCount(2) != "2 messages" {
 		t.Fatal("English count forms are incorrect")
 	}
 }

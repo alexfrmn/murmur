@@ -192,7 +192,7 @@ func TestGreyKeepsHistory(t *testing.T) {
 		t.Fatal("в сером состоянии история отказов обязана остаться")
 	}
 	joined := strings.Join(v.History, " | ")
-	for _, want := range []string{"send error", "wake failure"} {
+	for _, want := range []string{"send error", "wake-up failure"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("в истории нет %q: %s", want, joined)
 		}
