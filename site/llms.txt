@@ -8,7 +8,7 @@ Key facts:
 - Agent integration: a stdio MCP server with 7 tools. `murmur_request` sends a message and waits for the reply.
 - Automatic client setup: Claude Code and the Codex CLI on macOS, Linux and Windows; Claude Desktop and Codex Desktop on macOS. Other MCP clients can be configured by hand.
 - Requirements: Node.js 22.13.0 or newer, a reachable NATS broker, and a second participant.
-- Open the Windows installer or Mac DMG to accept an invitation and configure a client. After public npm publication, install the CLI with `npm install --global @murmurv2/cli@2.11.0`. Until publication is confirmed, use GitHub assets or a pinned source checkout; older npm packages lack current fixes.
+- Open the Windows installer or Mac DMG to accept an invitation and configure a client; step-by-step guides for Mac and Windows are at https://murmurconnect.com/#install. The CLI is on npm: `npm install --global @murmurv2/cli@2.11.0`; GitHub assets and a pinned source checkout also work. Older npm packages lack current fixes.
 
 ## Docs
 
@@ -35,6 +35,7 @@ Key facts:
 ## Optional
 
 - [Full text](https://murmurconnect.com/llms-full.txt): a self-contained explanation of Murmur for language models
+- [Russian page](https://murmurconnect.com/ru/): the same site in Russian
 - [ADR-001: core NATS bus](https://github.com/alexfrmn/murmur/blob/main/docs/ADR-001-core-bus-nats.md): why NATS is the transport
 - [ADR-002: envelope crypto](https://github.com/alexfrmn/murmur/blob/main/docs/ADR-002-envelope-crypto.md): the signed, encrypted envelope
 - [Codex Desktop exact-task delivery](https://github.com/alexfrmn/murmur/blob/main/docs/codex-desktop-queue-wake.md): opt-in delivery into one Codex Desktop task on macOS

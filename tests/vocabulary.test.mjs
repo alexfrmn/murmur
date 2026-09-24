@@ -99,6 +99,9 @@ function sources() {
     list.push({ file: "site/index.html#I18N", lang, entries: flatten(i18n[lang], lang, []) });
   }
   list.push({ file: "site/index.html", lang: "en", entries: siteStatic(html) });
+  // The Russian page is generated from the same file (scripts/build-site-ru.mjs); its
+  // dictionary is read above, and here its rendered text, meta and JSON-LD in Russian.
+  list.push({ file: "site/ru/index.html", lang: "ru", entries: siteStatic(read("site/ru/index.html")) });
   return list;
 }
 
