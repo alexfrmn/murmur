@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -732,6 +733,8 @@ func (a *app) connectToColleague() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	steps := onboardingSteps{
+		chooseClients: showAssistantChoices,
+		confirmClientReplacement: showAssistantReplacement,
 		pickInvitation: func() (string, bool) { return fileDialog(false, tr("onboarding.pickInvite"), "") },
 		pickReply:      func(suggested string) (string, bool) { return fileDialog(true, tr("onboarding.pickReply"), suggested) },
 		confirm:        askYesNo,
@@ -763,7 +766,13 @@ func (a *app) connectToColleague() {
 		tell(tr("onboarding.title"), err.Error())
 		return
 	}
-	tell(tr("onboarding.title"), tr("onboarding.done", r.AgentID))
+	message := tr("onboarding.done", r.AgentID)
+	if len(r.Clients) > 0 {
+		message += "\n\n" + tr("assistants.connected", strings.Join(r.Clients, ", "))
+	} else {
+		message += "\n\n" + tr("assistants.noneConnected")
+	}
+	tell(tr("onboarding.title"), message)
 }
 
 // openExistingProfile is for people who already made a profile with the CLI: pick its folder,
