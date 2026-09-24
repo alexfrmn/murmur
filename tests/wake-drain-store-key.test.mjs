@@ -88,7 +88,7 @@ test("a legacy anchor above this store's tip is ignored, not adopted", t => {
   fs.writeFileSync(path.join(h.home, ".murmur-wake-anchor"), "9\n"); // written for another store
   const first = h.run(s, "s1", ["--session"]);
   assert.equal(first.status, 0);
-  assert.equal(first.stdout, "", "no anchor of ours yet: baseline at the tip, silent");
+  assert.match(first.stdout, /text of profile-1/, "no anchor of ours yet: a never-drained store shows its first letter");
   s.insert("profile-2", "agent-mac-fresh");
   const cold = h.run(s, "s2", ["--session"]);
   assert.match(cold.stdout, /text of profile-2/, "a message between our tip and the foreign anchor must not be lost");
@@ -114,7 +114,8 @@ test("a poller on one store does not hold the lock of another store", async t =>
   const h = setup(t);
   const a = h.store("a", 1);
   const b = h.store("b", 1);
-  for (const s of [a, b]) assert.equal(h.run(s, "same", ["--once"]).status, 0); // seed both cursors
+  // The first run on a never-drained store reports its row and seeds the cursor past it.
+  for (const s of [a, b]) assert.equal(h.run(s, "same", ["--once"]).status, 2);
   const start = (s) => {
     const child = spawn(process.execPath, ["--no-warnings", script, "--db", s.dbPath, "--max-seconds", "20"], { env: h.env("same") });
     let stderr = "";

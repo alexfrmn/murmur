@@ -1,6 +1,8 @@
 // The installed Claude Code hook is a Stop hook only (no SessionStart --session). Its very
 // first run in a new session has no cursor: it must seed the baseline AND keep polling, or the
 // first idle wait of every session is deaf (letter 048, reproduced on the server).
+// The baseline is the contour's anchor, not the tip: a letter that landed before the first Stop
+// must still wake the session (24.09 acceptance, finding 5).
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -65,8 +67,9 @@ test("the first Stop of a new session seeds the cursor and keeps polling", async
     fs.rmSync(s.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   s.insert("history-1", "agent-old");
+  fs.writeFileSync(path.join(s.dir, "anchor"), "1\n"); // an earlier session already reported it
   run = poll(s);
-  // Seeded at the tip without reporting history, and still running.
+  // Seeded at the anchor without replaying what was reported, and still running.
   for (let i = 0; i < 50 && !fs.existsSync(path.join(s.dir, "cursor")); i++) await new Promise(r => setTimeout(r, 100));
   assert.equal(fs.readFileSync(path.join(s.dir, "cursor"), "utf8").trim(), "1");
   const early = await waitOr(run.exited, 600, null);
@@ -79,10 +82,31 @@ test("the first Stop of a new session seeds the cursor and keeps polling", async
   assert.doesNotMatch(result.stderr, /agent-old/, "history before the session is not replayed");
 });
 
-test("--once on the first run still only seeds and exits 0", async t => {
+test("a colleague's first letter that landed before the first Stop wakes it at once", async t => {
+  const s = store();
+  let run;
+  t.after(async () => {
+    if (run) {
+      if (!run.closed) run.child.kill();
+      await run.exited;
+    }
+    s.db.close();
+    fs.rmSync(s.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+  // New Identity, never drained: no anchor, no cursor, one letter already in the store.
+  s.insert("first-letter", "agent-colleague");
+  run = poll(s);
+  const result = await waitOr(run.exited, 10000, { timeout: true });
+  assert.equal(result.code, 2, `the first letter must wake the first Stop: ${JSON.stringify(result)}`);
+  assert.match(result.stderr, /Murmur wake: 1 new inbound message\(s\):\n {2}rowid=1 \[agent-colleague\]/);
+  assert.equal(fs.readFileSync(path.join(s.dir, "cursor"), "utf8").trim(), "1");
+});
+
+test("--once on the first run with the anchor at the tip only seeds and exits 0", async t => {
   const s = store();
   t.after(() => { s.db.close(); fs.rmSync(s.dir, { recursive: true, force: true }); });
   s.insert("history-1");
+  fs.writeFileSync(path.join(s.dir, "anchor"), "1\n");
   const result = await poll(s, ["--once"]).exited;
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.stderr, "");

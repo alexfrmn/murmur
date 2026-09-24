@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A colleague's first letter wakes Claude Code** (#245). A new session's Stop hook
+  used to start reading at the newest message, so a letter that arrived before the
+  session's first Stop woke nothing until the inbox was opened by hand. The first run
+  now starts at the contour's anchor; on a store never read before it reports the
+  newest `MURMUR_WAKE_FIRST_MAX` letters (default 20), in the Stop hook and in
+  `--session` alike. An anchor left behind by a store recreated at the same path is
+  replaced instead of silencing the hook, and one wake prints at most
+  `MURMUR_WAKE_SESSION_MAX` rows.
+
 ### Pending
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
