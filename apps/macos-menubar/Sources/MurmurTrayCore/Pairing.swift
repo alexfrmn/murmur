@@ -3,14 +3,14 @@ import Foundation
 public enum PairingError: Error, LocalizedError, Sendable, Equatable {
     case damaged, tooLarge, publicServerRequired, invalidServer, differentServer, wrongReply, confirmationRequired, unconfirmed, failed
 
-    static func from(code: String?) -> Self {
+    static func from(code: String?, command: String?) -> Self {
         switch code {
         case "onboarding.input-too-large": .tooLarge
         case "onboarding.invite-public-server-required": .publicServerRequired
         case "onboarding.invite-server-address-invalid": .invalidServer
         case "onboarding.existing-profile-conflict": .differentServer
         case "onboarding.invalid-blob", "onboarding.invalid-peer", "onboarding.invalid-peer-key", "onboarding.invalid-broker": .damaged
-        case "onboarding.self-peer", "onboarding.peer-key-conflict": .wrongReply
+        case "onboarding.self-peer", "onboarding.peer-key-conflict": command == "add-peer" ? .wrongReply : .failed
         default: .failed
         }
     }
@@ -47,8 +47,9 @@ public enum PairingLine {
         let matches = pattern.matches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned))
         var token: String?
         for match in matches {
-            guard let range = Range(match.range, in: cleaned) else { throw PairingError.damaged }
-            let candidate = String(cleaned[range])
+            // Regex offsets are UTF-16; an adjacent combining mark must not
+            // require the ASCII token to end on a Swift grapheme boundary.
+            let candidate = (cleaned as NSString).substring(with: match.range)
             guard token == nil || token == candidate else { throw PairingError.damaged }
             token = candidate
         }

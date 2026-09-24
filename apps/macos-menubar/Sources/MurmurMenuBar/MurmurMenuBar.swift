@@ -408,6 +408,15 @@ final class TrayModel: ObservableObject {
         !busy && !isDemo && runtimeError == nil && !hasPendingSetup &&
             (profile != nil ? canPair : !needsExistingProfileChoice)
     }
+    var invitationBlockReason: String? {
+        guard !canUseInvitation else { return nil }
+        if isDemo { return L10n.text("Demo mode") }
+        if let runtimeError { return runtimeError }
+        if busy { return L10n.text("Wait for the current command to finish") }
+        if hasPendingSetup { return L10n.text("Continue the saved setup before creating another profile") }
+        if profile != nil { return L10n.text("Refresh the status of this Identity before using an Invitation.") }
+        return L10n.text("Choose an existing connection before using an Invitation.")
+    }
     func beginPairing(_ mode: PairingMode) {
         guard !busy, !isDemo else { return }
         if mode != .join { guard canPair else { return } }
@@ -517,7 +526,9 @@ final class TrayModel: ObservableObject {
             else { return }
             NSPasteboard.general.clearContents()
             guard NSPasteboard.general.setString(line, forType: .string) else { throw PairingError.failed }
-            pairingOutput = line
+            // An Invitation can contain the Server key. Keep it on the
+            // clipboard only; the visible/selectable output is for Replies.
+            if pairingInvitation == nil { pairingOutput = line }
             pairingMessage = L10n.text("Copied. Send this line personally to your colleague.")
         } catch { pairingError = PairingError.message(for: error) }
     }
@@ -556,7 +567,7 @@ final class TrayModel: ObservableObject {
                     return try onboarding.initialize(plan, brokerURL: server ?? "", tokenFile: accessFile, journal: journal)
                 }
             }.value
-            finishCreation(result)
+            finishCreation(result, isInvitation: invitation != nil)
         }
     }
     private func persistCreatedSelection(_ created: CreatedProfile) throws {
@@ -570,7 +581,7 @@ final class TrayModel: ObservableObject {
         else { preferences.removeObject(forKey: "setupReplyFile") }
         guard preferences.synchronize() else { throw OnboardingJournalError.invalidJournal }
     }
-    private func finishCreation(_ result: Result<CreatedProfile, Error>) {
+    private func finishCreation(_ result: Result<CreatedProfile, Error>, isInvitation: Bool = false) {
         creatingProfile = false
         switch result {
         case .success(let created):
@@ -606,8 +617,8 @@ final class TrayModel: ObservableObject {
                 }
             }
         case .failure(let error):
-            creationError = PairingError.message(for: error)
-            pairingError = creationError
+            creationError = isInvitation ? PairingError.message(for: error) : error.localizedDescription
+            if isInvitation { pairingError = creationError }
             refreshSavedSetup()
         }
         if hasPendingSetup { showCreateProfileSheet = false; showPairingSheet = false }
@@ -624,10 +635,6 @@ final class TrayModel: ObservableObject {
            URL(fileURLWithPath: path).standardizedFileURL.path == path,
            let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
            values.isRegularFile == true, values.isSymbolicLink != true { setupReplyFile = URL(fileURLWithPath: path) }
-    }
-    func showReplyFile() {
-        guard let setupReplyFile else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([setupReplyFile])
     }
     func startNewProfile() {
         guard canStartNewProfile, let client, let agentID else { return }

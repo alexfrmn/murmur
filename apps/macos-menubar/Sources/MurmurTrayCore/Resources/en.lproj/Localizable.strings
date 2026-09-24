@@ -461,7 +461,7 @@
 "Send your Reply line to the colleague who invited you." = "Send your Reply line to the colleague who invited you.";
 "Show and copy Reply" = "Show and copy Reply";
 "The Service is running. Check the connection after exchanging the Reply." = "The Service is running. Check the connection after exchanging the Reply.";
-"Send an Invitation to your colleague, then paste their Reply here." = "Send an Invitation to your colleague, then paste their Reply here.";
+"Send an Invitation to your colleague. When they send their Reply, close this window and choose “Paste colleague's Reply”." = "Send an Invitation to your colleague. When they send their Reply, close this window and choose “Paste colleague's Reply”.";
 "Contains a Server access key. Send personally." = "Contains a Server access key. Send personally.";
 "I will send this Invitation personally to my colleague." = "I will send this Invitation personally to my colleague.";
 "Copy Invitation" = "Copy Invitation";
@@ -475,3 +475,5 @@
 "Identity: %@" = "Identity: %@";
 "The Contact will be added to this Identity." = "The Contact will be added to this Identity.";
 "This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use." = "This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use.";
+"Refresh the status of this Identity before using an Invitation." = "Refresh the status of this Identity before using an Invitation.";
+"Choose an existing connection before using an Invitation." = "Choose an existing connection before using an Invitation.";

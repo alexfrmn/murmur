@@ -76,6 +76,9 @@ func runPairingChecks(fixtures: URL) throws -> Int {
         ("non-BMP format character", "MURMUR:eyJ2Ijox\u{e0001}LCJ0eXBlIjoiaW52aXRlIn0", token),
         ("duplicates after Cf removal", "> MURMUR:eyJ2Ijox\u{200b}LCJ0eXBlIjoiaW52aXRlIn0\n" + token, token),
         ("emoji prefix", "💌 Приглашение: \"" + token + "\"", token),
+        ("combining accent suffix", token + "\u{0301}", token),
+        ("variation selector suffix", token + "\u{fe0f}", token),
+        ("skin tone suffix", token + "\u{1f3fd}", token),
         ("padding", "Reply: \"MURMUR:abcd_ef-==\" — signature", "MURMUR:abcd_ef-=="),
         ("wrapped token is left to engine", "MURMUR:eyJ2Ijox\nLCJ0eXBlIjoiaW52aXRlIn0", "MURMUR:eyJ2Ijox"),
     ] {
@@ -200,7 +203,8 @@ func runPairingChecks(fixtures: URL) throws -> Int {
             try check(try f.text("calls").components(separatedBy: "join").count == 2, "No mutation retry")
         }
     }
-    for (code, expected) in [("onboarding.existing-profile-conflict", PairingError.differentServer), ("onboarding.invalid-blob", .damaged)] {
+    for (code, expected) in [("onboarding.existing-profile-conflict", PairingError.differentServer), ("onboarding.invalid-blob", .damaged),
+                             ("onboarding.self-peer", .failed), ("onboarding.peer-key-conflict", .failed)] {
         try scenario("join error is actionable without exposing input: \(code)") { f in
             try (code + "\n").write(to: f.root.appendingPathComponent("join.error"), atomically: true, encoding: .utf8)
             do {
@@ -208,6 +212,15 @@ func runPairingChecks(fixtures: URL) throws -> Int {
                 throw CheckFailure(message: "Expected join refusal")
             } catch let error as PairingError { try check(error == expected, "Stable human error mapping") }
             try check(try f.text("calls") == "status\njoin\n", "No automatic retry")
+        }
+    }
+    for code in ["onboarding.self-peer", "onboarding.peer-key-conflict"] {
+        try scenario("Reply conflict still asks for a Reply: \(code)") { f in
+            try (code + "\n").write(to: f.root.appendingPathComponent("add-peer.error"), atomically: true, encoding: .utf8)
+            do {
+                _ = try f.client.addReply("MURMUR:reply-only", expectedAgent: "agent-misha")
+                throw CheckFailure(message: "Expected Reply refusal")
+            } catch let error as PairingError { try check(error == .wrongReply, "Reply-specific action") }
         }
     }
     try scenario("raw stderr cannot appear in the window") { f in

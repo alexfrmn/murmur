@@ -39,6 +39,56 @@ import MurmurTrayCore
         }
         fatalError("native action timed out")
     }
+    @MainActor static func creationFailures(root: URL, cli: URL, pictures: URL, language: String) async throws {
+        let fm = FileManager.default
+        let invalidAccess = root.appendingPathComponent("invalid-access")
+        try "test-only\nsecond-line".write(to: invalidAccess, atomically: true, encoding: .utf8)
+        let plan = try NewProfilePlan(applicationDirectory: root.appendingPathComponent("invalid-init"), agentID: "invalid-init")
+        let expectedAccessError: String
+        do {
+            _ = try ProfileOnboardingClient(executable: cli).initialize(plan, brokerURL: "nats://server.example.invalid:4222", tokenFile: invalidAccess)
+            fatalError("Multiline access file must be refused")
+        } catch { expectedAccessError = error.localizedDescription }
+        let originalCLI = ProcessInfo.processInfo.environment["MURMUR_BIN"]
+        defer {
+            if let originalCLI { setenv("MURMUR_BIN", originalCLI, 1) }
+            else { unsetenv("MURMUR_BIN") }
+        }
+        // Fault injection is local to this harness. No status, Service, or
+        // network command may run through the stub; only a failing init.
+        let failingCLI = root.appendingPathComponent("init-failure-cli")
+        for (name, expected) in [("access-file", expectedAccessError),
+                                 ("permission", ProbeError.failedWithReason(1, "Access denied.").localizedDescription),
+                                 ("timeout", ProbeError.timedOut.localizedDescription)] {
+            if name == "access-file" { setenv("MURMUR_BIN", cli.path, 1) }
+            else {
+                let failure = name == "permission" ? "printf 'Access denied.\\n' >&2\nexit 1\n" : "exec /bin/sleep 25\n"
+                try ("#!/bin/sh\n[ \"$1\" = init ] || exit 73\n" + failure).write(to: failingCLI, atomically: true, encoding: .utf8)
+                try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: failingCLI.path)
+                setenv("MURMUR_BIN", failingCLI.path, 1)
+            }
+            let model = TrayModel(startRuntime: false)
+            model.createOwnProfile(agentID: "failed-\(name)", server: "nats://server.example.invalid:4222",
+                                   accessFile: name == "access-file" ? invalidAccess : nil)
+            try await settled(model)
+            precondition(model.creationError == expected && model.pairingError == nil && model.profile == nil)
+            try capture(MurmurHomeView(model: model), to: pictures.appendingPathComponent("after-init-\(name)-\(language).png"), height: 760)
+            precondition(model.pendingCanRetryCreation)
+            model.discardEmptySetup()
+            precondition(!model.hasPendingSetup)
+            print("PASS native \(language): own Server \(name) preserves its error without asking for an Invitation or Reply")
+        }
+        setenv("MURMUR_BIN", cli.path, 1)
+        let joining = TrayModel(startRuntime: false)
+        joining.useInvitation(); joining.creationAgentID = "damaged-invitation"
+        joining.pairingInput = "MURMUR:invalid"; joining.joinInvitationLine()
+        try await settled(joining)
+        precondition(joining.creationError == PairingError.damaged.localizedDescription && joining.pairingError == joining.creationError)
+        precondition(joining.profile == nil && joining.pendingCanRetryCreation)
+        joining.discardEmptySetup()
+        precondition(!joining.hasPendingSetup)
+        print("PASS native \(language): first-time join keeps Invitation-specific error handling")
+    }
     @MainActor static func main() async throws {
         let args = CommandLine.arguments
         let root = URL(fileURLWithPath: args[1]), language = args[2]
@@ -55,6 +105,7 @@ import MurmurTrayCore
         try capture(PairingSheet(model: welcome), to: pictures.appendingPathComponent("after-join-\(language).png"))
 
         guard let cli = CLIProbe.locate() else { fatalError("isolated CLI required") }
+        try await creationFailures(root: root, cli: cli, pictures: pictures, language: language)
         let plan = try NewProfilePlan(applicationDirectory: root.appendingPathComponent("inviter"), agentID: "pair-inviter")
         let token = root.appendingPathComponent("disposable-token")
         try UUID().uuidString.write(to: token, atomically: true, encoding: .utf8)
@@ -78,7 +129,8 @@ import MurmurTrayCore
         try capture(PairingSheet(model: inviter), to: pictures.appendingPathComponent("after-confirm-\(language).png"))
         inviter.pairingConfirmed = true; inviter.copyPairingLine()
         let invitation = clipboard.string(forType: .string)!
-        precondition(invitation.hasPrefix("MURMUR:"))
+        precondition(invitation.hasPrefix("MURMUR:") && inviter.pairingOutput == nil)
+        try capture(PairingSheet(model: inviter), to: pictures.appendingPathComponent("after-invitation-copied-\(language).png"))
 
         let joining = TrayModel(startRuntime: false)
         joining.useInvitation(); joining.creationAgentID = "misha-mac"
@@ -109,7 +161,9 @@ import MurmurTrayCore
         first.ownProfileSheetDismissed()
         precondition(first.showPairingSheet && first.pairingMode == .invite)
         first.makeInvitation(); try await settled(first)
-        precondition(first.pairingInvitation?.containsBrokerCredential == false && first.pairingOutput?.hasPrefix("MURMUR:") == true)
+        precondition(first.pairingInvitation?.containsBrokerCredential == false && first.pairingOutput == nil)
+        let publicInvitation = clipboard.string(forType: .string)!
+        precondition(publicInvitation.hasPrefix("MURMUR:"))
 
         // An already selected Identity joins through the menu action. This test
         // reads only its disposable configuration to prove keys/settings survive.
@@ -117,7 +171,16 @@ import MurmurTrayCore
         let configFile = URL(fileURLWithPath: originalProfile.dataDirectory).appendingPathComponent("agent-config.json")
         let before = try Data(contentsOf: configFile)
         let selectedDirectory = UserDefaults.standard.string(forKey: "profileDirectory")
-        let publicInvitation = first.pairingOutput!
+        let verifiedStatus = first.status
+        first.status = nil; first.showPairingSheet = false; first.clearPairing()
+        precondition(!first.busy && !first.canUseInvitation && first.invitationBlockReason == L10n.text("Refresh the status of this Identity before using an Invitation."))
+        first.useInvitation()
+        let afterBlockedJoin = try Data(contentsOf: configFile)
+        precondition(!first.showPairingSheet && first.profile == originalProfile && afterBlockedJoin == before)
+        precondition(!first.hasPendingSetup && UserDefaults.standard.string(forKey: "profileDirectory") == selectedDirectory)
+        first.status = verifiedStatus
+        precondition(first.canUseInvitation && first.invitationBlockReason == nil)
+        print("PASS native \(language): unverified current Identity explains blocked Invitation action and stays unchanged")
         first.useInvitation()
         precondition(first.canUseInvitation && first.pairingIdentity == "first-inviter" && first.showPairingSheet)
         first.creationAgentID = "must-not-create-this"
@@ -162,6 +225,7 @@ import MurmurTrayCore
         precondition(!first.operating && first.pairingError == PairingError.unconfirmed.localizedDescription)
         clipboard.clearContents()
         print("PASS native \(language): public-address prompt, credential gate, clipboard Invitation, legacy/Cf/quoted stdin join, clipboard Reply, legacy/Cf/quoted stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter, existing Identity form, different tokens refused unchanged, identical Cf quote accepted with Identity and keys preserved, existing Reply and both Contacts, Server conflict unchanged, changed selection refused")
-        print("16 native checks passed; no Service or network exchange claimed")
+        print("PASS native \(language): copied Invitation stays out of visible output, with or without a Server key")
+        print("22 native checks passed; no Service or network exchange claimed")
     }
 }

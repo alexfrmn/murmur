@@ -1,57 +1,12 @@
 Platform: macOS 26.6.2 arm64; Apple Swift 6.4
 Source baseline: 4772afaa5035bba8e7104ebebe11e8f099e360db
+Review parent: 1cfe90f329efbe9f4fa35cef298dcd5db19b6b1c
 Branch: codex-mac/mac-pair-by-lines
 Environment: temporary HOME/CFFIXED_USER_HOME; inherited MURMUR_*, NATS_*, DATA_DIR, NODE_OPTIONS cleared
-Command: bash apps/macos-menubar/scripts/build-app.sh
+Command: python3 ../mac-pair-by-lines-proof/isolated.py bash apps/macos-menubar/scripts/build-app.sh
 Exit: 0; release build, app signing and signature verification passed
-PASS pairing: messenger signature
-PASS pairing: messenger quotes
-PASS pairing: messenger code fence
-PASS pairing: messenger whitespace
-PASS pairing: messenger identical quoted tokens
-PASS pairing: messenger zero-width space
-PASS pairing: messenger legacy base64
-PASS pairing: messenger soft hyphen
-PASS pairing: messenger bidi marks in prefix and body
-PASS pairing: messenger non-BMP format character
-PASS pairing: messenger duplicates after Cf removal
-PASS pairing: messenger emoji prefix
-PASS pairing: messenger padding
-PASS pairing: messenger wrapped token is left to engine
-PASS pairing: invalid messenger paste missing never reaches CLI
-PASS pairing: invalid messenger paste empty never reaches CLI
-PASS pairing: invalid messenger paste different tokens never reaches CLI
-PASS pairing: invalid messenger paste current and legacy tokens never reaches CLI
-PASS pairing: invalid messenger paste Cf removal still leaves different tokens never reaches CLI
-PASS pairing: legacy recovery copy preserves every base64 character
-PASS pairing: size limit applies before stripping format characters
-PASS pairing: normalized legacy duplicate reaches stdin once for join and Reply
-PASS pairing: Server key requires acknowledgement before exposing the line
-PASS pairing: Invitation without a Server key canCHECK GROUP Pairing: PASS (28.235s)
-PASS pairing: older invitation receipt without credential flag fails closed
-PASS pairing: private Server code asks for public address; no automatic retry
-PASS pairing: Server credentials in a pasted address never reach argv
-PASS pairing: Reply goes only to stdin and Contact is verified after import
-PASS pairing: import is not declared successful: missing-contact
-PASS pairing: import is not declared successful: changed-identity
-PASS pairing: import is not declared successful: self-reply
-PASS pairing: import is not declared successful: wrong-schema
-PASS pairing: different selected Identity prevents any import
-PASS pairing: Invitation uses current Identity and profile; only extracted token reaches stdin
-PASS pairing: different selected Identity prevents join
-PASS pairing: existing Identity join is not declared successful: missing-contact
-PASS pairing: existing Identity join is not declared successful: changed-identity
-PASS pairing: existing Identity join is not declared successful: receipt-identity
-PASS pairing: existing Identity join is not declared successful: self-contact
-PASS pairing: existing Identity join is not declared successful: wrong-schema
-PASS pairing: existing Identity join is not declared successful: missing-reply
-PASS pairing: existing Identity join is not declared successful: damaged-reply
-PASS pairing: existing Identity join is not declared successful: paired-claim
-PASS pairing: join error is actionable without exposing input: onboarding.existing-profile-conflict
-PASS pairing: join error is actionable without exposing input: onboarding.invalid-blob
-PASS pairing: raw stderr cannot appear in the window
-475 checks passed; canonical 33, transport 7, boundary 38, profile controls 60, updates 78, bundled runtime 25, localization 8, presentation 27, mark 31, onboarding 58, guidance 22, client setup 30, outbox 12, pairing 46
-{"localizationChecks": 5, "keysPerLanguage": 465, "sourceKeysCovered": 384, "languages": ["en", "ru"], "default": "en"}
+482 checks passed; canonical 33, transport 7, boundary 38, profile controls 60, updates 78, bundled runtime 25, localization 8, presentation 27, mark 31, onboarding 58, guidance 22, client setup 30, outbox 12, pairing 53
+{"localizationChecks": 5, "keysPerLanguage": 467, "sourceKeysCovered": 386, "languages": ["en", "ru"], "default": "en"}
 
 Command: node --test tests/vocabulary.test.mjs (Node 22.23.1)
 # tests 3
@@ -62,14 +17,31 @@ Command: node --test tests/vocabulary.test.mjs (Node 22.23.1)
 Native harness: apps/macos-menubar/evidence/pairing-native.swift
 CLI source: installed verified 4772afaa5035bba8e7104ebebe11e8f099e360db (version 2.11.0)
 Temporary Identities only; generated disposable access keys; no NATS or Service traffic.
+Fault injection: init-only local stub for permission denial and a real 20-second process timeout.
+GUI-шаг не прогнан, заблокирован Accessibility. humanGuiPass mac = false.
+No macOS Automation or Accessibility permissions changed.
+
+PASS native en: own Server access-file preserves its error without asking for an Invitation or Reply
+PASS native en: own Server permission preserves its error without asking for an Invitation or Reply
+PASS native en: own Server timeout preserves its error without asking for an Invitation or Reply
+PASS native en: first-time join keeps Invitation-specific error handling
+PASS native en: unverified current Identity explains blocked Invitation action and stays unchanged
 PASS native en: public-address prompt, credential gate, clipboard Invitation, legacy/Cf/quoted stdin join, clipboard Reply, legacy/Cf/quoted stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter, existing Identity form, different tokens refused unchanged, identical Cf quote accepted with Identity and keys preserved, existing Reply and both Contacts, Server conflict unchanged, changed selection refused
-16 native checks passed; no Service or network exchange claimed
+PASS native en: copied Invitation stays out of visible output, with or without a Server key
+22 native checks passed; no Service or network exchange claimed
+
+PASS native ru: own Server access-file preserves its error without asking for an Invitation or Reply
+PASS native ru: own Server permission preserves its error without asking for an Invitation or Reply
+PASS native ru: own Server timeout preserves its error without asking for an Invitation or Reply
+PASS native ru: first-time join keeps Invitation-specific error handling
+PASS native ru: unverified current Identity explains blocked Invitation action and stays unchanged
 PASS native ru: public-address prompt, credential gate, clipboard Invitation, legacy/Cf/quoted stdin join, clipboard Reply, legacy/Cf/quoted stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter, existing Identity form, different tokens refused unchanged, identical Cf quote accepted with Identity and keys preserved, existing Reply and both Contacts, Server conflict unchanged, changed selection refused
-16 native checks passed; no Service or network exchange claimed
+PASS native ru: copied Invitation stays out of visible output, with or without a Server key
+22 native checks passed; no Service or network exchange claimed
 
 Full local logs (outside git): /Users/alex/.codex/workspaces/murmur-2.12/mac-pair-by-lines-proof/
-  legacy-cf-build.log
-  legacy-cf-vocabulary.log
-  legacy-cf-native-build.log
-  native-{en,ru}-legacy-cf/acceptance.log
-No live Assistant exchange or two-person timing claimed.
+  review-build.log
+  review-vocabulary.log
+  review-native-build.log
+  native-{en,ru}-review/acceptance.log
+No live Assistant exchange or two-person timing claimed by these fixture runs.

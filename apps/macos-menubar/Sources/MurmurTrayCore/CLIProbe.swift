@@ -114,7 +114,7 @@ public struct CLIProbe: Sendable {
                 // Only stable codes affect presentation. Never show raw stderr,
                 // JSON, or a pasted Invitation in a pairing window.
                 let text = String(data: try Data(contentsOf: stderr), encoding: .utf8) ?? ""
-                throw PairingError.from(code: text.split(whereSeparator: \.isNewline).last.map(String.init))
+                throw PairingError.from(code: text.split(whereSeparator: \.isNewline).last.map(String.init), command: arguments.first)
             }
             let errorText = String(data: try Data(contentsOf: stderr), encoding: .utf8) ?? ""
             let firstLine = errorText.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""

@@ -110,7 +110,12 @@ struct MurmurHomeView: View {
                     } else {
                         Button(L10n.text("I have an invitation…")) { model.useInvitation() }
                             .buttonStyle(.borderedProminent).controlSize(.large)
-                            .disabled(model.busy).keyboardShortcut(.defaultAction)
+                            .disabled(model.busy || !model.canUseInvitation).keyboardShortcut(.defaultAction)
+                            .help(model.invitationBlockReason ?? L10n.text("Paste the Invitation line sent by your colleague."))
+                        if let reason = model.invitationBlockReason {
+                            Text(reason).font(.callout).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         Text(L10n.text("Paste the Invitation line sent by your colleague."))
                             .font(.callout).foregroundStyle(.secondary)
                         Button(L10n.text("Invite a colleague")) { model.beginInviting() }.disabled(model.busy)
@@ -382,6 +387,7 @@ struct MurmurHomeView: View {
     @ViewBuilder private var preferences: some View {
         Button(L10n.text("I have an invitation…")) { model.useInvitation() }
             .disabled(!model.canUseInvitation)
+            .help(model.invitationBlockReason ?? L10n.text("Paste the Invitation line sent by your colleague."))
         Divider()
         Menu(L10n.text("Language")) {
             ForEach(AppLanguage.allCases, id: \.self) { language in

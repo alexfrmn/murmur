@@ -124,7 +124,7 @@
 "Recorded delivery failures: %@" = "Сохранённые ошибки доставки: %@";
 "Refresh status" = "Обновить статус";
 "Refreshing…" = "Обновляется…";
-"Reply" = "Ответное сообщение";
+"Reply" = "Ответ";
 "Required data is missing from the response" = "В ответе отсутствуют обязательные данные";
 "Required response fields are missing: " = "В ответе нет обязательных полей: ";
 "Response fields have the wrong type: " = "В ответе неверный тип данных: ";
@@ -444,7 +444,7 @@
 "Exchange verification does not test automatic agent wake." = "Проверка обмена не проверяет пробуждение.";
 
 "Invite a colleague" = "Пригласить коллегу";
-"Paste colleague's Reply" = "Вставить ответ коллеги";
+"Paste colleague's Reply" = "Вставить Ответ коллеги";
 "Identity name" = "Имя Личности";
 "Invitation" = "Приглашение";
 "This line is too long. Ask your colleague for a new Invitation or Reply." = "Строка слишком длинная. Попросите коллегу прислать новое Приглашение или Ответ.";
@@ -461,7 +461,7 @@
 "Send your Reply line to the colleague who invited you." = "Отправьте строку Ответа коллеге, который вас пригласил.";
 "Show and copy Reply" = "Показать и скопировать Ответ";
 "The Service is running. Check the connection after exchanging the Reply." = "Служба работает. Проверьте связь после обмена Ответом.";
-"Send an Invitation to your colleague, then paste their Reply here." = "Отправьте Приглашение коллеге, затем вставьте здесь его Ответ.";
+"Send an Invitation to your colleague. When they send their Reply, close this window and choose “Paste colleague's Reply”." = "Отправьте Приглашение коллеге. Когда получите его Ответ, закройте это окно и выберите «Вставить Ответ коллеги».";
 "Contains a Server access key. Send personally." = "Содержит ключ доступа к Серверу. Передавайте лично.";
 "I will send this Invitation personally to my colleague." = "Я передам это Приглашение коллеге лично.";
 "Copy Invitation" = "Скопировать Приглашение";
@@ -475,3 +475,5 @@
 "Identity: %@" = "Личность: %@";
 "The Contact will be added to this Identity." = "Контакт будет добавлен к этой Личности.";
 "This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use." = "В Приглашении указан другой Сервер. Попросите у коллеги Приглашение для Сервера, который вы уже используете.";
+"Refresh the status of this Identity before using an Invitation." = "Обновите состояние текущей Личности перед использованием Приглашения.";
+"Choose an existing connection before using an Invitation." = "Выберите существующую Личность перед использованием Приглашения.";

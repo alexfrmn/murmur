@@ -16,7 +16,7 @@ struct PairingSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title).font(.title2.weight(.semibold))
             if model.pairingMode == .invite {
-                Text(L10n.text("Send an Invitation to your colleague, then paste their Reply here."))
+                Text(L10n.text("Send an Invitation to your colleague. When they send their Reply, close this window and choose “Paste colleague's Reply”."))
                     .fixedSize(horizontal: false, vertical: true)
                 if let invitation = model.pairingInvitation {
                     if invitation.containsBrokerCredential {
@@ -61,13 +61,11 @@ struct PairingSheet: View {
                 }.buttonStyle(.borderedProminent)
                     .disabled(model.busy || model.pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (model.pairingMode == .join && model.pairingIdentity == nil && model.creationAgentID.isEmpty))
             }
-            if let output = model.pairingOutput {
-                Text(model.pairingMode == .invite ? L10n.text("Invitation") : L10n.text("Reply")).font(.headline)
+            if model.pairingMode != .invite, let output = model.pairingOutput {
+                Text(L10n.text("Reply")).font(.headline)
                 ScrollView { Text(output).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading) }.frame(height: 100)
-                if model.pairingMode != .invite {
-                    Button(L10n.text("Copy Reply")) { model.copyPairingLine() }.disabled(model.busy)
-                }
+                Button(L10n.text("Copy Reply")) { model.copyPairingLine() }.disabled(model.busy)
             }
             if model.operating || model.creatingProfile { ProgressView(L10n.text("Working…")) }
             if let error = model.pairingError { Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
