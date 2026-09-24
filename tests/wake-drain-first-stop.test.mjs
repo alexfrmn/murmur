@@ -27,6 +27,10 @@ function store() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "murmur-wake-first- пробел Мой-"));
   const dbPath = path.join(dir, "murmur.db");
   const db = new DatabaseSync(dbPath);
+  // The hook reads this store while the test inserts. Its read holds a shared lock, and a
+  // writer without a busy timeout fails at once with "database is locked" (any OS in rollback
+  // journal mode; Windows widens the window enough to hit it in CI).
+  db.exec("PRAGMA busy_timeout=5000");
   db.exec("CREATE TABLE local_messages (msg_id TEXT PRIMARY KEY, created_at TEXT, sender TEXT, conversation_id TEXT, direction TEXT, text TEXT)");
   const insert = (msgId, sender = "agent-peer") => db.prepare(
     "INSERT INTO local_messages VALUES (?, '2026-09-24T00:00:00.000Z', ?, 'c-1', 'inbound', 'hello')",

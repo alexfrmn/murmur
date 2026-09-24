@@ -40,6 +40,8 @@ function setup(t) {
     const dbPath = path.join(root, name, "murmur.db");
     fs.mkdirSync(path.dirname(dbPath));
     const db = new DatabaseSync(dbPath);
+    // b.insert() below runs while a hook polls store b; wait for its shared read lock.
+    db.exec("PRAGMA busy_timeout=5000");
     db.exec("CREATE TABLE local_messages (msg_id TEXT PRIMARY KEY, created_at TEXT, sender TEXT, conversation_id TEXT, direction TEXT, text TEXT)");
     const insert = (msgId, sender = "agent-peer") => db.prepare(
       "INSERT INTO local_messages VALUES (?, '2026-09-24T00:00:00.000Z', ?, 'c-1', 'inbound', ?)",
