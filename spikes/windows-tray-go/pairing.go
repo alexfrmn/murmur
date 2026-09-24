@@ -5,20 +5,28 @@ import (
 	"errors"
 	"io"
 	"os"
-	"strings"
+	"regexp"
 )
 
 const pairingMaxBytes = 16 * 1024
 
+// pairingToken is one Invitation or Reply line: the prefix and base64url text.
+var pairingToken = regexp.MustCompile(`MURMUR:[A-Za-z0-9_-]+=*`)
+
+// pairingLine takes the line out of what the person pasted. A line copied from
+// a messenger or mail often brings the text around it (a greeting, a signature,
+// quotes), so exactly one token is kept and the rest is ignored. Two tokens are
+// ambiguous and rejected. A line broken by wrapping leaves a truncated token,
+// which the engine rejects as a damaged blob before it changes anything.
 func pairingLine(input string) (string, error) {
-	line := strings.TrimSpace(input)
-	if len(input) > pairingMaxBytes || len(line) > pairingMaxBytes {
+	if len(input) > pairingMaxBytes {
 		return "", errors.New(tr("pairing.tooLarge"))
 	}
-	if !strings.HasPrefix(line, "MURMUR:") || len(line) <= len("MURMUR:") || strings.ContainsAny(line, "\r\n\t ") {
+	tokens := pairingToken.FindAllString(input, 2)
+	if len(tokens) != 1 {
 		return "", errors.New(tr("pairing.damaged"))
 	}
-	return line, nil
+	return tokens[0], nil
 }
 
 func pairingFile(path string) (string, error) {

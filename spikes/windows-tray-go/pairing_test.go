@@ -22,6 +22,29 @@ func TestPairingRejectsInvalidInputBeforeMutation(t *testing.T) {
 		t.Fatal("surrounding whitespace rejected")
 	}
 }
+func TestPairingLineTakesTheTokenOutOfMessengerText(t *testing.T) {
+	token := "MURMUR:eyJ2IjoxLCJ0eXBlIjoiaW52aXRlIn0"
+	for _, pasted := range []string{
+		token + "\n\n\u2191 Copy only the MURMUR: line above.\n\n\u2593\u2592\u2591 signature",
+		"Here is the invitation: \u00ab" + token + "\u00bb",
+		"```\n" + token + "\n```",
+		"\t" + token + "==\r\n",
+	} {
+		got, err := pairingLine(pasted)
+		if err != nil || !strings.HasPrefix(got, token) {
+			t.Fatalf("token not taken from %q: %q %v", pasted, got, err)
+		}
+	}
+	for _, pasted := range []string{
+		"only the prefix MURMUR: is mentioned",
+		token + "\n" + token,
+		"MURMUR:\u00bb",
+	} {
+		if _, err := pairingLine(pasted); err == nil {
+			t.Fatalf("accepted %q", pasted)
+		}
+	}
+}
 func TestPairingFileFallbackIsBounded(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "invitation.txt")
 	os.WriteFile(p, []byte("MURMUR:synthetic\n"), 0600)
