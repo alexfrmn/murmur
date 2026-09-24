@@ -62,9 +62,10 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       const independent = !managed && service.state !== "failed"
         ? await adapter.observeStore?.(c, raw.pid).catch(() => null) : null;
       if (managed || independent === storePath) {
-        if (!managed) service = { state: "running-unmanaged", manager: "none", pid: raw.pid,
+        if (!managed && raw.pid !== service.pid) service = { state: "running-unmanaged", manager: "none", pid: raw.pid,
           observedStorePath: storePath, since: exchangeTime(raw.startedAt, started), lastExitCode: null,
           restartCount: null, restartWindowMs: null, detail: "service.running-unmanaged" };
+        else if (independent === storePath) service = { ...service, observedStorePath: storePath };
         observation = raw;
         runtimeMeasurement = measured(raw.measuredAt);
       } else runtimeMeasurement = unknown("runtime.process-store-unverified");
@@ -125,10 +126,11 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       wake.lastFault = fault ? safeError(fault.wake_error) : null; wake.lastFaultAt = fault?.wake_updated_at ?? null;
       wake.measurements.store = measured(at);
     } catch { wake.measurements.store = unknown("wake.store-schema-unavailable"); }
+    const exchangeCutoff = new Date(started + 5000).toISOString();
     for (const peer of peers.list ?? []) {
-      peer.lastInboundAt = (db.prepare("SELECT MAX(created_at) AS at FROM local_messages WHERE direction='inbound' AND sender=?").get(peer.agentId) as any).at;
-      peer.lastOutboundAt = (db.prepare("SELECT MAX(created_at) AS at FROM outbox WHERE json_extract(envelope_json,'$.recipients[0]')=?").get(peer.agentId) as any).at;
-      const ackedAt = (db.prepare("SELECT MAX(updated_at) AS at FROM outbox WHERE status='acked' AND json_extract(envelope_json,'$.recipients[0]')=?").get(peer.agentId) as any).at;
+      peer.lastInboundAt = (db.prepare("SELECT created_at AS at FROM local_messages WHERE direction='inbound' AND sender=? AND julianday(created_at)<=julianday(?) ORDER BY julianday(created_at) DESC LIMIT 1").get(peer.agentId, exchangeCutoff) as any)?.at ?? null;
+      peer.lastOutboundAt = (db.prepare("SELECT created_at AS at FROM outbox WHERE json_extract(envelope_json,'$.recipients[0]')=? AND julianday(created_at)<=julianday(?) ORDER BY julianday(created_at) DESC LIMIT 1").get(peer.agentId, exchangeCutoff) as any)?.at ?? null;
+      const ackedAt = (db.prepare("SELECT updated_at AS at FROM outbox WHERE status='acked' AND json_extract(envelope_json,'$.recipients[0]')=? AND julianday(updated_at)<=julianday(?) ORDER BY julianday(updated_at) DESC LIMIT 1").get(peer.agentId, exchangeCutoff) as any)?.at ?? null;
       peer.lastExchangeAt = [peer.lastInboundAt, ackedAt].map(value => exchangeTime(value, started)).filter((value): value is string => value !== null).sort().at(-1) ?? null;
     }
     peers.measurements.store = measured(at);

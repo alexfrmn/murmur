@@ -82,6 +82,8 @@
   "menu.recent": "Recent incoming messages",
   "menu.resume": "Resume",
   "menu.service": "Service",
+  "menu.serviceUnmanaged": "Running outside this app's control",
+  "menu.serviceUnmanagedTooltip": "Start and Stop are unavailable because this Service was started outside this app. Manage it where it was started.",
   "menu.serviceElevationTooltip": "Windows will ask for administrator consent",
   "menu.serviceLogs": "Log folder is unavailable from the CLI",
   "menu.serviceLogsTooltip": "The Windows logs command does not yet confirm a native folder",

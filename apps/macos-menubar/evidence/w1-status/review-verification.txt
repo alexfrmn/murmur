@@ -1,0 +1,371 @@
+W1 review corrections, 2026-09-24
+Review base: afba7d7592fcafc5af68a7ac081fcfe63ecb492e
+Node 22.23.1; Go 1.26.8; isolated nats-server 2.15.0.
+Environment: run-isolated.py clears MURMUR_*, NATS_*, DATA_DIR, STORE_PATH, LOG_DIR, AGENT_CONFIG, BROKER_URL, NODE_OPTIONS, NODE_PATH.
+Only disposable profiles and local random-port Servers. No installed app or live Service changes.
+
+npm run build: PASS
+npm run typecheck: PASS
+GOOS=windows GOARCH=amd64 go test -c (windows-tray-go): PASS
+GOOS=windows GOARCH=amd64 go vet ./... (windows-tray-go): PASS
+Windows native UI/UAC and screenshots: not executed on this Mac.
+Existing Mac component captures and 420 Swift checks concern unchanged native sources; not rerun for these corrections.
+
+$ node --test tests/setup-status.test.mjs tests/setup-darwin.test.mjs tests/vocabulary.test.mjs
+TAP version 13
+# Subtest: install produces private escaped plist, stays unloaded and is idempotent
+ok 1 - install produces private escaped plist, stays unloaded and is idempotent
+  ---
+  duration_ms: 6.868083
+  type: 'test'
+  ...
+# Subtest: install backs up only an owned changed plist
+ok 2 - install backs up only an owned changed plist
+  ---
+  duration_ms: 3.605125
+  type: 'test'
+  ...
+# Subtest: install refuses an unmanaged plist
+ok 3 - install refuses an unmanaged plist
+  ---
+  duration_ms: 1.842083
+  type: 'test'
+  ...
+# Subtest: install refuses a symlinked plist
+ok 4 - install refuses a symlinked plist
+  ---
+  duration_ms: 1.730875
+  type: 'test'
+  ...
+# Subtest: install refuses updating a loaded label and inconclusive launchctl errors
+ok 5 - install refuses updating a loaded label and inconclusive launchctl errors
+  ---
+  duration_ms: 2.53725
+  type: 'test'
+  ...
+# Subtest: reject relative paths, control characters, traversal and misleading store path before commands
+ok 6 - reject relative paths, control characters, traversal and misleading store path before commands
+  ---
+  duration_ms: 1.2095
+  type: 'test'
+  ...
+# Subtest: status distinguishes absent service from unreadable service without leaking stderr
+ok 7 - status distinguishes absent service from unreadable service without leaking stderr
+  ---
+  duration_ms: 2.3555
+  type: 'test'
+  ...
+# Subtest: running state reports actual FD store evidence and start time
+ok 8 - running state reports actual FD store evidence and start time
+  ---
+  duration_ms: 2.166917
+  type: 'test'
+  ...
+# Subtest: environment claim does not prove observed store path
+ok 9 - environment claim does not prove observed store path
+  ---
+  duration_ms: 1.666458
+  type: 'test'
+  ...
+# Subtest: nonzero exited service is failed, unrecognized state stays unknown
+ok 10 - nonzero exited service is failed, unrecognized state stays unknown
+  ---
+  duration_ms: 2.343833
+  type: 'test'
+  ...
+# Subtest: start bootstraps by argv then kickstarts without killing; stop bootouts idempotently
+ok 11 - start bootstraps by argv then kickstarts without killing; stop bootouts idempotently
+  ---
+  duration_ms: 3.022917
+  type: 'test'
+  ...
+# Subtest: never operates an unrelated loaded service sharing the requested label
+ok 12 - never operates an unrelated loaded service sharing the requested label
+  ---
+  duration_ms: 2.605833
+  type: 'test'
+  ...
+# Subtest: client detection uses executable permission and desktop bundle IDs; never writes config
+ok 13 - client detection uses executable permission and desktop bundle IDs; never writes config
+  ---
+  duration_ms: 2.471416
+  type: 'test'
+  ...
+# Subtest: classic ChatGPT application is not mistaken for Codex
+ok 14 - classic ChatGPT application is not mistaken for Codex
+  ---
+  duration_ms: 1.405292
+  type: 'test'
+  ...
+# Subtest: custom Claude profile remains explicit unknown, and an executable directory is not a CLI
+ok 15 - custom Claude profile remains explicit unknown, and an executable directory is not a CLI
+  ---
+  duration_ms: 1.158708
+  type: 'test'
+  ...
+# Subtest: stop refuses another profile reusing the same serviceName without any bootout
+ok 16 - stop refuses another profile reusing the same serviceName without any bootout
+  ---
+  duration_ms: 1.987583
+  type: 'test'
+  ...
+# (node:66340) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: live store-bound daemon without the selected service label is running-unmanaged
+ok 17 - live store-bound daemon without the selected service label is running-unmanaged
+  ---
+  duration_ms: 12.585041
+  type: 'test'
+  ...
+# Subtest: an unmanaged observation is not liveness evidence without the PID holding this store
+ok 18 - an unmanaged observation is not liveness evidence without the PID holding this store
+  ---
+  duration_ms: 14.561333
+  type: 'test'
+  ...
+# Subtest: contact exchange uses successful traffic, never an enqueued or failed send
+ok 19 - contact exchange uses successful traffic, never an enqueued or failed send
+  ---
+  duration_ms: 16.277625
+  type: 'test'
+  ...
+# Subtest: inbound exchange ignores future timestamps and sorts instants (future)
+ok 20 - inbound exchange ignores future timestamps and sorts instants (future)
+  ---
+  duration_ms: 8.744666
+  type: 'test'
+  ...
+# Subtest: inbound exchange ignores future timestamps and sorts instants (offset)
+ok 21 - inbound exchange ignores future timestamps and sorts instants (offset)
+  ---
+  duration_ms: 8.945291
+  type: 'test'
+  ...
+# Subtest: outbound exchange ignores future timestamps and sorts instants (future)
+ok 22 - outbound exchange ignores future timestamps and sorts instants (future)
+  ---
+  duration_ms: 8.498708
+  type: 'test'
+  ...
+# Subtest: outbound exchange ignores future timestamps and sorts instants (offset)
+ok 23 - outbound exchange ignores future timestamps and sorts instants (offset)
+  ---
+  duration_ms: 8.170667
+  type: 'test'
+  ...
+# Subtest: a second store probe preserves the app service when its PID is unchanged
+ok 24 - a second store probe preserves the app service when its PID is unchanged
+  ---
+  duration_ms: 7.781917
+  type: 'test'
+  ...
+# Subtest: a manager-reported failed exit is preserved even without restart-loop evidence
+ok 25 - a manager-reported failed exit is preserved even without restart-loop evidence
+  ---
+  duration_ms: 8.389459
+  type: 'test'
+  ...
+# Subtest: status reads real durable counters, no local-key-only pairing claim or file writes
+ok 26 - status reads real durable counters, no local-key-only pairing claim or file writes
+  ---
+  duration_ms: 8.215333
+  type: 'test'
+  ...
+# Subtest: fresh roundtrip proof is bound to identity, keys and one-day expiry
+ok 27 - fresh roundtrip proof is bound to identity, keys and one-day expiry
+  ---
+  duration_ms: 9.692875
+  type: 'test'
+  ...
+# Subtest: stale, wrong PID, wrong FD and malformed runtime observations are unknown, not connected
+ok 28 - stale, wrong PID, wrong FD and malformed runtime observations are unknown, not connected
+  ---
+  duration_ms: 10.192541
+  type: 'test'
+  ...
+# Subtest: missing read cursor stays unknown while total is measured
+ok 29 - missing read cursor stays unknown while total is measured
+  ---
+  duration_ms: 6.957291
+  type: 'test'
+  ...
+# Subtest: stored-only is neither a wake failure nor a successful wake
+ok 30 - stored-only is neither a wake failure nor a successful wake
+  ---
+  duration_ms: 7.125792
+  type: 'test'
+  ...
+# Subtest: monitor crash survives SQLite write failure through independent runtime observation
+ok 31 - monitor crash survives SQLite write failure through independent runtime observation
+  ---
+  duration_ms: 6.515375
+  type: 'test'
+  ...
+# Subtest: configured pause does not pretend to change the running daemon
+ok 32 - configured pause does not pretend to change the running daemon
+  ---
+  duration_ms: 7.598667
+  type: 'test'
+  ...
+# Subtest: restart-loop threshold applies only to an exactly measured hour
+ok 33 - restart-loop threshold applies only to an exactly measured hour
+  ---
+  duration_ms: 9.071833
+  type: 'test'
+  ...
+# Subtest: missing database is not created by a status read
+ok 34 - missing database is not created by a status read
+  ---
+  duration_ms: 7.159083
+  type: 'test'
+  ...
+# Subtest: Windows private profile does not share the public service metadata directory
+ok 35 - Windows private profile does not share the public service metadata directory
+  ---
+  duration_ms: 0.180583
+  type: 'test'
+  ...
+# Subtest: runtime observer captures only safe fault codes without command/output contents
+ok 36 - runtime observer captures only safe fault codes without command/output contents
+  ---
+  duration_ms: 29.42775
+  type: 'test'
+  ...
+# Subtest: message read cursor never claims the Assistant handled a message
+ok 37 - message read cursor never claims the Assistant handled a message
+  ---
+  duration_ms: 20.554792
+  type: 'test'
+  ...
+# Subtest: initial Server failure is persisted and logged as a safe reason
+ok 38 - initial Server failure is persisted and logged as a safe reason
+  ---
+  duration_ms: 41.358167
+  type: 'test'
+  ...
+# Subtest: unmanaged liveness never authorizes a lifecycle operation against another label
+ok 39 - unmanaged liveness never authorizes a lifecycle operation against another label
+  ---
+  duration_ms: 29.983208
+  type: 'test'
+  ...
+# Subtest: inbox returns 20 newest legacy messages with unknown Assistant receipt without migration
+ok 40 - inbox returns 20 newest legacy messages with unknown Assistant receipt without migration
+  ---
+  duration_ms: 12.926041
+  type: 'test'
+  ...
+# Subtest: allowlist exceptions each name one string and a reason
+ok 41 - allowlist exceptions each name one string and a reason
+  ---
+  duration_ms: 0.704125
+  type: 'test'
+  ...
+# Subtest: every vocabulary pattern compiles and matches its own term
+ok 42 - every vocabulary pattern compiles and matches its own term
+  ---
+  duration_ms: 9.843375
+  type: 'test'
+  ...
+# Subtest: person-facing strings use the product vocabulary
+ok 43 - person-facing strings use the product vocabulary
+  ---
+  duration_ms: 15.220166
+  type: 'test'
+  ...
+1..43
+# tests 43
+# suites 0
+# pass 43
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 391.039375
+
+$ go -C spikes/windows-tray-go test -json ./...
+{"pass": 108, "skip": 1}
+Skipped: TestDumpMarkAcceptance
+
+$ npm run test:unit
+# Subtest: poll retries after the five-second busy timeout without advancing cursor or waking diagnostics
+not ok 629 - poll retries after the five-second busy timeout without advancing cursor or waking diagnostics
+  ---
+  duration_ms: 9085.033541
+  type: 'test'
+  location: '/Users/alex/.codex/workspaces/murmur-2.12/w1-honest-status/tests/wake-drain-busy.test.mjs:111:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /store busy; retrying/. Input:
+    
+    ''
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: ''
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///Users/alex/.codex/workspaces/murmur-2.12/w1-honest-status/tests/wake-drain-busy.test.mjs:118:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: polling deadline bounds a locked read and preserves the next invocation’s message
+ok 630 - polling deadline bounds a locked read and preserves the next invocation’s message
+  ---
+  duration_ms: 3268.881917
+  type: 'test'
+  ...
+1..771
+# tests 771
+# suites 0
+# pass 733
+# fail 1
+# cancelled 0
+# skipped 37
+# todo 0
+# duration_ms 19864.035208
+
+$ node --test --test-concurrency=1 tests/*.test.mjs
+# Subtest: poll retries after the five-second busy timeout without advancing cursor or waking diagnostics
+not ok 629 - poll retries after the five-second busy timeout without advancing cursor or waking diagnostics
+  ---
+  duration_ms: 9094.818292
+  type: 'test'
+  location: '/Users/alex/.codex/workspaces/murmur-2.12/w1-honest-status/tests/wake-drain-busy.test.mjs:111:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /store busy; retrying/. Input:
+    
+    ''
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: ''
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///Users/alex/.codex/workspaces/murmur-2.12/w1-honest-status/tests/wake-drain-busy.test.mjs:118:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: polling deadline bounds a locked read and preserves the next invocation’s message
+ok 630 - polling deadline bounds a locked read and preserves the next invocation’s message
+  ---
+  duration_ms: 3086.332084
+  type: 'test'
+  ...
+1..771
+# tests 771
+# suites 0
+# pass 733
+# fail 1
+# cancelled 0
+# skipped 37
+# todo 0
+# duration_ms 56762.415292
+
+Both full-suite runs fail the same unchanged wake-drain-busy test: no "store busy; retrying" output within its 9-second observation window.
+The serial run rules out only cross-file test parallelism as the sole cause; the root cause is not established.
+No third attempt or unrelated timeout/code change: stopped under the lane two-attempt rule.
+Full raw logs retained outside the repository: w1-review-unit.log and w1-review-unit-serial.log.

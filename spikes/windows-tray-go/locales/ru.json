@@ -82,6 +82,8 @@
   "menu.recent": "Последние входящие",
   "menu.resume": "Возобновить",
   "menu.service": "Служба",
+  "menu.serviceUnmanaged": "Работает вне управления приложения",
+  "menu.serviceUnmanagedTooltip": "Пуск и Стоп недоступны: Служба запущена вне этого приложения. Управляйте ею там, где она была запущена.",
   "menu.serviceElevationTooltip": "Windows попросит подтверждения администратора",
   "menu.serviceLogs": "Каталог журналов недоступен в CLI",
   "menu.serviceLogsTooltip": "Windows logs path пока не подтверждает native-каталог",

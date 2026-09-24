@@ -82,6 +82,37 @@ test('contact exchange uses successful traffic, never an enqueued or failed send
   peer = (await f.read()).peers.list[0];
   assert.equal(peer.lastExchangeAt, at); assert.equal(peer.connection, 'connected');
 });
+for (const direction of ['inbound', 'outbound']) for (const caseName of ['future', 'offset']) {
+  test(`${direction} exchange ignores future timestamps and sorts instants (${caseName})`, async t => {
+    const f = await fixture(t);
+    const expected = '2026-09-19T12:55:00.000Z';
+    const times = [expected, caseName === 'future' ? '2026-09-19T13:01:00Z' : '2026-09-19T15:40:00+03:00'];
+    for (const [id, time] of times.entries()) {
+      if (direction === 'inbound') f.db.prepare(`INSERT INTO local_messages(id,conversation_id,msg_id,direction,sender,text,created_at)
+        VALUES(?,'c',?,'inbound','agent-b','test',?)`).run(String(id), String(id), time);
+      else f.db.prepare(`INSERT INTO outbox(msg_id,subject,envelope_json,status,attempts,next_attempt_at,created_at,updated_at,version)
+        VALUES(?,'msg.agent-b',?,'acked',1,?,?,?,1)`).run(String(id), JSON.stringify({ recipients: ['agent-b'] }), time, time, time);
+    }
+    const peer = (await f.read()).peers.list[0];
+    assert.equal(peer.lastExchangeAt, expected); assert.equal(peer.connection, 'connected');
+  });
+}
+test('a second store probe preserves the app service when its PID is unchanged', async t => {
+  const f = await fixture(t); f.snapshot.observedStorePath = null;
+  f.adapter.observeStore = async () => f.observation.storePath;
+  const status = await f.read();
+  assert.equal(status.service.state, 'running'); assert.equal(status.service.manager, 'systemd');
+  assert.equal(status.service.managed, true);
+  assert.equal(status.service.observedStorePath, f.observation.storePath);
+  assert.equal(status.broker.state, 'connected');
+});
+test('a manager-reported failed exit is preserved even without restart-loop evidence', async t => {
+  const f = await fixture(t); f.snapshot.state = 'failed'; f.snapshot.pid = null; f.snapshot.lastExitCode = 7;
+  f.adapter.observeStore = async () => assert.fail('failed manager verdict must not be replaced');
+  const status = await f.read();
+  assert.equal(status.service.state, 'failed'); assert.equal(status.service.lastExitCode, 7);
+  assert.equal(status.broker.state, 'unknown');
+});
 test('status reads real durable counters, no local-key-only pairing claim or file writes', async t => {
   const f = await fixture(t);
   const before = await fs.readFile(f.context.configPath);

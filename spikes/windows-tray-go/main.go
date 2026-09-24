@@ -74,6 +74,7 @@ type app struct {
 	mPeersRoot                                        *systray.MenuItem
 	mPeers                                            []*systray.MenuItem
 	mSvcStar, mSvcStop, mSvcLogs, mQuit               *systray.MenuItem
+	mSvcState                                         *systray.MenuItem
 }
 
 func main() {
@@ -224,6 +225,9 @@ func (a *app) onReady() {
 	}
 	a.mCopy = systray.AddMenuItem(tr("menu.copy"), tr("menu.copyTooltip"))
 	a.mServiceRoot = systray.AddMenuItem(tr("menu.service"), "")
+	a.mSvcState = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceUnmanaged"), tr("menu.serviceUnmanagedTooltip"))
+	a.mSvcState.Disable()
+	a.mSvcState.Hide()
 	a.mSvcStar = a.mServiceRoot.AddSubMenuItem(tr("menu.start"), "")
 	a.mSvcStop = a.mServiceRoot.AddSubMenuItem(tr("menu.stop"), "")
 	a.mSvcLogs = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceLogs"), tr("menu.serviceLogsTooltip"))
@@ -328,6 +332,7 @@ func (a *app) render(v Verdict) {
 	paused := a.status != nil && a.status.Wake.Config.Enabled != nil && !*a.status.Wake.Config.Enabled
 	_, bindingErr := selectedCLI()
 	ready := bindingErr == nil && a.status != nil && !a.actionBusy && a.pinnedAgent != ""
+	serviceReady, serviceState, serviceTip := serviceControls(a.status, ready, serviceAdmin())
 	wakeKnown := a.status != nil && a.status.Wake.Config.Enabled != nil
 	wakeText := tr("menu.wakeUnknown")
 	if a.status != nil {
@@ -342,7 +347,7 @@ func (a *app) render(v Verdict) {
 	}
 	// Without an elevated token a click asks Windows for consent (UAC) instead of sending the
 	// user to an administrator terminal.
-	if ready {
+	if serviceReady {
 		a.mSvcStar.Enable()
 		a.mSvcStop.Enable()
 	} else {
@@ -351,9 +356,12 @@ func (a *app) render(v Verdict) {
 	}
 	a.mSvcStar.SetTitle(tr("menu.start"))
 	a.mSvcStop.SetTitle(tr("menu.stop"))
-	serviceTip := ""
-	if !serviceAdmin() {
-		serviceTip = tr("menu.serviceElevationTooltip")
+	if serviceState != "" {
+		a.mSvcState.SetTitle(serviceState)
+		a.mSvcState.SetTooltip(serviceTip)
+		a.mSvcState.Show()
+	} else {
+		a.mSvcState.Hide()
 	}
 	a.mSvcStar.SetTooltip(serviceTip)
 	a.mSvcStop.SetTooltip(serviceTip)
@@ -474,6 +482,11 @@ func (a *app) runCLI(args ...string) {
 			args[1] = "pause"
 		} else {
 			args[1] = "resume"
+		}
+	}
+	if err == nil && args[0] == "service" {
+		if allowed, _, hint := serviceControls(fresh, true, serviceAdmin()); !allowed {
+			err = fmt.Errorf("%s", hint)
 		}
 	}
 	if err == nil && args[0] == "service" && !serviceAdmin() {
