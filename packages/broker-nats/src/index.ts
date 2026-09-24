@@ -23,6 +23,7 @@ import {
   isSignedAckV1,
   isEnvelopeV1,
   isRecoverableRejection,
+  isFirstContactWaiting,
   isSignedPresenceFrameV1,
   type SignedPresenceFrameV1,
   type AckReceiptStore,
@@ -93,6 +94,7 @@ export interface InvalidAckEvent {
 
 interface JetStreamConsumerAdvisory {
   type?: string;
+  timestamp?: string;
   stream?: string;
   consumer?: string;
   stream_seq?: number;
@@ -670,6 +672,8 @@ export class NatsBroker {
 
   async startAckCorrelation(params: {
     outbox: OutboxStore;
+    /** Recover waiting first-contact letters on the first verified delivery ACK. */
+    recoverFirstContact?: boolean;
     /** Durable replay protection. Omit only where a restart cannot happen — without it
      *  the in-memory fallback forgets every nonce when the process dies. */
     ackReceipts?: AckReceiptStore;
@@ -749,6 +753,7 @@ export class NatsBroker {
     data: Uint8Array,
     params: {
       outbox: OutboxStore;
+      recoverFirstContact?: boolean;
       ackReceipts?: AckReceiptStore;
       verifyAck?: AckVerifier;
       /** @deprecated Signed acknowledgements are always required; false cannot downgrade verification. */
@@ -779,7 +784,9 @@ export class NatsBroker {
       }
       // 'pending' is in flight too: the peer can acknowledge between publish() and
       // markSent(). Rejecting that ACK leaves the row to time out into a spurious retry.
-      if (record.status !== "sent" && record.status !== "pending" && record.status !== "failed") {
+      const recoverable = params.recoverFirstContact && params.outbox.applyFirstContactAck
+        && decoded.status === 'ack' && isFirstContactWaiting(record);
+      if (record.status !== "sent" && record.status !== "pending" && record.status !== "failed" && !recoverable) {
         this.invalidAck(params, "message-not-in-flight", decoded);
         return;
       }
@@ -823,7 +830,9 @@ export class NatsBroker {
       }
 
       if (decoded.status === "ack") {
-        const result = await params.outbox.applyAckTransition(decoded.msgId, "ack");
+        const result = params.recoverFirstContact && params.outbox.applyFirstContactAck
+          ? await params.outbox.applyFirstContactAck(decoded.msgId, decoded.senderAgentId)
+          : await params.outbox.applyAckTransition(decoded.msgId, "ack");
         if (result !== "applied") this.invalidAck(params, `transition-${result}`, decoded);
         return;
       }
@@ -891,7 +900,17 @@ export class NatsBroker {
       const envelope = JSON.parse(this.sc.decode(stored.data));
       if (!isEnvelopeV1(envelope)) return;
 
-      await outbox.markDlq(envelope.msgId, this.jetStreamAdvisoryReason(advisoryKind, advisory, streamSeq));
+      const record = await outbox.getOutboxRecord(envelope.msgId);
+      if (!record || record.status === 'acked') return;
+      // A delayed max-deliver event may belong to the attempt before first-ACK
+      // recovery. It must not close a freshly requeued letter a second time.
+      if (advisoryKind === 'max_deliver' && typeof advisory.timestamp === 'string'
+        && Date.parse(advisory.timestamp) < Date.parse(record.updatedAt)) return;
+      // Max-deliver is transport exhaustion, not a new security/policy verdict.
+      // Preserve a more specific DLQ reason, including unknown-sender waiting.
+      // A termination may still close a waiting first-contact letter permanently.
+      if (record.status === 'dlq' && (advisoryKind === 'max_deliver' || !isFirstContactWaiting(record))) return;
+      await outbox.markDlq(envelope.msgId, this.jetStreamAdvisoryReason(advisoryKind, advisory, streamSeq), record.version ?? 1);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       // Диагноз обязан называть то, чем ошибка является. Таймаут запроса к JetStream — не

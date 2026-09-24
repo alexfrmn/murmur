@@ -198,6 +198,12 @@ jobs:
           python scripts/generate-windows-mark.py --check
           python tests/windows-mark-generator.test.py
 
+      - name: Build shared CLI for native onboarding tests
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+
       # Прогон по образцам — главное здесь. Он сверяет вердикты реализации с ожиданиями,
       # записанными рядом со входом, и именно он не даёт двум нативным реализациям
       # разъехаться незаметно.

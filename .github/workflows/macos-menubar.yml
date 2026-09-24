@@ -24,6 +24,8 @@ jobs:
         run: brew install nats-server
       - name: Build engine and check portable setup behavior
         run: npm ci && npm run build && node --test tests/setup-*.test.mjs
+      - name: First Contact recovery with isolated Servers and real retry timing
+        run: node --test tests/pairing-first-contact.integration.mjs tests/pairing-before-reply.integration.mjs
       - uses: actions/setup-go@v5
         with:
           go-version-file: spikes/windows-service-go/go.mod

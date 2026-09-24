@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { writePrivateJson } from "./secure-state.mjs";
 
 /** Non-secret, PID/store-bound liveness evidence for the read-only setup CLI. */
-export function createDaemonObservation({ dataDir, storePath, agentId, wake, log = () => {} }) {
+export function createDaemonObservation({ dataDir, storePath, agentId, wake, contacts = () => null, log = () => {} }) {
   const startedAt = new Date().toISOString();
   const snapshot = { schema: "murmur.runtime/1", agentId, pid: process.pid, startedAt,
     storePath: null, measuredAt: null, wake: { ...wake, lastFault: null, lastFaultAt: null },
@@ -14,6 +14,7 @@ export function createDaemonObservation({ dataDir, storePath, agentId, wake, log
     try {
       snapshot.storePath = await realpath(storePath);
       snapshot.measuredAt = new Date().toISOString();
+      snapshot.contacts = contacts();
       await writePrivateJson(path.join(dataDir, "daemon-observation.json"), snapshot);
     } catch { log("warn", "Daemon observation write failed", { reason: "runtime.observation-write-failed" }); }
   });

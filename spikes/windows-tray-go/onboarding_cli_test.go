@@ -31,8 +31,13 @@ func TestOnboardingAgainstTheRealCLI(t *testing.T) {
 	invite := filepath.Join(root, "murmur-invite.txt")
 	// Invitations now require a public address (#246). This fixture never starts
 	// a service or connects; the reserved example hostname is metadata only.
-	if _, err := runSetupCLI(ctx, inviter, "invite", "--out", invite, "--broker", "nats://server.example.com:4222", "--data-dir", inviter.Profile); err != nil {
+	invitation, err := runSetupCLI(ctx, inviter, "invite", "--out", invite, "--broker", "nats://server.example.com:4222", "--data-dir", inviter.Profile)
+	if err != nil {
 		t.Fatal(err)
+	}
+	var receipt struct{ Schema, Invitation string }
+	if json.Unmarshal(invitation, &receipt) != nil || receipt.Schema != "murmur.invite/1" || receipt.Invitation == "" {
+		t.Fatal("desktop invocation without an explicit --json must still return an Invitation receipt")
 	}
 	profile := filepath.Join(root, "Мой профиль")
 	me := b

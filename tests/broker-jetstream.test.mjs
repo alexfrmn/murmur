@@ -364,6 +364,7 @@ test("JetStream DLQ advisory resolves stream sequence and marks original outbox 
   });
   const marked = [];
   const outbox = {
+    async getOutboxRecord() { return { status: 'sent', envelope, version: 1 }; },
     async markDlq(msgId, reason) {
       marked.push([msgId, reason]);
     },

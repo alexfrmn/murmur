@@ -99,6 +99,16 @@ func runOnboardingChecks(fixtures: URL) throws -> Int {
         try check(try f.argv("join") == ["--agent-id", f.plan.agentID, "--invite-file", invite.path, "--reply-out", f.plan.replyFile.path,
                     "--json", "--data-dir", f.plan.profile.dataDirectory], "Invite path is literal")
     }
+    try scenario("automatic Contact reload does not invalidate a successful join") { f in
+        let invitation = f.directory.appendingPathComponent("invitation.txt")
+        try "synthetic invitation".write(to: invitation, atomically: true, encoding: .utf8)
+        try f.write("join", ["schema": "murmur.join/1", "agentId": f.plan.agentID, "peerId": "inviter",
+                             "paired": NSNull(), "replyFile": f.plan.replyFile.path, "restartRequired": false,
+                             "contactsReload": ["mechanism": "config-file", "state": "pending"]])
+        let result = try f.client().join(f.plan, invitation: invitation)
+        try check(result.peerID == "inviter" && result.replyFile == f.plan.replyFile, "Accept both legacy and automatic-reload receipts")
+        try check(try f.calls() == ["join", "status"], "No implicit Service restart")
+    }
     for address in ["", "https://example.org", "tls://user:secret@example.org", "nats://example.org?token=secret", "nats://example.org\n"] {
         try scenario("invalid server address is rejected before CLI") { f in
             try onboardingRejects { _ = try f.client().initialize(f.plan, brokerURL: address) }

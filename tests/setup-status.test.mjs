@@ -66,6 +66,39 @@ test('an unmanaged observation is not liveness evidence without the PID holding 
     assert.equal((await f.read()).service.state, 'stopped');
   }
 });
+test('Contact reload failure stays visible when the on-disk config is broken', async t => {
+  const f = await fixture(t);
+  f.observation.contacts = { state: 'retained', count: 1, invalidCount: 0, lastSuccessAt: at,
+    lastError: 'agent-config-unavailable-retry-or-restart', lastErrorAt: at };
+  await f.write('daemon-observation.json', f.observation);
+  await fs.writeFile(f.context.configPath, '{invalid');
+  let status = await f.read();
+  assert.equal(status.agentId, 'agent-a');
+  assert.equal(status.service.state, 'running');
+  assert.equal(status.broker.state, 'connected');
+  assert.equal(status.peers.list, null, 'invalid configuration does not invent a Contact list');
+  assert.deepEqual(status.peers.reload, f.observation.contacts);
+  assert.ok(status.peers.unknownReason);
+  f.snapshot.pid = null; f.snapshot.state = 'stopped'; f.snapshot.observedStorePath = null;
+  status = await f.read();
+  assert.equal(status.peers.reload, null, 'unverified observations cannot claim retained Contacts');
+  f.adapter.observeStore = async () => f.observation.storePath;
+  assert.equal((await f.read()).service.state, 'running-unmanaged');
+  await f.write('daemon-observation.json', { ...f.observation, measuredAt: new Date(now - 15001).toISOString() });
+  assert.equal((await f.read()).peers.reload, null);
+});
+test('Contact reload diagnostics expose only validated counts and safe error codes', async t => {
+  const f = await fixture(t);
+  const contacts = { state: 'partial', count: 1, invalidCount: 2, lastSuccessAt: at,
+    lastError: 'agent-config-peer-invalid', lastErrorAt: at };
+  await f.write('daemon-observation.json', { ...f.observation, contacts: { ...contacts, privateText: 'do-not-copy' } });
+  assert.deepEqual((await f.read()).peers.reload, contacts);
+  for (const delta of [{ state: 'invented' }, { count: -1 }, { invalidCount: 1.5 }, { lastError: 'secret-token-123' }]) {
+    await f.write('daemon-observation.json', { ...f.observation, contacts: { ...contacts, ...delta } });
+    const s = await f.read();
+    assert.equal(s.peers.reload, null); assert.equal(s.broker.state, 'connected');
+  }
+});
 test('contact exchange uses successful traffic, never an enqueued or failed send', async t => {
   const f = await fixture(t);
   const insert = f.db.prepare("INSERT INTO outbox(msg_id,subject,envelope_json,status,attempts,next_attempt_at,created_at,updated_at,version) VALUES(?,?,?,?,0,?,?,?,0)");
@@ -188,6 +221,19 @@ test('runtime observer captures only safe fault codes without command/output con
   const text = await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8');
   assert.equal(JSON.parse(text).wake.lastFault, 'wake.database-locked');
   assert.ok(!text.includes('do-not-copy'));
+});
+test('runtime observer publishes the current Contact reload diagnostic', async t => {
+  const f = await fixture(t);
+  let contacts = { state: 'retained', count: 1, invalidCount: 0, lastSuccessAt: at,
+    lastError: 'agent-config-runtime-changed-restart-required', lastErrorAt: at };
+  const observation = createDaemonObservation({ dataDir: f.context.dataDir, storePath: f.context.storePath,
+    agentId: 'agent-a', wake: { enabled: false, mode: 'none' }, contacts: () => contacts });
+  f.cleanup.push(() => observation.stop()); await observation.start();
+  const read = async () => JSON.parse(await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8'));
+  assert.deepEqual((await read()).contacts, contacts);
+  contacts = { ...contacts, state: 'current', lastError: null, lastErrorAt: null };
+  await observation.connected();
+  assert.deepEqual((await read()).contacts, contacts);
 });
 test('message read cursor never claims the Assistant handled a message', async t => {
   const f = await fixture(t);
