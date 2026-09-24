@@ -43,6 +43,9 @@ export function createDaemonObservation({ dataDir, storePath, agentId, wake, con
       return write();
     },
     observeLog(level, message, data) {
+      // This verdict was already committed to its message row. Let status follow
+      // that row (including an explicit CLI dismissal), not a sticky runtime fault.
+      if (message === 'WakeMonitor wake dead-lettered' && data?.error === 'accepted-turn-unobservable') return;
       // Preserve a monitor crash even when SQLite could not record the failed wake.
       // Never persist hook commands, stdout, message text or arbitrary error strings.
       if ((level === "error" || level === "fatal") && message.startsWith("WakeMonitor")) {

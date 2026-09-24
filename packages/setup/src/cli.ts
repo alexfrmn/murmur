@@ -1,6 +1,7 @@
 import { configureClient, previewClientConfiguration } from './clients.js';
 import { prepareReplyTest, checkReplyTest } from './reply-test.js';
 import { listOutboxAttention, setOutboxDismissed } from './outbox-attention.js';
+import { dismissWake } from './wake-attention.js';
 import { initialize, invite, join, importPeer } from './onboarding.js';
 import { runDoctor } from './doctor.js';
 import { parseArgs } from 'node:util';
@@ -50,7 +51,7 @@ export async function main(args: string[], adapter = platformAdapter(), input: A
     throw new Error((error as NodeJS.ErrnoException).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? 'cli.unknown-option' : 'cli.invalid-arguments');
   }
   const { values, positionals } = parsed;
-  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite [--out FILE] [--broker PUBLIC_URL] [--json]', 'join --agent-id ID (--invite-stdin|--invite-file FILE) [--reply-out FILE] [--json]', 'add-peer (--reply-stdin|--reply-file FILE)', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients preview --client ID', 'clients configure --client ID [--replace] [--plan-id SHA256]', 'reply-test prepare --peer AGENT', 'reply-test check --test-token TOKEN', 'wake pause|resume [--apply]', 'inbox read [--limit 1..100]', 'inbox mark-read', 'outbox list --json', 'outbox dismiss|restore --msg-id ID --expected-state TOKEN --expected-agent ID', 'mcp serve --data-dir ABSOLUTE'],
+  if (values.help || !positionals.length) return { commands: ['version --json', 'updates check|enable|disable --json', 'init --agent-id ID --broker-url URL [--token-file FILE]', 'invite [--out FILE] [--broker PUBLIC_URL] [--json]', 'join --agent-id ID (--invite-stdin|--invite-file FILE) [--reply-out FILE] [--json]', 'add-peer (--reply-stdin|--reply-file FILE)', 'status --json|--line', 'doctor --json [--peer AGENT] [--timeout MILLISECONDS]', 'logs path --json', 'service install|start|stop|uninstall', 'clients detect', 'clients preview --client ID', 'clients configure --client ID [--replace] [--plan-id SHA256]', 'reply-test prepare --peer AGENT', 'reply-test check --test-token TOKEN', 'wake pause|resume [--apply]', 'wake dismiss --msg-id ID --expected-agent ID', 'inbox read [--limit 1..100]', 'inbox mark-read', 'outbox list --json', 'outbox dismiss|restore --msg-id ID --expected-state TOKEN --expected-agent ID', 'mcp serve --data-dir ABSOLUTE'],
     options: ['--data-dir ABSOLUTE', '--service-name NAME'], note: 'Windows service mutations require an elevated terminal and the matching native helper.' };
   const [command, action, extra] = positionals;
   if (extra) throw new Error('cli.unexpected-argument');
@@ -111,6 +112,7 @@ export async function main(args: string[], adapter = platformAdapter(), input: A
   if (command === 'reply-test' && action === 'prepare') return prepareReplyTest(context, required('peer'));
   if (command === 'reply-test' && action === 'check') return checkReplyTest(context, required('test-token'));
   if (command === 'wake' && ['pause', 'resume'].includes(action)) return setWakeEnabled(context, adapter, action === 'resume', values.apply);
+  if (command === 'wake' && action === 'dismiss') return dismissWake(context, required('msg-id'), required('expected-agent'));
   if (command === 'inbox' && action === 'read') return readInbox(context, values.limit === undefined ? 20 : Number(values.limit));
   if (command === 'inbox' && action === 'mark-read') return markInboxRead(context);
   if (command === 'service' && ['install', 'start', 'stop', 'uninstall'].includes(action)) {

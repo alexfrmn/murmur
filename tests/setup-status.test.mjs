@@ -10,6 +10,7 @@ import { readStatus, pairFingerprint, resolveContext, statusVerdict } from '../p
 import { createDaemonObservation } from '../scripts/daemon-observation.mjs';
 import { readInbox, markInboxRead } from '../packages/setup/dist/src/commands.js';
 import { main } from '../packages/setup/dist/src/cli.js';
+import { runDoctor } from '../packages/setup/dist/src/doctor.js';
 const now = Date.parse('2026-09-19T13:00:00Z'), at = new Date(now).toISOString();
 const key = Buffer.alloc(32, 7).toString('base64');
 async function fixture(t) {
@@ -35,6 +36,84 @@ async function fixture(t) {
   const db = new DatabaseSync(context.storePath); cleanup.push(() => db.close());
   return { context, config, snapshot, observation, write, read, db, cleanup, adapter };
 }
+
+test('an unobservable accepted turn exposes its reason and can be dismissed without execution', async t => {
+  const f = await fixture(t), store = new SQLiteMessageStore(f.context.storePath);
+  f.cleanup.push(() => store.close());
+  await store.append({ msgId: 'lost-turn', conversationId: 'c', direction: 'inbound', sender: 'agent-b', text: 'question', createdAt: at, transport: 'nats' });
+  await store.claimWake('lost-turn');
+  await store.setWakeTurn({ msgId: 'lost-turn', peerId: 'agent-b', conversationId: 'c', socketPath: '/unused',
+    threadId: 'thread', turnId: 'accepted', unobservableSince: at });
+  let s = await f.read();
+  assert.equal(s.wake.faults.lastFault, 'accepted-turn-unobservable');
+  assert.equal(s.deliveries.find(r => r.msgId === 'lost-turn').wake_error, 'accepted-turn-unobservable');
+  assert.equal((await readInbox(f.context)).messages[0].wake_error, 'accepted-turn-unobservable');
+  await store.settleWake('lost-turn', { status: 'dlq', error: 'accepted-turn-unobservable' });
+  // This local fault must remain diagnosable even if a preceding network stage fails.
+  const doctor = await runDoctor({ context: f.context, adapter: f.adapter, timeoutMs: 100 });
+  assert.equal(doctor.wakeFault.reason, 'accepted-turn-unobservable');
+  assert.match(doctor.wakeFault.fixHint, /wake dismiss/);
+  const cursorBefore = await fs.readFile(path.join(f.context.dataDir, 'read-state.json'), 'utf8');
+  const receiptBefore = await store.getWakeTurn('lost-turn');
+  const action = await main(['wake', 'dismiss', '--data-dir', f.context.dataDir,
+    '--msg-id', 'lost-turn', '--expected-agent', 'agent-a', '--json'], f.adapter);
+  assert.equal(action.status, 'muted'); assert.equal(action.executed, false);
+  assert.equal((await store.wakeStateFor('lost-turn')).status, 'muted');
+  assert.deepEqual(await store.getWakeTurn('lost-turn'), receiptBefore);
+  assert.equal((await f.read()).wake.faults.lastFault, null);
+  assert.equal((await readInbox(f.context)).messages[0].assistantRead, false);
+  assert.equal(await fs.readFile(path.join(f.context.dataDir, 'read-state.json'), 'utf8'), cursorBefore);
+  assert.equal((await store.claimWake('lost-turn')).claimed, false);
+});
+
+test('wake dismiss refuses another Identity and unrelated or active deliveries unchanged', async t => {
+  const f = await fixture(t), store = new SQLiteMessageStore(f.context.storePath);
+  f.cleanup.push(() => store.close());
+  const args = ['wake', 'dismiss', '--data-dir', f.context.dataDir, '--msg-id', 'letter', '--expected-agent'];
+  await store.append({ msgId: 'letter', conversationId: 'c', direction: 'inbound', sender: 'agent-b', text: 'question', createdAt: at, transport: 'nats' });
+  for (const status of ['pending', 'inflight', 'handled', 'dlq']) {
+    await store.settleWake('letter', { status, error: status === 'dlq' ? 'unrelated-failure' : 'accepted-turn-unobservable' });
+    const before = await store.wakeStateFor('letter');
+    await assert.rejects(main([...args, 'agent-a'], f.adapter), /wake.dismiss-not-eligible/);
+    assert.deepEqual(await store.wakeStateFor('letter'), before);
+  }
+  await store.settleWake('letter', { status: 'dlq', error: 'accepted-turn-unobservable' });
+  const before = await store.wakeStateFor('letter');
+  await assert.rejects(main([...args, 'another'], f.adapter), /wake.identity-changed/);
+  assert.deepEqual(await store.wakeStateFor('letter'), before);
+});
+
+test('wake dismissal settles the entire accepted batch and preserves its receipt', async t => {
+  const f = await fixture(t), store = new SQLiteMessageStore(f.context.storePath);
+  f.cleanup.push(() => store.close());
+  for (const msgId of ['one', 'two']) {
+    await store.append({ msgId, conversationId: 'c', direction: 'inbound', sender: 'agent-b', text: msgId, createdAt: at, transport: 'nats' });
+    await store.claimWake(msgId);
+  }
+  const batch = await store.assignWakeBatch(['one', 'two']);
+  await store.setWakeTurn({ msgId: batch.batchId, peerId: 'agent-b', conversationId: 'c', socketPath: '/unused',
+    threadId: 'thread', turnId: 'accepted', unobservableSince: at });
+  await store.settleWakeBatch(['one', 'two'].map(msgId => ({ msgId, input: { status: 'dlq', error: 'accepted-turn-unobservable' } })));
+  const receipt = await store.getWakeTurn(batch.batchId);
+  const args = ['wake', 'dismiss', '--data-dir', f.context.dataDir, '--msg-id', 'one', '--expected-agent', 'agent-a'];
+  assert.deepEqual((await main(args, f.adapter)).msgIds.sort(), ['one', 'two']);
+  assert.equal((await store.wakeStateFor('two')).status, 'muted');
+  assert.deepEqual(await store.getWakeTurn(batch.batchId), receipt);
+  assert.equal((await main(args, f.adapter)).executed, false, 'repeated dismissal stays idempotent');
+});
+
+test('durable accepted-turn faults do not become a sticky runtime fault after dismissal', async t => {
+  const f = await fixture(t);
+  const observation = createDaemonObservation({ dataDir: f.context.dataDir, storePath: f.context.storePath,
+    agentId: f.config.agentId, wake: { enabled: true, mode: 'monitor', responder: 'codex' } });
+  await observation.start();
+  try {
+    await observation.observeLog('error', 'WakeMonitor wake dead-lettered', { error: 'accepted-turn-unobservable' });
+    assert.equal(JSON.parse(await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8')).wake.lastFault, null);
+    await observation.observeLog('error', 'WakeMonitor lane crashed', { error: 'database is locked' });
+    assert.equal(JSON.parse(await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8')).wake.lastFault, 'wake.database-locked');
+  } finally { await observation.stop(); }
+});
 test('live store-bound daemon without the selected service label is running-unmanaged', async t => {
   const f = await fixture(t);
   f.snapshot.state = 'stopped'; f.snapshot.pid = null; f.snapshot.observedStorePath = null;

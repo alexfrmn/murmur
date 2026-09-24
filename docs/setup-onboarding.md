@@ -145,9 +145,34 @@ timestamp and durable nonce replay protection. This is transport evidence, not
 an Assistant Reply. In plain NATS a new message or `doctor --peer` supplies that
 first ACK; JetStream may deliver the original stored message after the Contact
 starts. No heartbeat protocol or background AI request is introduced.
-This automatic first-exchange recovery currently has no age cutoff and does not
-consult the separate dismissed-attention file: an eligible dismissed letter can
-also be resent. Dismissal acknowledges attention; it is not cancellation.
+Automatic first-exchange recovery resends only letters at most **seven days** old
+(inclusive), measured from both the envelope and the local queue creation time.
+Invalid timestamps and dates over five seconds in the future are ineligible.
+Seven days gives a colleague time to finish pairing without unexpectedly sending
+questions left over from an older attempt.
+
+A letter hidden with `outbox dismiss` is not automatically resent while its
+dismissal token still matches its current failure state. `outbox restore` removes
+that preference; a changed failure state invalidates the old token, as in the
+attention view. Recovery and the setup writer share `.setup-write.lock` and the
+same identity-bound `outbox-attention.json` reader. If the preference file cannot
+be read safely or the writer lock is occupied, recovery skips automatic resends
+while still recording the verified ACK. After this first direct exchange there
+is no deferred automatic sweep: review remaining failures explicitly.
+An old or hidden letter's own verified late ACK can still settle it directly as
+delivered, without publishing it again. Dismissal does not erase delivery evidence.
+
+An accepted Assistant turn whose outcome cannot be observed for five continuous
+minutes becomes `dlq` with `accepted-turn-unobservable`; it is never automatically
+executed again. `status --json` and `inbox read` include `wake_error` per message,
+and `doctor --json` returns a `wakeFault` with a next-step hint even if its network
+probe is blocked. After inspecting the Assistant session, use
+`wake dismiss --msg-id ID --expected-agent IDENTITY --data-dir ABSOLUTE_PATH --json`
+to acknowledge this specific fault without another execution. The reply has schema
+`murmur.wake-dismiss/1`, the affected `msgIds`, `status: "muted"`, `executed: false`
+and `historyPreserved: true`. An accepted batch is acknowledged as one outcome.
+History, receipt and inbox read cursor are preserved; active work and unrelated
+faults cannot be dismissed with this command. See [accepted-turn observation](wake-native.md#accepted-codex-turns-and-long-running-work-212).
 
 Without `--json`, errors are actionable English sentences using the shared
 vocabulary; unrecognized codes receive a safe diagnostic action. `--json` keeps

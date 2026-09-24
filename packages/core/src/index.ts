@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, promises as fs } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmdirSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { outboxAttentionToken, readOutboxDismissals } from './outbox-attention.js';
 
 // Agent discovery (presence frames + candidate registry)
 export * from "./discovery.js";
@@ -12,6 +13,7 @@ export * from "./lease.js";
 // Phase N — typed channel roster (channelId distinct from legacy conversationId)
 export * from "./channel.js";
 export * from "./subjects.js";
+export * from './outbox-attention.js';
 
 export type DeliveryMode = "at-least-once";
 
@@ -346,6 +348,8 @@ export function isFirstContactWaiting(record: OutboxRecord): boolean {
       || record.lastError?.startsWith('jetstream-advisory:max_deliver:') === true);
 }
 
+export const FIRST_CONTACT_RECOVERY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface OutboxStore {
   enqueue(subject: string, envelope: EnvelopeV1): Promise<void>;
   claimDue(limit?: number): Promise<OutboxRecord[]>;
@@ -595,7 +599,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
 
   close(): void { this.db.close(); }
 
-  constructor(dbPath = ".data/murmur.db") {
+  constructor(private readonly dbPath = ".data/murmur.db") {
     ensureDir(dbPath);
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
@@ -832,6 +836,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
   async applyFirstContactAck(msgId: string, peerId: string): Promise<'applied' | 'not-found' | 'not-in-flight'> {
     this.db.exec('BEGIN IMMEDIATE');
     let committed = false;
+    let dismissalLock: string | null = null;
     try {
       const record = this.getOutboxRow(msgId);
       if (!record) return 'not-found';
@@ -854,7 +859,29 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
           AND json_extract(envelope_json, '$.recipients[0]') = ?`).all(record.subject, record.envelope.senderAgentId, peerId);
         const retry = this.db.prepare(`UPDATE outbox SET status = 'pending', attempts = 0, last_error = NULL,
           next_attempt_at = ?, updated_at = ?, version = version + 1 WHERE msg_id = ?`);
-        for (const row of waiting) if (isFirstContactWaiting(this.toOutboxRecord(row))) retry.run(now, now, row.msg_id);
+        let dismissed: Map<string, string> | null = null;
+        if (waiting.length) {
+          try {
+            const lock = path.join(path.dirname(this.dbPath), '.setup-write.lock');
+            // Share the setup writer's lock so a concurrent dismissal cannot be
+            // acknowledged against a pre-recovery snapshot while we resend it.
+            mkdirSync(lock, { mode: 0o700 }); dismissalLock = lock;
+            const state = readOutboxDismissals(path.join(path.dirname(this.dbPath), 'outbox-attention.json'), record.envelope.senderAgentId);
+            dismissed = new Map(state.records.map(r => [r.msgId, r.token]));
+          } catch { /* Unreadable or busy preference state permits no automatic resend. */ }
+        }
+        const timestamp = Date.parse(now), cutoff = timestamp - FIRST_CONTACT_RECOVERY_MAX_AGE_MS;
+        for (const row of waiting) {
+          const candidate = this.toOutboxRecord(row);
+          if (!dismissed || !isFirstContactWaiting(candidate) || candidate.msgId === msgId) continue;
+          if (![candidate.createdAt, candidate.envelope.createdAt].every(value => {
+            const at = Date.parse(value); return Number.isFinite(at) && at >= cutoff && at <= timestamp + 5000;
+          })) continue;
+          const token = outboxAttentionToken({ msgId: candidate.msgId, subject: candidate.subject,
+            attempts: candidate.attempts, createdAt: candidate.createdAt, failedAt: candidate.updatedAt,
+            error: candidate.lastError ?? null, version: candidate.version ?? 1, peer: candidate.envelope.recipients[0] ?? null });
+          if (dismissed.get(candidate.msgId) !== token) retry.run(now, now, candidate.msgId);
+        }
       }
       this.db.prepare(`UPDATE outbox SET status = 'acked', last_error = NULL, updated_at = ?, version = version + 1
         WHERE msg_id = ?`).run(now, msgId);
@@ -863,7 +890,8 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
       return 'applied';
     } finally {
       // Early refusals and failures cannot leave a half-recovered queue.
-      if (!committed) this.db.exec('ROLLBACK');
+      try { if (!committed) this.db.exec('ROLLBACK'); }
+      finally { if (dismissalLock) rmdirSync(dismissalLock); }
     }
   }
 
@@ -1046,6 +1074,18 @@ export interface WakeThreadRecord {
   replacesThreadId?: string;
 }
 
+/** Receipt of an accepted native effect, retained independently of wake retries. */
+export interface WakeTurnRecord {
+  msgId: string;
+  peerId: string;
+  conversationId: string;
+  socketPath: string;
+  threadId: string;
+  turnId: string;
+  sessionPath?: string;
+  unobservableSince?: string | null;
+}
+
 /** One delivery id per direction: an agent that writes to itself keeps both copies. */
 export const deliveryIdFor = (direction: LocalMessageRecord["direction"], msgId: string): string => `${direction}:${msgId}`;
 
@@ -1161,6 +1201,10 @@ export class SQLiteMessageStore {
         updated_at TEXT NOT NULL,
         PRIMARY KEY (peer_id, conversation_id)
       );
+      CREATE TABLE IF NOT EXISTS wake_turns (
+        msg_id TEXT PRIMARY KEY,
+        receipt_json TEXT NOT NULL
+      );
     `);
   }
 
@@ -1197,6 +1241,28 @@ export class SQLiteMessageStore {
            updated_at = excluded.updated_at`,
       )
       .run(record.peerId, record.conversationId, record.threadId, record.threadPath ?? null, record.replacesThreadId ?? null, new Date().toISOString());
+  }
+
+  async getWakeTurn(msgId: string): Promise<WakeTurnRecord | undefined> {
+    const row = this.db.prepare('SELECT receipt_json FROM wake_turns WHERE msg_id=?').get(msgId) as { receipt_json: string } | undefined;
+    return row ? JSON.parse(row.receipt_json) as WakeTurnRecord : undefined;
+  }
+
+  async setWakeTurn(receipt: WakeTurnRecord): Promise<void> {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('INSERT INTO wake_turns(msg_id,receipt_json) VALUES(?,?) ON CONFLICT(msg_id) DO UPDATE SET receipt_json=excluded.receipt_json')
+        .run(receipt.msgId, JSON.stringify(receipt));
+      this.db.prepare(`UPDATE local_messages SET wake_error=?, wake_updated_at=?
+        WHERE direction='inbound' AND wake_status='inflight' AND (msg_id=? OR wake_batch_id=?)`)
+        .run(receipt.unobservableSince ? 'accepted-turn-unobservable' : null, new Date().toISOString(), receipt.msgId, receipt.msgId);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  /** Only a verified failed turn may release its receipt for a new attempt. */
+  async deleteWakeTurn(msgId: string, turnId: string): Promise<void> {
+    this.db.prepare("DELETE FROM wake_turns WHERE msg_id=? AND json_extract(receipt_json,'$.turnId')=?").run(msgId, turnId);
   }
 
   /**

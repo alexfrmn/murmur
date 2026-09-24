@@ -47,6 +47,76 @@ effective enabled/mode/hook presence plus `wake-disabled` with the preserve poli
 Paused pending work stays pending; consumers must present pause as a mode, not
 infer successful wake from transport or an empty error list.
 
+## Accepted Codex turns and long-running work (2.12)
+
+With `relayFinalToMurmur: true`, receiving the `turn/start` response's `turnId`
+means the Assistant accepted the instruction. The completion window (default
+180000 ms, or the Contact's `replyTimeoutMs`) is an observation threshold:
+expiration logs `Codex Assistant still working; wake retained` and leaves the
+delivery `inflight`. It neither consumes a retry nor sends another `turn/start`.
+An `item/completed` final-answer item alone is not proof that the turn finished.
+
+The injector saves the accepted message/batch ID, socket, thread and turn in the
+additive SQLite `wake_turns` table before settling the delivery. After a daemon
+restart it resumes observation of that exact turn, including when the configured
+thread pin has changed or final-reply relay was disabled. Disabling relay only
+suppresses the reply; it never resubmits an accepted instruction.
+A changed Contact/conversation/socket binding is refused.
+Connection loss after acceptance also keeps the instruction in progress. The
+watcher uses matching terminal events, a `task_complete` session-journal entry,
+or read-only `thread/read` / `thread/turns/list` observations. See the
+[Codex app-server protocol](https://developers.openai.com/codex/app-server/).
+Only completion permits relay; `task_complete.error` in the journal is a failed
+outcome even if it contains partial answer text. A verified failed turn retains bounded retry, and
+an interrupted turn stays terminal. Relay retries recover the same final answer
+and keep the existing deterministic reply message ID.
+
+If the app-server cannot find the accepted turn or its outcome cannot be read,
+`wake_error` becomes `accepted-turn-unobservable`. After **five continuous minutes**
+without observation, the delivery enters non-retryable `dlq`, retaining that reason
+and the receipt, and releases its concurrency slot. The Contact option
+`unobservableTimeoutMs` sets this window (default 300000, positive integer up to
+2147483647). The first unavailable timestamp is persisted in the receipt, so a
+restart does not grant a fresh window. Matching progress events or an observed
+`inProgress` turn clear the loss-of-observation timer; genuine long-running work
+can continue past this window. Polling backs off from one to thirty seconds;
+matching socket events still settle immediately.
+
+`status --json` exposes the reason in `wake.faults.lastFault` while it is in progress
+or in DLQ; `deliveries[].wake_error` and `inbox read` retain the per-message reason.
+`doctor --json` includes an additive `wakeFault` reason and next-step hint even when
+an earlier network stage prevents the wake probe. Inspect the recorded Assistant
+session before acknowledging an unknown outcome:
+
+```sh
+murmur wake dismiss --data-dir /absolute/profile --msg-id MESSAGE --expected-agent IDENTITY --json
+```
+
+This explicit command only accepts `accepted-turn-unobservable` DLQ rows (or an
+already dismissed row). It changes them to `muted`, preserves message history and
+the receipt, leaves the inbox read cursor untouched, and never starts or retries
+an instruction. A saved batch is acknowledged together. Other errors and active
+work are refused. The receipt remains to guard against later duplicate deliveries.
+Pausing wake still allows already dispatched work to finish; it does not cancel
+the Assistant's turn.
+
+The guarantee starts with the received, saved acceptance ID;
+it does not claim exactly-once execution across a crash before that receipt is
+saved. Shell hook timeouts and native sends without final-reply relay retain
+their existing behavior.
+
+New messages stay FIFO until the previous delivery settles, either with an observed
+terminal outcome or the unobservable-outcome DLQ limit; they are not injected into
+the previous turn. That limit releases queued letters without claiming the previous
+Assistant turn finished. Contacts pinned to the same socket and thread share a serial lane even across
+conversations. Unpinned Contacts keep a lane per Contact/conversation, and distinct
+lanes can run concurrently. Optional batching below applies at the next turn
+boundary. Each drain tick can refresh due retries while other lanes are busy.
+A failed batch or backlog lookup (for example `SQLITE_BUSY`) leaves work for
+another pass; it cannot release `drain()`'s single-flight guard while another
+lane is still running. One dispatcher waiter is signalled on tick, enqueue or
+completion, without accumulating promise reactions on long-running turns.
+
 ## Optional Codex wake batching (#124)
 
 The daemon uses `turn/start`, never `turn/steer`. By default every message keeps its
@@ -486,6 +556,7 @@ practice, and where each guarantee lives:
   highest inbound row such that every inbound row at or below it is settled, read back
   from the table after every change. A restart resumes from the rows, not from the
   table tip: rows left `inflight` by a dead process return to the queue as failed-and-due.
+  A saved native acceptance receipt reattaches to its turn instead of executing it again.
 - **The relay is idempotent.** For `relayFinalToMurmur` peers the reply's `msgId` is
   derived from the inbound `msgId` (`deriveRelayReplyMsgId`), and `murmur-shell-send`
   accepts it via `--msg-id`. On a retry the injector first checks the peer's outbox for
@@ -509,8 +580,8 @@ replayed — the same seeding rule `wake-drain-claude` applies to a fresh cursor
   `codex-app-server-turn-interrupted:<turnId>` and is not retried. Neither is relayed.
 - **Wakes run in lanes** (#107). `WakeMonitor` used to be one sequential loop: a long
   turn for one peer held every other inbound message until it finished or timed out. It
-  now dispatches into lanes — one per (peer, conversation), or one per peer for a Codex
-  peer pinned to a static `threadId` — and runs up to `wake.concurrency` lanes at once
+  now dispatches into lanes — one per (peer, conversation), or one per socket/thread
+  for Contacts pinned to a static `threadId` — and runs up to `wake.concurrency` lanes at once
   (default 4; `1` restores the old behaviour). Within a lane order is kept and nothing
   overlaps; across lanes a short question no longer waits behind a long turn.
 - **Codex threads are remembered per (peer, conversation)** (#108). Without a static

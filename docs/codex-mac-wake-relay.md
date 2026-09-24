@@ -192,9 +192,10 @@ Explicit online notice sent to Claude/JARVIS:
 
 ## Failure Patterns
 
-- `codex-app-server-turn-completion-timeout`: the hidden turn may still have
-  completed in JSONL. Check the session log by `turnId`; the daemon should use
-  the `session-log` fallback.
+- Older versions could report `codex-app-server-turn-completion-timeout` while
+  the hidden turn was still running. From 2.12 an accepted `turnId` remains
+  `inflight` past `replyTimeoutMs`; the daemon observes that same turn and does
+  not start the letter again. See [accepted-turn recovery](wake-native.md#accepted-codex-turns-and-long-running-work-212).
 - `spawn node ENOENT`: LaunchAgent has no `node` in `PATH`. Use
   `process.execPath` for child Node scripts.
 - Message is in Mac DB but no visible UI wake: not a transport failure. The

@@ -1,18 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringCodec } from 'nats';
 import { SQLiteDedupeOutboxStore, createBoundAck, stableAckPayload } from '../packages/core/dist/src/index.js';
 import { NatsBroker } from '../packages/broker-nats/dist/src/index.js';
 import { createSigningKeyPair, signEnvelope, verifyEnvelopeSignature } from '../packages/security/dist/src/index.js';
+import { listOutboxAttention, setOutboxDismissed } from '../packages/setup/dist/src/outbox-attention.js';
+import { resolveContext } from '../packages/setup/dist/src/paths.js';
 
 async function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'murmur-first-contact-'));
   const file = join(dir, 'murmur.db');
   let store = new SQLiteDedupeOutboxStore(file);
-  t.after(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+  const cleanup = [];
+  t.after(() => { for (const close of cleanup) close(); store.close(); rmSync(dir, { recursive: true, force: true }); });
   const keys = await createSigningKeyPair(), invalid = [];
   const broker = new NatsBroker({ url: 'nats://unused.invalid' });
   const createdAt = new Date().toISOString();
@@ -38,9 +42,63 @@ async function fixture(t) {
       type: `io.nats.jetstream.advisory.v1.${kind}`, timestamp, stream: 'MURMUR', consumer: 'receiver', stream_seq: 1, deliveries: 5,
     })), store);
   };
-  return { enqueue, ack, advisory, invalid, broker, get store() { return store; },
+  const context = resolveContext({ dataDir: dir });
+  const key = Buffer.alloc(32, 7).toString('base64');
+  writeFileSync(context.configPath, JSON.stringify({ agentId: 'sender', subject: 'msg.sender', natsUrl: 'nats://test.invalid',
+    keys: { encryption: { publicKey: key, privateKey: key }, signing: { publicKey: key, privateKey: key } }, peers: {} }), { mode: 0o600 });
+  return { enqueue, ack, advisory, invalid, broker, context, file, cleanup, get store() { return store; },
     restart() { store.close(); store = new SQLiteDedupeOutboxStore(file); } };
 }
+
+test('first Contact recovery respects a dismissal made through the setup API', async t => {
+  const f = await fixture(t);
+  for (const id of ['hidden', 'visible']) await f.enqueue(id, 'max-attempts:ack-timeout');
+  const item = (await listOutboxAttention(f.context)).items.find(i => i.msgId === 'hidden');
+  await setOutboxDismissed(f.context, item.msgId, item.token, 'sender', true);
+  const before = await f.store.getOutboxRecord('hidden');
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.deepEqual(await f.store.getOutboxRecord('hidden'), before);
+  assert.equal((await f.store.getOutboxRecord('visible')).status, 'pending');
+  assert.equal((await f.store.getOutboxRecord('probe')).status, 'acked');
+});
+
+for (const action of ['restore', 'changed-state']) test(`first Contact recovery accepts a ${action} dismissal`, async t => {
+  const f = await fixture(t); await f.enqueue('letter', 'max-attempts:ack-timeout');
+  const item = (await listOutboxAttention(f.context)).items[0];
+  await setOutboxDismissed(f.context, item.msgId, item.token, 'sender', true);
+  if (action === 'restore') await setOutboxDismissed(f.context, item.msgId, item.token, 'sender', false);
+  else await f.store.markDlq('letter', 'max-attempts:unknown-sender:sender');
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.equal((await f.store.getOutboxRecord('letter')).status, 'pending');
+});
+
+test('automatic recovery is bounded to seven days from both envelope and local creation', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-24T12:00:00Z') });
+  const f = await fixture(t), db = new DatabaseSync(f.file);
+  f.cleanup.push(() => db.close());
+  for (const [id, age] of [['at-limit', 7 * 86400000], ['expired', 7 * 86400000 + 1], ['future', -6000]]) {
+    await f.enqueue(id, 'max-attempts:ack-timeout');
+    db.prepare('UPDATE outbox SET created_at=? WHERE msg_id=?').run(new Date(Date.now() - age).toISOString(), id);
+  }
+  await f.enqueue('old-envelope', 'max-attempts:ack-timeout');
+  db.prepare("UPDATE outbox SET envelope_json=json_set(envelope_json,'$.createdAt',?) WHERE msg_id='old-envelope'")
+    .run(new Date(Date.now() - 8 * 86400000).toISOString());
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.equal((await f.store.getOutboxRecord('at-limit')).status, 'pending');
+  for (const id of ['expired', 'future', 'old-envelope']) assert.equal((await f.store.getOutboxRecord(id)).status, 'dlq');
+});
+
+for (const obstacle of ['invalid-file', 'foreign-file', 'locked']) test(`recovery does not guess dismissal state when ${obstacle}`, async t => {
+  const f = await fixture(t); await f.enqueue('waiting', 'max-attempts:ack-timeout');
+  const lock = join(f.context.dataDir, '.setup-write.lock');
+  if (obstacle === 'locked') mkdirSync(lock);
+  else writeFileSync(join(f.context.dataDir, 'outbox-attention.json'), obstacle === 'invalid-file' ? '{invalid'
+    : JSON.stringify({ schema: 'murmur.outbox-dismissals/1', agentId: 'another', records: [] }));
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.equal((await f.store.getOutboxRecord('waiting')).status, 'dlq');
+  assert.equal((await f.store.getOutboxRecord('probe')).status, 'acked');
+  assert.equal(existsSync(lock), obstacle === 'locked', 'only a lock this operation owns may be removed');
+});
 
 test('first signed ACK recovers only waiting letters, survives restart, and preserves envelope IDs', async t => {
   const f = await fixture(t);
@@ -70,6 +128,24 @@ test('a delayed first ACK can settle its own timeout letter without publishing i
   await f.ack('late');
   assert.equal((await f.store.getOutboxRecord('late')).status, 'acked');
   assert.deepEqual(f.invalid, []);
+});
+
+for (const policy of ['dismissed', 'expired']) test(`a verified late ACK may settle its own ${policy} letter without requeueing`, async t => {
+  const f = await fixture(t);
+  await f.enqueue('late', 'max-attempts:ack-timeout');
+  if (policy === 'dismissed') {
+    const item = (await listOutboxAttention(f.context)).items[0];
+    await setOutboxDismissed(f.context, item.msgId, item.token, 'sender', true);
+  } else {
+    const db = new DatabaseSync(f.file); f.cleanup.push(() => db.close());
+    db.prepare("UPDATE outbox SET created_at=? WHERE msg_id='late'").run(new Date(Date.now() - 8 * 86400000).toISOString());
+  }
+  const before = await f.store.getOutboxRecord('late');
+  await f.ack('late');
+  const after = await f.store.getOutboxRecord('late');
+  assert.equal(after.status, 'acked'); assert.equal(after.attempts, before.attempts);
+  assert.deepEqual(after.envelope, before.envelope);
+  assert.deepEqual(await f.store.claimDue(), []);
 });
 
 test('an acknowledged group letter does not prove a direct exchange with every member', async t => {

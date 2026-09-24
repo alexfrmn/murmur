@@ -2,6 +2,12 @@
 
 Frozen consumer revision: `44b882d48f0139592dea9bd65d89b8a3f11c23cc`.
 
+2.12 accepted-turn diagnostics add nullable `wake_error` to status deliveries and
+inbox messages, and nullable `wakeFault: { reason, fixHint }` to Doctor. Unknown
+extension keys remain allowed; frozen leaves and verdict priorities are unchanged.
+`accepted-turn-unobservable` uses the existing `wake.fault` verdict. The explicit
+`wake dismiss` action is documented in [onboarding](../../../docs/setup-onboarding.md).
+
 2.12 W1 deliberately extends the shared policy in TypeScript, Swift and Go:
 `running-unmanaged` is a running Service, whose lifecycle is outside the selected
 application service label. Four additive fixtures cover that state alone, with

@@ -139,7 +139,9 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       wake.storedOnly = rows["stored-only"] ?? 0;
       wake.pendingUndelivered = (rows.pending ?? 0) + (rows.inflight ?? 0) + (rows.failed ?? 0);
       wake.lastDeliveredAt = (db.prepare("SELECT MAX(wake_updated_at) AS at FROM local_messages WHERE direction='inbound' AND wake_status='handled'").get() as any).at;
-      const fault = db.prepare("SELECT wake_error,wake_updated_at FROM local_messages WHERE direction='inbound' AND wake_status IN ('failed','dlq') AND wake_error IS NOT NULL ORDER BY wake_updated_at DESC LIMIT 1").get() as any;
+      const fault = db.prepare(`SELECT wake_error,wake_updated_at FROM local_messages WHERE direction='inbound'
+        AND (wake_status IN ('failed','dlq') OR (wake_status='inflight' AND wake_error='accepted-turn-unobservable'))
+        AND wake_error IS NOT NULL ORDER BY wake_updated_at DESC LIMIT 1`).get() as any;
       wake.lastFault = fault ? safeError(fault.wake_error) : null; wake.lastFaultAt = fault?.wake_updated_at ?? null;
       wake.measurements.store = measured(at);
     } catch { wake.measurements.store = unknown("wake.store-schema-unavailable"); }
@@ -155,6 +157,7 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
     const inbound = db.prepare(`SELECT msg_id AS msgId,sender AS peer,'inbound' AS direction,'delivered' AS state,created_at AS at,0 AS attempts,NULL AS error,${wakeColumns(db)} FROM local_messages WHERE direction='inbound' ORDER BY created_at DESC LIMIT 20`).all();
     deliveries = [...outbound, ...inbound].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 20).map((r) => ({ ...r,
       error: r.error ? safeError(r.error) : null, wake_status: r.wake_status ?? null,
+      wake_error: r.wake_error ? safeError(r.wake_error) : null,
       wake_updated_at: r.wake_updated_at ?? null, assistantRead: assistantRead(r.wake_status) }));
     db.exec("COMMIT");
   } catch {
