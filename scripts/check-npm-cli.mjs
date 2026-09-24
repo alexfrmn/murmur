@@ -42,12 +42,25 @@ if (process.platform === 'win32') {
 }
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur npm probe '));
 let child;
+const cliChecks = [];
 try {
   const profile = path.join(temp, 'profile');
   const env = { ...process.env, NODE_OPTIONS: '', NODE_PATH: '', DATA_DIR: profile,
     MURMUR_DATA_DIR: profile, MURMUR_STORE_PATH: '', MURMUR_UPDATE_CHECK: '0' };
-  const cli = args => JSON.parse(execFileSync(process.execPath, [path.join(packageRoot, 'bin/murmur-npm.mjs'), ...args],
-    { cwd: temp, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10000 }));
+  // Match the portable-runtime probe: Windows init applies private ACLs through
+  // PowerShell, whose cold startup can exceed ten seconds on shared runners.
+  const cliTimeoutMs = process.platform === 'win32' ? 60_000 : 10_000;
+  const cli = args => {
+    const startedAt = Date.now();
+    try {
+      const result = JSON.parse(execFileSync(process.execPath, [path.join(packageRoot, 'bin/murmur-npm.mjs'), ...args],
+        { cwd: temp, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cliTimeoutMs }));
+      cliChecks.push({ command: args[0], elapsedMs: Date.now() - startedAt, timeoutMs: cliTimeoutMs });
+      return result;
+    } catch (error) {
+      throw new Error(`npm CLI probe ${args[0]} ${error.code === 'ETIMEDOUT' ? 'timed out' : 'failed'} after ${Date.now() - startedAt}ms (budget ${cliTimeoutMs}ms)`, { cause: error });
+    }
+  };
   assert.equal(cli(['version']).version, manifest.declaredVersion);
   assert.equal(cli(['init', '--data-dir', profile, '--agent-id', 'runtime-probe', '--broker-url', 'nats://127.0.0.1:4222']).agentId, 'runtime-probe');
   assert.equal(cli(['status', '--data-dir', profile]).agentId, 'runtime-probe');
@@ -75,7 +88,7 @@ try {
   await request(3, 'tools/call', { name: 'murmur_peers', arguments: {} });
   reader.close();
   console.log(JSON.stringify({ ok: true, sourceCommit: manifest.sourceCommit, version: manifest.declaredVersion,
-    files: Object.keys(manifest.files).length, nativeVersionExecuted, cli: ['version', 'init', 'status'], mcp: ['initialize', 'tools/list', 'murmur_peers'], roundtrip: 'not-tested' }));
+    files: Object.keys(manifest.files).length, nativeVersionExecuted, cli: ['version', 'init', 'status'], cliChecks, mcp: ['initialize', 'tools/list', 'murmur_peers'], roundtrip: 'not-tested' }));
 } finally {
   if (child && child.exitCode === null && child.signalCode === null) {
     const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited;
