@@ -60,13 +60,21 @@ func runPairingChecks(fixtures: URL) throws -> Int {
         count += 1; print("PASS pairing: \(name)")
     }
     let token = "MURMUR:eyJ2IjoxLCJ0eXBlIjoiaW52aXRlIn0"
-    // Shared messenger cases from Windows #261. Mac's contract is exactly one
-    // base64url token: even two identical copies are ambiguous and are refused.
+    let legacy = "MURMUR:eyJ2Ijox+/eyJ0eXBlIjoi=="
+    // Exact input/output cases from Windows #261 at 1bcba16, with extra Unicode
+    // coverage. A message and its identical quote count as one line.
     for (name, pasted, expected) in [
         ("signature", token + "\n\n↑ Copy only the MURMUR: line above.\n\n▓▒░ signature", token),
         ("quotes", "Here is the invitation: «" + token + "»", token),
         ("code fence", "```\n" + token + "\n```", token),
         ("whitespace", "\t" + token + "\r\n", token),
+        ("identical quoted tokens", "> " + token + "\n\n" + token + "\nthe same line quoted", token),
+        ("zero-width space", "MURMUR:eyJ2Ijox\u{200b}LCJ0eXBlIjoiaW52aXRlIn0", token),
+        ("legacy base64", "file written by v2.11: " + legacy + "\n", legacy),
+        ("soft hyphen", "MURMUR:eyJ2Ijox\u{ad}LCJ0eXBlIjoiaW52aXRlIn0", token),
+        ("bidi marks in prefix and body", "MUR\u{2066}MUR:\u{200e}eyJ2IjoxLCJ0eXBlIjoiaW52aXRlIn0\u{2069}", token),
+        ("non-BMP format character", "MURMUR:eyJ2Ijox\u{e0001}LCJ0eXBlIjoiaW52aXRlIn0", token),
+        ("duplicates after Cf removal", "> MURMUR:eyJ2Ijox\u{200b}LCJ0eXBlIjoiaW52aXRlIn0\n" + token, token),
         ("emoji prefix", "💌 Приглашение: \"" + token + "\"", token),
         ("padding", "Reply: \"MURMUR:abcd_ef-==\" — signature", "MURMUR:abcd_ef-=="),
         ("wrapped token is left to engine", "MURMUR:eyJ2Ijox\nLCJ0eXBlIjoiaW52aXRlIn0", "MURMUR:eyJ2Ijox"),
@@ -78,7 +86,8 @@ func runPairingChecks(fixtures: URL) throws -> Int {
         ("missing", "only the prefix MURMUR: is mentioned"),
         ("empty", "MURMUR:»"),
         ("different tokens", token + "\nMURMUR:another"),
-        ("identical quoted tokens", "> " + token + "\n\n" + token + "\nthe same line quoted"),
+        ("current and legacy tokens", token + "\n" + legacy),
+        ("Cf removal still leaves different tokens", "MURMUR:fir\u{200b}st\nMURMUR:sec\u{ad}ond"),
     ] {
         try scenario("invalid messenger paste \(name) never reaches CLI") { f in
             do {
@@ -88,6 +97,27 @@ func runPairingChecks(fixtures: URL) throws -> Int {
             try reject { _ = try f.client.addReply(pasted, expectedAgent: "agent-misha") }
             try check(!FileManager.default.fileExists(atPath: f.root.appendingPathComponent("calls").path), "No mutation or process")
         }
+    }
+    try scenario("legacy recovery copy preserves every base64 character") { f in
+        let file = f.root.appendingPathComponent("reply.txt")
+        try (legacy + "\n").write(to: file, atomically: true, encoding: .utf8)
+        try check(try PairingLine.recovered(from: file) == legacy, "Old Reply is not truncated")
+    }
+    try scenario("size limit applies before stripping format characters") { f in
+        let pasted = token + String(repeating: "\u{200b}", count: PairingLine.maximumBytes / 3)
+        do {
+            _ = try f.client.joinInvitation(pasted, expectedAgent: "agent-misha")
+            throw CheckFailure(message: "Expected size limit")
+        } catch let error as PairingError { try check(error == .tooLarge, "Bound raw pasted bytes") }
+        try check(!FileManager.default.fileExists(atPath: f.root.appendingPathComponent("calls").path), "No CLI invocation")
+    }
+    try scenario("normalized legacy duplicate reaches stdin once for join and Reply") { f in
+        let pasted = "> " + legacy + "\nMUR\u{200e}MUR:eyJ2Ijox+\u{200b}/eyJ0eXBlIjoi=="
+        _ = try f.client.joinInvitation(pasted, expectedAgent: "agent-misha")
+        try check(try f.text("stdin") == legacy, "Join received full legacy token once")
+        _ = try f.client.addReply(pasted, expectedAgent: "agent-misha")
+        try check(try f.text("stdin") == legacy, "Reply received full legacy token once")
+        try check(try f.text("calls") == "status\njoin\nstatus\nstatus\nadd-peer\nstatus\n", "One import per explicit action")
     }
     try scenario("Server key requires acknowledgement before exposing the line") { f in
         let receipt = try f.client.invite(expectedAgent: "agent-misha")

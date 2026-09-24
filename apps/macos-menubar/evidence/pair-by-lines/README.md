@@ -26,19 +26,23 @@ or copy the Invitation before consent; Invitation clipboard content; stdin join;
 Reply clipboard content; stdin add-peer; both Contacts observed in status; and
 the private recovery copy of the Reply; cancellation; and creating the first
 inviting Identity before opening the Invitation sheet. The added checks cover the
-current Identity form; refusal of an ambiguous paste with byte-identical settings;
+current Identity form; refusal of different tokens with byte-identical settings;
 joining with the same Identity, profile and keys; copying its Reply and confirming
 both Contacts; refusal of a different Server with unchanged settings; and refusal
 after the selected profile changes. Invitations and Replies include messenger
-wrappers during the successful native flows. The private copy is not a file exchange
+wrappers, repeated identical quotes and Unicode Cf characters during successful
+native flows. First-time join and Reply import use standard-base64 lines through
+the real engine's legacy decoder; the existing Identity receives base64url.
+The private copy is not a file exchange
 step. These checks do not establish message transport, Wake-up, or two-person
 completion time; that remains a separate live acceptance.
 
-The parser follows the Mac request literally: one match of
-`MURMUR:[A-Za-z0-9_-]+=*`; zero or multiple matches are refused, including two
-identical tokens. Common signature/quote/fence cases are shared with Windows
-#261. Its later duplicate normalization, zero-width removal and legacy base64
-acceptance are not part of this Mac contract. The engine rejects truncated tokens.
+The parser matches Windows #261 at `1bcba16`: strip Unicode Cf characters, then
+extract `MURMUR:[A-Za-z0-9_+/-]+={0,2}`. Identical repeated tokens are accepted;
+different tokens or no token are refused. Legacy base64, zero-width spaces,
+soft hyphens and bidi marks are covered alongside signature/quote/fence cases.
+The 16 KiB bound applies to the original paste. The engine rejects tokens
+truncated by ordinary line breaks.
 
 See `verification.txt` for commands and counts. The final commit is the PR head;
 images and evidence belong to that source revision, not an installed release.

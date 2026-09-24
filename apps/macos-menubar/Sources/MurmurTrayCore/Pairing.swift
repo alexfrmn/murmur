@@ -38,12 +38,22 @@ public enum PairingLine {
     public static let maximumBytes = 16 * 1024
     public static func validated(_ input: String) throws -> String {
         guard input.utf8.count <= maximumBytes else { throw PairingError.tooLarge }
-        let pattern = try NSRegularExpression(pattern: "MURMUR:[A-Za-z0-9_-]+=*")
-        let matches = pattern.matches(in: input, range: NSRange(input.startIndex..., in: input))
-        guard matches.count == 1, let range = Range(matches[0].range, in: input) else {
-            throw PairingError.damaged
+        // Match the Windows parser: remove messenger format characters before
+        // extracting current base64url or legacy standard-base64 lines.
+        let cleaned = String(String.UnicodeScalarView(input.unicodeScalars.filter {
+            $0.properties.generalCategory != .format
+        }))
+        let pattern = try NSRegularExpression(pattern: "MURMUR:[A-Za-z0-9_+/-]+={0,2}")
+        let matches = pattern.matches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned))
+        var token: String?
+        for match in matches {
+            guard let range = Range(match.range, in: cleaned) else { throw PairingError.damaged }
+            let candidate = String(cleaned[range])
+            guard token == nil || token == candidate else { throw PairingError.damaged }
+            token = candidate
         }
-        return String(input[range])
+        guard let token else { throw PairingError.damaged }
+        return token
     }
     // Private recovery copy, never a file exchange step in the interface.
     public static func recovered(from file: URL) throws -> String {

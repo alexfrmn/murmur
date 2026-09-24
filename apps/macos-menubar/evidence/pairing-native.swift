@@ -5,6 +5,20 @@ import MurmurTrayCore
 // Compile with the app's views/model and TrayCore, excluding DesktopEntry.swift.
 // Temporary HOME + CFFIXED_USER_HOME are mandatory; no live profile or Service.
 @main struct PairingNativeAcceptance {
+    static func legacyLine(_ line: String) -> String {
+        var encoded = String(line.dropFirst("MURMUR:".count))
+            .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        var payload = Data(base64Encoded: encoded)!
+        // JSON trailing whitespace is valid; ensure padding exercises the
+        // engine's standard-base64 branch even with an unpadded original.
+        if payload.count % 3 == 0 { payload.append(0x20) }
+        return "MURMUR:" + payload.base64EncodedString()
+    }
+    static func quotedWithFormatCharacters(_ line: String) -> String {
+        let formatted = "MUR\u{200e}MUR:\u{200b}" + line.dropFirst("MURMUR:".count) + "\u{ad}"
+        return "> " + formatted + "\n\n" + line + "\n— colleague"
+    }
     @MainActor static func capture<V: View>(_ view: V, to path: URL, height: CGFloat = 680) throws {
         let host = NSHostingView(rootView: view.frame(width: 580, height: height)
             .background(Color(nsColor: .windowBackgroundColor)).environment(\.colorScheme, .light))
@@ -68,13 +82,13 @@ import MurmurTrayCore
 
         let joining = TrayModel(startRuntime: false)
         joining.useInvitation(); joining.creationAgentID = "misha-mac"
-        joining.pairingInput = "💌 «" + invitation + "»\n— colleague"; joining.joinInvitationLine()
+        joining.pairingInput = quotedWithFormatCharacters(legacyLine(invitation)); joining.joinInvitationLine()
         try await settled(joining)
         precondition(joining.agentID == "misha-mac" && joining.creationError == nil)
         let reply = clipboard.string(forType: .string)!
         precondition(reply == joining.pairingOutput && reply.hasPrefix("MURMUR:") && reply != invitation)
         try capture(PairingSheet(model: joining), to: pictures.appendingPathComponent("after-reply-\(language).png"))
-        inviter.beginPairing(.reply); inviter.pairingInput = "```\n" + reply + "\n```\n— colleague"
+        inviter.beginPairing(.reply); inviter.pairingInput = quotedWithFormatCharacters(legacyLine(reply))
         try capture(PairingSheet(model: inviter), to: pictures.appendingPathComponent("after-paste-reply-\(language).png"))
         inviter.addReplyLine(); try await settled(inviter)
         precondition(inviter.pairingError == nil && inviter.status?.peers.list?.contains(where: { $0.agentId == "misha-mac" }) == true)
@@ -108,13 +122,13 @@ import MurmurTrayCore
         precondition(first.canUseInvitation && first.pairingIdentity == "first-inviter" && first.showPairingSheet)
         first.creationAgentID = "must-not-create-this"
         try capture(PairingSheet(model: first), to: pictures.appendingPathComponent("after-existing-join-\(language).png"))
-        first.pairingInput = invitation + "\n" + invitation
+        first.pairingInput = invitation + "\n" + publicInvitation
         let clipboardBeforeRefusal = clipboard.string(forType: .string)
         first.joinInvitationLine(); try await settled(first)
         let refusedConfig = try Data(contentsOf: configFile)
         precondition(first.pairingError != nil && refusedConfig == before && first.pairingOutput == nil)
         precondition(clipboard.string(forType: .string) == clipboardBeforeRefusal)
-        first.pairingInput = "Here is the Invitation: «" + invitation + "»\n— colleague"
+        first.pairingInput = quotedWithFormatCharacters(invitation)
         first.joinInvitationLine(); try await settled(first)
         let existingReply = first.pairingOutput!
         precondition(first.pairingError == nil && first.profile == originalProfile && first.agentID == "first-inviter")
@@ -147,7 +161,7 @@ import MurmurTrayCore
         first.joinInvitationLine()
         precondition(!first.operating && first.pairingError == PairingError.unconfirmed.localizedDescription)
         clipboard.clearContents()
-        print("PASS native \(language): public-address prompt, credential gate, clipboard Invitation, messenger stdin join, clipboard Reply, messenger stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter, existing Identity form, ambiguous paste unchanged, existing Identity and keys preserved, existing Reply and both Contacts, Server conflict unchanged, changed selection refused")
+        print("PASS native \(language): public-address prompt, credential gate, clipboard Invitation, legacy/Cf/quoted stdin join, clipboard Reply, legacy/Cf/quoted stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter, existing Identity form, different tokens refused unchanged, identical Cf quote accepted with Identity and keys preserved, existing Reply and both Contacts, Server conflict unchanged, changed selection refused")
         print("16 native checks passed; no Service or network exchange claimed")
     }
 }
