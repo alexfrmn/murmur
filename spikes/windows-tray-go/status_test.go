@@ -19,6 +19,20 @@ import (
 // Share the exact inputs and expectations used by the engine and Swift consumer.
 var fixtureDir = filepath.Join("..", "..", "contracts", "setup", "v1", "fixtures")
 
+func TestDotMeansPendingDeliveryNotUnreadInbox(t *testing.T) {
+	for _, fixture := range []string{"status-green.json", "status-yellow.json", "status-red.json", "status-grey.json"} {
+		for _, pending := range []int{0, 3} {
+			s := load(t, fixture)
+			unread := 99
+			s.Inbox.Unread = &unread
+			s.Wake.Delivery.PendingUndelivered = &pending
+			if got := resolve(s, nil).Unread; got != (pending > 0) {
+				t.Fatalf("%s pending=%d dot=%v", fixture, pending, got)
+			}
+		}
+	}
+}
+
 func load(t *testing.T, name string) *Status {
 	t.Helper()
 	buf, err := os.ReadFile(filepath.Join(fixtureDir, name))

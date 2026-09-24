@@ -13,6 +13,9 @@
     <linearGradient id="murmur-alarm" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#c0392b"/><stop offset="100%" stop-color="#D92027"/>
     </linearGradient>
+    <linearGradient id="murmur-attention-color" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A87700"/><stop offset="100%" stop-color="#BD8A0A"/>
+    </linearGradient>
 
     <g id="murmur-glyph">
       <path d="M 28 46 Q 38 32, 48 46 Q 58 60, 48 74" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
@@ -29,6 +32,14 @@
     <symbol id="murmur-idle" viewBox="0 0 120 120">
       <circle cx="60" cy="60" r="58" fill="url(#murmur-quiet)"/>
       <use href="#murmur-glyph"/>
+      <path d="M 22 99 H 42" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="murmur-attention" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="58" fill="url(#murmur-attention-color)"/>
+      <use href="#murmur-glyph"/>
+      <path d="M 32 84 V 95" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="32" cy="106" r="4" fill="#fff"/>
     </symbol>
 
     <symbol id="murmur-unread" viewBox="0 0 120 120">
@@ -40,6 +51,7 @@
     <symbol id="murmur-failed" viewBox="0 0 120 120">
       <circle cx="60" cy="60" r="58" fill="url(#murmur-alarm)"/>
       <use href="#murmur-glyph"/>
+      <path d="M 26 88 Q 33 95, 40 102 M 26 102 Q 33 95, 40 88" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
     </symbol>
   </defs>
 

@@ -11,7 +11,7 @@ import { skipPosixLogs } from './windows-host.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 // Any attempt to observe or mutate a service is a failure for this read-only command.
-const noService = new Proxy({}, { get() { throw new Error('unexpected-service-access'); } });
+const noService = new Proxy({}, { get(_, key) { if (key === 'logDirectory') return undefined; throw new Error('unexpected-service-access'); } });
 async function fixture(t) {
   const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-logs-')));
   t.after(async () => {
@@ -115,17 +115,30 @@ test('logs path does not advertise a directory when profile identity is invalid'
 });
 
 
-test('Windows logs command reports its native limitation without creating or changing profile files', { skip: process.platform !== 'win32' }, async t => {
+test('Windows logs refuses an adapter without native discovery without changing profile files', { skip: process.platform !== 'win32' }, async t => {
   const f = await fixture(t);
   for (const directoryExists of [false, true]) {
     if (directoryExists) await fs.mkdir(f.logDir);
     const before = await fs.readdir(f.dataDir);
     await assert.rejects(main(f.args, noService), /^Error: logs\.windows-native-location-unavailable$/);
-    const result = f.run();
-    assert.equal(result.status, 1); assert.equal(result.stdout, '');
-    assert.match(result.stderr, /^logs\.windows-native-location-unavailable$/m);
-    assert.doesNotMatch(result.stderr, /private-test-token|privateKey/);
     assert.equal(await fs.readFile(f.configPath, 'utf8'), f.bytes);
     assert.deepEqual(await fs.readdir(f.dataDir), before);
   }
+});
+
+test('Windows logs CLI returns native discovery bound to the selected identity and service', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t), nativeFolder = path.join(f.home, 'native-logs');
+  await fs.mkdir(nativeFolder);
+  const calls = [];
+  const adapter = { async logDirectory(context) {
+    calls.push(context);
+    assert.equal(context.dataDir, f.dataDir);
+    assert.equal(context.serviceName, 'logs-test');
+    return nativeFolder;
+  } };
+  assert.deepEqual(await main(f.args, adapter), { schema: 'murmur.logs/1', agentId: 'logs-agent',
+    dataDir: f.dataDir, serviceName: 'logs-test', logDir: nativeFolder, source: 'native' });
+  assert.equal(calls.length, 1);
+  assert.equal(await fs.readFile(f.configPath, 'utf8'), f.bytes);
+  assert.deepEqual(await fs.readdir(f.dataDir), ['agent-config.json']);
 });

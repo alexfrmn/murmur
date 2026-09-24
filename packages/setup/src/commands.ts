@@ -9,8 +9,12 @@ import { writeState } from './state.js';
 import type { PlatformAdapter, ServiceContext } from './types.js';
 
 /** Observe the configured directory only; this does not prove a live daemon's log destination. */
-export async function readLogPath(context: ServiceContext) {
+export async function readLogPath(context: ServiceContext, adapter?: PlatformAdapter) {
   const config = await loadConfig(context);
+  if (adapter?.logDirectory) {
+    return { schema: 'murmur.logs/1', agentId: config.agentId, dataDir: context.dataDir,
+      serviceName: context.serviceName, logDir: await adapter.logDirectory(context), source: 'native' };
+  }
   try {
     const dataDir = await realpath(context.dataDir);
     const logDir = await realpath(context.logDir);

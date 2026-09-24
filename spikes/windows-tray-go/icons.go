@@ -108,6 +108,8 @@ func rasterMark(shapes []markPrimitive) *image.NRGBA {
 func renderMark(base color.NRGBA, unread, updateAvailable bool) *image.NRGBA {
 	name := "idle"
 	switch base {
+	case colYellow:
+		name = "attention"
 	case colRed:
 		name = "failed"
 	case colGreen:
@@ -166,6 +168,8 @@ var iconCache sync.Map
 func iconBytes(base color.NRGBA, unread bool, updateAvailable ...bool) []byte {
 	state := byte(0)
 	switch base {
+	case colYellow:
+		state = 4
 	case colRed:
 		state = 1
 	case colGreen:

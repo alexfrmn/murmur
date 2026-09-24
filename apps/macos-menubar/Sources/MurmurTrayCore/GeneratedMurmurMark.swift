@@ -4,7 +4,7 @@ import CoreGraphics
 import Foundation
 
 public enum GeneratedMurmurMark {
-    public static let sourceSHA256 = "78b5129a67156af4fc172b67a3347df273db2fedd1d0c75adc38cd4c3515bce7"
+    public static let sourceSHA256 = "faa5a270e03c0d5e0b766e226a0835bb5597981a866f2b211ee500a4e3b82af1"
     static let extent: CGFloat = 120
     static func ready(_ ctx: CGContext) {
         do {
@@ -98,6 +98,75 @@ public enum GeneratedMurmurMark {
             ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
             ctx.setLineWidth(6); ctx.setLineCap(.round)
             ctx.addPath(p); ctx.strokePath()
+        }
+        do {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 22, y: 99))
+            p.addLine(to: CGPoint(x: 42, y: 99))
+            ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setLineWidth(7); ctx.setLineCap(.round)
+            ctx.addPath(p); ctx.strokePath()
+        }
+    }
+    static func attention(_ ctx: CGContext) {
+        do {
+            let p = CGMutablePath()
+            p.addEllipse(in: CGRect(x: 2, y: 2, width: 116, height: 116))
+            ctx.saveGState()
+            ctx.addPath(p); ctx.clip()
+            let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!, colors: [CGColor(srgbRed: 0.658823529412, green: 0.466666666667, blue: 0, alpha: 1), CGColor(srgbRed: 0.741176470588, green: 0.541176470588, blue: 0.0392156862745, alpha: 1)] as CFArray, locations: [0, 1])!
+            let b = p.boundingBox
+            ctx.drawLinearGradient(gradient, start: b.origin, end: CGPoint(x: b.maxX, y: b.maxY), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            ctx.restoreGState()
+        }
+        do {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 28, y: 46))
+            p.addQuadCurve(to: CGPoint(x: 48, y: 46), control: CGPoint(x: 38, y: 32))
+            p.addQuadCurve(to: CGPoint(x: 48, y: 74), control: CGPoint(x: 58, y: 60))
+            ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setLineWidth(6); ctx.setLineCap(.round)
+            ctx.addPath(p); ctx.strokePath()
+        }
+        do {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 92, y: 46))
+            p.addQuadCurve(to: CGPoint(x: 72, y: 46), control: CGPoint(x: 82, y: 32))
+            p.addQuadCurve(to: CGPoint(x: 72, y: 74), control: CGPoint(x: 62, y: 60))
+            ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setLineWidth(6); ctx.setLineCap(.round)
+            ctx.addPath(p); ctx.strokePath()
+        }
+        do {
+            let p = CGMutablePath()
+            p.addRoundedRect(in: CGRect(x: 46, y: 54, width: 28, height: 24), cornerWidth: 4, cornerHeight: 4)
+            ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.addPath(p); ctx.fillPath()
+        }
+        do {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 52, y: 54))
+            p.addLine(to: CGPoint(x: 52, y: 46))
+            p.addQuadCurve(to: CGPoint(x: 60, y: 36), control: CGPoint(x: 52, y: 36))
+            p.addQuadCurve(to: CGPoint(x: 68, y: 46), control: CGPoint(x: 68, y: 36))
+            p.addLine(to: CGPoint(x: 68, y: 54))
+            ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setLineWidth(6); ctx.setLineCap(.round)
+            ctx.addPath(p); ctx.strokePath()
+        }
+        do {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 32, y: 84))
+            p.addLine(to: CGPoint(x: 32, y: 95))
+            ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setLineWidth(7); ctx.setLineCap(.round)
+            ctx.addPath(p); ctx.strokePath()
+        }
+        do {
+            let p = CGMutablePath()
+            p.addEllipse(in: CGRect(x: 28, y: 102, width: 8, height: 8))
+            ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.addPath(p); ctx.fillPath()
         }
     }
     static func unread(_ ctx: CGContext) {
@@ -200,6 +269,16 @@ public enum GeneratedMurmurMark {
             p.addLine(to: CGPoint(x: 68, y: 54))
             ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
             ctx.setLineWidth(6); ctx.setLineCap(.round)
+            ctx.addPath(p); ctx.strokePath()
+        }
+        do {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 26, y: 88))
+            p.addQuadCurve(to: CGPoint(x: 40, y: 102), control: CGPoint(x: 33, y: 95))
+            p.move(to: CGPoint(x: 26, y: 102))
+            p.addQuadCurve(to: CGPoint(x: 40, y: 88), control: CGPoint(x: 33, y: 95))
+            ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setLineWidth(7); ctx.setLineCap(.round)
             ctx.addPath(p); ctx.strokePath()
         }
     }

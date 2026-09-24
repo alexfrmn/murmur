@@ -141,7 +141,7 @@ def compile_mark(raw):
              "import CoreGraphics", "import Foundation", "", "public enum GeneratedMurmurMark {",
              f'    public static let sourceSHA256 = "{hashlib.sha256(raw).hexdigest()}"',
              f"    static let extent: CGFloat = {view[2]}"]
-    for state in ("ready", "idle", "unread", "failed"):
+    for state in ("ready", "idle", "attention", "unread", "failed"):
         lines.append(f"    static func {state}(_ ctx: CGContext) {{")
         lines.extend("        " + s for s in shape(ids["murmur-" + state]))
         lines.append("    }")

@@ -65,17 +65,18 @@ type app struct {
 	mUpdateCheck, mUpdatePage, mUpdateEnable, mUpdateDisable *systray.MenuItem
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
-	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
-	mConnect, mOpenProfile, mInvite                   *systray.MenuItem
-	mLanguageRoot, mLangEnglish, mLangRussian, mGuide *systray.MenuItem
-	mHistory                                          []*systray.MenuItem
-	mStages                                           map[string]*systray.MenuItem
-	mRecheck, mPause, mCopy                           *systray.MenuItem
-	mRecent                                           []*systray.MenuItem
-	mPeersRoot                                        *systray.MenuItem
-	mPeers                                            []*systray.MenuItem
-	mSvcStar, mSvcStop, mSvcLogs, mQuit               *systray.MenuItem
-	mSvcState                                         *systray.MenuItem
+	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot          *systray.MenuItem
+	mConnect, mOpenProfile, mInvite                            *systray.MenuItem
+	mLanguageRoot, mLangEnglish, mLangRussian, mGuide          *systray.MenuItem
+	mHistory                                                   []*systray.MenuItem
+	mStages                                                    map[string]*systray.MenuItem
+	mRecheck, mPause, mCopy                                    *systray.MenuItem
+	mRecent                                                    []*systray.MenuItem
+	mPeersRoot                                                 *systray.MenuItem
+	mPeers                                                     []*systray.MenuItem
+	mSvcStar, mSvcStop, mSvcLogs, mQuit                        *systray.MenuItem
+	mSvcState                                                  *systray.MenuItem
+	mSvcInstall, mSvcUninstall, mAssistants, mAssistantConnect *systray.MenuItem
 }
 
 func main() {
@@ -170,7 +171,7 @@ func main() {
 	systray.Run(a.onReady, func() {})
 }
 
-func (a *app) onReady() {
+func (a *app) setupMenu() {
 	systray.SetIcon(iconBytes(colGrey, false))
 	systray.SetTitle("Murmur")
 	systray.SetTooltip(tr("menu.initialTooltip"))
@@ -233,8 +234,11 @@ func (a *app) onReady() {
 	a.mSvcState.Hide()
 	a.mSvcStar = a.mServiceRoot.AddSubMenuItem(tr("menu.start"), "")
 	a.mSvcStop = a.mServiceRoot.AddSubMenuItem(tr("menu.stop"), "")
+	a.mSvcInstall = a.mServiceRoot.AddSubMenuItem(tr("menu.install"), tr("menu.serviceElevationTooltip"))
+	a.mSvcUninstall = a.mServiceRoot.AddSubMenuItem(tr("menu.uninstall"), tr("menu.serviceElevationTooltip"))
 	a.mSvcLogs = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceLogs"), tr("menu.serviceLogsTooltip"))
-	a.mSvcLogs.Disable()
+	a.mAssistants = systray.AddMenuItem(tr("menu.assistants"), "")
+	a.mAssistantConnect = a.mAssistants.AddSubMenuItem(tr("menu.assistantConnect"), "")
 	systray.AddSeparator()
 	a.setupUpdates()
 	systray.AddSeparator()
@@ -244,7 +248,10 @@ func (a *app) onReady() {
 	a.mGuide = systray.AddMenuItem(tr("guide.menu"), tr("guide.tooltip"))
 	a.mQuit = systray.AddMenuItem(tr("menu.quit"), tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
+}
 
+func (a *app) onReady() {
+	a.setupMenu()
 	if needsFirstRun() {
 		go a.showFirstRun()
 	}
@@ -312,8 +319,8 @@ func (a *app) render(v Verdict) {
 
 	a.mu.Lock()
 	n := 0
-	if a.status != nil && a.status.Inbox.Unread != nil {
-		n = *a.status.Inbox.Unread
+	if a.status != nil && a.status.Wake.Delivery.PendingUndelivered != nil {
+		n = *a.status.Wake.Delivery.PendingUndelivered
 	}
 	a.mu.Unlock()
 	systray.SetTooltip(statusTooltip(v, n, available))
@@ -433,6 +440,14 @@ func (a *app) handleClicks() {
 			go a.runCLI("service", "start")
 		case <-a.mSvcStop.ClickedCh:
 			go a.runCLI("service", "stop")
+		case <-a.mSvcInstall.ClickedCh:
+			go a.runCLI("service", "install")
+		case <-a.mSvcUninstall.ClickedCh:
+			go a.runCLI("service", "uninstall")
+		case <-a.mSvcLogs.ClickedCh:
+			go a.openLogs()
+		case <-a.mAssistantConnect.ClickedCh:
+			go a.connectSelectedAssistants()
 		case <-a.mUpdateCheck.ClickedCh:
 			a.requestUpdates(nil)
 		case <-a.mUpdatePage.ClickedCh:
@@ -473,7 +488,7 @@ func boolText(v *bool) string {
 }
 func (a *app) runCLI(args ...string) {
 	a.mu.Lock()
-	if a.actionBusy || a.pinnedAgent == "" {
+	if a.actionBusy {
 		a.mu.Unlock()
 		return
 	}
@@ -500,6 +515,9 @@ func (a *app) runCLI(args ...string) {
 		if allowed, _, hint := serviceControls(fresh, true, serviceAdmin()); !allowed {
 			err = fmt.Errorf("%s", hint)
 		}
+	}
+	if err == nil && args[0] == "service" && args[1] == "uninstall" && !askYesNo(tr("menu.service"), tr("menu.uninstallConfirm")) {
+		return
 	}
 	if err == nil && args[0] == "service" && !serviceAdmin() {
 		// The elevated CLI cannot hand its reply back; it exits 0 only after confirming the
@@ -528,6 +546,9 @@ func (a *app) runCLI(args ...string) {
 		a.mu.Unlock()
 		a.mActionStatus.SetTitle(tr("action.failed"))
 		a.mActionStatus.SetTooltip(tr("action.failedTooltip"))
+		if args[0] == "service" {
+			tell(tr("menu.service"), serviceActionMessage(err))
+		}
 	} else {
 		a.mu.Lock()
 		a.actionResult = "action.success"
@@ -657,6 +678,12 @@ func (a *app) applyLocale() {
 	a.mServiceRoot.SetTitle(tr("menu.service"))
 	a.mSvcLogs.SetTitle(tr("menu.serviceLogs"))
 	a.mSvcLogs.SetTooltip(tr("menu.serviceLogsTooltip"))
+	a.mSvcInstall.SetTitle(tr("menu.install"))
+	a.mSvcUninstall.SetTitle(tr("menu.uninstall"))
+	a.mSvcInstall.SetTooltip(tr("menu.serviceElevationTooltip"))
+	a.mSvcUninstall.SetTooltip(tr("menu.serviceElevationTooltip"))
+	a.mAssistants.SetTitle(tr("menu.assistants"))
+	a.mAssistantConnect.SetTitle(tr("menu.assistantConnect"))
 	a.mUpdatesRoot.SetTitle(tr("updates.root"))
 	a.mUpdatesRoot.SetTooltip(tr("updates.rootTooltip"))
 	a.mUpdateCheck.SetTooltip(tr("updates.checkNowTooltip"))

@@ -12,7 +12,7 @@ spec.loader.exec_module(mark)
 class SharedSourceChecks(unittest.TestCase):
     def test_current_source_compiles(self):
         self.assertEqual(set(mark.compile_source(mark.SOURCE.read_bytes())),
-                         {'idle', 'ready', 'unread', 'failed', 'unread-overlay'})
+                         {'idle', 'ready', 'attention', 'unread', 'failed', 'unread-overlay'})
 
     def test_new_container_transform_is_not_silently_ignored(self):
         data = mark.SOURCE.read_text().replace('<g id=', '<g transform="translate(1 1)" id=', 1)

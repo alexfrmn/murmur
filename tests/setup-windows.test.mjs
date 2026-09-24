@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createWindowsAdapter } from '../packages/setup/dist/src/platform/windows.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
@@ -149,6 +149,29 @@ test('distinct canonical case-sensitive profiles cannot authorize an action', as
 
 test('Windows logs refuses to advertise a different configured folder', { skip: process.platform !== 'win32' }, async () => {
   const { main } = await import('../packages/setup/dist/src/cli.js');
-  const untouched = new Proxy({}, { get() { throw Error('unexpected-service-access'); } });
+  const untouched = new Proxy({}, { get(_, key) { if (key === 'logDirectory') return undefined; throw Error('unexpected-service-access'); } });
   await assert.rejects(main(['logs', 'path', '--data-dir', context.dataDir], untouched), /logs.windows-native-location-unavailable/);
+});
+
+test('Windows native logs verifies ownership and opens only its existing directory', { skip: process.platform !== 'win32' }, async t => {
+  const programData = await realpath(await mkdtemp(path.join(tmpdir(), 'murmur-native-logs-')));
+  t.after(() => rm(programData, { recursive: true, force: true }));
+  const expected = path.join(programData, 'Murmur', 'logs', context.serviceName);
+  await mkdir(expected, { recursive: true });
+  let value = native();
+  const calls = [];
+  const adapter = createWindowsAdapter({ helperPath: helper, env: { ProgramData: programData },
+    canonicalize: async p => p.startsWith(programData) ? realpath(p) : path.win32.normalize(p),
+    run: async (_, args) => { calls.push(args[0]); return { code: 0, stdout: JSON.stringify(value), stderr: '' }; } });
+  assert.equal(await adapter.logDirectory(context), expected);
+  value = native({ profile: { ...native().profile, dataDir: 'C:\\foreign-profile' } });
+  await assert.rejects(adapter.logDirectory(context), /profile-mismatch/);
+  value = native();
+  await rm(expected, { recursive: true });
+  await assert.rejects(adapter.logDirectory(context), /logs.directory-missing/);
+  const outside = path.join(programData, 'outside');
+  await mkdir(outside);
+  await symlink(outside, expected, 'junction');
+  await assert.rejects(adapter.logDirectory(context), /logs.path-outside-service/);
+  assert.ok(calls.every(action => action === 'status'), 'log lookup must never mutate SCM');
 });
