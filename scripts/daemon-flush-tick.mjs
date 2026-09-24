@@ -16,8 +16,9 @@ export async function flushTick({ flushOutbox, flushNotify, drainWake, log }) {
     log("error", "Notify flush error", { error: err instanceof Error ? err.message : String(err) });
   }
 
-  // #105 — retry tick: deliveries whose backoff has elapsed, and anything a previous
-  // process left behind, are picked up from the table here.
+  // #105 — retry tick. With no drain running this reads the table: deliveries whose
+  // backoff has elapsed and rows a previous process left behind. A running drain is
+  // only nudged; such rows wait until it frees its conversations.
   Promise.resolve()
     .then(drainWake)
     .catch((err) => log("error", "Wake retry drain error", { error: err instanceof Error ? err.message : String(err) }));
