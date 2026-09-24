@@ -99,6 +99,14 @@ function sources() {
     list.push({ file: "site/index.html#I18N", lang, entries: flatten(i18n[lang], lang, []) });
   }
   list.push({ file: "site/index.html", lang: "en", entries: siteStatic(html) });
+  const wizardFile = "apps/windows-tray/packaging/murmur-setup.iss";
+  const wizard = read(wizardFile).split("[CustomMessages]")[1]?.split(/^\[/m)[0];
+  assert.ok(wizard, "installer must expose localized wizard messages");
+  for (const [language, lang] of [["english", "en"], ["russian", "ru"]]) {
+    const entries = [...wizard.matchAll(new RegExp(`^${language}\\.([^=]+)=(.*)$`, "gm"))]
+      .map((m) => ({ key: m[1], value: m[2] }));
+    list.push({ file: wizardFile, lang, entries });
+  }
   return list;
 }
 
@@ -126,6 +134,16 @@ test("every vocabulary pattern compiles and matches its own term", () => {
   assert.deepEqual(sample("ru", "спиральный копир эмпирика"), [], "пир must not match inside other words");
   assert.deepEqual(sample("en", "Invite a colleague. Wake-up works."), []);
   assert.deepEqual(sample("en", "the daemon woke the peer"), ["peer", "daemon"]);
+});
+
+test("installer custom messages have both languages and no missing references", () => {
+  const file = "apps/windows-tray/packaging/murmur-setup.iss";
+  const dictionaries = sources().filter((source) => source.file === file);
+  const keys = dictionaries.map(({ entries }) => entries.map(({ key }) => key).sort());
+  assert.deepEqual(keys[0], keys[1], "every installer message needs en and ru");
+  for (const match of read(file).matchAll(/CustomMessage\('([^']+)'\)/g)) {
+    assert.ok(keys[0].includes(match[1]), `missing installer message: ${match[1]}`);
+  }
 });
 
 test("person-facing strings use the product vocabulary", () => {

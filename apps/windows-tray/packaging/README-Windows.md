@@ -1,5 +1,13 @@
 # Windows companion bundle
 
+The installer asks before replacing an occupied Murmur shortcut, in the wizard's
+selected language. Declining keeps the shortcut. Silent setup replaces selected
+shortcuts by default; `/SHORTCUTCONFLICT=fail` requests exit code 7 on a conflict.
+It checks external Node.js against the bundled runtime policy (22.13.0 or newer,
+including SQLite support). If no compatible installation is found, interactive
+setup offers the official Node.js download page. Install Node.js and reopen
+Murmur to continue setup; Node.js is not bundled or installed automatically.
+
 Start with **Open-Murmur.cmd**. It binds the engine and profile and creates your
 shortcuts. `murmur-tray.exe` is the internal tray process started by that launcher.
 

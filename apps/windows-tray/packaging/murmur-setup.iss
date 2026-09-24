@@ -47,6 +47,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
+; Use the verified bundle's shared capability check and engines.node policy.
+Source: "{#BundleDir}\runtime\scripts\runtime-capability.mjs"; Flags: dontcopy
+Source: "{#BundleDir}\runtime\package.json"; DestName: "murmur-node-policy.json"; Flags: dontcopy
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Tasks]
@@ -58,6 +61,16 @@ english.StartupTask=Start Murmur when I sign in to Windows
 russian.StartupTask=Запускать Murmur при входе в Windows
 english.DesktopTask=Create a desktop shortcut
 russian.DesktopTask=Создать ярлык на рабочем столе
+english.ShortcutReplace=Found a shortcut from a previous Murmur installation — replace it?
+russian.ShortcutReplace=Найден ярлык прошлой установки Murmur — заменить?
+english.ShortcutDeclined=The shortcut was kept. Allow replacement to continue installing Murmur.
+russian.ShortcutDeclined=Ярлык сохранён. Разрешите замену, чтобы продолжить установку Murmur.
+english.ShortcutSilentConflict=A shortcut already exists. Remove /SHORTCUTCONFLICT=fail to allow replacement, or run the installer interactively.
+russian.ShortcutSilentConflict=Ярлык уже существует. Уберите /SHORTCUTCONFLICT=fail, чтобы разрешить замену, или запустите мастер установки.
+english.NodeRequired=Murmur needs Node.js 22.13.0 or newer. A compatible installation was not found. Open the official download page?%n%nYou can finish installing Murmur now. After installing Node.js, reopen Murmur to continue setup.
+russian.NodeRequired=Для Murmur нужен Node.js 22.13.0 или новее. Подходящая установка не найдена. Открыть официальную страницу скачивания?%n%nУстановку Murmur можно завершить сейчас. После установки Node.js снова откройте Murmur, чтобы продолжить настройку.
+english.NodeDownloadFailed=Could not open the browser. Download Node.js from https://nodejs.org/en/download, then reopen Murmur.
+russian.NodeDownloadFailed=Не удалось открыть браузер. Скачайте Node.js с https://nodejs.org/en/download, затем снова откройте Murmur.
 
 [Icons]
 Name: "{userprograms}\{#InstallerName}\Murmur"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur-tray.exe"; Comment: "Open Murmur controls (managed by Murmur)"
@@ -78,6 +91,54 @@ Filename: "{app}\murmur-tray.exe"; Description: "{cm:LaunchProgram,Murmur}"; Wor
 var
   RestartTray: Boolean;
   TrayRestarted: Boolean;
+  NodeNoticeShown: Boolean;
+
+function SetEnvironmentVariable(Name, Value: String): Boolean;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+
+function CompatibleNode(): Boolean;
+var
+  NodePath, CheckDir, OldOptions: String;
+  ExitCode: Integer;
+begin
+  Result := False;
+  NodePath := FileSearch('node.exe', GetEnv('PATH'));
+  if NodePath = '' then exit;
+  CheckDir := ExpandConstant('{tmp}\murmur-node-check');
+  if not ForceDirectories(CheckDir + '\scripts') then exit;
+  ExtractTemporaryFile('runtime-capability.mjs');
+  ExtractTemporaryFile('murmur-node-policy.json');
+  if not FileCopy(ExpandConstant('{tmp}\runtime-capability.mjs'), CheckDir + '\scripts\runtime-capability.mjs', False) then exit;
+  if not FileCopy(ExpandConstant('{tmp}\murmur-node-policy.json'), CheckDir + '\package.json', False) then exit;
+  if not SaveStringToFile(CheckDir + '\check.mjs',
+    'import { checkRuntime } from "./scripts/runtime-capability.mjs";' + #13#10 +
+    'try { await checkRuntime(); } catch { process.exitCode = 1; }', False) then exit;
+  OldOptions := GetEnv('NODE_OPTIONS');
+  if not SetEnvironmentVariable('NODE_OPTIONS', '') then exit;
+  try
+    Result := Exec(NodePath, '"' + CheckDir + '\check.mjs"', CheckDir,
+      SW_HIDE, ewWaitUntilTerminated, ExitCode) and (ExitCode = 0);
+  finally
+    SetEnvironmentVariable('NODE_OPTIONS', OldOptions);
+  end;
+end;
+
+procedure CheckNodeRequirement();
+var
+  ErrorCode: Integer;
+begin
+  if NodeNoticeShown then exit;
+  NodeNoticeShown := True;
+  if CompatibleNode() then exit;
+  if WizardSilent then begin
+    Log('Compatible Node.js not found; setup can finish, but Murmur needs Node.js to complete first-run setup.');
+    exit;
+  end;
+  if MsgBox(CustomMessage('NodeRequired'), mbConfirmation, MB_YESNO) = IDYES then
+    if not ShellExec('open', 'https://nodejs.org/en/download', '', '', SW_SHOWNORMAL,
+      ewNoWait, ErrorCode) then
+      MsgBox(CustomMessage('NodeDownloadFailed'), mbInformation, MB_OK);
+end;
 
 function NotRestarted(): Boolean;
 begin
@@ -191,10 +252,22 @@ begin
   Result := '';
   if not FileExists(FileName) then exit;
   if IsOwnedShortcut(FileName) then exit;
-  Result := 'A shortcut at ' + FileName + ' belongs to another installation. Choose another installation folder or remove that shortcut yourself.';
+  if WizardSilent then begin
+    { Explicit unattended policy: return PrepareToInstall failure (exit 7) only
+      when requested. Otherwise Inno replaces the selected shortcut on install. }
+    if CompareText(ExpandConstant('{param:SHORTCUTCONFLICT|replace}'), 'fail') = 0 then
+      Result := CustomMessage('ShortcutSilentConflict');
+    exit;
+  end;
+  if MsgBox(CustomMessage('ShortcutReplace') + #13#10#13#10 + FileName,
+    mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then
+    Result := CustomMessage('ShortcutDeclined');
+  { Do not delete anything during preflight. [Icons] replaces it only after all
+    dependency checks pass and the person proceeds with installation. }
 end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  CheckNodeRequirement();
   Result := ServiceDependencyError();
   if Result = '' then Result := ShortcutConflict(ExpandConstant('{userprograms}\{#InstallerName}\Murmur.lnk'));
   if (Result = '') and WizardIsTaskSelected('startup') then Result := ShortcutConflict(ExpandConstant('{userstartup}\{#InstallerName}.lnk'));
