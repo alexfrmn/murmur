@@ -27,8 +27,6 @@ const (
 	doctorTimeout = 30 * time.Second
 	// Сколько строк истории держать в меню. Пункты создаются один раз при старте.
 	historyLines = 4
-	// Сколько последних входящих показывать строками.
-	recentLines = 3
 )
 
 // Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
@@ -65,18 +63,30 @@ type app struct {
 	mUpdateCheck, mUpdatePage, mUpdateEnable, mUpdateDisable *systray.MenuItem
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
-	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot          *systray.MenuItem
-	mConnect, mOpenProfile, mInvite                            *systray.MenuItem
+	mHeader, mDoctorRoot, mServiceRoot                         *systray.MenuItem
+	mInvite                                                    *systray.MenuItem
 	mLanguageRoot, mLangEnglish, mLangRussian, mGuide          *systray.MenuItem
 	mHistory                                                   []*systray.MenuItem
 	mStages                                                    map[string]*systray.MenuItem
 	mRecheck, mPause, mCopy                                    *systray.MenuItem
-	mRecent                                                    []*systray.MenuItem
 	mPeersRoot                                                 *systray.MenuItem
 	mPeers                                                     []*systray.MenuItem
 	mSvcStar, mSvcStop, mSvcLogs, mQuit                        *systray.MenuItem
 	mSvcState                                                  *systray.MenuItem
 	mSvcInstall, mSvcUninstall, mAssistants, mAssistantConnect *systray.MenuItem
+	mHome                                                      [5]*systray.MenuItem
+	homeActions                                                [5]string
+	mNext, mMessages, mPeerOverflow                            *systray.MenuItem
+	nextAction                                                 string
+	homeClicks                                                 chan int
+	peerClicks                                                 chan int
+	mPeerStates, mPeerChecks                                   []*systray.MenuItem
+	peerIDs                                                    []string
+	peerChecking                                               map[string]bool
+	assistantState, assistantIdentity                          string
+	assistantBinding                                           cliBinding
+	assistantChecked                                           time.Time
+	assistantBusy                                              bool
 }
 
 func main() {
@@ -176,58 +186,29 @@ func (a *app) setupMenu() {
 	systray.SetTitle("Murmur")
 	systray.SetTooltip(tr("menu.initialTooltip"))
 
-	a.mHeader = systray.AddMenuItem(tr("menu.initialStatus"), "")
-	a.mHeader.Disable()
-	// Shown only while no profile exists: the first thing a new user can do from the tray.
-	a.mConnect = systray.AddMenuItem(tr("menu.connect"), tr("menu.connectTooltip"))
-	a.mConnect.Hide()
-	a.mOpenProfile = systray.AddMenuItem(tr("menu.openProfile"), tr("menu.openProfileTooltip"))
-	a.mOpenProfile.Hide()
-	// Invite a colleague is always visible (PRD R2, letter 103).
-	a.mInvite = systray.AddMenuItem(tr("menu.invite"), tr("menu.inviteTooltip"))
-	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
-	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
-	for i := 0; i < historyLines; i++ {
-		item := systray.AddMenuItem("", "")
-		item.Disable()
-		item.Hide()
-		a.mHistory = append(a.mHistory, item)
+	a.homeClicks, a.peerClicks = make(chan int), make(chan int)
+	a.peerChecking = map[string]bool{}
+	for i := range a.mHome {
+		a.mHome[i] = systray.AddMenuItem("…", "")
 	}
+	a.mNext = systray.AddMenuItem(tr("home.nextCheck"), "")
 	systray.AddSeparator()
-
-	a.mDoctorRoot = systray.AddMenuItem(tr("menu.doctor"), tr("menu.doctorTooltip"))
-	for _, st := range doctorStages {
-		item := a.mDoctorRoot.AddSubMenuItem(tr(st.messageKey)+" — "+tr("doctor.notChecked"), "")
-		item.Disable()
-		a.mStages[st.id] = item
-	}
-	a.mRecheck = a.mDoctorRoot.AddSubMenuItem(tr("menu.checkNow"), tr("menu.checkNowTooltip"))
+	a.mMessages = systray.AddMenuItem(tr("messages.menu"), "")
+	a.mInvite = systray.AddMenuItem(tr("menu.invite"), tr("menu.inviteTooltip"))
 	a.mPeersRoot = systray.AddMenuItem(tr("peer.connections"), tr("peer.wakeSeparate"))
-	for i := 0; i <= peerMenuLimit; i++ {
-		item := a.mPeersRoot.AddSubMenuItem("", "")
-		item.Disable()
+	for i := 0; i < peerMenuLimit; i++ {
+		item := a.mPeersRoot.AddSubMenuItem("…", "")
+		state := item.AddSubMenuItem("…", "")
+		state.Disable()
+		check := item.AddSubMenuItem("…", "")
 		item.Hide()
 		a.mPeers = append(a.mPeers, item)
+		a.mPeerStates = append(a.mPeerStates, state)
+		a.mPeerChecks = append(a.mPeerChecks, check)
+		a.peerIDs = append(a.peerIDs, "")
 	}
-	systray.AddSeparator()
-
-	a.mPause = systray.AddMenuItem(tr("menu.pause"), tr("menu.pauseTooltip"))
-	a.mWakeStatus = systray.AddMenuItem(tr("menu.wakeUnknown"), "")
-	a.mWakeStatus.Disable()
-	a.mActionStatus = systray.AddMenuItem(tr("action.none"), "")
-	a.mActionStatus.Disable()
-	// Вместо кнопки «Открыть inbox» — строки последних отправителей. Открыть переписку
-	// человеку сейчас нечем, а кнопка, ведущая не туда, куда обещает именем, хуже
-	// отсутствующей.
-	a.mRecentHeader = systray.AddMenuItem(tr("menu.recent"), "")
-	a.mRecentHeader.Disable()
-	for i := 0; i < recentLines; i++ {
-		item := systray.AddMenuItem("", "")
-		item.Disable()
-		item.Hide()
-		a.mRecent = append(a.mRecent, item)
-	}
-	a.mCopy = systray.AddMenuItem(tr("menu.copy"), tr("menu.copyTooltip"))
+	a.mPeerOverflow = a.mPeersRoot.AddSubMenuItem(tr("peer.unavailable"), "")
+	a.mPeerOverflow.Disable()
 	a.mServiceRoot = systray.AddMenuItem(tr("menu.service"), "")
 	a.mSvcState = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceUnmanaged"), tr("menu.serviceUnmanagedTooltip"))
 	a.mSvcState.Disable()
@@ -239,6 +220,8 @@ func (a *app) setupMenu() {
 	a.mSvcLogs = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceLogs"), tr("menu.serviceLogsTooltip"))
 	a.mAssistants = systray.AddMenuItem(tr("menu.assistants"), "")
 	a.mAssistantConnect = a.mAssistants.AddSubMenuItem(tr("menu.assistantConnect"), "")
+
+	a.mPause = a.mAssistants.AddSubMenuItem(tr("menu.pause"), tr("menu.pauseTooltip"))
 	systray.AddSeparator()
 	a.setupUpdates()
 	systray.AddSeparator()
@@ -246,12 +229,34 @@ func (a *app) setupMenu() {
 	a.mLangEnglish = a.mLanguageRoot.AddSubMenuItem(tr("language.english"), "")
 	a.mLangRussian = a.mLanguageRoot.AddSubMenuItem(tr("language.russian"), "")
 	a.mGuide = systray.AddMenuItem(tr("guide.menu"), tr("guide.tooltip"))
+
+	a.mDoctorRoot = systray.AddMenuItem(tr("menu.doctor"), tr("menu.doctorTooltip"))
+	a.mHeader = a.mDoctorRoot.AddSubMenuItem(tr("menu.initialStatus"), "")
+	a.mHeader.Disable()
+	for i := 0; i < historyLines; i++ {
+		item := a.mDoctorRoot.AddSubMenuItem("", "")
+		item.Disable()
+		item.Hide()
+		a.mHistory = append(a.mHistory, item)
+	}
+	for _, st := range doctorStages {
+		item := a.mDoctorRoot.AddSubMenuItem(tr(st.messageKey)+" — "+tr("doctor.notChecked"), "")
+		item.Disable()
+		a.mStages[st.id] = item
+	}
+	a.mRecheck = a.mDoctorRoot.AddSubMenuItem(tr("menu.checkNow"), tr("menu.checkNowTooltip"))
+	a.mWakeStatus = a.mDoctorRoot.AddSubMenuItem(tr("menu.wakeUnknown"), "")
+	a.mWakeStatus.Disable()
+	a.mActionStatus = a.mDoctorRoot.AddSubMenuItem(tr("action.none"), "")
+	a.mActionStatus.Disable()
+	a.mCopy = a.mDoctorRoot.AddSubMenuItem(tr("menu.copy"), tr("menu.copyTooltip"))
 	a.mQuit = systray.AddMenuItem(tr("menu.quit"), tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
 }
 
 func (a *app) onReady() {
 	a.setupMenu()
+	a.startMenuActions()
 	if needsFirstRun() {
 		go a.showFirstRun()
 	}
@@ -297,6 +302,7 @@ func (a *app) refreshStatus() {
 func (a *app) pollLoop() {
 	for {
 		a.refreshStatus()
+		a.refreshAssistantState()
 		time.Sleep(statusInterval)
 	}
 }
@@ -325,15 +331,7 @@ func (a *app) render(v Verdict) {
 	a.mu.Unlock()
 	systray.SetTooltip(statusTooltip(v, n, available))
 	a.mHeader.SetTitle(v.Reason)
-	if v.Code == "profile.not-configured" {
-		a.mConnect.Show()
-		a.mOpenProfile.Show()
-	} else {
-		a.mConnect.Hide()
-		a.mOpenProfile.Hide()
-	}
-
-	a.renderRecent()
+	a.renderHome()
 	a.renderPeers()
 
 	for i, item := range a.mHistory {
@@ -430,6 +428,23 @@ func (a *app) refreshDoctor() {
 func (a *app) handleClicks() {
 	for {
 		select {
+		case <-a.mMessages.ClickedCh:
+			go a.openMessages()
+		case <-a.mNext.ClickedCh:
+			a.mu.Lock()
+			action := a.nextAction
+			a.mu.Unlock()
+			go a.performHomeAction(action)
+		case i := <-a.homeClicks:
+			a.mu.Lock()
+			action := a.homeActions[i]
+			a.mu.Unlock()
+			go a.performHomeAction(action)
+		case i := <-a.peerClicks:
+			a.mu.Lock()
+			peer := a.peerIDs[i]
+			a.mu.Unlock()
+			go a.checkPeer(peer)
 		case <-a.mRecheck.ClickedCh:
 			go a.refreshDoctor()
 		case <-a.mPause.ClickedCh:
@@ -462,12 +477,8 @@ func (a *app) handleClicks() {
 			a.changeLocale(localeRussian)
 		case <-a.mGuide.ClickedCh:
 			go a.showGuide()
-		case <-a.mConnect.ClickedCh:
-			go a.connectToColleague()
 		case <-a.mInvite.ClickedCh:
 			go a.inviteColleague()
-		case <-a.mOpenProfile.ClickedCh:
-			go a.openExistingProfile()
 		case <-a.mQuit.ClickedCh:
 			if confirmTrayExit() {
 				systray.Quit()
@@ -477,15 +488,6 @@ func (a *app) handleClicks() {
 	}
 }
 
-func boolText(v *bool) string {
-	if v == nil {
-		return tr("bool.unknown")
-	}
-	if *v {
-		return tr("bool.yes")
-	}
-	return tr("bool.no")
-}
 func (a *app) runCLI(args ...string) {
 	a.mu.Lock()
 	if a.actionBusy {
@@ -606,23 +608,6 @@ func stampNow(path string) error {
 	return os.WriteFile(path, out, 0o644)
 }
 
-// renderRecent показывает, от кого пришли последние сообщения и когда. Это ответ на
-// вопрос «что произошло», который цвет дать не может.
-func (a *app) renderRecent() {
-	a.mu.Lock()
-	lines := recentLinesForStatus(a.status)
-	a.mu.Unlock()
-
-	for i, item := range a.mRecent {
-		if i < len(lines) {
-			item.SetTitle(lines[i])
-			item.Show()
-			continue
-		}
-		item.Hide()
-	}
-}
-
 func (a *app) renderLanguageSelection() {
 	a.mLangEnglish.Uncheck()
 	a.mLangRussian.Uncheck()
@@ -630,20 +615,6 @@ func (a *app) renderLanguageSelection() {
 		a.mLangRussian.Check()
 	} else {
 		a.mLangEnglish.Check()
-	}
-}
-
-func (a *app) renderPeers() {
-	a.mu.Lock()
-	lines := peerLinesForStatus(a.status)
-	a.mu.Unlock()
-	for i, item := range a.mPeers {
-		if i < len(lines) {
-			item.SetTitle(lines[i])
-			item.Show()
-		} else {
-			item.Hide()
-		}
 	}
 }
 
@@ -672,7 +643,7 @@ func (a *app) applyLocale() {
 	a.mRecheck.SetTitle(tr("menu.checkNow"))
 	a.mRecheck.SetTooltip(tr("menu.checkNowTooltip"))
 	a.mPause.SetTooltip(tr("menu.pauseTooltip"))
-	a.mRecentHeader.SetTitle(tr("menu.recent"))
+	a.mMessages.SetTitle(tr("messages.menu"))
 	a.mCopy.SetTitle(tr("menu.copy"))
 	a.mCopy.SetTooltip(tr("menu.copyTooltip"))
 	a.mServiceRoot.SetTitle(tr("menu.service"))
@@ -815,6 +786,7 @@ func (a *app) openExistingProfile() {
 	}
 	a.mu.Lock()
 	a.pinnedAgent = "" // a different profile is a different identity
+	a.assistantChecked = time.Time{}
 	a.mu.Unlock()
 	a.refreshStatus()
 }

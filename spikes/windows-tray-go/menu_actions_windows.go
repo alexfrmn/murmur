@@ -34,7 +34,14 @@ func (a *app) connectSelectedAssistants() {
 	a.actionBusy = true
 	expected := a.pinnedAgent
 	a.mu.Unlock()
-	defer func() { a.mu.Lock(); a.actionBusy = false; a.mu.Unlock(); a.refreshStatus() }()
+	defer func() {
+		a.mu.Lock()
+		a.actionBusy = false
+		a.assistantChecked = time.Time{}
+		a.mu.Unlock()
+		a.refreshStatus()
+		a.refreshAssistantState()
+	}()
 	b, err := selectedCLI()
 	if err != nil || !isProfile(b.Profile) {
 		tell(tr("assistants.title"), tr("menu.needIdentity"))

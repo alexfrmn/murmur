@@ -14,14 +14,14 @@ func TestPeerDetailsKeepProofSeparateFromReadiness(t *testing.T) {
 		t.Fatalf("healthy runtime should be ready: %#v", v)
 	}
 	lines := peerLinesForStatus(s)
-	if len(lines) != 2 || !strings.Contains(lines[0], "Check the connection with this Contact") || s.Peers.List[0].Paired != nil {
+	if len(lines) != 2 || !strings.Contains(lines[0], "Connection has not been checked yet") || s.Peers.List[0].Paired != nil {
 		t.Fatalf("unchecked proof was hidden or fabricated: %v", lines)
 	}
 	yes, no := true, false
 	s.Peers.List[0].Paired, s.Peers.List[1].Paired = &yes, &no
 	setLocale(localeRussian)
 	lines = peerLinesForStatus(s)
-	if !strings.Contains(lines[0], "Обмен проверен") || !strings.Contains(lines[1], "Проверка обмена не пройдена") {
+	if !strings.Contains(lines[0], "Связь проверена") || !strings.Contains(lines[1], "Связь проверить не удалось") {
 		t.Fatalf("localized proof states lost: %v", lines)
 	}
 	if v := resolve(s, nil); v.Level != LevelYellow {
