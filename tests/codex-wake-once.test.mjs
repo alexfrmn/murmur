@@ -14,11 +14,12 @@ async function until(check) {
   assert.fail('wake-once test did not reach expected state');
 }
 
-function fixture(t) {
+function fixture(t, { unobservableTimeoutMs } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'murmur-once-'));
   const sessionPath = join(root, 'synthetic-rollout.jsonl');
   let store = new SQLiteMessageStore(join(root, 'murmur.db'));
   const starts = [], sockets = [], logs = [], relays = [], requests = [], turns = new Map();
+  const observation = { mode: 'present' };
   class Socket extends EventEmitter {
     constructor() { super(); sockets.push(this); queueMicrotask(() => this.emit('open')); }
     emitMessage(message) { this.emit('message', Buffer.from(JSON.stringify(message))); }
@@ -33,8 +34,10 @@ function fixture(t) {
         starts.push({ msgId: req.params.responsesapiClientMetadata.murmur_msg_id, socket: this });
         queueMicrotask(() => this.emitMessage({ id: req.id, result: { turn: { id: this.turnId } } }));
       }
-      if (req.method === 'thread/read') queueMicrotask(() => this.emitMessage({ id: req.id,
-        result: { thread: { id: 'thread-1', turns: [...turns.values()] } } }));
+      if (req.method === 'thread/read') queueMicrotask(() => this.emitMessage(observation.mode === 'unavailable'
+        ? { id: req.id, error: { message: 'thread not found: thread-1' } }
+        : { id: req.id, result: { thread: { id: 'thread-1', turns: observation.mode === 'missing' ? [] : [...turns.values()] } } }));
+      if (req.method === 'thread/turns/list') queueMicrotask(() => this.emitMessage({ id: req.id, result: { data: [], nextCursor: null } }));
     }
     close() { this.closed = true; this.emit('close'); }
     complete(status = 'completed') {
@@ -48,11 +51,14 @@ function fixture(t) {
   }
   class Client extends CodexAppServerClient {
     constructor(options) { super({ ...options, WebSocketImpl: Socket }); }
+    startTurnAndWaitForFinal(params, options) {
+      return super.startTurnAndWaitForFinal(params, { ...options, pollIntervalMs: 10, maxPollIntervalMs: 20 });
+    }
   }
   const makeInjector = () => createCodexAppServerInjector({ Client, threadStore: store, log: (...args) => logs.push(args),
     relayAlreadyQueued: async () => false, relay: async (_peer, payload) => { relays.push(payload.msgId); return { msgId: `reply-${payload.msgId}` }; } });
   const monitor = new WakeMonitor({ deliveries: store, injector: makeInjector(), retryBackoffMs: 1,
-    peers: { colleague: { mode: 'codex_app_server', socketPath: '/unused-test.sock', threadId: 'thread-1', relayFinalToMurmur: true, replyTimeoutMs: 30 } } });
+    peers: { colleague: { mode: 'codex_app_server', socketPath: '/unused-test.sock', threadId: 'thread-1', relayFinalToMurmur: true, replyTimeoutMs: 30, unobservableTimeoutMs } } });
   const receive = async (msgId, from = 'colleague') => {
     const row = await store.append({ msgId, conversationId: 'test', direction: 'inbound', sender: from,
       text: 'Synthetic question', createdAt: new Date().toISOString(), transport: 'nats', wakeEligible: true });
@@ -60,12 +66,13 @@ function fixture(t) {
   };
   t.after(async () => {
     monitor.enabled = false;
+    observation.mode = 'present';
     for (const turn of turns.values()) turn.status = 'completed';
     for (const socket of sockets) if (socket.turnId) socket.complete();
     await until(() => !monitor.processing);
     store.close(); rmSync(root, { recursive: true, force: true });
   });
-  return { get store() { return store; }, monitor, receive, starts, logs, relays, turns, requests, sessionPath,
+  return { get store() { return store; }, monitor, receive, starts, logs, relays, turns, requests, sessionPath, observation,
     restart() {
       store.close(); store = new SQLiteMessageStore(join(root, 'murmur.db'));
       monitor.deliveries = store; monitor.injector = makeInjector();
@@ -96,6 +103,66 @@ test('accepted turn longer than replyTimeout keeps one turn/start and queues the
   assert.deepEqual(f.relays, ['first', 'second']);
   assert.equal((await f.store.wakeStateFor('first')).status, 'handled');
   assert.equal((await f.store.wakeStateFor('second')).status, 'handled');
+});
+
+for (const mode of ['missing', 'unavailable']) test(`an accepted turn with ${mode} observation reaches a non-retryable DLQ`, async t => {
+  const f = fixture(t, { unobservableTimeoutMs: 80 });
+  const run = f.monitor.onInbound(await f.receive('first'));
+  await until(() => f.starts.length === 1);
+  f.observation.mode = mode;
+  await until(async () => (await f.store.wakeStateFor('first')).status === 'dlq');
+  const state = await f.store.wakeStateFor('first');
+  assert.equal(state.status, 'dlq'); assert.equal(state.error, 'accepted-turn-unobservable');
+  await run; assert.equal(f.monitor.processing, false);
+  f.restart(); await f.monitor.drain();
+  assert.equal(f.starts.length, 1); assert.deepEqual(f.relays, []);
+  assert.equal((await f.store.getWakeTurn('first')).turnId, 'turn-1');
+});
+
+test('the unobservable deadline survives process restart instead of starting a new window', async t => {
+  const f = fixture(t, { unobservableTimeoutMs: 10000 }), first = await f.receive('first');
+  await f.store.claimWake(first.msgId);
+  await f.store.setWakeTurn({ msgId: first.msgId, peerId: first.from, conversationId: first.conversationId,
+    socketPath: '/unused-test.sock', threadId: 'thread-1', turnId: 'previous-turn',
+    unobservableSince: new Date(Date.now() - 10001).toISOString() });
+  f.turns.set('previous-turn', { id: 'previous-turn', status: 'inProgress', items: [] });
+  f.observation.mode = 'missing'; f.restart();
+  const run = f.monitor.drain();
+  await until(async () => (await f.store.wakeStateFor('first')).status === 'dlq');
+  assert.equal((await f.store.wakeStateFor('first')).status, 'dlq');
+  await run; assert.equal(f.starts.length, 0);
+});
+
+test('observed in-progress work clears a temporary loss of observation', async t => {
+  const f = fixture(t, { unobservableTimeoutMs: 150 });
+  const run = f.monitor.onInbound(await f.receive('first'));
+  await until(() => f.starts.length === 1);
+  f.observation.mode = 'missing';
+  await until(async () => (await f.store.wakeStateFor('first')).error === 'accepted-turn-unobservable');
+  f.observation.mode = 'present';
+  await until(async () => !(await f.store.wakeStateFor('first')).error);
+  await delay(200);
+  assert.equal((await f.store.wakeStateFor('first')).status, 'inflight');
+  assert.equal(f.starts.length, 1);
+  f.starts[0].socket.complete(); await run;
+});
+
+for (const relay of [true, false]) test(`task_complete with error is failed and retryable (relay=${relay})`, async t => {
+  const f = fixture(t), first = await f.receive('first');
+  f.monitor.retryBackoffMs = 10000;
+  f.monitor.peers.colleague.relayFinalToMurmur = relay;
+  await f.store.claimWake(first.msgId);
+  await f.store.setWakeTurn({ msgId: first.msgId, peerId: first.from, conversationId: first.conversationId,
+    socketPath: '/unused-test.sock', threadId: 'thread-1', turnId: 'previous-turn', sessionPath: f.sessionPath });
+  writeFileSync(f.sessionPath, JSON.stringify({ type: 'event_msg', payload: {
+    type: 'task_complete', turn_id: 'previous-turn', last_agent_message: 'Partial answer', error: { message: 'model overloaded' },
+  } }) + '\n');
+  f.turns.set('previous-turn', { id: 'previous-turn', status: 'failed', items: [] });
+  f.restart(); await f.monitor.drain();
+  const state = await f.store.wakeStateFor('first');
+  assert.equal(state.status, 'failed'); assert.match(state.error, /^codex-app-server-turn-failed:/);
+  assert.deepEqual(f.relays, []); assert.equal(f.starts.length, 0);
+  assert.equal(await f.store.getWakeTurn('first'), undefined);
 });
 
 test('connection loss after acceptance observes the same turn without retrying its instruction', async t => {

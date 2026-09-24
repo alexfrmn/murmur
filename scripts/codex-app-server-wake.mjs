@@ -10,6 +10,7 @@ import path from "node:path";
 const DEFAULT_TIMEOUT_MS = 10000;
 const INITIALIZE_TIMEOUT_MS = 10000;
 const DEFAULT_TURN_COMPLETION_TIMEOUT_MS = 180000;
+const DEFAULT_UNOBSERVABLE_TIMEOUT_MS = 300000;
 const SESSION_LOG_POLL_INTERVAL_MS = 1000;
 const SESSION_LOG_TAIL_BYTES = 8 * 1024 * 1024;
 
@@ -111,7 +112,9 @@ const readTurnFromSessionLog = (sessionPath, turnId) => {
 
     const payload = entry?.payload || {};
     if (entry.type === "event_msg" && payload.type === "task_complete" && payload.turn_id === turnId) {
-      return { turnId, status: 'completed', finalText: typeof payload.last_agent_message === "string" ? payload.last_agent_message : finalText };
+      return { turnId, status: payload.error == null ? 'completed' : 'failed',
+        error: typeof payload.error === 'string' ? { message: payload.error } : payload.error ?? null,
+        finalText: typeof payload.last_agent_message === "string" ? payload.last_agent_message : finalText };
     }
 
     const metadataTurnId = payload?.internal_chat_message_metadata_passthrough?.turn_id;
@@ -265,6 +268,10 @@ export class CodexAppServerClient {
     acceptedTurn = null,
     onAccepted = () => {},
     onWorking = () => {},
+    onObservation = () => {},
+    unobservableTimeoutMs = DEFAULT_UNOBSERVABLE_TIMEOUT_MS,
+    pollIntervalMs = SESSION_LOG_POLL_INTERVAL_MS,
+    maxPollIntervalMs = 30000,
   } = {}) {
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -274,6 +281,8 @@ export class CodexAppServerClient {
       let finalText = "";
       let receipt = Promise.resolve();
       let observing = Boolean(turnId), polling = false, reported = null;
+      let unobservableSince = acceptedTurn?.unobservableSince ?? null;
+      let unobservableTimer = null, sessionLogTimer = null, pollDelay = pollIntervalMs;
       const requestId = this.nextId++;
       const initId = `init-${this.nextId++}`;
       const url = `ws+unix://${this.socketPath}:/`;
@@ -284,6 +293,26 @@ export class CodexAppServerClient {
       const working = (reason) => {
         observing = true;
         if (reported !== reason) { reported = reason; onWorking({ threadId: params.threadId, turnId, reason }); }
+      };
+      const recordObservation = (since) => {
+        if (since === unobservableSince) return;
+        unobservableSince = since;
+        receipt = receipt.then(() => onObservation({ unobservableSince: since }));
+        receipt.catch(() => {});
+      };
+      const unavailable = () => {
+        if (settled) return;
+        if (!unobservableSince) recordObservation(new Date().toISOString());
+        working('accepted-turn-unobservable');
+        if (unobservableTimer === null) {
+          const remaining = unobservableTimeoutMs - (Date.now() - Date.parse(unobservableSince));
+          unobservableTimer = setTimeout(() => finish(Object.assign(
+            new Error('accepted-turn-unobservable'), { retryable: false })), Math.max(0, remaining));
+        }
+      };
+      const observable = () => {
+        clearTimeout(unobservableTimer); unobservableTimer = null;
+        recordObservation(null);
       };
       let timer = setTimeout(() => {
         if (turnId) working('completion-window-elapsed');
@@ -302,7 +331,7 @@ export class CodexAppServerClient {
       const inspect = async () => {
         if (settled || !turnId || polling) return;
         const savedTurn = sessionPath && readTurnFromSessionLog(sessionPath, turnId);
-        if (savedTurn?.status === 'completed') {
+        if (savedTurn && ['completed', 'failed'].includes(savedTurn.status)) {
           finish(null, { ...startResult, ...savedTurn, finalText: finalText || savedTurn.finalText, source: "session-log" });
           return;
         }
@@ -310,23 +339,31 @@ export class CodexAppServerClient {
         polling = true;
         try {
           const turn = await this.readTurn(params.threadId, turnId);
-          if (settled || !turn || !['completed', 'failed', 'interrupted'].includes(turn.status)) return;
+          if (settled) return;
+          if (!turn || !['inProgress', 'completed', 'failed', 'interrupted'].includes(turn.status)) { unavailable(); return; }
+          observable();
+          if (turn.status === 'inProgress') return;
           const answer = turn.items?.filter(item => item.type === 'agentMessage' && item.phase === 'final_answer')
             .map(item => item.text ?? '').join('\n').trim();
           finish(null, { finalText: finalText || answer || '', turnId, status: turn.status,
             error: turn.error ?? null, source: 'app-server-read' });
-        } catch { working('observation-unavailable'); }
+        } catch { unavailable(); }
         finally { polling = false; }
       };
-      const sessionLogTimer = setInterval(() => {
-        void inspect();
-      }, SESSION_LOG_POLL_INTERVAL_MS);
+      const poll = async () => {
+        await inspect();
+        if (settled) return;
+        pollDelay = Math.min(maxPollIntervalMs, pollDelay * 2);
+        sessionLogTimer = setTimeout(poll, pollDelay);
+      };
+      sessionLogTimer = setTimeout(poll, pollDelay);
 
       const finish = (err, result) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        clearInterval(sessionLogTimer);
+        clearTimeout(sessionLogTimer);
+        clearTimeout(unobservableTimer);
         try {
           socket.close();
         } catch {
@@ -379,7 +416,7 @@ export class CodexAppServerClient {
 
         if (message.id === initId) {
           if (message.error) {
-            if (turnId) { working('observation-unavailable'); return; }
+            if (turnId) { unavailable(); return; }
             finish(new Error(`codex-app-server-initialize-error:${message.error.message || JSON.stringify(message.error)}`));
             return;
           }
@@ -397,7 +434,7 @@ export class CodexAppServerClient {
 
         if (message.id === requestId) {
           if (message.error) {
-            if (turnId) { working('observation-unavailable'); return; }
+            if (turnId) { unavailable(); return; }
             finish(new Error(`codex-app-server-error:${message.error.message || JSON.stringify(message.error)}`));
             return;
           }
@@ -414,6 +451,7 @@ export class CodexAppServerClient {
 
         if (message.method === "item/completed" && message.params?.turnId) {
           if (message.params.turnId !== turnId) return;
+          observable();
           const item = message.params.item;
           if (item?.type === "agentMessage" && item.phase === "final_answer" && typeof item.text === "string") {
             finalText = item.text;
@@ -427,7 +465,7 @@ export class CodexAppServerClient {
           // `turn.error` are part of the notification; a caller that ignores them cannot
           // tell a finished turn from a broken one.
           const turn = message.params.turn;
-          if (turn.status === 'inProgress') { working('turn-in-progress'); return; }
+          if (turn.status === 'inProgress') { observable(); working('turn-in-progress'); return; }
           finish(null, {
             ...startResult,
             finalText,
@@ -440,12 +478,12 @@ export class CodexAppServerClient {
       });
       socket.on("error", (err) => {
         if (settled) return;
-        if (turnId) { working('connection-lost'); return; }
+        if (turnId) { unavailable(); return; }
         finish(new Error(`codex-app-server-connect-failed:${this.socketPath}:${err.message}`));
       });
       socket.on("close", () => {
         if (settled) return;
-        if (turnId) { working('connection-lost'); return; }
+        if (turnId) { unavailable(); return; }
         if (!settled) finish(new Error(`codex-app-server-closed-before-response:${this.socketPath}:${initialized ? "after-initialize" : "before-initialize"}`));
       });
     });
@@ -680,14 +718,19 @@ export const createCodexAppServerInjector = ({
           completionTimeoutMs: Number(peer?.replyTimeoutMs) || DEFAULT_TURN_COMPLETION_TIMEOUT_MS,
           sessionPath: threadPath,
           acceptedTurn: accepted,
+          unobservableTimeoutMs: peer?.unobservableTimeoutMs ?? DEFAULT_UNOBSERVABLE_TIMEOUT_MS,
           onAccepted: async receipt => {
             await turns.set({ ...receipt, msgId: payload.msgId, peerId: String(payload.from ?? ''),
               conversationId: String(payload.conversationId ?? ''), socketPath });
             log('info', 'Codex app-server wake turn accepted', { msgId: payload.msgId, threadId, turnId: receipt.turnId });
           },
-          onWorking: ({ turnId, reason }) => log('info', 'Codex Assistant still working; wake retained', {
-            msgId: payload.msgId, threadId, turnId, reason,
-          }),
+          onWorking: ({ turnId, reason }) => log(reason === 'accepted-turn-unobservable' ? 'warn' : 'info',
+            reason === 'accepted-turn-unobservable' ? 'Codex accepted turn outcome unavailable; wake retained' : 'Codex Assistant still working; wake retained',
+            { msgId: payload.msgId, threadId, turnId, reason }),
+          onObservation: async ({ unobservableSince }) => {
+            const receipt = await turns.get(payload.msgId);
+            if (receipt) await turns.set({ ...receipt, unobservableSince });
+          },
         });
         const status = typeof result?.status === "string" ? result.status : null;
         if (status && status !== "completed") {

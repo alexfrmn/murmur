@@ -1083,6 +1083,7 @@ export interface WakeTurnRecord {
   threadId: string;
   turnId: string;
   sessionPath?: string;
+  unobservableSince?: string | null;
 }
 
 /** One delivery id per direction: an agent that writes to itself keeps both copies. */
@@ -1248,8 +1249,15 @@ export class SQLiteMessageStore {
   }
 
   async setWakeTurn(receipt: WakeTurnRecord): Promise<void> {
-    this.db.prepare('INSERT INTO wake_turns(msg_id,receipt_json) VALUES(?,?) ON CONFLICT(msg_id) DO UPDATE SET receipt_json=excluded.receipt_json')
-      .run(receipt.msgId, JSON.stringify(receipt));
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('INSERT INTO wake_turns(msg_id,receipt_json) VALUES(?,?) ON CONFLICT(msg_id) DO UPDATE SET receipt_json=excluded.receipt_json')
+        .run(receipt.msgId, JSON.stringify(receipt));
+      this.db.prepare(`UPDATE local_messages SET wake_error=?, wake_updated_at=?
+        WHERE direction='inbound' AND wake_status='inflight' AND (msg_id=? OR wake_batch_id=?)`)
+        .run(receipt.unobservableSince ? 'accepted-turn-unobservable' : null, new Date().toISOString(), receipt.msgId, receipt.msgId);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
   /** Only a verified failed turn may release its receipt for a new attempt. */

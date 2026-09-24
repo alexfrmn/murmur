@@ -66,14 +66,41 @@ Connection loss after acceptance also keeps the instruction in progress. The
 watcher uses matching terminal events, a `task_complete` session-journal entry,
 or read-only `thread/read` / `thread/turns/list` observations. See the
 [Codex app-server protocol](https://developers.openai.com/codex/app-server/).
-Only completion permits relay; a verified failed turn retains bounded retry, and
+Only completion permits relay; `task_complete.error` in the journal is a failed
+outcome even if it contains partial answer text. A verified failed turn retains bounded retry, and
 an interrupted turn stays terminal. Relay retries recover the same final answer
 and keep the existing deterministic reply message ID.
 
-If neither the app-server nor its journal can establish a terminal outcome, the
-delivery stays in progress with a diagnostic reason. Inspect the recorded turn
-before any manual recovery; lack of observation is not permission to execute the
-instruction again. The guarantee starts with the received, saved acceptance ID;
+If the app-server cannot find the accepted turn or its outcome cannot be read,
+`wake_error` becomes `accepted-turn-unobservable`. After **five continuous minutes**
+without observation, the delivery enters non-retryable `dlq`, retaining that reason
+and the receipt, and releases its concurrency slot. The Contact option
+`unobservableTimeoutMs` sets this window (default 300000, positive integer up to
+2147483647). The first unavailable timestamp is persisted in the receipt, so a
+restart does not grant a fresh window. Matching progress events or an observed
+`inProgress` turn clear the loss-of-observation timer; genuine long-running work
+can continue past this window. Polling backs off from one to thirty seconds;
+matching socket events still settle immediately.
+
+`status --json` exposes the reason in `wake.faults.lastFault` while it is in progress
+or in DLQ; `deliveries[].wake_error` and `inbox read` retain the per-message reason.
+`doctor --json` includes an additive `wakeFault` reason and next-step hint even when
+an earlier network stage prevents the wake probe. Inspect the recorded Assistant
+session before acknowledging an unknown outcome:
+
+```sh
+murmur wake dismiss --data-dir /absolute/profile --msg-id MESSAGE --expected-agent IDENTITY --json
+```
+
+This explicit command only accepts `accepted-turn-unobservable` DLQ rows (or an
+already dismissed row). It changes them to `muted`, preserves message history and
+the receipt, leaves the inbox read cursor untouched, and never starts or retries
+an instruction. A saved batch is acknowledged together. Other errors and active
+work are refused. The receipt remains to guard against later duplicate deliveries.
+Pausing wake still allows already dispatched work to finish; it does not cancel
+the Assistant's turn.
+
+The guarantee starts with the received, saved acceptance ID;
 it does not claim exactly-once execution across a crash before that receipt is
 saved. Shell hook timeouts and native sends without final-reply relay retain
 their existing behavior.
@@ -82,9 +109,11 @@ New messages stay FIFO until the active turn finishes; they are not injected int
 it. Contacts pinned to the same socket and thread share a serial lane even across
 conversations. Unpinned Contacts keep a lane per Contact/conversation, and distinct
 lanes can run concurrently. Optional batching below applies at the next turn
-boundary. A failed batch lookup (for example `SQLITE_BUSY`) leaves that delivery
-pending for another backlog pass; it cannot release `drain()`'s single-flight
-guard while any other lane is still running.
+boundary. Each drain tick can refresh due retries while other lanes are busy.
+A failed batch or backlog lookup (for example `SQLITE_BUSY`) leaves work for
+another pass; it cannot release `drain()`'s single-flight guard while another
+lane is still running. One dispatcher waiter is signalled on tick, enqueue or
+completion, without accumulating promise reactions on long-running turns.
 
 ## Optional Codex wake batching (#124)
 

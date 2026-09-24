@@ -162,6 +162,18 @@ is no deferred automatic sweep: review remaining failures explicitly.
 An old or hidden letter's own verified late ACK can still settle it directly as
 delivered, without publishing it again. Dismissal does not erase delivery evidence.
 
+An accepted Assistant turn whose outcome cannot be observed for five continuous
+minutes becomes `dlq` with `accepted-turn-unobservable`; it is never automatically
+executed again. `status --json` and `inbox read` include `wake_error` per message,
+and `doctor --json` returns a `wakeFault` with a next-step hint even if its network
+probe is blocked. After inspecting the Assistant session, use
+`wake dismiss --msg-id ID --expected-agent IDENTITY --data-dir ABSOLUTE_PATH --json`
+to acknowledge this specific fault without another execution. The reply has schema
+`murmur.wake-dismiss/1`, the affected `msgIds`, `status: "muted"`, `executed: false`
+and `historyPreserved: true`. An accepted batch is acknowledged as one outcome.
+History, receipt and inbox read cursor are preserved; active work and unrelated
+faults cannot be dismissed with this command. See [accepted-turn observation](wake-native.md#accepted-codex-turns-and-long-running-work-212).
+
 Without `--json`, errors are actionable English sentences using the shared
 vocabulary; unrecognized codes receive a safe diagnostic action. `--json` keeps
 stable error codes on stderr, never echoing Invitation content or private paths.

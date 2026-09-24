@@ -2,7 +2,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, mkdir, realpath, rmdir, stat } from 'node:fs/promises';
-import { loadConfig, readJson } from './config.js';
+import { loadConfig, readJson, safeError } from './config.js';
 import { readStatus } from './status.js';
 import { assistantRead, wakeColumns } from './message-status.js';
 import { writeState } from './state.js';
@@ -103,6 +103,7 @@ export async function readInbox(context: ServiceContext, limit = 20) {
     return { schema: 'murmur.inbox/1', agentId: config.agentId, readCursor: cursor,
       unread,
       messages: rows.map(({ rowid, ...row }) => ({ ...row, assistantRead: assistantRead(row.wake_status),
+        wake_error: row.wake_error ? safeError(row.wake_error) : null,
         unread: cursor === null ? null : Number(rowid) > cursor })) };
   } finally { db.close(); }
 }

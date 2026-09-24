@@ -42,6 +42,12 @@ export const normalizeWakeConfig = (config = {}) => {
         normalized.baseInstructions = value.baseInstructions;
       }
       if (Number.isFinite(Number(value.replyTimeoutMs))) normalized.replyTimeoutMs = Number(value.replyTimeoutMs);
+      if (value.unobservableTimeoutMs !== undefined) {
+        if (!Number.isSafeInteger(value.unobservableTimeoutMs) || value.unobservableTimeoutMs < 1 || value.unobservableTimeoutMs > 2147483647) {
+          throw new Error('wake-unobservable-timeout-invalid');
+        }
+        normalized.unobservableTimeoutMs = value.unobservableTimeoutMs;
+      }
       for (const [key, min, max] of [["steer_batch_window_ms", 0, 60000], ["steer_max_per_turn", 1, 100]]) {
         if (value[key] === undefined) continue;
         if (!Number.isInteger(value[key]) || value[key] < min || value[key] > max) throw new Error(`wake-batch-invalid:${key}`);
@@ -186,6 +192,7 @@ export class WakeMonitor {
       ? Math.floor(Number(options.concurrency))
       : wakeConfig.concurrency;
     this.dispatchSignal = null;
+    this.backlogRequested = false;
     this.now = options.now || (() => Date.now());
     this.log = options.log || (() => {});
     this.seen = new Map();
@@ -231,9 +238,18 @@ export class WakeMonitor {
    * payloads together, so a long turn for one peer no longer holds a short question for
    * another, while messages within one conversation keep their order.
    */
-  async runLanes() {
+  async runLanes(refreshBacklog) {
     const active = new Map();
     while (this.queue.length > 0 || active.size > 0) {
+      if (this.enabled && this.backlogRequested) {
+        this.backlogRequested = false;
+        try { await refreshBacklog?.(true); }
+        catch (error) {
+          // A queue read failure cannot release the single-flight guard while
+          // accepted turns are running. A later drain tick will request it again.
+          this.log('warn', 'WakeMonitor backlog read failed', { error: String(error) });
+        }
+      }
       if (this.enabled && active.size < this.concurrency) {
         const index = this.queue.findIndex((payload) => !active.has(this.laneKeyFor(payload)));
         if (index >= 0) {
@@ -254,15 +270,16 @@ export class WakeMonitor {
               const e = err instanceof Error ? err : new Error(String(err));
               this.log("error", "WakeMonitor lane crashed", { error: e.message, msgId: payload.msgId, lane });
             })
-            .then(() => { active.delete(lane); });
+            .then(() => { active.delete(lane); this.kickDispatcher(); });
           active.set(lane, run);
           continue;
         }
       }
       if (active.size === 0) break;
-      const parked = new Promise((resolve) => { this.dispatchSignal = { resolve }; });
-      await Promise.race([...active.values(), parked]);
-      this.dispatchSignal = null;
+      if (this.backlogRequested && this.enabled) continue;
+      // A single waiter, woken by completion, enqueue or a drain tick. Racing
+      // against long-lived lane promises retains a new reaction on every tick.
+      await new Promise((resolve) => { this.dispatchSignal = { resolve }; });
     }
   }
 
@@ -271,6 +288,7 @@ export class WakeMonitor {
     // keep rows and attempts intact, including recovery of old in-flight rows.
     if (!this.enabled) return;
     if (this.processing) {
+      this.backlogRequested = true;
       this.kickDispatcher();
       return;
     }
@@ -283,10 +301,8 @@ export class WakeMonitor {
         this.cursor = await this.deliveries.wakeCursor();
       }
       const offeredThisDrain = new Set();
-      while (this.enabled) {
-        await this.runLanes();
-        if (!this.enabled) break;
-
+      const refreshBacklog = async (newTick = false) => {
+        if (newTick) offeredThisDrain.clear();
         let backlog;
         if (this.loadBacklogAfter) {
           backlog = await this.loadBacklogAfter(this.cursor);
@@ -297,8 +313,13 @@ export class WakeMonitor {
           backlog = rows.filter((row) => !offeredThisDrain.has(row.msgId)).map(payloadFromDeliveryRow);
           for (const row of rows) offeredThisDrain.add(row.msgId);
         }
-        if (!Array.isArray(backlog) || backlog.length === 0) break;
+        if (!Array.isArray(backlog) || backlog.length === 0) return false;
         for (const payload of backlog) this.enqueue(payload);
+        return true;
+      };
+      while (this.enabled) {
+        await this.runLanes(refreshBacklog);
+        if (!this.enabled || !await refreshBacklog()) break;
       }
     } finally {
       this.processing = false;

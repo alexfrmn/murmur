@@ -69,6 +69,11 @@ export function humanError(error: unknown): string {
     return 'Enter a valid public Server address with --broker, such as nats://server.example.com:4222. Do not include an access key in the address.';
   }
   const messages: Record<string, string> = {
+    'accepted-turn-unobservable': 'The Assistant accepted this message, but its outcome cannot be checked. Inspect its session before dismissing the alert; do not send the instruction again.',
+    'wake.selection-invalid': 'Choose a message and the expected Identity, then try again.',
+    'wake.identity-changed': 'The selected Identity has changed. Check its name before dismissing this alert.',
+    'wake.dismiss-not-eligible': 'This alert cannot be dismissed here. Check the message status and the selected Identity.',
+    'wake.store-invalid': 'Choose the original message history owned by your account, then try again.',
     'onboarding.input-required': 'Provide the Invitation or Reply using standard input or choose its saved file.',
     'onboarding.input-conflict': 'Choose one source for the Invitation or Reply: standard input or a saved file.',
     'onboarding.stdin-required': 'Send the Invitation or Reply through standard input, or choose its saved file.',
