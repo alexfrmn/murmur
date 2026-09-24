@@ -34,6 +34,14 @@ const privateHosts = [
   '127.1', '2130706433', '0x7f000001', '0177.0.0.1', '127.0.0.1.', '%31%32%37.0.0.1',
   '[::ffff:127.0.0.1]', '[::ffff:a00:1]', '[::ffff:c0a8:230a]', '[::ffff:100.64.0.1]',
   '0.0.0.0', '[::]', '[::192.168.1.1]', '224.0.0.1', '[ff02::1]',
+  'server.tailnet.ts.net', 'SERVER.TAILNET.TS.NET.', 'ts.net', 'server.internal', 'SERVER.INTERNAL.',
+  'router.home.arpa', 'ROUTER.HOME.ARPA.', 'home.arpa', 'server.lan', 'SERVER.LAN.',
+  '192.0.0.0', '192.0.0.255', '192.0.2.0', '192.0.2.255', '198.18.0.0', '198.19.255.255',
+  '198.51.100.0', '198.51.100.255', '203.0.113.0', '203.0.113.255',
+  '[2001:db8::]', '[2001:db8:ffff:ffff:ffff:ffff:ffff:ffff]',
+  '[64:ff9b::]', '[64:ff9b::ffff:ffff]', '[64:ff9b::a01:203]', '[64:ff9b::808:808]',
+  '[::ffff:192.0.0.1]', '[::ffff:192.0.2.1]', '[::ffff:198.18.0.1]',
+  '[::ffff:198.51.100.1]', '[::ffff:203.0.113.1]',
 ];
 for (const host of privateHosts) test(`invite refuses non-public Server ${host} without creating output`, async t => {
   const f = await fixture(t, `nats://${host}:4222`);
@@ -47,6 +55,12 @@ const publicHosts = [
   '9.255.255.255', '11.0.0.0', '172.15.255.255', '172.32.0.0', '192.167.255.255', '192.169.0.0',
   '126.255.255.255', '128.0.0.0', '169.253.255.255', '169.255.0.0', '100.63.255.255', '100.128.0.0',
   '[2606:4700:4700::1111]', '[::ffff:8.8.8.8]',
+  'ts.net.example.com', 'not-ts.net', 'home.arpa.example.com', 'not-home.arpa',
+  'internal.example.com', 'lan.example.com',
+  '191.255.255.255', '192.0.1.0', '192.0.1.255', '192.0.3.0', '198.17.255.255', '198.20.0.0',
+  '198.51.99.255', '198.51.101.0', '203.0.112.255', '203.0.114.0',
+  '[2001:db7:ffff:ffff:ffff:ffff:ffff:ffff]', '[2001:db9::]',
+  '[64:ff9a:ffff:ffff:ffff:ffff:ffff:ffff]', '[64:ff9b::1:0:0]',
 ];
 for (const host of publicHosts) test(`invite accepts public Server ${host} without changing the profile`, async t => {
   const server = `nats://${host}:4222`, f = await fixture(t, server);
@@ -78,7 +92,9 @@ test('an explicit public --broker only changes the Invitation and preserves the 
 
 test('a private --broker cannot bypass the guard even when the configured Server is public', async t => {
   const f = await fixture(t, publicServer);
-  for (const server of ['nats://192.168.35.10:4222', 'tls://[::1]:4222', 'nats://host.local:4222']) {
+  for (const host of ['192.168.35.10', '[::1]', 'host.local', 'host.ts.net', 'host.internal', 'host.home.arpa', 'host.lan',
+    '192.0.0.1', '192.0.2.1', '198.18.0.1', '198.51.100.1', '203.0.113.1', '[2001:db8::1]', '[64:ff9b::a01:203]']) {
+    const server = `tls://${host}:4222`;
     await assert.rejects(f.command(['invite', '--broker', server, '--out', f.output]), /invite-public-server-required/);
     await assert.rejects(fs.stat(f.output), { code: 'ENOENT' });
   }

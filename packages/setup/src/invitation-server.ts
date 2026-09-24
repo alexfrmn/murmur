@@ -3,12 +3,14 @@ import { BlockList, isIP } from 'node:net';
 const nonPublic = new BlockList();
 for (const [network, prefix] of [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
-  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16],
+  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
+  ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24],
   ['224.0.0.0', 4], ['240.0.0.0', 4],
 ] as const) nonPublic.addSubnet(network, prefix, 'ipv4');
 for (const [network, prefix] of [
-  ['::', 96], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8],
+  ['::', 96], ['64:ff9b::', 96], ['2001:db8::', 32], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8],
 ] as const) nonPublic.addSubnet(network, prefix, 'ipv6');
+const privateSuffixes = ['local', 'localhost', 'localdomain', 'ts.net', 'internal', 'home.arpa', 'lan'];
 
 /** Address policy only: Invitation creation never connects or claims reachability. */
 export function invitationServerAddress(value: string): string {
@@ -33,7 +35,7 @@ export function invitationServerAddress(value: string): string {
   // BlockList checks IPv4 rules for mapped IPv6 too; ::ffff:192.168.1.1 cannot
   // turn a private IPv4 destination into a public Invitation address.
   const privateAddress = family ? nonPublic.check(host, family === 4 ? 'ipv4' : 'ipv6')
-    : !host.includes('.') || /\.(?:local|localhost|localdomain)$/.test(host);
+    : !host.includes('.') || privateSuffixes.some(suffix => host === suffix || host.endsWith(`.${suffix}`));
   if (privateAddress) throw new Error('onboarding.invite-public-server-required');
   return value;
 }

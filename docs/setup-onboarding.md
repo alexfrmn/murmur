@@ -49,7 +49,11 @@ output and shell arguments.
    The Invitation must carry a public Server address. Private, loopback, link-local,
    shared-address (100.64/10), unique-local IPv6 and local hostnames are refused
    before an output file is created, including IPv4-mapped IPv6 and alternate
-   IPv4 spellings. If the current profile uses a private address, supply the same
+   IPv4 spellings. The policy also refuses `.ts.net`, `.internal`, `.home.arpa`
+   and `.lan` names, IPv4 special-use/documentation/testing ranges
+   (`192.0.0.0/24`, `192.0.2.0/24`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`),
+   IPv6 documentation addresses (`2001:db8::/32`) and the entire `64:ff9b::/96`
+   translation prefix. If the current profile uses a private address, supply the same
    Server's public address explicitly with `--broker nats://server.example.com:4222`
    (or `tls://...`). This changes only the Invitation; the profile, Identity keys
    and Server access key are preserved. The override must itself be public.
