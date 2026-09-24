@@ -1,34 +1,17 @@
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
+import { outboxAttentionToken as tokenFor, readOutboxDismissals, type OutboxAttentionRow as Row } from '@murmurv2/core';
 import { mkdir, rmdir } from 'node:fs/promises';
 import path from 'node:path';
-import { loadConfig, readJson, safeError, validAgentId } from './config.js';
+import { loadConfig, safeError, validAgentId } from './config.js';
 import { writeState } from './state.js';
 import type { ServiceContext } from './types.js';
 
 const stateFile = (c: ServiceContext) => path.join(c.dataDir, 'outbox-attention.json');
 const validId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,150}$/.test(v);
 const validToken = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
-interface Saved { schema: 'murmur.outbox-dismissals/1'; agentId: string; records: Array<{ msgId: string; token: string }> }
-type Row = { msgId: string; subject: string; attempts: number; createdAt: string; failedAt: string; error: string | null; version: number; peer: string | null };
 const columns = `msg_id AS msgId,subject,attempts,created_at AS createdAt,updated_at AS failedAt,last_error AS error,version,
   json_extract(envelope_json,'$.recipients[0]') AS peer`;
-const tokenFor = (row: Row) => createHash('sha256').update(JSON.stringify([
-  row.msgId, row.subject, row.attempts, row.createdAt, row.failedAt, row.error, row.version, row.peer,
-])).digest('hex');
-
-async function saved(c: ServiceContext, agentId: string): Promise<Saved> {
-  let value;
-  try { value = await readJson(stateFile(c)); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema: 'murmur.outbox-dismissals/1', agentId, records: [] };
-    throw new Error('outbox.dismissals-unreadable');
-  }
-  if (value?.schema !== 'murmur.outbox-dismissals/1' || value.agentId !== agentId || !Array.isArray(value.records)
-    || value.records.length > 1000 || value.records.some((r: any) => !validId(r?.msgId) || !validToken(r?.token))
-    || new Set(value.records.map((r: any) => r.msgId)).size !== value.records.length) throw new Error('outbox.dismissals-invalid');
-  return value;
-}
+const saved = (c: ServiceContext, agentId: string) => readOutboxDismissals(stateFile(c), agentId);
 
 /** Metadata only. A dismissal never changes transport state or implies delivery. */
 export async function readOutboxAttention(c: ServiceContext, agentId: string, db: DatabaseSync) {

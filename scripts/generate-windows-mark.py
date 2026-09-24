@@ -137,7 +137,7 @@ def compile_source(data):
         return shapes
 
     marks = {}
-    for name in ('ready','idle','unread','failed'):
+    for name in ('ready','idle','attention','unread','failed'):
         symbol = nodes['murmur-'+name]
         if symbol.tag != NS+'symbol' or symbol.get('viewBox') != '0 0 120 120':
             raise ValueError('invalid state symbol')

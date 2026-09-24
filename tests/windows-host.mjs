@@ -38,8 +38,8 @@ export const skipPosixShell = windows && 'POSIX shell script; on Windows the nat
  */
 export const skipUnixSocketWake = windows && 'Codex app-server wake is WebSocket over a Unix-domain socket only (scripts/codex-app-server-wake.mjs ws+unix://, docs/wake-native.md); no Windows transport';
 
-/** `murmur logs path` is intentionally unavailable on Windows (logs.windows-native-location-unavailable). */
-export const skipPosixLogs = windows && 'logs path is intentionally unavailable on Windows; covered by the Windows test in setup-windows';
+/** Windows reads native service logs rather than the POSIX configured folder. */
+export const skipPosixLogs = windows && 'POSIX configured logs differ from Windows native service logs; covered in setup-windows';
 
 /** Assert a POSIX mode where it means something; on Windows record why it was not checked. */
 export function assertMode(t, mode, expected, message) {

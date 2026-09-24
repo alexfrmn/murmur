@@ -126,7 +126,7 @@ public struct ProfileOnboardingClient: Sendable {
         guard let receipt = try? JSONDecoder().decode(Receipt.self, from: data),
               schemaKnown(receipt.schema, name: "murmur.join"), receipt.agentId == plan.agentID,
               validNewAgentID(receipt.peerId), receipt.peerId != plan.agentID, receipt.paired == nil,
-              receipt.restartRequired, receipt.replyFile == plan.replyFile.path,
+              receipt.replyFile == plan.replyFile.path,
               let values = try? plan.replyFile.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
               values.isRegularFile == true, values.isSymbolicLink != true else { throw OnboardingError.invalidReceipt }
         try journal?.markCreated(pending)

@@ -33,16 +33,17 @@ mistake an unprotected directory for an existing private profile.
 The older `scripts/murmur-invite.mjs`, `scripts/murmur-join.mjs` and
 `scripts/murmur-add-peer.mjs` entrypoints are disabled compatibility notices.
 They exit without reading or changing a profile and name the equivalent command
-below. Invitation and reply material stays in private files instead of terminal
-output and shell arguments.
+below. The current commands support private file copies and one-line exchange
+through subprocess input/output; credentials never need to be placed in shell arguments.
 
 1. `init --agent-id ID --broker-url URL [--token-file ABSOLUTE_FILE]` creates a
    private identity. Repeating it with the same ID and broker preserves the keys
    and credentials. Conflicting existing identity is rejected.
-2. `invite --out ABSOLUTE_FILE [--broker PUBLIC_URL]` writes a new private invitation file. It contains
-   public peer keys and may contain the broker token; transfer it through a trusted
-   channel. Credentials are not printed in the command result or passed as token
-   arguments. An existing output file is never overwritten. Invitation and reply outputs must
+2. `invite [--out ABSOLUTE_FILE] [--broker PUBLIC_URL]` prints one `MURMUR:`
+   base64url line and optionally writes the identical line to a private file. It
+   contains public Contact keys and may contain the Server access key. With
+   `--json`, `invitation` carries the line and `file` is null when omitted. Treat
+   both stdout and the optional file as confidential. An existing output file is never overwritten. Invitation and reply outputs must
    have an already-existing parent and be outside the managed data directory, including
    symlink and filesystem case aliases; a reply path
    must never name a private config, database, cursor or future runtime state file.
@@ -63,12 +64,24 @@ output and shell arguments.
    (`onboarding.invite-public-server-required` or `onboarding.invite-server-address-invalid`).
    The JSON response retains `containsBrokerCredential` for the application's
    confirmation before copying an Invitation that contains a Server access key.
-3. On the other machine, `join --agent-id ID --invite-file ABSOLUTE_FILE --reply-out
-   ABSOLUTE_FILE` imports the invitation and creates a private public-key reply.
-4. On the first machine, `add-peer --reply-file ABSOLUTE_FILE` completes key import.
+3. On the other machine, `join --agent-id ID --invite-stdin` reads the Invitation
+   from standard input and prints one `MURMUR:` Reply. `--invite-file ABSOLUTE_FILE`
+   remains an alternative input; `--reply-out ABSOLUTE_FILE` is an optional private
+   copy. With `--json`, `reply` contains the line and `replyFile` is null when omitted.
+   Input is bounded at 16 KiB, must be a single complete line, and is type-checked.
+   Legacy canonical base64 Invitations and `MURMUR-REPLY:` files are still accepted.
+   New output uses unpadded base64url and the shared prefix, with a type inside the data.
+4. On the first machine, `add-peer --reply-stdin` completes key import;
+   `--reply-file ABSOLUTE_FILE` remains available. Standard input and file options
+   are mutually exclusive. GUI code writes the pasted line to stdin and closes it,
+   never passing credential-bearing content in argv.
    It refuses silent key replacement, saves a private configuration backup and
    clears only that peer's poisoned dedupe entries. Failure reading the store is
-   reported as an unknown reset result, never zero.
+   reported as an unknown reset result, never zero. `restartRequired=false` applies
+   to the 2.12 Service, which observes config-file replacement and refreshes only
+   Contacts. `contactsReload={mechanism:"config-file",state:"pending"}` describes
+   a saved change awaiting observation, not an observed acknowledgement. An older
+   Service must first be upgraded; a stopped Service must be started.
 5. `clients detect` reports verified client/profile paths. `clients configure
    --client ID` updates only the Murmur MCP entry in that selected JSON or TOML
    profile. A conflicting entry requires explicit `--replace`. Existing contents
@@ -96,5 +109,71 @@ sentence does not count. Success confirms the exchange, not autonomous wake.
 
 Linux/systemd, Darwin/launchd and Windows SCM adapters use the shared CLI.
 Windows additionally needs the matching native service helper and elevation for
-service mutations; see [Windows CLI](windows-service-cli.md). An already-running service must be restarted explicitly to load
-changed peer configuration. Commands do not silently stop running processes.
+service mutations; see [Windows CLI](windows-service-cli.md). The 2.12 Service
+checks the configuration before inbound messages, delivery receipts and each
+queue flush (normally every two seconds). POSIX SIGHUP also requests a refresh.
+It pins the original Identity, Server, route and directory. An unreadable or
+rejected configuration replacement retains the last valid Contacts so queued
+letters can still be sent; no new keys from that replacement are trusted. A
+malformed Contact is skipped individually, including at startup, while valid
+additions and removals take effect. Repeated failures are logged once until the
+reason changes or a valid replacement recovers. Wake-up and other runtime
+settings keep their existing restart semantics. Windows uses the file trigger;
+only POSIX installs a SIGHUP handler.
+
+`status --json` adds nullable `peers.reload`: `state` is `current`, `partial`
+(invalid Contacts skipped), or `retained` (last valid map still used); `count`,
+`invalidCount`, `lastSuccessAt`, `lastError` and `lastErrorAt` describe the observed
+reload. Errors are safe `agent-config-*` codes. It comes from fresh, PID/store-bound
+runtime observation, refreshed every five seconds. A broken on-disk configuration
+does not hide this diagnostic; its configured Contact list remains unknown.
+No observation or an older Service returns `peers.reload: null`.
+
+A first Contact may come online after the ordinary delivery retry window. On
+its first verified positive ACK to a direct letter, the SQLite queue atomically
+retries its direct letters stopped by `max-attempts:ack-timeout` or
+`max-attempts:unknown-sender:`, or JetStream `max_deliver` exhaustion.
+JetStream max-deliver advisories preserve an existing DLQ diagnosis, cannot
+overwrite a concurrently settled verdict, and ignore events older than a queue
+transition. A termination advisory remains final.
+A late ACK of the waiting letter itself can settle it without another send. The
+original message ID is kept so the receiver stores it once. Security, policy and
+poison verdicts, group deliveries, and established Contacts retain their existing
+terminal/bounded behavior. An acknowledged group letter is not evidence of a
+direct exchange with each member. Verification includes signature, message binding,
+timestamp and durable nonce replay protection. This is transport evidence, not
+an Assistant Reply. In plain NATS a new message or `doctor --peer` supplies that
+first ACK; JetStream may deliver the original stored message after the Contact
+starts. No heartbeat protocol or background AI request is introduced.
+Automatic first-exchange recovery resends only letters at most **seven days** old
+(inclusive), measured from both the envelope and the local queue creation time.
+Invalid timestamps and dates over five seconds in the future are ineligible.
+Seven days gives a colleague time to finish pairing without unexpectedly sending
+questions left over from an older attempt.
+
+A letter hidden with `outbox dismiss` is not automatically resent while its
+dismissal token still matches its current failure state. `outbox restore` removes
+that preference; a changed failure state invalidates the old token, as in the
+attention view. Recovery and the setup writer share `.setup-write.lock` and the
+same identity-bound `outbox-attention.json` reader. If the preference file cannot
+be read safely or the writer lock is occupied, recovery skips automatic resends
+while still recording the verified ACK. After this first direct exchange there
+is no deferred automatic sweep: review remaining failures explicitly.
+An old or hidden letter's own verified late ACK can still settle it directly as
+delivered, without publishing it again. Dismissal does not erase delivery evidence.
+
+An accepted Assistant turn whose outcome cannot be observed for five continuous
+minutes becomes `dlq` with `accepted-turn-unobservable`; it is never automatically
+executed again. `status --json` and `inbox read` include `wake_error` per message,
+and `doctor --json` returns a `wakeFault` with a next-step hint even if its network
+probe is blocked. After inspecting the Assistant session, use
+`wake dismiss --msg-id ID --expected-agent IDENTITY --data-dir ABSOLUTE_PATH --json`
+to acknowledge this specific fault without another execution. The reply has schema
+`murmur.wake-dismiss/1`, the affected `msgIds`, `status: "muted"`, `executed: false`
+and `historyPreserved: true`. An accepted batch is acknowledged as one outcome.
+History, receipt and inbox read cursor are preserved; active work and unrelated
+faults cannot be dismissed with this command. See [accepted-turn observation](wake-native.md#accepted-codex-turns-and-long-running-work-212).
+
+Without `--json`, errors are actionable English sentences using the shared
+vocabulary; unrecognized codes receive a safe diagnostic action. `--json` keeps
+stable error codes on stderr, never echoing Invitation content or private paths.

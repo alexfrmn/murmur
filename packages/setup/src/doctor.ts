@@ -73,6 +73,7 @@ export async function probeRoundtrip(c: ServiceContext, config: AgentConfig, pee
 const failureHints = (serviceName: string): Record<string, string> => ({
   'config.missing': 'No profile here yet: run murmur join --data-dir <this profile> --agent-id <your-agent-id> --invite-file <invite file> --reply-out <new reply file>',
   'daemon.not-running': `Install or start the service: murmur service install --data-dir <this profile> --service-name ${serviceName} (or service start with the same options if installed; on Windows from an administrator terminal)`,
+  'accepted-turn-unobservable': 'Inspect the Assistant session. After reviewing the unknown outcome, use murmur wake dismiss --data-dir <this profile> --msg-id <message-id> --expected-agent <your-identity> to acknowledge it without running it again.',
 });
 
 export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: DoctorOptions) {
@@ -80,6 +81,9 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
   const generatedAt = new Date().toISOString(), stages: Array<Record<string, unknown>> = [];
   let config: AgentConfig | null = null, connection: NatsConnection | undefined;
   let snapshot: Awaited<ReturnType<typeof readStatus>> | undefined;
+  let peerCheck: { peerId: string; state: 'connected' | 'failed' | 'not-checked'; lastExchangeAt: string | null;
+    requestMsgId: string | null; replyMsgId: string | null; reason: string | null } | null = peer
+    ? { peerId: peer, state: 'not-checked', lastExchangeAt: null, requestMsgId: null, replyMsgId: null, reason: null } : null;
   let failedStage: string | null = null, worst = 'ok';
   const stage = async (id: string, title: string, fn: () => Promise<{ state?: string; reason?: string; detail: string; fixHint?: string }>) => {
     const start = Date.now();
@@ -99,7 +103,7 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
     await stage('config', 'Configuration', async () => { config = await loadConfig(context); return { detail: 'Identity, keys and peer configuration validated' }; });
     await stage('daemon', 'Daemon and store', async () => {
       snapshot = await readStatus({ context, adapter });
-      if (snapshot.service.state !== 'running') throw new Error('daemon.not-running');
+      if (!['running', 'running-unmanaged'].includes(snapshot.service.state)) throw new Error('daemon.not-running');
       if (!snapshot.service.observedStorePath || await realpath(snapshot.service.observedStorePath) !== await realpath(context.storePath)) throw new Error('daemon.store-unverified');
       return { detail: 'Service PID holds the selected database open' };
     });
@@ -120,10 +124,13 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
     await stage('roundtrip', 'Encrypted signed roundtrip', async () => {
       if (!peer) return { state: 'warn', reason: 'roundtrip.peer-required', detail: 'No diagnostic peer selected; no message sent', fixHint: 'Run murmur doctor --peer <configured-agent-id> --json' };
       const proof = await probeRoundtrip(context, config!, peer, connection!, timeoutMs);
+      peerCheck = { peerId: peer, state: 'connected', lastExchangeAt: proof.verifiedAt,
+        requestMsgId: proof.msgId, replyMsgId: proof.replyMsgId, reason: null };
       return { detail: `Authenticated reply persisted from ${proof.peerId}` };
     });
     await stage('wake', 'Wake mode and responder', async () => {
       const s = await readStatus({ context, adapter });
+      if (s.wake.faults.lastFault === 'accepted-turn-unobservable') throw new Error('accepted-turn-unobservable');
       if (s.wake.effective.enabled === null) return { state: 'warn', reason: 'wake.unmeasured', detail: 'No fresh runtime evidence' };
       if (s.wake.effective.needsRestart) return { state: 'warn', reason: 'wake.mode-mismatch', detail: 'Configured and effective wake differ', fixHint: 'Run murmur wake pause --apply or murmur wake resume --apply for the intended mode' };
       if (!s.wake.effective.enabled) return { state: 'warn', reason: 'wake.paused', detail: 'Wake is paused; pending messages remain queued' };
@@ -133,5 +140,15 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
       return { state: 'warn', reason: 'wake.live-proof-required', detail: 'Wake configured; intended live-session receipt requires separate proof' };
     });
   } finally { await connection?.close(); }
-  return { schema: 'murmur.doctor/1', generatedAt, agentId: (config as AgentConfig | null)?.agentId ?? null, stages, summary: { worst, failedStage } };
+  if (peerCheck && peerCheck.state !== 'connected') {
+    peerCheck.state = 'failed';
+    peerCheck.reason = String(stages.find(s => s.state === 'fail')?.reason ?? 'roundtrip.not-checked');
+  }
+  // A local accepted-outcome fault is useful even when an earlier network stage
+  // blocked the wake probe. This read sends no message and changes no state.
+  const local = await readStatus({ context, adapter });
+  const wakeFault = local.wake.faults.lastFault === 'accepted-turn-unobservable'
+    ? { reason: 'accepted-turn-unobservable', fixHint: failureHints(context.serviceName)['accepted-turn-unobservable'] } : null;
+  return { schema: 'murmur.doctor/1', generatedAt, agentId: (config as AgentConfig | null)?.agentId ?? null,
+    peerCheck, wakeFault, stages, summary: { worst, failedStage } };
 }

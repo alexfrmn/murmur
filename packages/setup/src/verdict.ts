@@ -53,13 +53,13 @@ export function statusVerdict(input: unknown, now = Date.now()): StatusVerdict {
   const invalid = schemaFailure(input);
   if (invalid) return out("grey", invalid);
   if (typeof s.schema !== "string" || !/^murmur\.status\/1(?:\.\d+)?$/.test(s.schema)) return out("grey", "schema.unknown");
-  unread = count(s.inbox?.unread) && s.inbox.unread > 0;
+  unread = count(s.wake?.delivery?.pendingUndelivered) && s.wake.delivery.pendingUndelivered > 0;
   const stamp = typeof s.generatedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(s.generatedAt) ? Date.parse(s.generatedAt) : NaN;
   if (!Number.isFinite(stamp) || !Number.isFinite(now)) return out("grey", "snapshot.unparsable");
   if (now - stamp > 120000) return out("grey", "snapshot.stale");
   if (stamp - now > 5000) return out("grey", "snapshot.future");
   if (s.service?.state === "stopped") return out("grey", "service.stopped");
-  if (!["running", "failed"].includes(s.service?.state)) return out("grey", "service.unknown");
+  if (!["running", "running-unmanaged", "failed"].includes(s.service?.state)) return out("grey", "service.unknown");
   if (s.service.state === "failed") return out("red", "service.failed");
   const need = (name: string, value: unknown) => {
     if (!count(value)) { note(name); return null; }

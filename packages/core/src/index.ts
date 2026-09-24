@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, promises as fs } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmdirSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { outboxAttentionToken, readOutboxDismissals } from './outbox-attention.js';
 
 // Agent discovery (presence frames + candidate registry)
 export * from "./discovery.js";
@@ -12,6 +13,7 @@ export * from "./lease.js";
 // Phase N — typed channel roster (channelId distinct from legacy conversationId)
 export * from "./channel.js";
 export * from "./subjects.js";
+export * from './outbox-attention.js';
 
 export type DeliveryMode = "at-least-once";
 
@@ -337,6 +339,17 @@ export interface OutboxRecord {
   version?: number;
 }
 
+/** Only failures caused by an unfinished first connection may be retried on its
+ * first authenticated delivery receipt. Security/policy/poison verdicts stay final. */
+export function isFirstContactWaiting(record: OutboxRecord): boolean {
+  return record.status === 'dlq' && record.envelope.recipients.length === 1
+    && (record.lastError === 'max-attempts:ack-timeout'
+      || record.lastError?.startsWith('max-attempts:unknown-sender:') === true
+      || record.lastError?.startsWith('jetstream-advisory:max_deliver:') === true);
+}
+
+export const FIRST_CONTACT_RECOVERY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface OutboxStore {
   enqueue(subject: string, envelope: EnvelopeV1): Promise<void>;
   claimDue(limit?: number): Promise<OutboxRecord[]>;
@@ -354,7 +367,8 @@ export interface OutboxStore {
   markSent(msgId: string, expectedVersion?: number): Promise<void>;
   markAcked(msgId: string): Promise<void>;
   markFailed(msgId: string, error: string, nextAttemptAt: string): Promise<void>;
-  markDlq(msgId: string, error: string): Promise<void>;
+  /** A broker advisory must not overwrite a verdict changed since its lookup. */
+  markDlq(msgId: string, error: string, expectedVersion?: number): Promise<void>;
   applyAckTransition(
     msgId: string,
     status: AckV1["status"],
@@ -362,6 +376,9 @@ export interface OutboxStore {
     nextAttemptAt?: string,
   ): Promise<"applied" | "not-found" | "not-in-flight">;
   requeueStaleSent?(ackTimeoutMs: number, reason?: string): Promise<number>;
+  /** Call only after signature, message binding, timestamp and replay checks.
+   * Atomically settles this ACK and requeues waiting letters on the first ACK. */
+  applyFirstContactAck?(msgId: string, peerId: string): Promise<'applied' | 'not-found' | 'not-in-flight'>;
 }
 
 interface JsonOutboxState {
@@ -463,10 +480,11 @@ export class JsonFileOutboxStore implements OutboxStore {
     await this.save(state);
   }
 
-  async markDlq(msgId: string, error: string): Promise<void> {
+  async markDlq(msgId: string, error: string, expectedVersion?: number): Promise<void> {
     const state = await this.load();
     const row = state.records.find((r) => r.msgId === msgId);
     if (!row) return;
+    if (expectedVersion !== undefined && (row.version ?? 1) !== expectedVersion) return;
     row.status = "dlq";
     row.lastError = error;
     row.updatedAt = new Date().toISOString();
@@ -570,7 +588,7 @@ const secureSqliteFiles = (filePath: string): void => {
  * Такие отказы обязаны оставаться retryable: JetStream ограничит число доставок сам и
  * положит конверт в DLQ, откуда он виден и восстановим.
  */
-export const RECOVERABLE_REJECTION_PREFIXES = ["unknown-sender:"] as const;
+export const RECOVERABLE_REJECTION_PREFIXES = ["unknown-sender:", "contacts-unavailable:"] as const;
 
 export function isRecoverableRejection(reason: string): boolean {
   return RECOVERABLE_REJECTION_PREFIXES.some((p) => reason.startsWith(p));
@@ -581,7 +599,7 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
 
   close(): void { this.db.close(); }
 
-  constructor(dbPath = ".data/murmur.db") {
+  constructor(private readonly dbPath = ".data/murmur.db") {
     ensureDir(dbPath);
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
@@ -778,7 +796,12 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
     }));
   }
 
-  async markDlq(msgId: string, error: string): Promise<void> {
+  async markDlq(msgId: string, error: string, expectedVersion?: number): Promise<void> {
+    if (expectedVersion !== undefined) {
+      this.db.prepare(`UPDATE outbox SET status = 'dlq', last_error = ?, updated_at = ?, version = version + 1
+        WHERE msg_id = ? AND version = ?`).run(error, new Date().toISOString(), msgId, expectedVersion);
+      return;
+    }
     await this.updateOutboxOptimistic(msgId, () => ({
       status: "dlq",
       lastError: error,
@@ -808,6 +831,68 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
       .run(nextStatus, nextError, nextAttemptAt, now, msgId);
     if (changed.changes > 0) return "applied";
     return this.getOutboxRow(msgId) ? "not-in-flight" : "not-found";
+  }
+
+  async applyFirstContactAck(msgId: string, peerId: string): Promise<'applied' | 'not-found' | 'not-in-flight'> {
+    this.db.exec('BEGIN IMMEDIATE');
+    let committed = false;
+    let dismissalLock: string | null = null;
+    try {
+      const record = this.getOutboxRow(msgId);
+      if (!record) return 'not-found';
+      // Group ACK semantics remain unchanged; one member cannot restart a group delivery.
+      const direct = record.envelope.recipients.length === 1 && record.envelope.recipients[0] === peerId;
+      // A group row can be settled by a different member: it proves no direct
+      // exchange with this Contact. Only a single-recipient receipt is evidence.
+      const previous = this.db.prepare(`SELECT 1 FROM outbox WHERE status = 'acked'
+        AND json_array_length(envelope_json, '$.recipients') = 1
+        AND json_extract(envelope_json, '$.recipients[0]') = ?
+        AND json_extract(envelope_json, '$.senderAgentId') = ? LIMIT 1`)
+        .get(peerId, record.envelope.senderAgentId);
+      const first = direct && !previous;
+      if (TERMINAL_OUTBOX_STATUSES.has(record.status) && !(first && isFirstContactWaiting(record))) return 'not-in-flight';
+      const now = new Date().toISOString();
+      if (first) {
+        const waiting = this.db.prepare(`SELECT * FROM outbox WHERE status = 'dlq' AND subject = ?
+          AND json_extract(envelope_json, '$.senderAgentId') = ?
+          AND json_array_length(envelope_json, '$.recipients') = 1
+          AND json_extract(envelope_json, '$.recipients[0]') = ?`).all(record.subject, record.envelope.senderAgentId, peerId);
+        const retry = this.db.prepare(`UPDATE outbox SET status = 'pending', attempts = 0, last_error = NULL,
+          next_attempt_at = ?, updated_at = ?, version = version + 1 WHERE msg_id = ?`);
+        let dismissed: Map<string, string> | null = null;
+        if (waiting.length) {
+          try {
+            const lock = path.join(path.dirname(this.dbPath), '.setup-write.lock');
+            // Share the setup writer's lock so a concurrent dismissal cannot be
+            // acknowledged against a pre-recovery snapshot while we resend it.
+            mkdirSync(lock, { mode: 0o700 }); dismissalLock = lock;
+            const state = readOutboxDismissals(path.join(path.dirname(this.dbPath), 'outbox-attention.json'), record.envelope.senderAgentId);
+            dismissed = new Map(state.records.map(r => [r.msgId, r.token]));
+          } catch { /* Unreadable or busy preference state permits no automatic resend. */ }
+        }
+        const timestamp = Date.parse(now), cutoff = timestamp - FIRST_CONTACT_RECOVERY_MAX_AGE_MS;
+        for (const row of waiting) {
+          const candidate = this.toOutboxRecord(row);
+          if (!dismissed || !isFirstContactWaiting(candidate) || candidate.msgId === msgId) continue;
+          if (![candidate.createdAt, candidate.envelope.createdAt].every(value => {
+            const at = Date.parse(value); return Number.isFinite(at) && at >= cutoff && at <= timestamp + 5000;
+          })) continue;
+          const token = outboxAttentionToken({ msgId: candidate.msgId, subject: candidate.subject,
+            attempts: candidate.attempts, createdAt: candidate.createdAt, failedAt: candidate.updatedAt,
+            error: candidate.lastError ?? null, version: candidate.version ?? 1, peer: candidate.envelope.recipients[0] ?? null });
+          if (dismissed.get(candidate.msgId) !== token) retry.run(now, now, candidate.msgId);
+        }
+      }
+      this.db.prepare(`UPDATE outbox SET status = 'acked', last_error = NULL, updated_at = ?, version = version + 1
+        WHERE msg_id = ?`).run(now, msgId);
+      this.db.exec('COMMIT');
+      committed = true;
+      return 'applied';
+    } finally {
+      // Early refusals and failures cannot leave a half-recovered queue.
+      try { if (!committed) this.db.exec('ROLLBACK'); }
+      finally { if (dismissalLock) rmdirSync(dismissalLock); }
+    }
   }
 
   async requeueStaleSent(ackTimeoutMs: number, reason = "ack-timeout"): Promise<number> {
@@ -989,6 +1074,18 @@ export interface WakeThreadRecord {
   replacesThreadId?: string;
 }
 
+/** Receipt of an accepted native effect, retained independently of wake retries. */
+export interface WakeTurnRecord {
+  msgId: string;
+  peerId: string;
+  conversationId: string;
+  socketPath: string;
+  threadId: string;
+  turnId: string;
+  sessionPath?: string;
+  unobservableSince?: string | null;
+}
+
 /** One delivery id per direction: an agent that writes to itself keeps both copies. */
 export const deliveryIdFor = (direction: LocalMessageRecord["direction"], msgId: string): string => `${direction}:${msgId}`;
 
@@ -1104,6 +1201,10 @@ export class SQLiteMessageStore {
         updated_at TEXT NOT NULL,
         PRIMARY KEY (peer_id, conversation_id)
       );
+      CREATE TABLE IF NOT EXISTS wake_turns (
+        msg_id TEXT PRIMARY KEY,
+        receipt_json TEXT NOT NULL
+      );
     `);
   }
 
@@ -1140,6 +1241,28 @@ export class SQLiteMessageStore {
            updated_at = excluded.updated_at`,
       )
       .run(record.peerId, record.conversationId, record.threadId, record.threadPath ?? null, record.replacesThreadId ?? null, new Date().toISOString());
+  }
+
+  async getWakeTurn(msgId: string): Promise<WakeTurnRecord | undefined> {
+    const row = this.db.prepare('SELECT receipt_json FROM wake_turns WHERE msg_id=?').get(msgId) as { receipt_json: string } | undefined;
+    return row ? JSON.parse(row.receipt_json) as WakeTurnRecord : undefined;
+  }
+
+  async setWakeTurn(receipt: WakeTurnRecord): Promise<void> {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('INSERT INTO wake_turns(msg_id,receipt_json) VALUES(?,?) ON CONFLICT(msg_id) DO UPDATE SET receipt_json=excluded.receipt_json')
+        .run(receipt.msgId, JSON.stringify(receipt));
+      this.db.prepare(`UPDATE local_messages SET wake_error=?, wake_updated_at=?
+        WHERE direction='inbound' AND wake_status='inflight' AND (msg_id=? OR wake_batch_id=?)`)
+        .run(receipt.unobservableSince ? 'accepted-turn-unobservable' : null, new Date().toISOString(), receipt.msgId, receipt.msgId);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  /** Only a verified failed turn may release its receipt for a new attempt. */
+  async deleteWakeTurn(msgId: string, turnId: string): Promise<void> {
+    this.db.prepare("DELETE FROM wake_turns WHERE msg_id=? AND json_extract(receipt_json,'$.turnId')=?").run(msgId, turnId);
   }
 
   /**

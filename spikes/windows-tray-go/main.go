@@ -2,7 +2,7 @@
 
 package main
 
-// Значок Murmur для Windows. Окон нет, Electron нет: состояние видно цветом, детали —
+// Значок Murmur для Windows. Состояние видно цветом, детали —
 // в меню. Данные берутся только из murmur status --json и murmur doctor --json.
 
 import (
@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,8 +27,6 @@ const (
 	doctorTimeout = 30 * time.Second
 	// Сколько строк истории держать в меню. Пункты создаются один раз при старте.
 	historyLines = 4
-	// Сколько последних входящих показывать строками.
-	recentLines = 3
 )
 
 // Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
@@ -64,16 +63,31 @@ type app struct {
 	mUpdateCheck, mUpdatePage, mUpdateEnable, mUpdateDisable *systray.MenuItem
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
-	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
-	mConnect, mOpenProfile                            *systray.MenuItem
-	mLanguageRoot, mLangEnglish, mLangRussian, mGuide *systray.MenuItem
-	mHistory                                          []*systray.MenuItem
-	mStages                                           map[string]*systray.MenuItem
-	mRecheck, mPause, mCopy                           *systray.MenuItem
-	mRecent                                           []*systray.MenuItem
-	mPeersRoot                                        *systray.MenuItem
-	mPeers                                            []*systray.MenuItem
-	mSvcStar, mSvcStop, mSvcLogs, mQuit               *systray.MenuItem
+	mHeader, mDoctorRoot, mServiceRoot                         *systray.MenuItem
+	mInvite                                                    *systray.MenuItem
+	mLanguageRoot, mLangEnglish, mLangRussian, mGuide          *systray.MenuItem
+	mHistory                                                   []*systray.MenuItem
+	mStages                                                    map[string]*systray.MenuItem
+	mRecheck, mPause, mCopy                                    *systray.MenuItem
+	mPeersRoot                                                 *systray.MenuItem
+	mPeers                                                     []*systray.MenuItem
+	mSvcStar, mSvcStop, mSvcLogs, mQuit                        *systray.MenuItem
+	mSvcState                                                  *systray.MenuItem
+	mSvcInstall, mSvcUninstall, mAssistants, mAssistantConnect *systray.MenuItem
+	mHome                                                      [5]*systray.MenuItem
+	homeActions                                                [5]string
+	mPasteReply                                                *systray.MenuItem
+	mNext, mMessages, mPeerOverflow                            *systray.MenuItem
+	nextAction                                                 string
+	homeClicks                                                 chan int
+	peerClicks                                                 chan int
+	mPeerStates, mPeerChecks                                   []*systray.MenuItem
+	peerIDs                                                    []string
+	peerChecking                                               map[string]bool
+	assistantState, assistantIdentity                          string
+	assistantBinding                                           cliBinding
+	assistantChecked                                           time.Time
+	assistantBusy                                              bool
 }
 
 func main() {
@@ -168,66 +182,48 @@ func main() {
 	systray.Run(a.onReady, func() {})
 }
 
-func (a *app) onReady() {
+func (a *app) setupMenu() {
 	systray.SetIcon(iconBytes(colGrey, false))
 	systray.SetTitle("Murmur")
 	systray.SetTooltip(tr("menu.initialTooltip"))
 
-	a.mHeader = systray.AddMenuItem(tr("menu.initialStatus"), "")
-	a.mHeader.Disable()
-	// Shown only while no profile exists: the first thing a new user can do from the tray.
-	a.mConnect = systray.AddMenuItem(tr("menu.connect"), tr("menu.connectTooltip"))
-	a.mConnect.Hide()
-	a.mOpenProfile = systray.AddMenuItem(tr("menu.openProfile"), tr("menu.openProfileTooltip"))
-	a.mOpenProfile.Hide()
-	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
-	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
-	for i := 0; i < historyLines; i++ {
-		item := systray.AddMenuItem("", "")
-		item.Disable()
-		item.Hide()
-		a.mHistory = append(a.mHistory, item)
+	a.homeClicks, a.peerClicks = make(chan int), make(chan int)
+	a.peerChecking = map[string]bool{}
+	for i := range a.mHome {
+		a.mHome[i] = systray.AddMenuItem("…", "")
 	}
+	a.mNext = systray.AddMenuItem(tr("home.nextCheck"), "")
 	systray.AddSeparator()
-
-	a.mDoctorRoot = systray.AddMenuItem(tr("menu.doctor"), tr("menu.doctorTooltip"))
-	for _, st := range doctorStages {
-		item := a.mDoctorRoot.AddSubMenuItem(tr(st.messageKey)+" — "+tr("doctor.notChecked"), "")
-		item.Disable()
-		a.mStages[st.id] = item
-	}
-	a.mRecheck = a.mDoctorRoot.AddSubMenuItem(tr("menu.checkNow"), tr("menu.checkNowTooltip"))
+	a.mMessages = systray.AddMenuItem(tr("messages.menu"), "")
+	a.mInvite = systray.AddMenuItem(tr("menu.invite"), tr("menu.inviteTooltip"))
 	a.mPeersRoot = systray.AddMenuItem(tr("peer.connections"), tr("peer.wakeSeparate"))
-	for i := 0; i <= peerMenuLimit; i++ {
-		item := a.mPeersRoot.AddSubMenuItem("", "")
-		item.Disable()
+	a.mPasteReply = a.mPeersRoot.AddSubMenuItem(tr("pairing.pasteReply"), "")
+	for i := 0; i < peerMenuLimit; i++ {
+		item := a.mPeersRoot.AddSubMenuItem("…", "")
+		state := item.AddSubMenuItem("…", "")
+		state.Disable()
+		check := item.AddSubMenuItem("…", "")
 		item.Hide()
 		a.mPeers = append(a.mPeers, item)
+		a.mPeerStates = append(a.mPeerStates, state)
+		a.mPeerChecks = append(a.mPeerChecks, check)
+		a.peerIDs = append(a.peerIDs, "")
 	}
-	systray.AddSeparator()
-
-	a.mPause = systray.AddMenuItem(tr("menu.pause"), tr("menu.pauseTooltip"))
-	a.mWakeStatus = systray.AddMenuItem(tr("menu.wakeUnknown"), "")
-	a.mWakeStatus.Disable()
-	a.mActionStatus = systray.AddMenuItem(tr("action.none"), "")
-	a.mActionStatus.Disable()
-	// Вместо кнопки «Открыть inbox» — строки последних отправителей. Открыть переписку
-	// человеку сейчас нечем, а кнопка, ведущая не туда, куда обещает именем, хуже
-	// отсутствующей.
-	a.mRecentHeader = systray.AddMenuItem(tr("menu.recent"), "")
-	a.mRecentHeader.Disable()
-	for i := 0; i < recentLines; i++ {
-		item := systray.AddMenuItem("", "")
-		item.Disable()
-		item.Hide()
-		a.mRecent = append(a.mRecent, item)
-	}
-	a.mCopy = systray.AddMenuItem(tr("menu.copy"), tr("menu.copyTooltip"))
+	a.mPeerOverflow = a.mPeersRoot.AddSubMenuItem(tr("peer.unavailable"), "")
+	a.mPeerOverflow.Disable()
 	a.mServiceRoot = systray.AddMenuItem(tr("menu.service"), "")
+	a.mSvcState = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceUnmanaged"), tr("menu.serviceUnmanagedTooltip"))
+	a.mSvcState.Disable()
+	a.mSvcState.Hide()
 	a.mSvcStar = a.mServiceRoot.AddSubMenuItem(tr("menu.start"), "")
 	a.mSvcStop = a.mServiceRoot.AddSubMenuItem(tr("menu.stop"), "")
+	a.mSvcInstall = a.mServiceRoot.AddSubMenuItem(tr("menu.install"), tr("menu.serviceElevationTooltip"))
+	a.mSvcUninstall = a.mServiceRoot.AddSubMenuItem(tr("menu.uninstall"), tr("menu.serviceElevationTooltip"))
 	a.mSvcLogs = a.mServiceRoot.AddSubMenuItem(tr("menu.serviceLogs"), tr("menu.serviceLogsTooltip"))
-	a.mSvcLogs.Disable()
+	a.mAssistants = systray.AddMenuItem(tr("menu.assistants"), "")
+	a.mAssistantConnect = a.mAssistants.AddSubMenuItem(tr("menu.assistantConnect"), "")
+
+	a.mPause = a.mAssistants.AddSubMenuItem(tr("menu.pause"), tr("menu.pauseTooltip"))
 	systray.AddSeparator()
 	a.setupUpdates()
 	systray.AddSeparator()
@@ -235,21 +231,53 @@ func (a *app) onReady() {
 	a.mLangEnglish = a.mLanguageRoot.AddSubMenuItem(tr("language.english"), "")
 	a.mLangRussian = a.mLanguageRoot.AddSubMenuItem(tr("language.russian"), "")
 	a.mGuide = systray.AddMenuItem(tr("guide.menu"), tr("guide.tooltip"))
+
+	a.mDoctorRoot = systray.AddMenuItem(tr("menu.doctor"), tr("menu.doctorTooltip"))
+	a.mHeader = a.mDoctorRoot.AddSubMenuItem(tr("menu.initialStatus"), "")
+	a.mHeader.Disable()
+	for i := 0; i < historyLines; i++ {
+		item := a.mDoctorRoot.AddSubMenuItem("", "")
+		item.Disable()
+		item.Hide()
+		a.mHistory = append(a.mHistory, item)
+	}
+	for _, st := range doctorStages {
+		item := a.mDoctorRoot.AddSubMenuItem(tr(st.messageKey)+" — "+tr("doctor.notChecked"), "")
+		item.Disable()
+		a.mStages[st.id] = item
+	}
+	a.mRecheck = a.mDoctorRoot.AddSubMenuItem(tr("menu.checkNow"), tr("menu.checkNowTooltip"))
+	a.mWakeStatus = a.mDoctorRoot.AddSubMenuItem(tr("menu.wakeUnknown"), "")
+	a.mWakeStatus.Disable()
+	a.mActionStatus = a.mDoctorRoot.AddSubMenuItem(tr("action.none"), "")
+	a.mActionStatus.Disable()
+	a.mCopy = a.mDoctorRoot.AddSubMenuItem(tr("menu.copy"), tr("menu.copyTooltip"))
 	a.mQuit = systray.AddMenuItem(tr("menu.quit"), tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
+}
 
+func (a *app) onReady() {
+	a.setupMenu()
+	a.startMenuActions()
+	if needsFirstRun() {
+		go a.showFirstRun()
+	}
 	go a.pollLoop()
 	go a.refreshDoctor()
 	go a.handleClicks()
 	go a.updateLoop()
 	go func() {
 		for a.instance.wait() {
-			_ = openOwnMenu()
+			if needsFirstRun() {
+				go a.showFirstRun()
+			} else {
+				_ = openOwnMenu()
+			}
 		}
 	}()
 	if a.guideSignal != nil {
 		go func() {
-			if a.guideSignal.wait() && !guideSeenPreference(a.preferencesPath) {
+			if a.guideSignal.wait() && !needsFirstRun() && !guideSeenPreference(a.preferencesPath) {
 				a.showGuide()
 			}
 		}()
@@ -276,6 +304,7 @@ func (a *app) refreshStatus() {
 func (a *app) pollLoop() {
 	for {
 		a.refreshStatus()
+		a.refreshAssistantState()
 		time.Sleep(statusInterval)
 	}
 }
@@ -298,21 +327,13 @@ func (a *app) render(v Verdict) {
 
 	a.mu.Lock()
 	n := 0
-	if a.status != nil && a.status.Inbox.Unread != nil {
-		n = *a.status.Inbox.Unread
+	if a.status != nil && a.status.Wake.Delivery.PendingUndelivered != nil {
+		n = *a.status.Wake.Delivery.PendingUndelivered
 	}
 	a.mu.Unlock()
 	systray.SetTooltip(statusTooltip(v, n, available))
 	a.mHeader.SetTitle(v.Reason)
-	if v.Code == "profile.not-configured" {
-		a.mConnect.Show()
-		a.mOpenProfile.Show()
-	} else {
-		a.mConnect.Hide()
-		a.mOpenProfile.Hide()
-	}
-
-	a.renderRecent()
+	a.renderHome()
 	a.renderPeers()
 
 	for i, item := range a.mHistory {
@@ -328,6 +349,7 @@ func (a *app) render(v Verdict) {
 	paused := a.status != nil && a.status.Wake.Config.Enabled != nil && !*a.status.Wake.Config.Enabled
 	_, bindingErr := selectedCLI()
 	ready := bindingErr == nil && a.status != nil && !a.actionBusy && a.pinnedAgent != ""
+	serviceReady, serviceState, serviceTip := serviceControls(a.status, ready, serviceAdmin())
 	wakeKnown := a.status != nil && a.status.Wake.Config.Enabled != nil
 	wakeText := tr("menu.wakeUnknown")
 	if a.status != nil {
@@ -342,7 +364,7 @@ func (a *app) render(v Verdict) {
 	}
 	// Without an elevated token a click asks Windows for consent (UAC) instead of sending the
 	// user to an administrator terminal.
-	if ready {
+	if serviceReady {
 		a.mSvcStar.Enable()
 		a.mSvcStop.Enable()
 	} else {
@@ -351,9 +373,12 @@ func (a *app) render(v Verdict) {
 	}
 	a.mSvcStar.SetTitle(tr("menu.start"))
 	a.mSvcStop.SetTitle(tr("menu.stop"))
-	serviceTip := ""
-	if !serviceAdmin() {
-		serviceTip = tr("menu.serviceElevationTooltip")
+	if serviceState != "" {
+		a.mSvcState.SetTitle(serviceState)
+		a.mSvcState.SetTooltip(serviceTip)
+		a.mSvcState.Show()
+	} else {
+		a.mSvcState.Hide()
 	}
 	a.mSvcStar.SetTooltip(serviceTip)
 	a.mSvcStop.SetTooltip(serviceTip)
@@ -405,6 +430,25 @@ func (a *app) refreshDoctor() {
 func (a *app) handleClicks() {
 	for {
 		select {
+		case <-a.mPasteReply.ClickedCh:
+			go a.pasteColleagueReply()
+		case <-a.mMessages.ClickedCh:
+			go a.openMessages()
+		case <-a.mNext.ClickedCh:
+			a.mu.Lock()
+			action := a.nextAction
+			a.mu.Unlock()
+			go a.performHomeAction(action)
+		case i := <-a.homeClicks:
+			a.mu.Lock()
+			action := a.homeActions[i]
+			a.mu.Unlock()
+			go a.performHomeAction(action)
+		case i := <-a.peerClicks:
+			a.mu.Lock()
+			peer := a.peerIDs[i]
+			a.mu.Unlock()
+			go a.checkPeer(peer)
 		case <-a.mRecheck.ClickedCh:
 			go a.refreshDoctor()
 		case <-a.mPause.ClickedCh:
@@ -415,6 +459,14 @@ func (a *app) handleClicks() {
 			go a.runCLI("service", "start")
 		case <-a.mSvcStop.ClickedCh:
 			go a.runCLI("service", "stop")
+		case <-a.mSvcInstall.ClickedCh:
+			go a.runCLI("service", "install")
+		case <-a.mSvcUninstall.ClickedCh:
+			go a.runCLI("service", "uninstall")
+		case <-a.mSvcLogs.ClickedCh:
+			go a.openLogs()
+		case <-a.mAssistantConnect.ClickedCh:
+			go a.connectSelectedAssistants()
 		case <-a.mUpdateCheck.ClickedCh:
 			a.requestUpdates(nil)
 		case <-a.mUpdatePage.ClickedCh:
@@ -429,10 +481,8 @@ func (a *app) handleClicks() {
 			a.changeLocale(localeRussian)
 		case <-a.mGuide.ClickedCh:
 			go a.showGuide()
-		case <-a.mConnect.ClickedCh:
-			go a.connectToColleague()
-		case <-a.mOpenProfile.ClickedCh:
-			go a.openExistingProfile()
+		case <-a.mInvite.ClickedCh:
+			go a.inviteColleague()
 		case <-a.mQuit.ClickedCh:
 			if confirmTrayExit() {
 				systray.Quit()
@@ -442,18 +492,9 @@ func (a *app) handleClicks() {
 	}
 }
 
-func boolText(v *bool) string {
-	if v == nil {
-		return tr("bool.unknown")
-	}
-	if *v {
-		return tr("bool.yes")
-	}
-	return tr("bool.no")
-}
 func (a *app) runCLI(args ...string) {
 	a.mu.Lock()
-	if a.actionBusy || a.pinnedAgent == "" {
+	if a.actionBusy {
 		a.mu.Unlock()
 		return
 	}
@@ -475,6 +516,14 @@ func (a *app) runCLI(args ...string) {
 		} else {
 			args[1] = "resume"
 		}
+	}
+	if err == nil && args[0] == "service" {
+		if allowed, _, hint := serviceControls(fresh, true, serviceAdmin()); !allowed {
+			err = fmt.Errorf("%s", hint)
+		}
+	}
+	if err == nil && args[0] == "service" && args[1] == "uninstall" && !askYesNo(tr("menu.service"), tr("menu.uninstallConfirm")) {
+		return
 	}
 	if err == nil && args[0] == "service" && !serviceAdmin() {
 		// The elevated CLI cannot hand its reply back; it exits 0 only after confirming the
@@ -503,6 +552,9 @@ func (a *app) runCLI(args ...string) {
 		a.mu.Unlock()
 		a.mActionStatus.SetTitle(tr("action.failed"))
 		a.mActionStatus.SetTooltip(tr("action.failedTooltip"))
+		if args[0] == "service" {
+			tell(tr("menu.service"), serviceActionMessage(err))
+		}
 	} else {
 		a.mu.Lock()
 		a.actionResult = "action.success"
@@ -560,23 +612,6 @@ func stampNow(path string) error {
 	return os.WriteFile(path, out, 0o644)
 }
 
-// renderRecent показывает, от кого пришли последние сообщения и когда. Это ответ на
-// вопрос «что произошло», который цвет дать не может.
-func (a *app) renderRecent() {
-	a.mu.Lock()
-	lines := recentLinesForStatus(a.status)
-	a.mu.Unlock()
-
-	for i, item := range a.mRecent {
-		if i < len(lines) {
-			item.SetTitle(lines[i])
-			item.Show()
-			continue
-		}
-		item.Hide()
-	}
-}
-
 func (a *app) renderLanguageSelection() {
 	a.mLangEnglish.Uncheck()
 	a.mLangRussian.Uncheck()
@@ -587,26 +622,15 @@ func (a *app) renderLanguageSelection() {
 	}
 }
 
-func (a *app) renderPeers() {
-	a.mu.Lock()
-	lines := peerLinesForStatus(a.status)
-	a.mu.Unlock()
-	for i, item := range a.mPeers {
-		if i < len(lines) {
-			item.SetTitle(lines[i])
-			item.Show()
-		} else {
-			item.Hide()
-		}
-	}
-}
-
 func (a *app) changeLocale(locale string) {
-	if !validLocale(locale) || locale == currentLocale() {
+	if !validLocale(locale) {
 		return
 	}
 	if err := saveLocalePreference(a.preferencesPath, locale); err != nil {
 		systray.SetTooltip(tr("language.saveFailed", err))
+		return
+	}
+	if locale == currentLocale() {
 		return
 	}
 	setLocale(locale)
@@ -616,6 +640,7 @@ func (a *app) changeLocale(locale string) {
 }
 
 func (a *app) applyLocale() {
+	a.mPasteReply.SetTitle(tr("pairing.pasteReply"))
 	a.mPeersRoot.SetTitle(tr("peer.connections"))
 	a.mPeersRoot.SetTooltip(tr("peer.wakeSeparate"))
 	a.mDoctorRoot.SetTitle(tr("menu.doctor"))
@@ -623,12 +648,18 @@ func (a *app) applyLocale() {
 	a.mRecheck.SetTitle(tr("menu.checkNow"))
 	a.mRecheck.SetTooltip(tr("menu.checkNowTooltip"))
 	a.mPause.SetTooltip(tr("menu.pauseTooltip"))
-	a.mRecentHeader.SetTitle(tr("menu.recent"))
+	a.mMessages.SetTitle(tr("messages.menu"))
 	a.mCopy.SetTitle(tr("menu.copy"))
 	a.mCopy.SetTooltip(tr("menu.copyTooltip"))
 	a.mServiceRoot.SetTitle(tr("menu.service"))
 	a.mSvcLogs.SetTitle(tr("menu.serviceLogs"))
 	a.mSvcLogs.SetTooltip(tr("menu.serviceLogsTooltip"))
+	a.mSvcInstall.SetTitle(tr("menu.install"))
+	a.mSvcUninstall.SetTitle(tr("menu.uninstall"))
+	a.mSvcInstall.SetTooltip(tr("menu.serviceElevationTooltip"))
+	a.mSvcUninstall.SetTooltip(tr("menu.serviceElevationTooltip"))
+	a.mAssistants.SetTitle(tr("menu.assistants"))
+	a.mAssistantConnect.SetTitle(tr("menu.assistantConnect"))
 	a.mUpdatesRoot.SetTitle(tr("updates.root"))
 	a.mUpdatesRoot.SetTooltip(tr("updates.rootTooltip"))
 	a.mUpdateCheck.SetTooltip(tr("updates.checkNowTooltip"))
@@ -644,6 +675,8 @@ func (a *app) applyLocale() {
 	a.mLangRussian.SetTitle(tr("language.russian"))
 	a.mGuide.SetTitle(tr("guide.menu"))
 	a.mGuide.SetTooltip(tr("guide.tooltip"))
+	a.mInvite.SetTitle(tr("menu.invite"))
+	a.mInvite.SetTooltip(tr("menu.inviteTooltip"))
 	a.mQuit.SetTitle(tr("menu.quit"))
 	a.mQuit.SetTooltip(tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
@@ -678,9 +711,8 @@ func (a *app) showGuide() {
 	}
 }
 
-// connectToColleague sets Murmur up from an invitation file without a terminal: the default
-// profile %LOCALAPPDATA%Murmur, a name from the Windows user, the reply saved where the user
-// chooses, one UAC prompt for the service, and the detected AI clients connected.
+// connectToColleague joins a pasted Invitation and displays a copyable Reply.
+// Service and Assistant setup remain explicit, optional subsequent steps.
 func (a *app) connectToColleague() {
 	a.mu.Lock()
 	if a.actionBusy {
@@ -703,13 +735,14 @@ func (a *app) connectToColleague() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	steps := onboardingSteps{
-		pickInvitation: func() (string, bool) { return fileDialog(false, tr("onboarding.pickInvite"), "") },
-		pickReply:      func(suggested string) (string, bool) { return fileDialog(true, tr("onboarding.pickReply"), suggested) },
-		confirm:        askYesNo,
-		inform:         tell,
-		revealFile:     revealAndCopy,
-		exists:         fileExists,
-		cli:            func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
+		chooseClients:            showAssistantChoices,
+		confirmClientReplacement: showAssistantReplacement,
+		pickInvitation:           func() (string, bool) { return showPairingInput(false, "") },
+		showReply:                func(line string) { showPairingReply(line, textToClipboard) },
+		cliInput:                 func(line string, args ...string) ([]byte, error) { return runSetupCLIInput(ctx, b, line, args...) },
+		confirm:                  askYesNo,
+		inform:                   tell,
+		cli:                      func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
 		elevated: func(args ...string) error {
 			if serviceAdmin() {
 				_, err := runSetupCLI(ctx, b, args...)
@@ -722,11 +755,7 @@ func (a *app) connectToColleague() {
 			return err
 		},
 	}
-	replyDir := desktopFolder()
-	if replyDir == "" {
-		replyDir = os.Getenv("USERPROFILE")
-	}
-	r, err := runOnboarding(steps, profile, defaultAgentID(os.Getenv("USERNAME")), replyDir)
+	r, err := runOnboarding(steps, profile, defaultAgentID(os.Getenv("USERNAME")))
 	if errors.Is(err, errOnboardingCancelled) {
 		return
 	}
@@ -734,7 +763,13 @@ func (a *app) connectToColleague() {
 		tell(tr("onboarding.title"), err.Error())
 		return
 	}
-	tell(tr("onboarding.title"), tr("onboarding.done", r.AgentID))
+	message := tr("onboarding.done", r.AgentID)
+	if len(r.Clients) > 0 {
+		message += "\n\n" + tr("assistants.connected", strings.Join(r.Clients, ", "))
+	} else {
+		message += "\n\n" + tr("assistants.noneConnected")
+	}
+	tell(tr("onboarding.title"), message)
 }
 
 // openExistingProfile is for people who already made a profile with the CLI: pick its folder,
@@ -750,6 +785,14 @@ func (a *app) openExistingProfile() {
 	}
 	a.mu.Lock()
 	a.pinnedAgent = "" // a different profile is a different identity
+	a.assistantChecked = time.Time{}
 	a.mu.Unlock()
 	a.refreshStatus()
+}
+
+func (a *app) showFirstRun() {
+	err := runFirstRun(firstRunActions{withSetupNode(a.connectToColleague), withSetupNode(a.inviteColleague), withSetupNode(a.openExistingProfile)}, a.changeLocale)
+	if err != nil {
+		tell("Murmur", tr("guide.failed"))
+	}
 }

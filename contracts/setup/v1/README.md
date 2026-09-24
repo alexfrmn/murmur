@@ -2,6 +2,21 @@
 
 Frozen consumer revision: `44b882d48f0139592dea9bd65d89b8a3f11c23cc`.
 
+2.12 accepted-turn diagnostics add nullable `wake_error` to status deliveries and
+inbox messages, and nullable `wakeFault: { reason, fixHint }` to Doctor. Unknown
+extension keys remain allowed; frozen leaves and verdict priorities are unchanged.
+`accepted-turn-unobservable` uses the existing `wake.fault` verdict. The explicit
+`wake dismiss` action is documented in [onboarding](../../../docs/setup-onboarding.md).
+
+2.12 W1 deliberately extends the shared policy in TypeScript, Swift and Go:
+`running-unmanaged` is a running Service, whose lifecycle is outside the selected
+application service label. Four additive fixtures cover that state alone, with
+terminal DLQ, with an effective pause, and without a Server. Their existing fault
+priority is preserved. The `unread` verdict flag now means a delayed Assistant
+delivery (`wake.delivery.pendingUndelivered > 0`), independently of the person's
+inbox cursor. Existing fixture expectations for this flag are updated deliberately;
+their color, missing-source and error-code expectations are unchanged.
+
 2.11 policy extension: terminal DLQ records warn (`outbox.dead-letter`) while
 active send failures still fail. Reversible local acknowledgements affect warning
 attention only; an inconsistent/missing summary falls back to the actual DLQ count.

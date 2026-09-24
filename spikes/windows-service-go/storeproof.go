@@ -13,10 +13,36 @@ package main
 // какие процессы держат файл открытым. Совпал pid нашего демона — значит он и держит.
 
 import (
+	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"unsafe"
 )
+
+// Read-only, label-independent probe used by the shared setup engine. It never
+// opens SCM or installs, starts, stops, repairs, or creates any selected resource.
+func printStoreProof(args []string) error {
+	if len(args) != 1 {
+		return errors.New("store.invalid-pid")
+	}
+	pid, err := strconv.Atoi(args[0])
+	if err != nil || pid <= 0 || uint64(pid) > uint64(^uint32(0)) {
+		return errors.New("store.invalid-pid")
+	}
+	dir := os.Getenv("DATA_DIR")
+	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
+		return errors.New("store.invalid-path")
+	}
+	observed, _ := observedStore(dir, pid)
+	return json.NewEncoder(os.Stdout).Encode(struct {
+		Schema            string  `json:"schema"`
+		PID               int     `json:"pid"`
+		ObservedStorePath *string `json:"observedStorePath"`
+	}{"murmur.store-proof/1", pid, orNil(observed)})
+}
 
 var (
 	rstrtmgr             = syscall.NewLazyDLL("rstrtmgr.dll")

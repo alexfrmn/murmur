@@ -19,6 +19,20 @@ import (
 // Share the exact inputs and expectations used by the engine and Swift consumer.
 var fixtureDir = filepath.Join("..", "..", "contracts", "setup", "v1", "fixtures")
 
+func TestDotMeansPendingDeliveryNotUnreadInbox(t *testing.T) {
+	for _, fixture := range []string{"status-green.json", "status-yellow.json", "status-red.json", "status-grey.json"} {
+		for _, pending := range []int{0, 3} {
+			s := load(t, fixture)
+			unread := 99
+			s.Inbox.Unread = &unread
+			s.Wake.Delivery.PendingUndelivered = &pending
+			if got := resolve(s, nil).Unread; got != (pending > 0) {
+				t.Fatalf("%s pending=%d dot=%v", fixture, pending, got)
+			}
+		}
+	}
+}
+
 func load(t *testing.T, name string) *Status {
 	t.Helper()
 	buf, err := os.ReadFile(filepath.Join(fixtureDir, name))
@@ -39,13 +53,13 @@ func TestResolveLevels(t *testing.T) {
 		want    Level
 		unread  bool
 	}{
-		{"status-green.json", LevelGreen, true},
-		{"status-yellow.json", LevelYellow, true},
-		{"status-red.json", LevelRed, true},
-		{"status-grey.json", LevelGrey, true},
+		{"status-green.json", LevelGreen, false},
+		{"status-yellow.json", LevelYellow, false},
+		{"status-red.json", LevelRed, false},
+		{"status-grey.json", LevelGrey, false},
 		{"status-no-peers.json", LevelYellow, false},
 		{"status-unmeasured.json", LevelGrey, false},
-		{"status-pairing-unknown.json", LevelGreen, true},
+		{"status-pairing-unknown.json", LevelGreen, false},
 	}
 	for _, c := range cases {
 		v := resolve(load(t, c.fixture), nil)

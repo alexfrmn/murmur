@@ -1,0 +1,114 @@
+{
+  "schema": "murmur.status/1",
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "agentId": "agent-misha",
+  "service": {
+    "state": "running-unmanaged",
+    "manager": "none",
+    "since": "2026-09-19T11:03:45Z",
+    "pid": 18232,
+    "lastExitCode": null,
+    "lastFailureAt": null,
+    "restartsLastHour": 0,
+    "managed": false
+  },
+  "broker": {
+    "url": "nats://nats.server-pilot.ru:4222",
+    "state": "connected",
+    "connectedAt": "2026-09-19T11:03:45Z",
+    "lastError": null,
+    "lastErrorAt": null
+  },
+  "peers": {
+    "unknownReason": null,
+    "list": [
+      {
+        "agentId": "agent-jarvis",
+        "paired": true,
+        "lastInboundAt": "2026-09-19T12:40:17Z",
+        "lastOutboundAt": "2026-09-19T12:26:00Z"
+      },
+      {
+        "agentId": "agent-sasha",
+        "paired": true,
+        "lastInboundAt": "2026-09-11T09:12:00Z",
+        "lastOutboundAt": "2026-09-11T09:20:00Z"
+      },
+      {
+        "agentId": "agent-viola",
+        "paired": true,
+        "lastInboundAt": "2026-09-11T14:00:00Z",
+        "lastOutboundAt": "2026-09-11T14:05:00Z"
+      },
+      {
+        "agentId": "agent-danik",
+        "paired": true,
+        "lastInboundAt": "2026-09-18T09:51:09Z",
+        "lastOutboundAt": "2026-09-18T10:02:00Z"
+      }
+    ]
+  },
+  "inbox": {
+    "unread": 2,
+    "total": 156,
+    "lastAt": "2026-09-19T12:40:17Z",
+    "unknownReason": null
+  },
+  "outbox": {
+    "queue": {
+      "pending": 0,
+      "inflight": 0,
+      "delivered": 45,
+      "failed": 0,
+      "dlq": 1,
+      "oldestPendingAt": null,
+      "unknownReason": null
+    },
+    "faults": {
+      "lastError": null,
+      "lastErrorAt": null,
+      "unknownReason": null
+    }
+  },
+  "deliveries": [
+    {
+      "msgId": "4fba10c3",
+      "peer": "agent-jarvis",
+      "direction": "outbound",
+      "state": "delivered",
+      "at": "2026-09-19T12:26:00Z",
+      "attempts": 1,
+      "error": null
+    }
+  ],
+  "wake": {
+    "config": {
+      "enabled": true,
+      "mode": "monitor",
+      "responder": "claude-code",
+      "unknownReason": null
+    },
+    "delivery": {
+      "pendingUndelivered": 0,
+      "lastDeliveredAt": "2026-09-19T12:40:18Z",
+      "unknownReason": null
+    },
+    "faults": {
+      "lastFault": null,
+      "lastFaultAt": null,
+      "unknownReason": null
+    },
+    "effective": {
+      "enabled": true,
+      "needsRestart": false,
+      "observedAt": "2026-09-19T12:40:18Z",
+      "unknownReason": null
+    }
+  },
+  "$stamp": "now",
+  "$expect": {
+    "level": "yellow",
+    "unread": false,
+    "code": "outbox.dead-letter"
+  }
+}

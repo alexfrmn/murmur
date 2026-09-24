@@ -28,6 +28,10 @@ test('staged runtime is self-contained, uses locked dependencies and works outsi
   assert.ok(Object.hasOwn(manifest.files, 'plugins/claude-code/scripts/statusline.mjs'));
   const doctorProtocol = await import(pathToFileURL(path.join(output, 'scripts/doctor-protocol.mjs')));
   assert.equal(typeof doctorProtocol.createDoctorResponder, 'function');
+  const contacts = await import(pathToFileURL(path.join(output, 'scripts/daemon-contacts.mjs')));
+  assert.equal(typeof contacts.createDaemonContacts, 'function');
+  const flushTickModule = await import(pathToFileURL(path.join(output, 'scripts/daemon-flush-tick.mjs')));
+  assert.equal(typeof flushTickModule.flushTick, 'function');
   for (const file of Object.keys(manifest.files)) assert.equal((await fs.lstat(path.join(output, file))).isSymbolicLink(), false);
   const cli = path.join(output, 'packages/setup/bin/murmur.mjs');
   const run = args => JSON.parse(execFileSync(process.execPath, [cli, ...args], {

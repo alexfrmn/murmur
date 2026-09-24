@@ -113,6 +113,8 @@ func main() {
 		mustDo(stop())
 	case "status":
 		mustDo(printStatus())
+	case "observe-store":
+		mustDo(printStoreProof(args[1:]))
 	default:
 		usage()
 		os.Exit(2)

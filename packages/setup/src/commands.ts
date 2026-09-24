@@ -2,14 +2,19 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, mkdir, realpath, rmdir, stat } from 'node:fs/promises';
-import { loadConfig, readJson } from './config.js';
+import { loadConfig, readJson, safeError } from './config.js';
 import { readStatus } from './status.js';
+import { assistantRead, wakeColumns } from './message-status.js';
 import { writeState } from './state.js';
 import type { PlatformAdapter, ServiceContext } from './types.js';
 
 /** Observe the configured directory only; this does not prove a live daemon's log destination. */
-export async function readLogPath(context: ServiceContext) {
+export async function readLogPath(context: ServiceContext, adapter?: PlatformAdapter) {
   const config = await loadConfig(context);
+  if (adapter?.logDirectory) {
+    return { schema: 'murmur.logs/1', agentId: config.agentId, dataDir: context.dataDir,
+      serviceName: context.serviceName, logDir: await adapter.logDirectory(context), source: 'native' };
+  }
   try {
     const dataDir = await realpath(context.dataDir);
     const logDir = await realpath(context.logDir);
@@ -48,7 +53,10 @@ export async function setWakeEnabled(context: ServiceContext, adapter: PlatformA
   } finally { await rmdir(lock); }
   let applyError: string | null = null;
   if (apply) {
-    try { await adapter.stop(context); await adapter.start(context); }
+    try {
+      if ((await readStatus({ context, adapter })).service.state === 'running-unmanaged') applyError = 'service.running-unmanaged';
+      else { await adapter.stop(context); await adapter.start(context); }
+    }
     catch { applyError = 'wake.service-apply-failed'; }
   }
   const status = await readStatus({ context, adapter });
@@ -89,11 +97,13 @@ export async function readInbox(context: ServiceContext, limit = 20) {
     const unread = cursor === null ? null : Number((db.prepare("SELECT COUNT(*) AS n FROM local_messages WHERE direction='inbound' AND rowid>?").get(cursor) as any).n);
     const rows = db.prepare(`SELECT rowid,conversation_id AS conversationId,msg_id AS msgId,sender,text,
       created_at AS createdAt,transport,channel_id AS channelId,sender_member_id AS senderMemberId,
-      addressee_member_id AS addresseeMemberId FROM local_messages WHERE direction='inbound'
+      addressee_member_id AS addresseeMemberId,${wakeColumns(db)} FROM local_messages WHERE direction='inbound'
       ORDER BY created_at DESC,rowid DESC LIMIT ?`).all(limit) as Array<Record<string, unknown>>;
     db.exec('COMMIT');
     return { schema: 'murmur.inbox/1', agentId: config.agentId, readCursor: cursor,
       unread,
-      messages: rows.map(({ rowid, ...row }) => ({ ...row, unread: cursor === null ? null : Number(rowid) > cursor })) };
+      messages: rows.map(({ rowid, ...row }) => ({ ...row, assistantRead: assistantRead(row.wake_status),
+        wake_error: row.wake_error ? safeError(row.wake_error) : null,
+        unread: cursor === null ? null : Number(rowid) > cursor })) };
   } finally { db.close(); }
 }

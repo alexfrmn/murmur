@@ -17,7 +17,20 @@ func peerExchangeKey(paired *bool) string {
 	return "peer.verified"
 }
 
-// The indicator describes runtime readiness. Each row retains its own proof state.
+func peerConnectionKey(peer Peer) string {
+	switch peer.Connection {
+	case "connected":
+		return "peer.connected"
+	case "stale":
+		return "peer.stale"
+	case "unverified":
+		return "peer.unchecked"
+	default:
+		return peerExchangeKey(peer.Paired)
+	}
+}
+
+// The indicator describes runtime readiness. Each row retains its own exchange state.
 func peerLinesForStatus(s *Status) []string {
 	if s == nil || s.Peers.List == nil {
 		return []string{tr("peer.unavailable")}
@@ -40,7 +53,7 @@ func peerLinesForStatus(s *Status) []string {
 		if runes := []rune(id); len(runes) > 100 {
 			id = string(runes[:100]) + "…"
 		}
-		lines = append(lines, strings.ReplaceAll(id, "&", "&&")+" — "+tr(peerExchangeKey(peer.Paired)))
+		lines = append(lines, strings.ReplaceAll(id, "&", "&&")+" — "+tr(peerConnectionKey(peer)))
 	}
 	return lines
 }

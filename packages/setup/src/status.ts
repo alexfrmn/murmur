@@ -2,8 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { loadConfig, readJson, safeError, type AgentConfig } from "./config.js";
+import { loadConfig, readJson, safeError, validAgentId, type AgentConfig } from "./config.js";
 import { readOutboxAttention } from "./outbox-attention.js";
+import { assistantRead, wakeColumns } from "./message-status.js";
 import type { PlatformAdapter, ServiceContext, ServiceSnapshot } from "./types.js";
 
 export type Measurement = { measuredAt: string | null; unknownReason: string | null };
@@ -14,10 +15,32 @@ export const pairFingerprint = (config: AgentConfig, peerId: string) => createHa
   config.peers[peerId]?.signing.publicKey, config.peers[peerId]?.encryption.publicKey,
 ])).digest("hex");
 export function validPairProof(proof: any, config: AgentConfig, peerId: string, now: number): boolean {
-  const at = Date.parse(proof?.verifiedAt);
+  const at = pairProofTime(proof, config, peerId, now);
+  return at !== null && now - Date.parse(at) <= 86400000;
+}
+function pairProofTime(proof: any, config: AgentConfig, peerId: string, now: number): string | null {
   return proof?.peerId === peerId && proof?.localAgentId === config.agentId
     && proof?.keyFingerprint === pairFingerprint(config, peerId)
-    && Number.isFinite(at) && now - at >= -5000 && now - at <= 86400000;
+    ? exchangeTime(proof.verifiedAt, now) : null;
+}
+
+function exchangeTime(value: unknown, now: number): string | null {
+  const timestamp = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(timestamp) && timestamp <= now + 5000 ? new Date(timestamp).toISOString() : null;
+}
+
+interface ContactReload {
+  state: "current" | "partial" | "retained"; count: number; invalidCount: number;
+  lastSuccessAt: string | null; lastError: string | null; lastErrorAt: string | null;
+}
+function contactReload(raw: any, now: number): ContactReload | null {
+  if (!raw || !["current", "partial", "retained"].includes(raw.state)
+    || !Number.isSafeInteger(raw.count) || raw.count < 0
+    || !Number.isSafeInteger(raw.invalidCount) || raw.invalidCount < 0
+    || (raw.lastError !== null && (typeof raw.lastError !== "string" || !/^agent-config-[a-z-]+$/.test(raw.lastError)))) return null;
+  return { state: raw.state, count: raw.count, invalidCount: raw.invalidCount,
+    lastSuccessAt: exchangeTime(raw.lastSuccessAt, now), lastError: raw.lastError,
+    lastErrorAt: exchangeTime(raw.lastErrorAt, now) };
 }
 
 export interface StatusOptions { context: ServiceContext; adapter: PlatformAdapter; now?: () => number }
@@ -42,13 +65,26 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
     const raw = await readJson(path.join(c.dataDir, "daemon-observation.json"));
     const timestamp = Date.parse(raw.measuredAt);
     const storePath = await realpath(c.storePath);
-    if (raw.schema === "murmur.runtime/1" && service.state === "running" && raw.pid === service.pid
-      && raw.agentId === config?.agentId && raw.storePath === storePath && service.observedStorePath === storePath
+    if (raw.schema === "murmur.runtime/1" && Number.isSafeInteger(raw.pid) && raw.pid > 0
+      // A rejected on-disk config must not hide an already running process's
+      // reload diagnostic. Fresh PID/open-store evidence still gates acceptance.
+      && validAgentId(raw.agentId) && (!config || raw.agentId === config.agentId) && raw.storePath === storePath
       && Number.isFinite(timestamp) && started - timestamp >= -5000 && started - timestamp <= 15000
       && ["connected", "disconnected", "unauthorized", "unknown"].includes(raw.broker?.state)
       && typeof raw.wake?.enabled === "boolean" && ["hook", "monitor", "none"].includes(raw.wake?.mode)) {
-      observation = raw;
-      runtimeMeasurement = measured(raw.measuredAt);
+      const managed = service.state === "running" && raw.pid === service.pid && service.observedStorePath === storePath;
+      // A fresh file alone cannot prove liveness: the OS must observe this PID's
+      // open database. Never use process arguments or the configured service name.
+      const independent = !managed && service.state !== "failed"
+        ? await adapter.observeStore?.(c, raw.pid).catch(() => null) : null;
+      if (managed || independent === storePath) {
+        if (!managed && raw.pid !== service.pid) service = { state: "running-unmanaged", manager: "none", pid: raw.pid,
+          observedStorePath: storePath, since: exchangeTime(raw.startedAt, started), lastExitCode: null,
+          restartCount: null, restartWindowMs: null, detail: "service.running-unmanaged" };
+        else if (independent === storePath) service = { ...service, observedStorePath: storePath };
+        observation = raw;
+        runtimeMeasurement = measured(raw.measuredAt);
+      } else runtimeMeasurement = unknown("runtime.process-store-unverified");
     } else runtimeMeasurement = unknown("runtime.observation-unverified-or-stale");
   } catch { /* Absent legacy telemetry is unknown, never reconstructed from config. */ }
 
@@ -63,9 +99,12 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
     pendingUndelivered: null as number | null, lastDeliveredAt: null as string | null,
     lastFault: null as string | null, lastFaultAt: null as string | null, unknownReason: null as string | null,
     measurements: { store: unknown("store.unavailable"), runtime: runtimeMeasurement } };
-  const peers: { list: Array<{ agentId: string; paired: boolean | null; lastInboundAt: string | null; lastOutboundAt: string | null }> | null;
-    unknownReason: string | null; measurements: Record<string, Measurement> } = {
-    list: config ? Object.keys(config.peers).map((agentId) => ({ agentId, paired: null, lastInboundAt: null, lastOutboundAt: null })) : null,
+  const peers: { list: Array<{ agentId: string; paired: boolean | null; lastInboundAt: string | null; lastOutboundAt: string | null;
+      lastExchangeAt: string | null; connection: "connected" | "stale" | "unverified" }> | null;
+    reload: ContactReload | null; unknownReason: string | null; measurements: Record<string, Measurement> } = {
+    list: config ? Object.keys(config.peers).map((agentId) => ({ agentId, paired: null, lastInboundAt: null, lastOutboundAt: null,
+      lastExchangeAt: null, connection: "unverified" })) : null,
+    reload: contactReload(observation?.contacts, started),
     unknownReason: configError, measurements: { config: config ? measured(at) : unknown(configError ?? "config.unavailable"), store: unknown("store.unavailable"), proof: unknown("peers.proof-unavailable") },
   };
   let deliveries: Array<Record<string, unknown>> | null = null;
@@ -100,18 +139,26 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       wake.storedOnly = rows["stored-only"] ?? 0;
       wake.pendingUndelivered = (rows.pending ?? 0) + (rows.inflight ?? 0) + (rows.failed ?? 0);
       wake.lastDeliveredAt = (db.prepare("SELECT MAX(wake_updated_at) AS at FROM local_messages WHERE direction='inbound' AND wake_status='handled'").get() as any).at;
-      const fault = db.prepare("SELECT wake_error,wake_updated_at FROM local_messages WHERE direction='inbound' AND wake_status IN ('failed','dlq') AND wake_error IS NOT NULL ORDER BY wake_updated_at DESC LIMIT 1").get() as any;
+      const fault = db.prepare(`SELECT wake_error,wake_updated_at FROM local_messages WHERE direction='inbound'
+        AND (wake_status IN ('failed','dlq') OR (wake_status='inflight' AND wake_error='accepted-turn-unobservable'))
+        AND wake_error IS NOT NULL ORDER BY wake_updated_at DESC LIMIT 1`).get() as any;
       wake.lastFault = fault ? safeError(fault.wake_error) : null; wake.lastFaultAt = fault?.wake_updated_at ?? null;
       wake.measurements.store = measured(at);
     } catch { wake.measurements.store = unknown("wake.store-schema-unavailable"); }
+    const exchangeCutoff = new Date(started + 5000).toISOString();
     for (const peer of peers.list ?? []) {
-      peer.lastInboundAt = (db.prepare("SELECT MAX(created_at) AS at FROM local_messages WHERE direction='inbound' AND sender=?").get(peer.agentId) as any).at;
-      peer.lastOutboundAt = (db.prepare("SELECT MAX(created_at) AS at FROM outbox WHERE json_extract(envelope_json,'$.recipients[0]')=?").get(peer.agentId) as any).at;
+      peer.lastInboundAt = (db.prepare("SELECT created_at AS at FROM local_messages WHERE direction='inbound' AND sender=? AND julianday(created_at)<=julianday(?) ORDER BY julianday(created_at) DESC LIMIT 1").get(peer.agentId, exchangeCutoff) as any)?.at ?? null;
+      peer.lastOutboundAt = (db.prepare("SELECT created_at AS at FROM outbox WHERE json_extract(envelope_json,'$.recipients[0]')=? AND julianday(created_at)<=julianday(?) ORDER BY julianday(created_at) DESC LIMIT 1").get(peer.agentId, exchangeCutoff) as any)?.at ?? null;
+      const ackedAt = (db.prepare("SELECT updated_at AS at FROM outbox WHERE status='acked' AND json_extract(envelope_json,'$.recipients[0]')=? AND julianday(updated_at)<=julianday(?) ORDER BY julianday(updated_at) DESC LIMIT 1").get(peer.agentId, exchangeCutoff) as any)?.at ?? null;
+      peer.lastExchangeAt = [peer.lastInboundAt, ackedAt].map(value => exchangeTime(value, started)).filter((value): value is string => value !== null).sort().at(-1) ?? null;
     }
     peers.measurements.store = measured(at);
     const outbound = db.prepare("SELECT msg_id AS msgId,json_extract(envelope_json,'$.recipients[0]') AS peer,'outbound' AS direction,CASE status WHEN 'acked' THEN 'delivered' WHEN 'sent' THEN 'inflight' ELSE status END AS state,updated_at AS at,attempts,last_error AS error FROM outbox ORDER BY updated_at DESC LIMIT 20").all();
-    const inbound = db.prepare("SELECT msg_id AS msgId,sender AS peer,'inbound' AS direction,'delivered' AS state,created_at AS at,0 AS attempts,NULL AS error FROM local_messages WHERE direction='inbound' ORDER BY created_at DESC LIMIT 20").all();
-    deliveries = [...outbound, ...inbound].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 20).map((r) => ({ ...r, error: r.error ? safeError(r.error) : null }));
+    const inbound = db.prepare(`SELECT msg_id AS msgId,sender AS peer,'inbound' AS direction,'delivered' AS state,created_at AS at,0 AS attempts,NULL AS error,${wakeColumns(db)} FROM local_messages WHERE direction='inbound' ORDER BY created_at DESC LIMIT 20`).all();
+    deliveries = [...outbound, ...inbound].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 20).map((r) => ({ ...r,
+      error: r.error ? safeError(r.error) : null, wake_status: r.wake_status ?? null,
+      wake_error: r.wake_error ? safeError(r.wake_error) : null,
+      wake_updated_at: r.wake_updated_at ?? null, assistantRead: assistantRead(r.wake_status) }));
     db.exec("COMMIT");
   } catch {
     // Keep independently completed measurements; each source names its uncertainty.
@@ -119,16 +166,23 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
   if (config) {
     try {
       const proofs = await readJson(path.join(c.dataDir, "pair-proofs.json"));
-      for (const peer of peers.list ?? []) peer.paired = validPairProof(proofs[peer.agentId], config, peer.agentId, started) ? true : null;
+      for (const peer of peers.list ?? []) {
+        peer.paired = validPairProof(proofs[peer.agentId], config, peer.agentId, started) ? true : null;
+        const proofAt = pairProofTime(proofs[peer.agentId], config, peer.agentId, started);
+        peer.lastExchangeAt = [peer.lastExchangeAt, proofAt].filter((value): value is string => value !== null).sort().at(-1) ?? null;
+      }
       peers.measurements.proof = measured(at);
     } catch { /* No roundtrip evidence: every pairing stays unknown. */ }
   }
+  for (const peer of peers.list ?? []) peer.connection = peer.lastExchangeAt === null ? "unverified"
+    : started - Date.parse(peer.lastExchangeAt) <= 86400000 ? "connected" : "stale";
   const reason = (sources: Record<string, Measurement>) => Object.entries(sources).filter(([, v]) => v.unknownReason).map(([name, v]) => `${name}:${v.unknownReason}`).join("; ") || null;
   inbox.unknownReason = reason(inbox.measurements); outbox.unknownReason = reason(outbox.measurements);
   wake.unknownReason = reason(wake.measurements); peers.unknownReason = reason(peers.measurements);
   return {
-    schema: "murmur.status/1" as const, generatedAt: at, agentId: config?.agentId ?? null, serviceName: c.serviceName,
-    service: { ...service, lastFailureAt: null, restartsLastHour, restartFailureThreshold: 5,
+    schema: "murmur.status/1" as const, generatedAt: at, agentId: config?.agentId ?? observation?.agentId ?? null, serviceName: c.serviceName,
+    service: { ...service, managed: service.state === "running" ? true : service.state === "running-unmanaged" ? false : null, lastFailureAt: null,
+      restartsLastHour: service.state === "running-unmanaged" ? null : restartsLastHour, restartFailureThreshold: 5,
       unknownReason: service.state === "unknown" ? service.detail ?? "service.unavailable" : null,
       measurements: { manager: service.state === "unknown" ? unknown(service.detail ?? "service.unavailable") : measured(at), history: unknown("service.history-unavailable") } },
     broker: { url: config?.natsUrl ?? null, state: observation?.broker?.state ?? "unknown",

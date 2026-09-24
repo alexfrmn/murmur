@@ -8,6 +8,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { SQLiteMessageStore, SQLiteDedupeOutboxStore } from '../packages/core/dist/src/index.js';
 import { readStatus, pairFingerprint, resolveContext, statusVerdict } from '../packages/setup/dist/src/index.js';
 import { createDaemonObservation } from '../scripts/daemon-observation.mjs';
+import { readInbox, markInboxRead } from '../packages/setup/dist/src/commands.js';
+import { main } from '../packages/setup/dist/src/cli.js';
+import { runDoctor } from '../packages/setup/dist/src/doctor.js';
 const now = Date.parse('2026-09-19T13:00:00Z'), at = new Date(now).toISOString();
 const key = Buffer.alloc(32, 7).toString('base64');
 async function fixture(t) {
@@ -31,8 +34,197 @@ async function fixture(t) {
   const adapter = { manager: 'systemd', status: async () => snapshot };
   const read = () => readStatus({ context, adapter, now: () => now });
   const db = new DatabaseSync(context.storePath); cleanup.push(() => db.close());
-  return { context, config, snapshot, observation, write, read, db, cleanup };
+  return { context, config, snapshot, observation, write, read, db, cleanup, adapter };
 }
+
+test('an unobservable accepted turn exposes its reason and can be dismissed without execution', async t => {
+  const f = await fixture(t), store = new SQLiteMessageStore(f.context.storePath);
+  f.cleanup.push(() => store.close());
+  await store.append({ msgId: 'lost-turn', conversationId: 'c', direction: 'inbound', sender: 'agent-b', text: 'question', createdAt: at, transport: 'nats' });
+  await store.claimWake('lost-turn');
+  await store.setWakeTurn({ msgId: 'lost-turn', peerId: 'agent-b', conversationId: 'c', socketPath: '/unused',
+    threadId: 'thread', turnId: 'accepted', unobservableSince: at });
+  let s = await f.read();
+  assert.equal(s.wake.faults.lastFault, 'accepted-turn-unobservable');
+  assert.equal(s.deliveries.find(r => r.msgId === 'lost-turn').wake_error, 'accepted-turn-unobservable');
+  assert.equal((await readInbox(f.context)).messages[0].wake_error, 'accepted-turn-unobservable');
+  await store.settleWake('lost-turn', { status: 'dlq', error: 'accepted-turn-unobservable' });
+  // This local fault must remain diagnosable even if a preceding network stage fails.
+  const doctor = await runDoctor({ context: f.context, adapter: f.adapter, timeoutMs: 100 });
+  assert.equal(doctor.wakeFault.reason, 'accepted-turn-unobservable');
+  assert.match(doctor.wakeFault.fixHint, /wake dismiss/);
+  const cursorBefore = await fs.readFile(path.join(f.context.dataDir, 'read-state.json'), 'utf8');
+  const receiptBefore = await store.getWakeTurn('lost-turn');
+  const action = await main(['wake', 'dismiss', '--data-dir', f.context.dataDir,
+    '--msg-id', 'lost-turn', '--expected-agent', 'agent-a', '--json'], f.adapter);
+  assert.equal(action.status, 'muted'); assert.equal(action.executed, false);
+  assert.equal((await store.wakeStateFor('lost-turn')).status, 'muted');
+  assert.deepEqual(await store.getWakeTurn('lost-turn'), receiptBefore);
+  assert.equal((await f.read()).wake.faults.lastFault, null);
+  assert.equal((await readInbox(f.context)).messages[0].assistantRead, false);
+  assert.equal(await fs.readFile(path.join(f.context.dataDir, 'read-state.json'), 'utf8'), cursorBefore);
+  assert.equal((await store.claimWake('lost-turn')).claimed, false);
+});
+
+test('wake dismiss refuses another Identity and unrelated or active deliveries unchanged', async t => {
+  const f = await fixture(t), store = new SQLiteMessageStore(f.context.storePath);
+  f.cleanup.push(() => store.close());
+  const args = ['wake', 'dismiss', '--data-dir', f.context.dataDir, '--msg-id', 'letter', '--expected-agent'];
+  await store.append({ msgId: 'letter', conversationId: 'c', direction: 'inbound', sender: 'agent-b', text: 'question', createdAt: at, transport: 'nats' });
+  for (const status of ['pending', 'inflight', 'handled', 'dlq']) {
+    await store.settleWake('letter', { status, error: status === 'dlq' ? 'unrelated-failure' : 'accepted-turn-unobservable' });
+    const before = await store.wakeStateFor('letter');
+    await assert.rejects(main([...args, 'agent-a'], f.adapter), /wake.dismiss-not-eligible/);
+    assert.deepEqual(await store.wakeStateFor('letter'), before);
+  }
+  await store.settleWake('letter', { status: 'dlq', error: 'accepted-turn-unobservable' });
+  const before = await store.wakeStateFor('letter');
+  await assert.rejects(main([...args, 'another'], f.adapter), /wake.identity-changed/);
+  assert.deepEqual(await store.wakeStateFor('letter'), before);
+});
+
+test('wake dismissal settles the entire accepted batch and preserves its receipt', async t => {
+  const f = await fixture(t), store = new SQLiteMessageStore(f.context.storePath);
+  f.cleanup.push(() => store.close());
+  for (const msgId of ['one', 'two']) {
+    await store.append({ msgId, conversationId: 'c', direction: 'inbound', sender: 'agent-b', text: msgId, createdAt: at, transport: 'nats' });
+    await store.claimWake(msgId);
+  }
+  const batch = await store.assignWakeBatch(['one', 'two']);
+  await store.setWakeTurn({ msgId: batch.batchId, peerId: 'agent-b', conversationId: 'c', socketPath: '/unused',
+    threadId: 'thread', turnId: 'accepted', unobservableSince: at });
+  await store.settleWakeBatch(['one', 'two'].map(msgId => ({ msgId, input: { status: 'dlq', error: 'accepted-turn-unobservable' } })));
+  const receipt = await store.getWakeTurn(batch.batchId);
+  const args = ['wake', 'dismiss', '--data-dir', f.context.dataDir, '--msg-id', 'one', '--expected-agent', 'agent-a'];
+  assert.deepEqual((await main(args, f.adapter)).msgIds.sort(), ['one', 'two']);
+  assert.equal((await store.wakeStateFor('two')).status, 'muted');
+  assert.deepEqual(await store.getWakeTurn(batch.batchId), receipt);
+  assert.equal((await main(args, f.adapter)).executed, false, 'repeated dismissal stays idempotent');
+});
+
+test('durable accepted-turn faults do not become a sticky runtime fault after dismissal', async t => {
+  const f = await fixture(t);
+  const observation = createDaemonObservation({ dataDir: f.context.dataDir, storePath: f.context.storePath,
+    agentId: f.config.agentId, wake: { enabled: true, mode: 'monitor', responder: 'codex' } });
+  await observation.start();
+  try {
+    await observation.observeLog('error', 'WakeMonitor wake dead-lettered', { error: 'accepted-turn-unobservable' });
+    assert.equal(JSON.parse(await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8')).wake.lastFault, null);
+    await observation.observeLog('error', 'WakeMonitor lane crashed', { error: 'database is locked' });
+    assert.equal(JSON.parse(await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8')).wake.lastFault, 'wake.database-locked');
+  } finally { await observation.stop(); }
+});
+test('live store-bound daemon without the selected service label is running-unmanaged', async t => {
+  const f = await fixture(t);
+  f.snapshot.state = 'stopped'; f.snapshot.pid = null; f.snapshot.observedStorePath = null;
+  f.adapter.observeStore = async (context, pid) => {
+    assert.equal(context, f.context); assert.equal(pid, f.observation.pid);
+    return f.observation.storePath;
+  };
+  const s = await f.read();
+  assert.equal(s.service.state, 'running-unmanaged');
+  assert.equal(s.service.pid, f.observation.pid);
+  assert.equal(s.service.observedStorePath, f.observation.storePath);
+  assert.equal(s.service.managed, false);
+  assert.equal(s.broker.state, 'connected');
+  assert.equal(statusVerdict(s, now).code, 'ok');
+});
+test('an unmanaged observation is not liveness evidence without the PID holding this store', async t => {
+  const f = await fixture(t); f.snapshot.state = 'stopped';
+  f.snapshot.pid = null; f.snapshot.observedStorePath = null;
+  for (const observed of [null, '/another/murmur.db']) {
+    f.adapter.observeStore = async () => observed;
+    const s = await f.read();
+    assert.equal(s.service.state, 'stopped'); assert.equal(s.broker.state, 'unknown');
+  }
+  f.adapter.observeStore = async () => { throw new Error('unavailable'); };
+  assert.equal((await f.read()).service.state, 'stopped');
+  f.adapter.observeStore = async () => f.observation.storePath;
+  for (const delta of [{ pid: -1 }, { pid: 1.5 }, { agentId: 'another' }, { measuredAt: new Date(now - 15001).toISOString() }]) {
+    await f.write('daemon-observation.json', { ...f.observation, ...delta });
+    assert.equal((await f.read()).service.state, 'stopped');
+  }
+});
+test('Contact reload failure stays visible when the on-disk config is broken', async t => {
+  const f = await fixture(t);
+  f.observation.contacts = { state: 'retained', count: 1, invalidCount: 0, lastSuccessAt: at,
+    lastError: 'agent-config-unavailable-retry-or-restart', lastErrorAt: at };
+  await f.write('daemon-observation.json', f.observation);
+  await fs.writeFile(f.context.configPath, '{invalid');
+  let status = await f.read();
+  assert.equal(status.agentId, 'agent-a');
+  assert.equal(status.service.state, 'running');
+  assert.equal(status.broker.state, 'connected');
+  assert.equal(status.peers.list, null, 'invalid configuration does not invent a Contact list');
+  assert.deepEqual(status.peers.reload, f.observation.contacts);
+  assert.ok(status.peers.unknownReason);
+  f.snapshot.pid = null; f.snapshot.state = 'stopped'; f.snapshot.observedStorePath = null;
+  status = await f.read();
+  assert.equal(status.peers.reload, null, 'unverified observations cannot claim retained Contacts');
+  f.adapter.observeStore = async () => f.observation.storePath;
+  assert.equal((await f.read()).service.state, 'running-unmanaged');
+  await f.write('daemon-observation.json', { ...f.observation, measuredAt: new Date(now - 15001).toISOString() });
+  assert.equal((await f.read()).peers.reload, null);
+});
+test('Contact reload diagnostics expose only validated counts and safe error codes', async t => {
+  const f = await fixture(t);
+  const contacts = { state: 'partial', count: 1, invalidCount: 2, lastSuccessAt: at,
+    lastError: 'agent-config-peer-invalid', lastErrorAt: at };
+  await f.write('daemon-observation.json', { ...f.observation, contacts: { ...contacts, privateText: 'do-not-copy' } });
+  assert.deepEqual((await f.read()).peers.reload, contacts);
+  for (const delta of [{ state: 'invented' }, { count: -1 }, { invalidCount: 1.5 }, { lastError: 'secret-token-123' }]) {
+    await f.write('daemon-observation.json', { ...f.observation, contacts: { ...contacts, ...delta } });
+    const s = await f.read();
+    assert.equal(s.peers.reload, null); assert.equal(s.broker.state, 'connected');
+  }
+});
+test('contact exchange uses successful traffic, never an enqueued or failed send', async t => {
+  const f = await fixture(t);
+  const insert = f.db.prepare("INSERT INTO outbox(msg_id,subject,envelope_json,status,attempts,next_attempt_at,created_at,updated_at,version) VALUES(?,?,?,?,0,?,?,?,0)");
+  for (const state of ['pending', 'sent', 'failed', 'dlq']) insert.run(state, 'msg.agent-b', JSON.stringify({ recipients: ['agent-b'] }), state, at, at, at);
+  let peer = (await f.read()).peers.list[0];
+  assert.equal(peer.lastExchangeAt, null); assert.equal(peer.connection, 'unverified');
+  const exchanged = new Date(now - 86400000).toISOString();
+  insert.run('ack', 'msg.agent-b', JSON.stringify({ recipients: ['agent-b'] }), 'acked', exchanged, exchanged, exchanged);
+  peer = (await f.read()).peers.list[0];
+  assert.equal(peer.lastExchangeAt, exchanged); assert.equal(peer.connection, 'connected');
+  f.db.prepare("UPDATE outbox SET updated_at=? WHERE msg_id='ack'").run(new Date(now - 86400001).toISOString());
+  assert.equal((await f.read()).peers.list[0].connection, 'stale');
+  f.db.prepare("INSERT INTO local_messages(id,conversation_id,msg_id,direction,sender,text,created_at,wake_status) VALUES('in','c','in','inbound','agent-b','test',?,'pending')").run(at);
+  peer = (await f.read()).peers.list[0];
+  assert.equal(peer.lastExchangeAt, at); assert.equal(peer.connection, 'connected');
+});
+for (const direction of ['inbound', 'outbound']) for (const caseName of ['future', 'offset']) {
+  test(`${direction} exchange ignores future timestamps and sorts instants (${caseName})`, async t => {
+    const f = await fixture(t);
+    const expected = '2026-09-19T12:55:00.000Z';
+    const times = [expected, caseName === 'future' ? '2026-09-19T13:01:00Z' : '2026-09-19T15:40:00+03:00'];
+    for (const [id, time] of times.entries()) {
+      if (direction === 'inbound') f.db.prepare(`INSERT INTO local_messages(id,conversation_id,msg_id,direction,sender,text,created_at)
+        VALUES(?,'c',?,'inbound','agent-b','test',?)`).run(String(id), String(id), time);
+      else f.db.prepare(`INSERT INTO outbox(msg_id,subject,envelope_json,status,attempts,next_attempt_at,created_at,updated_at,version)
+        VALUES(?,'msg.agent-b',?,'acked',1,?,?,?,1)`).run(String(id), JSON.stringify({ recipients: ['agent-b'] }), time, time, time);
+    }
+    const peer = (await f.read()).peers.list[0];
+    assert.equal(peer.lastExchangeAt, expected); assert.equal(peer.connection, 'connected');
+  });
+}
+test('a second store probe preserves the app service when its PID is unchanged', async t => {
+  const f = await fixture(t); f.snapshot.observedStorePath = null;
+  f.adapter.observeStore = async () => f.observation.storePath;
+  const status = await f.read();
+  assert.equal(status.service.state, 'running'); assert.equal(status.service.manager, 'systemd');
+  assert.equal(status.service.managed, true);
+  assert.equal(status.service.observedStorePath, f.observation.storePath);
+  assert.equal(status.broker.state, 'connected');
+});
+test('a manager-reported failed exit is preserved even without restart-loop evidence', async t => {
+  const f = await fixture(t); f.snapshot.state = 'failed'; f.snapshot.pid = null; f.snapshot.lastExitCode = 7;
+  f.adapter.observeStore = async () => assert.fail('failed manager verdict must not be replaced');
+  const status = await f.read();
+  assert.equal(status.service.state, 'failed'); assert.equal(status.service.lastExitCode, 7);
+  assert.equal(status.broker.state, 'unknown');
+});
 test('status reads real durable counters, no local-key-only pairing claim or file writes', async t => {
   const f = await fixture(t);
   const before = await fs.readFile(f.context.configPath);
@@ -108,4 +300,80 @@ test('runtime observer captures only safe fault codes without command/output con
   const text = await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8');
   assert.equal(JSON.parse(text).wake.lastFault, 'wake.database-locked');
   assert.ok(!text.includes('do-not-copy'));
+});
+test('runtime observer publishes the current Contact reload diagnostic', async t => {
+  const f = await fixture(t);
+  let contacts = { state: 'retained', count: 1, invalidCount: 0, lastSuccessAt: at,
+    lastError: 'agent-config-runtime-changed-restart-required', lastErrorAt: at };
+  const observation = createDaemonObservation({ dataDir: f.context.dataDir, storePath: f.context.storePath,
+    agentId: 'agent-a', wake: { enabled: false, mode: 'none' }, contacts: () => contacts });
+  f.cleanup.push(() => observation.stop()); await observation.start();
+  const read = async () => JSON.parse(await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8'));
+  assert.deepEqual((await read()).contacts, contacts);
+  contacts = { ...contacts, state: 'current', lastError: null, lastErrorAt: null };
+  await observation.connected();
+  assert.deepEqual((await read()).contacts, contacts);
+});
+test('message read cursor never claims the Assistant handled a message', async t => {
+  const f = await fixture(t);
+  const insert = f.db.prepare("INSERT INTO local_messages(id,conversation_id,msg_id,direction,sender,text,created_at,wake_status,wake_updated_at) VALUES(?,'c',?,'inbound','agent-b','synthetic',?,?,?)");
+  const statuses = ['handled', 'pending', 'inflight', 'failed', 'dlq', 'muted', 'stored-only', null];
+  for (const [i, status] of statuses.entries()) insert.run(String(i), String(i), at, status, at);
+  for (const mark of [false, true]) {
+    if (mark) await markInboxRead(f.context);
+    const result = await readInbox(f.context);
+    assert.equal(result.messages.length, statuses.length);
+    for (const row of result.messages) {
+      assert.equal(row.wake_status, statuses[Number(row.msgId)]);
+      assert.equal(row.assistantRead, row.wake_status === null ? null : row.wake_status === 'handled');
+      assert.equal(row.unread, !mark);
+    }
+  }
+  const status = await f.read();
+  assert.equal(status.deliveries.find(row => row.msgId === '0').assistantRead, true);
+  assert.equal(status.deliveries.find(row => row.msgId === '1').wake_status, 'pending');
+});
+test('initial Server failure is persisted and logged as a safe reason', async t => {
+  const f = await fixture(t), logs = [];
+  const observation = createDaemonObservation({ dataDir: f.context.dataDir, storePath: f.context.storePath,
+    agentId: 'agent-a', wake: { enabled: true, mode: 'monitor' }, log: (...args) => logs.push(args) });
+  f.cleanup.push(() => observation.stop()); await observation.start();
+  const read = async () => JSON.parse(await fs.readFile(path.join(f.context.dataDir, 'daemon-observation.json'), 'utf8'));
+  assert.equal((await read()).broker.lastError, 'broker.connecting');
+  for (const [reason, state] of [['broker.connection-refused', 'disconnected'], ['broker.unauthorized', 'unauthorized']]) {
+    await observation.onStatus({ type: 'connect_error', data: { reason, secret: 'do-not-copy' } });
+    const row = await read();
+    assert.equal(row.broker.state, state); assert.equal(row.broker.lastError, reason);
+    assert.ok(row.broker.lastErrorAt);
+    assert.ok(logs.some(row => row[2]?.reason === reason));
+    assert.ok(!JSON.stringify(row).includes('do-not-copy'));
+  }
+  await observation.connected(); assert.equal((await read()).broker.state, 'connected');
+});
+test('unmanaged liveness never authorizes a lifecycle operation against another label', async t => {
+  const f = await fixture(t), at = new Date().toISOString();
+  await f.write('daemon-observation.json', { ...f.observation, measuredAt: at });
+  f.snapshot.state = 'stopped'; f.snapshot.pid = null; f.snapshot.observedStorePath = null;
+  f.adapter.observeStore = async () => f.observation.storePath;
+  const operations = [];
+  for (const action of ['install', 'start', 'stop', 'uninstall']) f.adapter[action] = async () => operations.push(action);
+  for (const action of ['install', 'start', 'stop', 'uninstall']) {
+    await assert.rejects(main(['service', action, '--data-dir', f.context.dataDir], f.adapter), /service.running-unmanaged/);
+  }
+  const paused = await main(['wake', 'pause', '--apply', '--data-dir', f.context.dataDir], f.adapter);
+  assert.equal(paused.applyError, 'service.running-unmanaged');
+  assert.equal(paused.effectiveEnabled, true); assert.equal(paused.restartRequired, true);
+  assert.deepEqual(operations, []);
+});
+test('inbox returns 20 newest legacy messages with unknown Assistant receipt without migration', async t => {
+  const f = await fixture(t);
+  const legacy = path.join(f.context.dataDir, 'legacy.db'), db = new DatabaseSync(legacy);
+  db.exec('CREATE TABLE local_messages(conversation_id TEXT,msg_id TEXT,direction TEXT,sender TEXT,text TEXT,created_at TEXT,transport TEXT,channel_id TEXT,sender_member_id TEXT,addressee_member_id TEXT)');
+  for (let i = 0; i < 24; i++) db.prepare("INSERT INTO local_messages(conversation_id,msg_id,direction,sender,text,created_at) VALUES('c',?,'inbound','agent-b','synthetic',?)").run(String(i), at);
+  const before = db.prepare('PRAGMA table_info(local_messages)').all();
+  const result = await readInbox({ ...f.context, storePath: legacy });
+  assert.equal(result.messages.length, 20); assert.equal(result.messages[0].msgId, '23');
+  assert.ok(result.messages.every(row => row.wake_status === null && row.assistantRead === null));
+  assert.deepEqual(db.prepare('PRAGMA table_info(local_messages)').all(), before);
+  db.close();
 });

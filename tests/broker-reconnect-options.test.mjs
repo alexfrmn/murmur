@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNatsConnectionOptions } from "../packages/broker-nats/dist/src/index.js";
+import { buildNatsConnectionOptions, NatsBroker } from "../packages/broker-nats/dist/src/index.js";
+import { createServer } from 'node:net';
 
 test("buildNatsConnectionOptions enables resilient reconnect defaults", () => {
   const options = buildNatsConnectionOptions({
@@ -16,6 +17,20 @@ test("buildNatsConnectionOptions enables resilient reconnect defaults", () => {
   assert.equal(options.pingInterval, 20000);
   assert.equal(options.maxPingOut, 2);
   assert.equal(options.waitOnFirstConnect, true);
+});
+test('initial refused connection reports a safe reason before connect rejects', async () => {
+  const listener = createServer();
+  await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
+  const port = listener.address().port;
+  await new Promise(resolve => listener.close(resolve));
+  const events = [];
+  const broker = new NatsBroker({ url: `nats://127.0.0.1:${port}`, waitOnFirstConnect: false,
+    connectMaxAttempts: 1, connectTimeoutMs: 100, onStatus: event => events.push(event) });
+  try {
+    await assert.rejects(broker.connect());
+    assert.equal(events[0]?.type, 'connect_error');
+    assert.deepEqual(events[0]?.data, { reason: 'broker.connection-refused' });
+  } finally { await broker.close(); }
 });
 
 test("buildNatsConnectionOptions allows bounded operator overrides", () => {

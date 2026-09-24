@@ -107,7 +107,7 @@
   "$stamp": "now",
   "$expect": {
     "level": "red",
-    "unread": true,
+    "unread": false,
     "code": "outbox.undelivered"
   }
 }

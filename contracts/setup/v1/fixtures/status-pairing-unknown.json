@@ -107,7 +107,7 @@
   "$stamp": "now",
   "$expect": {
     "level": "green",
-    "unread": true,
+    "unread": false,
     "code": "ok",
     "missing": [],
     "missingWhy": {}

@@ -49,7 +49,14 @@ func discoverCLI() (cliBinding, error) {
 	if b.Node, err = filepath.Abs(b.Node); err != nil {
 		return b, errors.New(tr("binding.noNode"))
 	}
-	local := os.Getenv("LOCALAPPDATA")
+	identity, err := discoverIdentity(os.Getenv("LOCALAPPDATA"))
+	b.Profile, b.Service = identity.Profile, identity.Service
+	return b, err
+}
+
+// Shared identity selection; first run must work without Node.
+func discoverIdentity(local string) (cliBinding, error) {
+	b := cliBinding{}
 	if !filepath.IsAbs(local) {
 		return b, notConfigured()
 	}
@@ -218,9 +225,25 @@ func setupBinding(profile string) (cliBinding, error) {
 // runSetupCLI runs the CLI as the user and returns stdout, or the CLI's own error code (the one
 // line safeError writes to stderr) so a failed step names its reason.
 func runSetupCLI(ctx context.Context, b cliBinding, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, b.Node, append([]string{b.Entry}, args...)...)
+	return runSetupCLIInput(ctx, b, "", args...)
+}
+
+// Input is piped directly; it never becomes an argument, file, or diagnostic.
+func runSetupCLIInput(ctx context.Context, b cliBinding, input string, args ...string) ([]byte, error) {
+	// Desktop calls consume receipts and stable codes, even when an older caller
+	// omitted --json. Human CLI output may be an Invitation/Reply line or sentence.
+	cliArgs := append([]string{b.Entry}, args...)
+	jsonMode := false
+	for _, arg := range args {
+		jsonMode = jsonMode || arg == "--json"
+	}
+	if !jsonMode {
+		cliArgs = append(cliArgs, "--json")
+	}
+	cmd := exec.CommandContext(ctx, b.Node, cliArgs...)
 	cmd.Env = b.environment()
 	cmd.Dir = filepath.Dir(b.Entry)
+	cmd.Stdin = strings.NewReader(input)
 	hideConsole(cmd)
 	var stdout, stderr boundedOutput
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

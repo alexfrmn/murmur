@@ -140,6 +140,7 @@
 "Service status unknown" = "Состояние службы неизвестно";
 "Service stopped" = "Служба остановлена";
 "Service running" = "Служба работает";
+"Running outside this application's control" = "Работает вне управления приложения";
 "Edit" = "Правка";
 "Undo" = "Отменить";
 "Redo" = "Повторить";
@@ -436,5 +437,8 @@
 "Service connected and ready" = "Служба подключена и готова к работе";
 "Exchange verified" = "Обмен проверен";
 "Exchange verification failed" = "Проверка обмена не пройдена";
-"Exchange not checked yet" = "Обмен ещё не проверен";
+"Exchange not checked yet" = "Проверьте связь с этим Контактом";
+"Check the connection with this Contact" = "Проверьте связь с этим Контактом";
+"Connection available" = "Связь есть";
+"No exchange in the last 24 hours — check the connection" = "За последние 24 часа обмена не было — проверьте связь";
 "Exchange verification does not test automatic agent wake." = "Проверка обмена не проверяет пробуждение.";

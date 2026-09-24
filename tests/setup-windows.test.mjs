@@ -2,13 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createWindowsAdapter } from '../packages/setup/dist/src/platform/windows.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
 const context = resolveContext({ platform: 'win32', dataDir: 'C:\\Users\\me\\profile', repoRoot: 'C:\\Program Files\\Murmur\\runtime', nodePath: 'C:\\Program Files\\nodejs\\node.exe', serviceName: 'MurmurFixture' });
 const helper = 'C:\\Program Files\\Murmur\\murmur-svc.exe';
 const canonicalize = async value => path.win32.normalize(value).toLowerCase();
+test('label-independent Windows store proof validates PID and store without SCM mutations', async () => {
+  let response = { schema: 'murmur.store-proof/1', pid: 200, observedStorePath: context.storePath };
+  const calls = [];
+  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, run: async (file, args, options) => {
+    calls.push(args); assert.equal(file, helper); assert.equal(options.env.DATA_DIR, context.dataDir);
+    return { code: 0, stdout: JSON.stringify(response), stderr: '' };
+  } });
+  assert.equal(await adapter.observeStore(context, 200), await canonicalize(context.storePath));
+  for (const delta of [{ pid: 201 }, { observedStorePath: 'C:\\another\\murmur.db' }, { schema: 'future' }, { observedStorePath: null }]) {
+    const original = response; response = { ...response, ...delta };
+    assert.equal(await adapter.observeStore(context, 200), null); response = original;
+  }
+  assert.ok(calls.every(args => JSON.stringify(args) === JSON.stringify(['observe-store', '200'])));
+});
 function native(overrides = {}) {
   return { schema: 'murmur.windows-service/1', serviceName: context.serviceName, manager: 'windows-service', state: 'running',
     profile: { dataDir: context.dataDir, workDir: context.repoRoot, entry: path.win32.join(context.repoRoot, 'scripts', 'murmur-daemon.mjs'), node: context.nodePath, restartsPerHourLimit: 5 },
@@ -135,6 +149,29 @@ test('distinct canonical case-sensitive profiles cannot authorize an action', as
 
 test('Windows logs refuses to advertise a different configured folder', { skip: process.platform !== 'win32' }, async () => {
   const { main } = await import('../packages/setup/dist/src/cli.js');
-  const untouched = new Proxy({}, { get() { throw Error('unexpected-service-access'); } });
+  const untouched = new Proxy({}, { get(_, key) { if (key === 'logDirectory') return undefined; throw Error('unexpected-service-access'); } });
   await assert.rejects(main(['logs', 'path', '--data-dir', context.dataDir], untouched), /logs.windows-native-location-unavailable/);
+});
+
+test('Windows native logs verifies ownership and opens only its existing directory', { skip: process.platform !== 'win32' }, async t => {
+  const programData = await realpath(await mkdtemp(path.join(tmpdir(), 'murmur-native-logs-')));
+  t.after(() => rm(programData, { recursive: true, force: true }));
+  const expected = path.join(programData, 'Murmur', 'logs', context.serviceName);
+  await mkdir(expected, { recursive: true });
+  let value = native();
+  const calls = [];
+  const adapter = createWindowsAdapter({ helperPath: helper, env: { ProgramData: programData },
+    canonicalize: async p => p.startsWith(programData) ? realpath(p) : path.win32.normalize(p),
+    run: async (_, args) => { calls.push(args[0]); return { code: 0, stdout: JSON.stringify(value), stderr: '' }; } });
+  assert.equal(await adapter.logDirectory(context), expected);
+  value = native({ profile: { ...native().profile, dataDir: 'C:\\foreign-profile' } });
+  await assert.rejects(adapter.logDirectory(context), /profile-mismatch/);
+  value = native();
+  await rm(expected, { recursive: true });
+  await assert.rejects(adapter.logDirectory(context), /logs.directory-missing/);
+  const outside = path.join(programData, 'outside');
+  await mkdir(outside);
+  await symlink(outside, expected, 'junction');
+  await assert.rejects(adapter.logDirectory(context), /logs.path-outside-service/);
+  assert.ok(calls.every(action => action === 'status'), 'log lookup must never mutate SCM');
 });

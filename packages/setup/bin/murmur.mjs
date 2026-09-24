@@ -16,7 +16,9 @@ const { safeError, humanError } = await import('../dist/src/config.js');
 const lineMode = process.argv[2] === 'status' && process.argv.includes('--line');
 try {
   const result = await main(process.argv.slice(2));
-  if (isRawCliOutput(result)) {
+  if (!process.argv.includes('--json') && (result?.schema === 'murmur.invite/1' || result?.schema === 'murmur.join/1')) {
+    process.stdout.write((result.invitation ?? result.reply) + '\n');
+  } else if (isRawCliOutput(result)) {
     if (result.text) process.stdout.write(result.text + '\n');
   } else process.stdout.write(JSON.stringify(result) + '\n');
 } catch (error) {

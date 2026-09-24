@@ -154,7 +154,7 @@ func TestEveryStaticMessageKeyExists(t *testing.T) {
 	}
 }
 
-func TestEnglishIsDefaultAndAmbientLocaleIsIgnored(t *testing.T) {
+func TestWindowsLocaleIsDefaultAndAmbientOverrideIsIgnored(t *testing.T) {
 	previous := currentLocale()
 	t.Cleanup(func() { setLocale(previous) })
 	setLocale(defaultLocale)
@@ -164,10 +164,10 @@ func TestEnglishIsDefaultAndAmbientLocaleIsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if args.locale != localeEnglish || args.localeExplicit {
+	if args.locale != systemLocale() || args.localeExplicit {
 		t.Fatalf("default locale = %#v", args)
 	}
-	if got := resolve(nil, nil).Reason; got != "Status has not been collected yet" {
+	if got := resolve(nil, nil).Reason; got != "Not checked yet" {
 		t.Fatalf("default status text = %q", got)
 	}
 }
@@ -176,7 +176,7 @@ func TestExplicitRussianAndPreferencePersistence(t *testing.T) {
 	previous := currentLocale()
 	t.Cleanup(func() { setLocale(previous) })
 	path := filepath.Join(t.TempDir(), "prefs", "tray-preferences.json")
-	if got := loadLocalePreference(path); got != localeEnglish {
+	if got := loadLocalePreference(path); got != systemLocale() {
 		t.Fatalf("missing preference = %q", got)
 	}
 	if err := saveLocalePreference(path, localeRussian); err != nil {
@@ -210,7 +210,7 @@ func TestPreferenceRejectsUnknownOrMalformedLocale(t *testing.T) {
 		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if got := loadLocalePreference(path); got != localeEnglish {
+		if got := loadLocalePreference(path); got != systemLocale() {
 			t.Fatalf("invalid preference selected %q for %q", got, data)
 		}
 	}

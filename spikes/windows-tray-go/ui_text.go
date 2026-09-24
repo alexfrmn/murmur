@@ -53,3 +53,13 @@ func displayEventTime(value string) string {
 	}
 	return parsed.Format(time.RFC3339)
 }
+
+func boolText(v *bool) string {
+	if v == nil {
+		return tr("bool.unknown")
+	}
+	if *v {
+		return tr("bool.yes")
+	}
+	return tr("bool.no")
+}

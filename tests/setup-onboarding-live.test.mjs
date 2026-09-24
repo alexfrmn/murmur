@@ -14,6 +14,8 @@ import { stableEnvelopePayload } from '../packages/core/dist/src/index.js';
 import { signEnvelope } from '../packages/security/dist/src/index.js';
 import { probeRoundtrip } from '../packages/setup/dist/src/doctor.js';
 import { resolveContext } from '../packages/setup/dist/src/paths.js';
+import { platformAdapter } from '../packages/setup/dist/src/cli.js';
+import { runDoctor } from '../packages/setup/dist/src/doctor.js';
 const exec=promisify(execFile), root=fileURLToPath(new URL('../',import.meta.url));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn) { const end=Date.now()+12000; while(Date.now()<end){try{const v=await fn();if(v)return v;}catch{}await delay(50);}throw new Error('onboarding-live.timeout'); }
@@ -78,4 +80,15 @@ test('CLI invite handshake proves daemon roundtrip without an AI responder or wa
   const wrongRow=await until(()=>read('agent-b','SELECT wake_eligible,wake_status FROM local_messages WHERE msg_id=?',wrongTarget.msgId));
   assert.deepEqual({...wrongRow},{wake_eligible:0,wake_status:'muted'});
   assert.equal(read('agent-b','SELECT count(*) n FROM outbox').n,1);
+  if (['darwin', 'linux'].includes(process.platform)) {
+    const report = await runDoctor({ context, adapter: platformAdapter(), peer: 'agent-b', timeoutMs: 10000 });
+    assert.equal(report.schema, 'murmur.doctor/1');
+    assert.equal(report.peerCheck.state, 'connected');
+    assert.equal(report.peerCheck.peerId, 'agent-b');
+    assert.ok(report.peerCheck.lastExchangeAt);
+    assert.ok(read('agent-a', "SELECT msg_id FROM local_messages WHERE msg_id=?", report.peerCheck.replyMsgId));
+    assert.equal(report.stages.find(row => row.id === 'daemon').state, 'ok');
+    assert.equal(report.stages.find(row => row.id === 'roundtrip').state, 'ok');
+    assert.equal(report.stages.find(row => row.id === 'wake').reason, 'wake.no-responder');
+  }
 });
