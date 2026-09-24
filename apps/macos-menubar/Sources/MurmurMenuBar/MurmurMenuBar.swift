@@ -429,7 +429,8 @@ final class TrayModel: ObservableObject {
         if mode == .invite { makeInvitation() }
     }
     func beginInviting() {
-        if canPair { beginPairing(.invite); return }
+        guard canUseInvitation else { return }
+        if profile != nil { beginPairing(.invite); return }
         beginOwnProfile()
         inviteAfterCreation = showCreateProfileSheet
     }

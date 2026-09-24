@@ -477,3 +477,7 @@
 "This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use." = "В Приглашении указан другой Сервер. Попросите у коллеги Приглашение для Сервера, который вы уже используете.";
 "Refresh the status of this Identity before using an Invitation." = "Обновите состояние текущей Личности перед использованием Приглашения.";
 "Choose an existing connection before using an Invitation." = "Выберите существующую Личность перед использованием Приглашения.";
+"Message exchange" = "Обмен сообщениями";
+"The Server access key must be one line. Ask for the correct key and save it again." = "Ключ доступа к Серверу должен занимать одну строку. Попросите правильный ключ и сохраните его заново.";
+"The Server access file was not found. Choose it again." = "Файл доступа к Серверу не найден. Выберите его заново.";
+"The Server access file cannot be opened. Choose a file your account can read." = "Не удалось открыть файл доступа к Серверу. Выберите файл, который доступен вашей учётной записи.";

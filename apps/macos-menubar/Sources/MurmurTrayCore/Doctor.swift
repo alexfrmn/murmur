@@ -25,7 +25,7 @@ public struct DoctorSnapshot: Decodable, Sendable {
         public let elapsedMs: Int?
     }
     public static let stageIDs = ["config", "daemon", "broker", "peers", "roundtrip", "wake"]
-    public static var titles: [String] { [L10n.text("Settings"), L10n.text("Service"), L10n.text("Broker"), L10n.text("Connections"), L10n.text("Reply"), L10n.text("Agent delivery")] }
+    public static var titles: [String] { [L10n.text("Settings"), L10n.text("Service"), L10n.text("Broker"), L10n.text("Connections"), L10n.text("Message exchange"), L10n.text("Agent delivery")] }
     public let schema: String
     public let generatedAt: String
     public let stages: [Stage]

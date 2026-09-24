@@ -57,3 +57,10 @@ truncated by ordinary line breaks.
 
 See `verification.txt` for commands and counts. The final commit is the PR head;
 images and evidence belong to that source revision, not an installed release.
+
+The recovery follow-up adds a 23rd native check per language: “Invite a
+colleague” cannot open creation when the selected Identity's status is missing.
+Its counts and path-free before/after captures are in `../recovery-guards/`.
+The six init-error images here were replaced with `CreateProfileSheet` component
+captures, so temporary profile paths no longer appear. `verification.txt`
+preserves the original P1 run; the follow-up has its own verification log.

@@ -118,7 +118,9 @@ struct MurmurHomeView: View {
                         }
                         Text(L10n.text("Paste the Invitation line sent by your colleague."))
                             .font(.callout).foregroundStyle(.secondary)
-                        Button(L10n.text("Invite a colleague")) { model.beginInviting() }.disabled(model.busy)
+                        Button(L10n.text("Invite a colleague")) { model.beginInviting() }
+                            .disabled(model.busy || !model.canUseInvitation)
+                            .help(model.invitationBlockReason ?? L10n.text("Invite a colleague"))
                         Divider()
                         navigationRow("I do not have an invitation yet", detail: "How to get one or connect to your own server") { entry = "no-invitation" }
                         navigationRow("I have used Murmur before", detail: "Open settings already saved on this Mac") { entry = "restore" }

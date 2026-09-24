@@ -77,6 +77,43 @@ func runOnboardingChecks(fixtures: URL) throws -> Int {
         }
         count += 1; print("PASS onboarding: \(name)")
     }
+    for (code, message) in [
+        ("onboarding.token-file-invalid", "The Server access key must be one line. Ask for the correct key and save it again."),
+        ("onboarding.token-file-not-found", "The Server access file was not found. Choose it again."),
+        ("onboarding.token-file-access-denied", "The Server access file cannot be opened. Choose a file your account can read.")
+    ] {
+        for prefix in ["", "token=fixture-value-never-display\n"] {
+            try scenario("init recognizes exact access-file code without exposing stderr: \(code), prefixed=\(!prefix.isEmpty)") { f in
+                let output = f.directory.appendingPathComponent("error-output")
+                try (prefix + code + "\n").write(to: output, atomically: true, encoding: .utf8)
+                try ("#!/bin/sh\n/bin/cat " + onboardingShell(output.path) + " >&2\nexit 1\n")
+                    .write(to: f.executable, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.executable.path)
+                do {
+                    _ = try f.client().initialize(f.plan, brokerURL: "nats://server.example.invalid:4222")
+                    throw CheckFailure(message: "Expected access-file refusal")
+                } catch let error as OnboardingError {
+                    try check(error.localizedDescription == L10n.text(message), "Known code uses a fixed human sentence")
+                    try check(!error.localizedDescription.contains("fixture-value"), "Raw stderr is never shown")
+                }
+                try check(!FileManager.default.fileExists(atPath: f.plan.profile.dataDirectory), "Failure cannot select or create an Identity")
+            }
+        }
+    }
+    for output in ["token=fixture-value-never-display", "onboarding.token-file-unknown",
+                   "onboarding.token-file-invalid fixture-value-never-display", "token=onboarding.token-file-invalid"] {
+        try scenario("unknown or decorated access-file stderr stays hidden") { f in
+            try ("#!/bin/sh\nprintf '%s\\n' " + onboardingShell(output) + " >&2\nexit 1\n")
+                .write(to: f.executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.executable.path)
+            do {
+                _ = try f.client().initialize(f.plan, brokerURL: "nats://server.example.invalid:4222")
+                throw CheckFailure(message: "Expected hidden stderr")
+            } catch let error as ProbeError {
+                guard case .failed(1) = error else { throw CheckFailure(message: "Unrecognized credential-bearing text escaped the filter") }
+            }
+        }
+    }
     try scenario("join line goes only to stdin and returns the Reply for the clipboard") { f in
         let journal = OnboardingJournal(applicationDirectory: f.plan.applicationRoot)
         let result = try f.client().join(f.plan, invitationLine: "  MURMUR:synthetic-invitation\n", journal: journal)

@@ -79,8 +79,10 @@ public struct CLIProbe: Sendable {
         process.environment = childEnvironment
         try process.run()
         if let stdin, let input {
-            // Never put Invitations in argv or a file. A non-reading child must
-            // still time out; suppress SIGPIPE if it exits before reading.
+            // Pasted lines go through stdin, not argv. The CLI still persists
+            // settings and the requested recovery Reply; stdout/stderr are
+            // captured in private temporary files above.
+            // A non-reading child must still time out; suppress SIGPIPE on early exit.
             try? stdin.fileHandleForReading.close()
             let writer = stdin.fileHandleForWriting
             _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
@@ -117,6 +119,13 @@ public struct CLIProbe: Sendable {
                 throw PairingError.from(code: text.split(whereSeparator: \.isNewline).last.map(String.init), command: arguments.first)
             }
             let errorText = String(data: try Data(contentsOf: stderr), encoding: .utf8) ?? ""
+            // Recognize only exact, known init codes before screening raw text.
+            // A code containing "token" is not a credential; its stderr payload
+            // is never included in the localized message.
+            if arguments.first == "init",
+               let known = OnboardingError.fromCLI(code: errorText.split(whereSeparator: \.isNewline).last.map(String.init)) {
+                throw known
+            }
             let firstLine = errorText.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
             // CLI promises a human-readable reason. Keep a bounded single line,
             // suppressing obvious credentials/URLs rather than copying a trace.

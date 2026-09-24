@@ -40,5 +40,14 @@ func runLocalizationChecks() throws -> Int {
     try check(L10n.localized("unrecognized diagnostic code", language: .russian) == "unrecognized diagnostic code",
               "An additive diagnostic remains visible")
     passed("unknown text remains visible")
+    let savedDomain = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+    defer { UserDefaults.standard.setVolatileDomain(savedDomain, forName: UserDefaults.argumentDomain) }
+    for (language, title, reply) in [("en", "Message exchange", "Reply"), ("ru", "Обмен сообщениями", "Ответ")] {
+        UserDefaults.standard.setVolatileDomain(["interfaceLanguage": language], forName: UserDefaults.argumentDomain)
+        let roundtripIndex = DoctorSnapshot.stageIDs.firstIndex(of: "roundtrip")!
+        try check(DoctorSnapshot.titles[roundtripIndex] == title && L10n.text("Reply") == reply && title != reply,
+                  "Doctor exchange and pairing Reply have separate localized meanings")
+        passed("Doctor roundtrip is distinct from pairing Reply: \(language)")
+    }
     return count
 }
