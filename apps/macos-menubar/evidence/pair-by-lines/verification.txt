@@ -1,0 +1,41 @@
+Platform: macOS 26.6.2 arm64; Apple Swift 6.4
+Source baseline: 4772afaa5035bba8e7104ebebe11e8f099e360db
+Branch: codex-mac/mac-pair-by-lines
+Environment: temporary HOME/CFFIXED_USER_HOME; inherited MURMUR_*, NATS_*, DATA_DIR, NODE_OPTIONS cleared
+Command: bash apps/macos-menubar/scripts/build-app.sh
+Exit: 0
+PASS pairing: Server key requires acknowledgement before exposing the line
+PASS pairing: Invitation without a Server key can be copied immediately
+PASS pairing: older invitation receipt without credential flag fails closed
+PASS pairing: private Server code asks for public address; no automatic retry
+PASS pairing: Server credentials in a pasted address never reach argv
+PASS pairing: Reply goes only to stdin and Contact is verified after import
+PASS pairing: import is not declared successful: missing-contact
+PASS pairing: import is not declared successful: changed-identity
+PASS pairing: import is not declared successful: self-reply
+PASS pairing: import is not declared successful: wrong-schema
+PASS pairing: different selected Identity prevents any import
+PASS pairing: raw stderr cannot appear in the window
+22 connection guidance checks passed
+441 checks passed; canonical 33, transport 7, boundary 38, profile controls 60, updates 78, bundled runtime 25, localization 8, presentation 27, mark 31, onboarding 58, guidance 22, client setup 30, outbox 12, pairing 12
+{"localizationChecks": 5, "keysPerLanguage": 462, "sourceKeysCovered": 381, "languages": ["en", "ru"], "default": "en"}
+
+Command: node --test tests/vocabulary.test.mjs (Node 22.23.1)
+# tests 3
+# pass 3
+# fail 0
+# skipped 0
+
+Native harness: apps/macos-menubar/evidence/pairing-native.swift
+CLI source: installed verified 4772afaa5035bba8e7104ebebe11e8f099e360db (version 2.11.0)
+Temporary Identities only; generated disposable access keys; no NATS or Service traffic.
+PASS native en: public-address prompt, credential gate, clipboard Invitation, stdin join, clipboard Reply, stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter
+10 native checks passed; no Service or network exchange claimed
+PASS native ru: public-address prompt, credential gate, clipboard Invitation, stdin join, clipboard Reply, stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter
+10 native checks passed; no Service or network exchange claimed
+
+Full local logs (outside git): /Users/alex/.codex/workspaces/murmur-2.12/mac-pair-by-lines-proof/
+No live Assistant exchange or two-person timing claimed.
+
+After FAQ text update: swift build -c release; resource copy; codesign verify; localization-checks.py — exit 0
+{"localizationChecks": 5, "keysPerLanguage": 462, "sourceKeysCovered": 381, "languages": ["en", "ru"], "default": "en"}

@@ -37,7 +37,8 @@ public struct CLIProbe: Sendable {
     }
 
     // Mutating argv comes from identity-checked ProfileClient or an explicit NewProfilePlan.
-    func invoke(_ arguments: [String]) throws -> ProbeSummary {
+    func invoke(_ arguments: [String], input: Data? = nil, pairingErrors: Bool = false) throws -> ProbeSummary {
+        if let input, input.count > PairingLine.maximumBytes { throw PairingError.tooLarge }
         guard timeout.isFinite, timeout > 0, timeout <= 60 else { throw ProfileError.invalidTimeout }
         guard executable.isFileURL, executable.path.hasPrefix("/") else { throw ProfileError.invalidCLI }
         let fm = FileManager.default
@@ -57,7 +58,8 @@ public struct CLIProbe: Sendable {
         process.executableURL = executable
         process.arguments = arguments + ["--json"] + (profile?.arguments ?? [])
         process.currentDirectoryURL = URL(fileURLWithPath: "/")
-        process.standardInput = FileHandle.nullDevice
+        let stdin = input == nil ? nil : Pipe()
+        process.standardInput = stdin?.fileHandleForReading ?? FileHandle.nullDevice
         process.standardOutput = out
         process.standardError = err
         // No shell; GUI launches must not depend on an interactive shell PATH.
@@ -76,6 +78,17 @@ public struct CLIProbe: Sendable {
         childEnvironment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         process.environment = childEnvironment
         try process.run()
+        if let stdin, let input {
+            // Never put Invitations in argv or a file. A non-reading child must
+            // still time out; suppress SIGPIPE if it exits before reading.
+            try? stdin.fileHandleForReading.close()
+            let writer = stdin.fileHandleForWriting
+            _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
+            DispatchQueue.global().async {
+                defer { try? writer.close() }
+                try? writer.write(contentsOf: input)
+            }
+        }
         let deadline = Date().addingTimeInterval(timeout)
         let limit = 256 * 1024
         var failure: ProbeError?
@@ -97,6 +110,12 @@ public struct CLIProbe: Sendable {
         let errorSize = (try fm.attributesOfItem(atPath: stderr.path)[.size] as? Int) ?? 0
         guard size <= limit, errorSize <= limit else { throw ProbeError.outputLimit }
         if process.terminationStatus != 0 {
+            if pairingErrors {
+                // Only stable codes affect presentation. Never show raw stderr,
+                // JSON, or a pasted Invitation in a pairing window.
+                let text = String(data: try Data(contentsOf: stderr), encoding: .utf8) ?? ""
+                throw PairingError.from(code: text.split(whereSeparator: \.isNewline).last.map(String.init))
+            }
             let errorText = String(data: try Data(contentsOf: stderr), encoding: .utf8) ?? ""
             let firstLine = errorText.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
             // CLI promises a human-readable reason. Keep a bounded single line,

@@ -50,6 +50,7 @@ public struct CreatedProfile: Sendable {
     public let agentID: String
     public let replyFile: URL?
     public let peerID: String?
+    public var reply: String? = nil
 }
 
 public struct ProfileOnboardingClient: Sendable {
@@ -106,22 +107,33 @@ public struct ProfileOnboardingClient: Sendable {
         return CreatedProfile(profile: plan.profile, agentID: plan.agentID, replyFile: nil, peerID: nil)
     }
     public func join(_ plan: NewProfilePlan, invitation: URL, journal: OnboardingJournal? = nil) throws -> CreatedProfile {
+        try join(plan, invitationFile: invitation, invitationLine: nil, journal: journal)
+    }
+    public func join(_ plan: NewProfilePlan, invitationLine: String, journal: OnboardingJournal? = nil) throws -> CreatedProfile {
+        let line = try PairingLine.validated(invitationLine)
+        return try join(plan, invitationFile: nil, invitationLine: line, journal: journal)
+    }
+    private func join(_ plan: NewProfilePlan, invitationFile: URL?, invitationLine: String?,
+                      journal: OnboardingJournal?) throws -> CreatedProfile {
         try checkLocation(plan)
         // Refuse an existing output before any profile mutation; CLI also reserves it with O_EXCL.
         guard (try? plan.replyFile.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])) == nil else {
             throw OnboardingError.replyExists
         }
-        try inputFile(invitation)
+        if let invitationFile { try inputFile(invitationFile) }
         let pending = PendingOnboarding(plan: plan, kind: .invitation)
         try journal?.save(pending)
         defer { try? journal?.markCommandFinished(pending) }
         try FileManager.default.createDirectory(at: plan.replyFile.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                attributes: [.posixPermissions: 0o700])
-        let data = try probe(plan).invoke(["join", "--agent-id", plan.agentID, "--invite-file", invitation.path,
-                                           "--reply-out", plan.replyFile.path]).data
+        let inputArgs = invitationFile.map { ["--invite-file", $0.path] } ?? ["--invite-stdin"]
+        let data = try probe(plan).invoke(["join", "--agent-id", plan.agentID] + inputArgs +
+            ["--reply-out", plan.replyFile.path], input: invitationLine.map { Data($0.utf8) },
+            pairingErrors: invitationLine != nil).data
         struct Receipt: Decodable {
             let schema: String, agentId: String, peerId: String, replyFile: String, restartRequired: Bool
             let paired: Bool?
+            let reply: String?
         }
         guard let receipt = try? JSONDecoder().decode(Receipt.self, from: data),
               schemaKnown(receipt.schema, name: "murmur.join"), receipt.agentId == plan.agentID,
@@ -129,9 +141,14 @@ public struct ProfileOnboardingClient: Sendable {
               receipt.replyFile == plan.replyFile.path,
               let values = try? plan.replyFile.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
               values.isRegularFile == true, values.isSymbolicLink != true else { throw OnboardingError.invalidReceipt }
+        let reply: String?
+        if invitationLine != nil {
+            guard let returned = receipt.reply else { throw OnboardingError.invalidReceipt }
+            reply = try PairingLine.validated(returned)
+        } else { reply = nil }
         try journal?.markCreated(pending)
         try verify(plan)
-        return CreatedProfile(profile: plan.profile, agentID: plan.agentID, replyFile: plan.replyFile, peerID: receipt.peerId)
+        return CreatedProfile(profile: plan.profile, agentID: plan.agentID, replyFile: plan.replyFile, peerID: receipt.peerId, reply: reply)
     }
 
     /// Recovery never repeats init/join, even after a malformed receipt or a timeout.
@@ -145,7 +162,8 @@ public struct ProfileOnboardingClient: Sendable {
                   let size = values.fileSize, size > 0 else { throw OnboardingJournalError.missingReply }
         }
         return CreatedProfile(profile: plan.profile, agentID: plan.agentID,
-                              replyFile: pending.kind == .invitation ? plan.replyFile : nil, peerID: nil)
+                              replyFile: pending.kind == .invitation ? plan.replyFile : nil, peerID: nil,
+                              reply: pending.kind == .invitation ? try? PairingLine.recovered(from: plan.replyFile) : nil)
     }
 
     /// Both recovery picker and list use a read-only verification before the UI
