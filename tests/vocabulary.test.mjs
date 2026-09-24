@@ -59,7 +59,9 @@ function siteStatic(html) {
     if (/description|title|og:|twitter:/.test(m[1])) out.push({ key: `meta:${m[1]}`, value: m[2] });
   }
   for (const m of html.matchAll(/\s(aria-label|title|alt)="([^"]*)"/g)) out.push({ key: `@${m[1]}`, value: m[2] });
-  const body = html
+  // Only <body> is read as page text: <title> and meta are read above, once each.
+  const bodyStart = html.search(/<body[\s>]/);
+  const body = (bodyStart >= 0 ? html.slice(bodyStart) : html)
     .replace(/<script[\s\S]*?<\/script>/g, " ")
     .replace(/<style[\s\S]*?<\/style>/g, " ")
     .replace(/<pre[\s\S]*?<\/pre>/g, " ")

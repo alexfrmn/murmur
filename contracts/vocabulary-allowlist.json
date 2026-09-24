@@ -44,12 +44,6 @@
       "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
     },
     {
-      "file": "site/index.html",
-      "key": "text:0",
-      "term": "agent",
-      "reason": "the same <title> element as the '<title>' entry, read a second time by the body-text reader (it is the first text line of the page); search-engine category term 'AI agents'. Remove this entry if the reader stops reading <head>."
-    },
-    {
       "file": "site/index.html#I18N",
       "key": "en.title",
       "term": "agent",

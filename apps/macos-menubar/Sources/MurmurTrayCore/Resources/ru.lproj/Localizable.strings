@@ -386,7 +386,7 @@
 "Look again" = "Найти ещё раз";
 "Checking the application settings…" = "Проверяем настройки приложения…";
 "Connection saved for %@" = "Подключение для %@ сохранено";
-"Reload your AI application or start a new session so it can load Murmur. Your current conversation is not closed automatically." = "Перезагрузите помощника или начните новую сессию, чтобы он загрузил Murmur. Текущая беседа не закрывается автоматически.";
+"Reload your AI application or start a new session so it can load Murmur. Your current conversation is not closed automatically." = "Перезапустите помощника или начните новую сессию, чтобы он загрузил Murmur. Текущая беседа не закрывается автоматически.";
 "Saved settings are only the first step. Test a returned reply below." = "Сохранённые настройки — только первый шаг. Ниже проверьте, что приходит ответ.";
 "Changed file and backup" = "Изменённый файл и резервная копия";
 "Backup: %@" = "Резервная копия: %@";
