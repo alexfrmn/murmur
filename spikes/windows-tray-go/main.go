@@ -65,7 +65,7 @@ type app struct {
 	mUpdatesRoot, mUpdatePrivacy                             *systray.MenuItem
 
 	mHeader, mDoctorRoot, mRecentHeader, mServiceRoot *systray.MenuItem
-	mConnect, mOpenProfile                            *systray.MenuItem
+	mConnect, mOpenProfile, mInvite                   *systray.MenuItem
 	mLanguageRoot, mLangEnglish, mLangRussian, mGuide *systray.MenuItem
 	mHistory                                          []*systray.MenuItem
 	mStages                                           map[string]*systray.MenuItem
@@ -180,6 +180,8 @@ func (a *app) onReady() {
 	a.mConnect.Hide()
 	a.mOpenProfile = systray.AddMenuItem(tr("menu.openProfile"), tr("menu.openProfileTooltip"))
 	a.mOpenProfile.Hide()
+	// Invite a colleague is always visible (PRD R2, letter 103).
+	a.mInvite = systray.AddMenuItem(tr("menu.invite"), tr("menu.inviteTooltip"))
 	// Строки истории: то, что не поместилось в цвет. Их создаём заранее — добавить
 	// пункт меню после запуска systray нельзя, а гасить и показывать можно.
 	for i := 0; i < historyLines; i++ {
@@ -431,6 +433,8 @@ func (a *app) handleClicks() {
 			go a.showGuide()
 		case <-a.mConnect.ClickedCh:
 			go a.connectToColleague()
+		case <-a.mInvite.ClickedCh:
+			go a.inviteColleague()
 		case <-a.mOpenProfile.ClickedCh:
 			go a.openExistingProfile()
 		case <-a.mQuit.ClickedCh:
@@ -644,6 +648,8 @@ func (a *app) applyLocale() {
 	a.mLangRussian.SetTitle(tr("language.russian"))
 	a.mGuide.SetTitle(tr("guide.menu"))
 	a.mGuide.SetTooltip(tr("guide.tooltip"))
+	a.mInvite.SetTitle(tr("menu.invite"))
+	a.mInvite.SetTooltip(tr("menu.inviteTooltip"))
 	a.mQuit.SetTitle(tr("menu.quit"))
 	a.mQuit.SetTooltip(tr("menu.quitTooltip"))
 	a.renderLanguageSelection()
