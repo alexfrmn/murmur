@@ -7,8 +7,17 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+// inviteBackupDir is where the tray keeps the private backup copy of an
+// Invitation. The engine refuses to write it inside the profile it belongs to
+// (onboarding.output-inside-profile), so the folder sits next to the profile.
+func inviteBackupDir(profile string) string {
+	profile = filepath.Clean(profile)
+	return filepath.Join(filepath.Dir(profile), filepath.Base(profile)+" invitations")
+}
 
 type inviteIdentity struct{ Name, Server, Token string }
 type inviteSteps struct {

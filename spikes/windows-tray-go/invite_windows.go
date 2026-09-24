@@ -107,8 +107,8 @@ func (a *app) inviteColleague() {
 		return
 	}
 
-	// Create invitation in a private location inside the profile with unique name (P1)
-	inviteDir := filepath.Join(b.Profile, "invites")
+	// The backup copy goes next to the profile: the engine refuses outputs inside it.
+	inviteDir := inviteBackupDir(b.Profile)
 	if err := os.MkdirAll(inviteDir, 0o700); err != nil {
 		a.inviteError("invite.folderFailed", "output-folder-failed")
 		return
