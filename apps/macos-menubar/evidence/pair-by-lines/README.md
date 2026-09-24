@@ -21,13 +21,24 @@ is contacted, Service installed, Assistant launched or live profile modified.
 Screenshots show no Invitation credential; the displayed Reply contains only
 the disposable Identity's public keys.
 
-Ten native checks per language cover: public address prompt; refusal to expose
+Sixteen native checks per language cover: public address prompt; refusal to expose
 or copy the Invitation before consent; Invitation clipboard content; stdin join;
 Reply clipboard content; stdin add-peer; both Contacts observed in status; and
 the private recovery copy of the Reply; cancellation; and creating the first
-inviting Identity before opening the Invitation sheet. The private copy is not a file exchange
+inviting Identity before opening the Invitation sheet. The added checks cover the
+current Identity form; refusal of an ambiguous paste with byte-identical settings;
+joining with the same Identity, profile and keys; copying its Reply and confirming
+both Contacts; refusal of a different Server with unchanged settings; and refusal
+after the selected profile changes. Invitations and Replies include messenger
+wrappers during the successful native flows. The private copy is not a file exchange
 step. These checks do not establish message transport, Wake-up, or two-person
 completion time; that remains a separate live acceptance.
+
+The parser follows the Mac request literally: one match of
+`MURMUR:[A-Za-z0-9_-]+=*`; zero or multiple matches are refused, including two
+identical tokens. Common signature/quote/fence cases are shared with Windows
+#261. Its later duplicate normalization, zero-width removal and legacy base64
+acceptance are not part of this Mac contract. The engine rejects truncated tokens.
 
 See `verification.txt` for commands and counts. The final commit is the PR head;
 images and evidence belong to that source revision, not an installed release.

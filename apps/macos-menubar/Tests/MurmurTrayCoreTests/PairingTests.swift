@@ -15,6 +15,8 @@ private struct PairingFixture {
         try write("after", status)
         try write("invite", ["schema": "murmur.invite/1", "invitation": "MURMUR:test-only", "containsBrokerCredential": true])
         try write("add-peer", ["schema": "murmur.peer/1", "peerId": "agent-jarvis"])
+        try write("join", ["schema": "murmur.join/1", "agentId": "agent-misha", "peerId": "agent-jarvis",
+                           "reply": "MURMUR:reply-only", "paired": NSNull(), "replyFile": NSNull()])
         let script = """
         #!/bin/sh
         key="$1"; shift
@@ -24,7 +26,7 @@ private struct PairingFixture {
         if [ -f \(pairingQuote(root.path))/"$key.error" ]; then
           /bin/cat \(pairingQuote(root.path))/"$key.error" >&2; exit 1
         fi
-        if [ "$key" = add-peer ]; then
+        if [ "$key" = add-peer ] || [ "$key" = join ]; then
           /bin/cat > \(pairingQuote(root.path))/stdin
           /usr/bin/touch \(pairingQuote(root.path))/imported
         fi
@@ -57,6 +59,36 @@ func runPairingChecks(fixtures: URL) throws -> Int {
         try body(PairingFixture(root: root, fixtures: fixtures))
         count += 1; print("PASS pairing: \(name)")
     }
+    let token = "MURMUR:eyJ2IjoxLCJ0eXBlIjoiaW52aXRlIn0"
+    // Shared messenger cases from Windows #261. Mac's contract is exactly one
+    // base64url token: even two identical copies are ambiguous and are refused.
+    for (name, pasted, expected) in [
+        ("signature", token + "\n\n↑ Copy only the MURMUR: line above.\n\n▓▒░ signature", token),
+        ("quotes", "Here is the invitation: «" + token + "»", token),
+        ("code fence", "```\n" + token + "\n```", token),
+        ("whitespace", "\t" + token + "\r\n", token),
+        ("emoji prefix", "💌 Приглашение: \"" + token + "\"", token),
+        ("padding", "Reply: \"MURMUR:abcd_ef-==\" — signature", "MURMUR:abcd_ef-=="),
+        ("wrapped token is left to engine", "MURMUR:eyJ2Ijox\nLCJ0eXBlIjoiaW52aXRlIn0", "MURMUR:eyJ2Ijox"),
+    ] {
+        try check(try PairingLine.validated(pasted) == expected, "Extract one messenger token: \(name)")
+        count += 1; print("PASS pairing: messenger \(name)")
+    }
+    for (name, pasted) in [
+        ("missing", "only the prefix MURMUR: is mentioned"),
+        ("empty", "MURMUR:»"),
+        ("different tokens", token + "\nMURMUR:another"),
+        ("identical quoted tokens", "> " + token + "\n\n" + token + "\nthe same line quoted"),
+    ] {
+        try scenario("invalid messenger paste \(name) never reaches CLI") { f in
+            do {
+                _ = try f.client.joinInvitation(pasted, expectedAgent: "agent-misha")
+                throw CheckFailure(message: "Expected damaged line")
+            } catch let error as PairingError { try check(error == .damaged, "Damaged paste") }
+            try reject { _ = try f.client.addReply(pasted, expectedAgent: "agent-misha") }
+            try check(!FileManager.default.fileExists(atPath: f.root.appendingPathComponent("calls").path), "No mutation or process")
+        }
+    }
     try scenario("Server key requires acknowledgement before exposing the line") { f in
         let receipt = try f.client.invite(expectedAgent: "agent-misha")
         try check(receipt.containsBrokerCredential, "Credential flag preserved")
@@ -88,7 +120,7 @@ func runPairingChecks(fixtures: URL) throws -> Int {
         try check(try f.text("calls") == "status\n", "No invitation with credential URL")
     }
     try scenario("Reply goes only to stdin and Contact is verified after import") { f in
-        let contact = try f.client.addReply("\nMURMUR:reply-only\n", expectedAgent: "agent-misha")
+        let contact = try f.client.addReply("Your Reply: «MURMUR:reply-only»\n— colleague", expectedAgent: "agent-misha")
         try check(contact == "agent-jarvis", "Confirmed Contact")
         try check(try f.text("stdin") == "MURMUR:reply-only" && !f.text("add-peer.argv").contains("MURMUR:"), "No line in argv")
         try check(try f.text("calls") == "status\nadd-peer\nstatus\n", "Status sandwich")
@@ -108,6 +140,45 @@ func runPairingChecks(fixtures: URL) throws -> Int {
     try scenario("different selected Identity prevents any import") { f in
         try reject { _ = try f.client.addReply("MURMUR:test", expectedAgent: "someone-else") }
         try check(try f.text("calls") == "status\n", "Precondition before mutation")
+    }
+    try scenario("Invitation uses current Identity and profile; only extracted token reaches stdin") { f in
+        let joined = try f.client.joinInvitation("```\nMURMUR:invite-only\n```\n— colleague", expectedAgent: "agent-misha")
+        try check(joined.peerID == "agent-jarvis" && joined.reply == "MURMUR:reply-only", "Verified Reply and Contact")
+        try check(try f.text("calls") == "status\njoin\nstatus\n", "No init, retry or Service action")
+        try check(try f.text("stdin") == "MURMUR:invite-only", "Only token in stdin")
+        try check(try f.text("join.argv").components(separatedBy: "\0") ==
+            ["--agent-id", "agent-misha", "--invite-stdin", "--json", "--data-dir", f.profile.dataDirectory, ""], "Pinned Identity/profile, no token in argv")
+    }
+    try scenario("different selected Identity prevents join") { f in
+        try reject { _ = try f.client.joinInvitation("MURMUR:test", expectedAgent: "someone-else") }
+        try check(try f.text("calls") == "status\n", "No join of unverified Identity")
+    }
+    for kind in ["missing-contact", "changed-identity", "receipt-identity", "self-contact", "wrong-schema", "missing-reply", "damaged-reply", "paired-claim"] {
+        try scenario("existing Identity join is not declared successful: \(kind)") { f in
+            var after = f.status
+            var receipt: [String: Any] = ["schema": "murmur.join/1", "agentId": "agent-misha", "peerId": "agent-jarvis", "reply": "MURMUR:reply"]
+            if kind == "missing-contact" { after["peers"] = ["list": [], "unknownReason": NSNull()] }
+            if kind == "changed-identity" { after["agentId"] = "someone-else" }
+            if kind == "receipt-identity" { receipt["agentId"] = "someone-else" }
+            if kind == "self-contact" { receipt["peerId"] = "agent-misha" }
+            if kind == "wrong-schema" { receipt["schema"] = "unknown/1" }
+            if kind == "missing-reply" { receipt.removeValue(forKey: "reply") }
+            if kind == "damaged-reply" { receipt["reply"] = "MURMUR:" }
+            if kind == "paired-claim" { receipt["paired"] = true }
+            try f.write("join", receipt); try f.write("after", after)
+            try reject { _ = try f.client.joinInvitation("MURMUR:test", expectedAgent: "agent-misha") }
+            try check(try f.text("calls").components(separatedBy: "join").count == 2, "No mutation retry")
+        }
+    }
+    for (code, expected) in [("onboarding.existing-profile-conflict", PairingError.differentServer), ("onboarding.invalid-blob", .damaged)] {
+        try scenario("join error is actionable without exposing input: \(code)") { f in
+            try (code + "\n").write(to: f.root.appendingPathComponent("join.error"), atomically: true, encoding: .utf8)
+            do {
+                _ = try f.client.joinInvitation("MURMUR:truncated\nrest-of-line", expectedAgent: "agent-misha")
+                throw CheckFailure(message: "Expected join refusal")
+            } catch let error as PairingError { try check(error == expected, "Stable human error mapping") }
+            try check(try f.text("calls") == "status\njoin\n", "No automatic retry")
+        }
     }
     try scenario("raw stderr cannot appear in the window") { f in
         try "MURMUR:credential-do-not-display\n".write(to: f.root.appendingPathComponent("invite.error"), atomically: true, encoding: .utf8)

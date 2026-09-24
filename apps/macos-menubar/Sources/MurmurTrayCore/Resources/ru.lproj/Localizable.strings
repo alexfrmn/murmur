@@ -447,7 +447,6 @@
 "Paste colleague's Reply" = "Вставить ответ коллеги";
 "Identity name" = "Имя Личности";
 "Invitation" = "Приглашение";
-"Paste the complete Invitation or Reply sent by your colleague." = "Вставьте целиком Приглашение или Ответ, который прислал коллега.";
 "This line is too long. Ask your colleague for a new Invitation or Reply." = "Строка слишком длинная. Попросите коллегу прислать новое Приглашение или Ответ.";
 "Your colleague needs a public Server address. Ask the person who manages your Server for it." = "Коллеге нужен публичный адрес Сервера. Попросите его у того, кто управляет вашим Сервером.";
 "Enter a public Server address without an access key, then try again." = "Введите публичный адрес Сервера без ключа доступа и повторите попытку.";
@@ -472,3 +471,7 @@
 "Paste the Reply line sent by your colleague." = "Вставьте строку Ответа, которую прислал коллега.";
 "Add Contact" = "Добавить Контакт";
 "Copy Reply" = "Скопировать Ответ";
+"This line is damaged. Paste one complete Invitation or Reply sent by your colleague." = "Строка повреждена. Вставьте одно полное Приглашение или Ответ от коллеги.";
+"Identity: %@" = "Личность: %@";
+"The Contact will be added to this Identity." = "Контакт будет добавлен к этой Личности.";
+"This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use." = "В Приглашении указан другой Сервер. Попросите у коллеги Приглашение для Сервера, который вы уже используете.";

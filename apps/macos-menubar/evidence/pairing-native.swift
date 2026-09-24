@@ -68,13 +68,13 @@ import MurmurTrayCore
 
         let joining = TrayModel(startRuntime: false)
         joining.useInvitation(); joining.creationAgentID = "misha-mac"
-        joining.pairingInput = invitation; joining.joinInvitationLine()
+        joining.pairingInput = "💌 «" + invitation + "»\n— colleague"; joining.joinInvitationLine()
         try await settled(joining)
         precondition(joining.agentID == "misha-mac" && joining.creationError == nil)
         let reply = clipboard.string(forType: .string)!
         precondition(reply == joining.pairingOutput && reply.hasPrefix("MURMUR:") && reply != invitation)
         try capture(PairingSheet(model: joining), to: pictures.appendingPathComponent("after-reply-\(language).png"))
-        inviter.beginPairing(.reply); inviter.pairingInput = reply
+        inviter.beginPairing(.reply); inviter.pairingInput = "```\n" + reply + "\n```\n— colleague"
         try capture(PairingSheet(model: inviter), to: pictures.appendingPathComponent("after-paste-reply-\(language).png"))
         inviter.addReplyLine(); try await settled(inviter)
         precondition(inviter.pairingError == nil && inviter.status?.peers.list?.contains(where: { $0.agentId == "misha-mac" }) == true)
@@ -96,8 +96,58 @@ import MurmurTrayCore
         precondition(first.showPairingSheet && first.pairingMode == .invite)
         first.makeInvitation(); try await settled(first)
         precondition(first.pairingInvitation?.containsBrokerCredential == false && first.pairingOutput?.hasPrefix("MURMUR:") == true)
+
+        // An already selected Identity joins through the menu action. This test
+        // reads only its disposable configuration to prove keys/settings survive.
+        let originalProfile = first.profile!
+        let configFile = URL(fileURLWithPath: originalProfile.dataDirectory).appendingPathComponent("agent-config.json")
+        let before = try Data(contentsOf: configFile)
+        let selectedDirectory = UserDefaults.standard.string(forKey: "profileDirectory")
+        let publicInvitation = first.pairingOutput!
+        first.useInvitation()
+        precondition(first.canUseInvitation && first.pairingIdentity == "first-inviter" && first.showPairingSheet)
+        first.creationAgentID = "must-not-create-this"
+        try capture(PairingSheet(model: first), to: pictures.appendingPathComponent("after-existing-join-\(language).png"))
+        first.pairingInput = invitation + "\n" + invitation
+        let clipboardBeforeRefusal = clipboard.string(forType: .string)
+        first.joinInvitationLine(); try await settled(first)
+        let refusedConfig = try Data(contentsOf: configFile)
+        precondition(first.pairingError != nil && refusedConfig == before && first.pairingOutput == nil)
+        precondition(clipboard.string(forType: .string) == clipboardBeforeRefusal)
+        first.pairingInput = "Here is the Invitation: «" + invitation + "»\n— colleague"
+        first.joinInvitationLine(); try await settled(first)
+        let existingReply = first.pairingOutput!
+        precondition(first.pairingError == nil && first.profile == originalProfile && first.agentID == "first-inviter")
+        precondition(UserDefaults.standard.string(forKey: "profileDirectory") == selectedDirectory && !first.hasPendingSetup)
+        var configBefore = try JSONSerialization.jsonObject(with: before) as! [String: Any]
+        var configAfter = try JSONSerialization.jsonObject(with: Data(contentsOf: configFile)) as! [String: Any]
+        configBefore.removeValue(forKey: "peers"); configAfter.removeValue(forKey: "peers")
+        precondition(NSDictionary(dictionary: configBefore).isEqual(to: configAfter))
+        precondition(clipboard.string(forType: .string) == existingReply && existingReply != invitation)
+        precondition(first.status?.peers.list?.contains(where: { $0.agentId == "pair-inviter" }) == true)
+        try capture(PairingSheet(model: first), to: pictures.appendingPathComponent("after-existing-reply-\(language).png"))
+        inviter.beginPairing(.reply); inviter.pairingInput = "Reply: «" + existingReply + "»"
+        inviter.addReplyLine(); try await settled(inviter)
+        precondition(inviter.pairingError == nil && inviter.status?.peers.list?.contains(where: { $0.agentId == "first-inviter" }) == true)
+
+        // The other selected Identity uses loopback; joining this public Server
+        // must fail with a human action and leave that disposable config intact.
+        let inviterFile = URL(fileURLWithPath: plan.profile.dataDirectory).appendingPathComponent("agent-config.json")
+        let inviterBefore = try Data(contentsOf: inviterFile)
+        inviter.useInvitation(); inviter.pairingInput = publicInvitation
+        inviter.joinInvitationLine(); try await settled(inviter)
+        let inviterAfter = try Data(contentsOf: inviterFile)
+        precondition(inviter.pairingError == PairingError.differentServer.localizedDescription && inviterBefore == inviterAfter)
+        inviter.pairingInput = ""
+        try capture(PairingSheet(model: inviter), to: pictures.appendingPathComponent("after-existing-server-refusal-\(language).png"))
+
+        first.useInvitation(); first.pairingInput = invitation
+        first.bind(originalProfile, expectedAgent: "first-inviter", skipInitialDoctor: true)
+        try await settled(first)
+        first.joinInvitationLine()
+        precondition(!first.operating && first.pairingError == PairingError.unconfirmed.localizedDescription)
         clipboard.clearContents()
-        print("PASS native \(language): public-address prompt, credential gate, clipboard Invitation, stdin join, clipboard Reply, stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter")
-        print("10 native checks passed; no Service or network exchange claimed")
+        print("PASS native \(language): public-address prompt, credential gate, clipboard Invitation, messenger stdin join, clipboard Reply, messenger stdin add-peer, both Contacts verified, Reply recovery, cancellation, first-run inviter, existing Identity form, ambiguous paste unchanged, existing Identity and keys preserved, existing Reply and both Contacts, Server conflict unchanged, changed selection refused")
+        print("16 native checks passed; no Service or network exchange claimed")
     }
 }

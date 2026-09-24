@@ -40,7 +40,7 @@ public struct NewProfilePlan: Equatable, Sendable {
     }
 }
 
-private func validNewAgentID(_ value: String) -> Bool {
+func validNewAgentID(_ value: String) -> Bool {
     value.range(of: "\\A[A-Za-z0-9][A-Za-z0-9_-]{0,127}\\z", options: .regularExpression) != nil
 }
 

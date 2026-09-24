@@ -380,6 +380,9 @@ struct MurmurHomeView: View {
     }
 
     @ViewBuilder private var preferences: some View {
+        Button(L10n.text("I have an invitation…")) { model.useInvitation() }
+            .disabled(!model.canUseInvitation)
+        Divider()
         Menu(L10n.text("Language")) {
             ForEach(AppLanguage.allCases, id: \.self) { language in
                 Button { model.selectLanguage(language) } label: {

@@ -41,8 +41,13 @@ struct PairingSheet: View {
                 }
             } else if model.pairingOutput == nil && model.pairingMessage == nil {
                 if model.pairingMode == .join {
-                    Text(L10n.text("Identity name"))
-                    TextField(L10n.text("Identity name"), text: $model.creationAgentID).textFieldStyle(.roundedBorder)
+                    if let identity = model.pairingIdentity {
+                        Text(L10n.text("Identity: %@", identity)).font(.headline)
+                        Text(L10n.text("The Contact will be added to this Identity."))
+                    } else {
+                        Text(L10n.text("Identity name"))
+                        TextField(L10n.text("Identity name"), text: $model.creationAgentID).textFieldStyle(.roundedBorder)
+                    }
                     Text(L10n.text("Paste the Invitation line sent by your colleague."))
                 } else {
                     Text(L10n.text("Paste the Reply line sent by your colleague."))
@@ -54,7 +59,7 @@ struct PairingSheet: View {
                     if model.pairingMode == .join { model.joinInvitationLine() }
                     else { model.addReplyLine() }
                 }.buttonStyle(.borderedProminent)
-                    .disabled(model.busy || model.pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (model.pairingMode == .join && model.creationAgentID.isEmpty))
+                    .disabled(model.busy || model.pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (model.pairingMode == .join && model.pairingIdentity == nil && model.creationAgentID.isEmpty))
             }
             if let output = model.pairingOutput {
                 Text(model.pairingMode == .invite ? L10n.text("Invitation") : L10n.text("Reply")).font(.headline)

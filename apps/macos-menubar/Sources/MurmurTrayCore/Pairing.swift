@@ -1,13 +1,14 @@
 import Foundation
 
 public enum PairingError: Error, LocalizedError, Sendable, Equatable {
-    case damaged, tooLarge, publicServerRequired, invalidServer, wrongReply, confirmationRequired, unconfirmed, failed
+    case damaged, tooLarge, publicServerRequired, invalidServer, differentServer, wrongReply, confirmationRequired, unconfirmed, failed
 
     static func from(code: String?) -> Self {
         switch code {
         case "onboarding.input-too-large": .tooLarge
         case "onboarding.invite-public-server-required": .publicServerRequired
         case "onboarding.invite-server-address-invalid": .invalidServer
+        case "onboarding.existing-profile-conflict": .differentServer
         case "onboarding.invalid-blob", "onboarding.invalid-peer", "onboarding.invalid-peer-key", "onboarding.invalid-broker": .damaged
         case "onboarding.self-peer", "onboarding.peer-key-conflict": .wrongReply
         default: .failed
@@ -15,10 +16,11 @@ public enum PairingError: Error, LocalizedError, Sendable, Equatable {
     }
     public var errorDescription: String? {
         switch self {
-        case .damaged: L10n.text("Paste the complete Invitation or Reply sent by your colleague.")
+        case .damaged: L10n.text("This line is damaged. Paste one complete Invitation or Reply sent by your colleague.")
         case .tooLarge: L10n.text("This line is too long. Ask your colleague for a new Invitation or Reply.")
         case .publicServerRequired: L10n.text("Your colleague needs a public Server address. Ask the person who manages your Server for it.")
         case .invalidServer: L10n.text("Enter a public Server address without an access key, then try again.")
+        case .differentServer: L10n.text("This Invitation uses a different Server. Ask your colleague for an Invitation for the Server you already use.")
         case .wrongReply: L10n.text("This Reply does not match the Contact. Ask your colleague for a new Reply.")
         case .confirmationRequired: L10n.text("Confirm that you will send this Invitation personally before copying it.")
         case .unconfirmed: L10n.text("The Contact could not be confirmed. Refresh the status before trying again.")
@@ -36,11 +38,12 @@ public enum PairingLine {
     public static let maximumBytes = 16 * 1024
     public static func validated(_ input: String) throws -> String {
         guard input.utf8.count <= maximumBytes else { throw PairingError.tooLarge }
-        let line = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard line.range(of: "\\AMURMUR:[A-Za-z0-9_-]+\\z", options: .regularExpression) != nil else {
+        let pattern = try NSRegularExpression(pattern: "MURMUR:[A-Za-z0-9_-]+=*")
+        let matches = pattern.matches(in: input, range: NSRange(input.startIndex..., in: input))
+        guard matches.count == 1, let range = Range(matches[0].range, in: input) else {
             throw PairingError.damaged
         }
-        return line
+        return String(input[range])
     }
     // Private recovery copy, never a file exchange step in the interface.
     public static func recovered(from file: URL) throws -> String {
@@ -49,6 +52,11 @@ public enum PairingLine {
               let size = info.fileSize, size <= maximumBytes else { throw PairingError.damaged }
         return try validated(String(contentsOf: file, encoding: .utf8))
     }
+}
+
+public struct PairingJoin: Sendable {
+    public let peerID: String
+    public let reply: String
 }
 
 public struct PairingInvitation: Sendable {
@@ -112,5 +120,26 @@ public struct ProfilePairingClient: Sendable {
             throw PairingError.unconfirmed
         }
         return value.peerId
+    }
+    public func joinInvitation(_ input: String, expectedAgent: String) throws -> PairingJoin {
+        let line = try PairingLine.validated(input)
+        _ = try verified(expectedAgent)
+        // Reuse the selected profile and Identity; never initialize a new one here.
+        let data = try probe.invoke(["join", "--agent-id", expectedAgent, "--invite-stdin"],
+                                    input: Data(line.utf8), pairingErrors: true).data
+        struct Receipt: Decodable {
+            let schema: String, agentId: String, peerId: String, reply: String
+            let paired: Bool?
+        }
+        guard let value = try? JSONDecoder().decode(Receipt.self, from: data),
+              schemaKnown(value.schema, name: "murmur.join"), value.agentId == expectedAgent,
+              validNewAgentID(value.peerId), value.peerId != expectedAgent, value.paired == nil else {
+            throw PairingError.unconfirmed
+        }
+        let reply = try PairingLine.validated(value.reply)
+        guard try verified(expectedAgent).peers.list?.contains(where: { $0.agentId == value.peerId }) == true else {
+            throw PairingError.unconfirmed
+        }
+        return PairingJoin(peerID: value.peerId, reply: reply)
     }
 }

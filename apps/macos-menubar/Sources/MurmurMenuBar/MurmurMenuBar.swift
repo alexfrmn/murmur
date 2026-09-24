@@ -57,6 +57,8 @@ final class TrayModel: ObservableObject {
     @Published var pairingConfirmed = false
     @Published var pairingNeedsPublicServer = false
     @Published var pairingServer = ""
+    @Published private(set) var pairingIdentity: String?
+    private var pairingSelectionID: UUID?
     private var inviteAfterCreation = false
     private var openCreatedInvitation = false
     @Published var setupAgentID: String?
@@ -396,18 +398,24 @@ final class TrayModel: ObservableObject {
     func useInvitation() {
         guard !busy, !isDemo, runtimeError == nil else { return }
         refreshSavedSetup()
-        guard !hasPendingSetup, !needsExistingProfileChoice else { return }
+        guard canUseInvitation else { return }
         selectionError = nil; selectionErrorDetail = nil
-        creationAgentID = NewProfilePlan.suggestedAgentID()
+        if profile == nil { creationAgentID = NewProfilePlan.suggestedAgentID() }
         beginPairing(.join)
     }
     var canPair: Bool { !busy && !isDemo && client != nil && agentID != nil && status != nil }
+    var canUseInvitation: Bool {
+        !busy && !isDemo && runtimeError == nil && !hasPendingSetup &&
+            (profile != nil ? canPair : !needsExistingProfileChoice)
+    }
     func beginPairing(_ mode: PairingMode) {
         guard !busy, !isDemo else { return }
         if mode != .join { guard canPair else { return } }
         pairingMode = mode; pairingInput = ""; pairingOutput = nil
         pairingError = nil; pairingMessage = nil; pairingInvitation = nil
         pairingConfirmed = false; pairingNeedsPublicServer = false; pairingServer = ""
+        pairingIdentity = mode == .join && profile != nil ? agentID : nil
+        pairingSelectionID = selectionID
         showPairingSheet = true
         if mode == .invite { makeInvitation() }
     }
@@ -425,12 +433,37 @@ final class TrayModel: ObservableObject {
     }
     func joinInvitationLine() {
         guard !busy, !hasPendingSetup, !isDemo else { return }
+        guard pairingSelectionID == selectionID else { pairingError = PairingError.unconfirmed.localizedDescription; return }
+        if let identity = pairingIdentity {
+            joinWithCurrentIdentity(identity)
+            return
+        }
+        guard profile == nil else { pairingError = PairingError.unconfirmed.localizedDescription; return }
         do {
             let line = try PairingLine.validated(pairingInput)
             let plan = try NewProfilePlan(applicationDirectory: applicationDirectory, agentID: creationAgentID)
             creationPlan = plan
             create(plan: plan, invitation: line)
         } catch { pairingError = PairingError.message(for: error) }
+    }
+    private func joinWithCurrentIdentity(_ identity: String) {
+        guard identity == agentID, let helper = pairingClient else {
+            pairingError = PairingError.unconfirmed.localizedDescription; return
+        }
+        let selected = selectionID, input = pairingInput
+        operating = true; pairingError = nil; pairingMessage = nil
+        Task {
+            let result = await Task.detached { Result { try helper.joinInvitation(input, expectedAgent: identity) } }.value
+            guard selectionID == selected else { return }
+            operating = false
+            switch result {
+            case .success(let joined):
+                pairingInput = ""; pairingOutput = joined.reply
+                copyPairingLine()
+            case .failure(let error): pairingError = PairingError.message(for: error)
+            }
+            refreshStatus()
+        }
     }
     private var pairingClient: ProfilePairingClient? {
         guard let client else { return nil }
@@ -500,6 +533,7 @@ final class TrayModel: ObservableObject {
     func clearPairing() {
         pairingInput = ""; pairingOutput = nil; pairingInvitation = nil
         pairingConfirmed = false; pairingError = nil; pairingMessage = nil
+        pairingIdentity = nil; pairingSelectionID = nil
     }
     func createOwnProfile(agentID: String, server: String, accessFile: URL?) {
         guard !busy, !isDemo, runtimeError == nil, !hasPendingSetup else { return }
