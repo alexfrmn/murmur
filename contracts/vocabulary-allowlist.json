@@ -66,6 +66,42 @@
       "key": "ru.description",
       "term": "агент",
       "reason": "search-engine category term: people search for «ИИ-агенты», so the Russian page title and description keep that phrase; the page body says помощники."
+    },
+    {
+      "file": "site/ru/index.html",
+      "key": "<title>",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the title and description of the Russian page (/ru/) keep that phrase; the page body says помощники."
+    },
+    {
+      "file": "site/ru/index.html",
+      "key": "meta:description",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the title and description of the Russian page (/ru/) keep that phrase; the page body says помощники."
+    },
+    {
+      "file": "site/ru/index.html",
+      "key": "meta:og:title",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the title and description of the Russian page (/ru/) keep that phrase; the page body says помощники."
+    },
+    {
+      "file": "site/ru/index.html",
+      "key": "meta:og:description",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the title and description of the Russian page (/ru/) keep that phrase; the page body says помощники."
+    },
+    {
+      "file": "site/ru/index.html",
+      "key": "meta:twitter:title",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the title and description of the Russian page (/ru/) keep that phrase; the page body says помощники."
+    },
+    {
+      "file": "site/ru/index.html",
+      "key": "meta:twitter:description",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the title and description of the Russian page (/ru/) keep that phrase; the page body says помощники."
     }
   ]
 }
