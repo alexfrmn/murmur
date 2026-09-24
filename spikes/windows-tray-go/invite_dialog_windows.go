@@ -128,13 +128,41 @@ func showInviteIdentity() (inviteIdentity, bool) {
 			tell(tr("invite.title"), tr("invite.required"))
 			return true
 		}
-		if !strings.Contains(input.Server, "://") {
-			input.Server = "nats://" + input.Server
-		}
+		input.Server = normalizeInviteServer(input.Server)
 		user32.NewProc("EndDialog").Call(hwnd, 1)
 		return true
 	})
 	return input, result == 1
+}
+
+func showInvitePublicServer(copyDiagnostics func()) (string, bool) {
+	controls := []inviteControl{
+		{200, 0x82, 16, 12, 298, 45, 0, tr("invite.publicAddressHint")},
+		{201, 0x82, 16, 66, 298, 14, 0, tr("invite.publicAddress")},
+		{101, 0x81, 16, 82, 298, 20, 0x810080, ""},
+		{202, 0x82, 16, 108, 298, 14, 0, tr("invite.serverExample")},
+		{3, 0x80, 16, 134, 298, 24, 0x10000, tr("invite.copyDiagnostics")},
+		{1, 0x80, 16, 168, 198, 26, 0x10001, tr("invite.retry")},
+		{2, 0x80, 222, 168, 92, 26, 0x10000, tr("invite.cancel")},
+	}
+	var address string
+	result := runInviteDialog(inviteDialogTemplate(tr("invite.title"), 210, controls), func(hwnd, id uintptr) bool {
+		if id == 3 {
+			copyDiagnostics()
+			return true
+		}
+		if id != 1 {
+			return false
+		}
+		address = strings.TrimSpace(inviteField(hwnd, 101))
+		if address == "" {
+			tell(tr("invite.title"), tr("invite.publicAddressRequired"))
+			return true
+		}
+		user32.NewProc("EndDialog").Call(hwnd, 1)
+		return true
+	})
+	return address, result == 1
 }
 
 func showInviteError(message string, copyDiagnostics func()) {

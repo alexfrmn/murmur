@@ -6,8 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"testing"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -44,10 +45,34 @@ func TestPrivateInviteTokenACLAndCleanup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		sddl := sd.String()
-		if strings.Count(sddl, "(A;") != 1 || !strings.Contains(sddl, user.User.Sid.String()) {
-			t.Fatalf("unexpected ACL %s", sddl)
+		dacl, _, err := sd.DACL()
+		if err != nil || dacl == nil {
+			t.Fatalf("missing DACL: %v", err)
 		}
+		// x/sys v0.15 exposes neither ACE fields nor GetAce. Use the same Win32
+		// layouts as windows-service-go; SDDL aliases (such as LA) are irrelevant.
+		type aclHeader struct {
+			Revision, Reserved     byte
+			Size, Count, Reserved2 uint16
+		}
+		type allowedACE struct {
+			Type, Flags    byte
+			Size           uint16
+			Mask, SIDStart uint32
+		}
+		if (*aclHeader)(unsafe.Pointer(dacl)).Count != 1 {
+			t.Fatal("expected one ACE")
+		}
+		var ace *allowedACE
+		r, _, callErr := windows.NewLazySystemDLL("advapi32.dll").NewProc("GetAce").Call(uintptr(unsafe.Pointer(dacl)), 0, uintptr(unsafe.Pointer(&ace)))
+		if r == 0 {
+			t.Fatal(callErr)
+		}
+		const fileAllAccess = 0x1f01ff
+		if ace.Type != 0 || ace.Mask != fileAllAccess || !(*windows.SID)(unsafe.Pointer(&ace.SIDStart)).Equals(user.User.Sid) {
+			t.Fatal("unexpected ACE")
+		}
+		runtime.KeepAlive(sd)
 	}
 	if err := remove(); err != nil {
 		t.Fatal(err)
@@ -69,6 +94,8 @@ func TestInviteWindowCapture(t *testing.T) {
 		showInviteIdentity()
 	case "error":
 		showInviteError(tr("invite.publicServerRequired"), func() {})
+	case "public":
+		showInvitePublicServer(func() {})
 	case "before":
 		if currentLocale() == localeRussian {
 			tell(tr("invite.title"), "Сначала создайте свою личность Murmur. Используйте «Подключиться к коллеге…» с приглашением или откройте существующую папку личности.")

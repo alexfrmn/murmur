@@ -17,6 +17,39 @@ type inviteSteps struct {
 	token   func(string) (string, func() error, error)
 }
 
+// A public alias is an invitation override, not a rewrite of the local Service.
+// Retry only after the user supplies an address; cancellation never invokes CLI.
+func inviteWithPublicServer(cli func(...string) ([]byte, error), args []string, ask func(error) (string, bool)) ([]byte, error) {
+	base := append([]string(nil), args...)
+	for {
+		out, err := cli(args...)
+		if err == nil {
+			return out, nil
+		}
+		if err.Error() != "onboarding.invite-public-server-required" && err.Error() != "onboarding.invite-server-address-invalid" {
+			return nil, err
+		}
+		address, ok := ask(err)
+		if !ok {
+			return nil, errOnboardingCancelled
+		}
+		address = normalizeInviteServer(address)
+		server, parseErr := url.Parse(address)
+		if parseErr != nil || server.User != nil || server.RawQuery != "" || server.Fragment != "" {
+			return nil, errors.New("onboarding.invite-server-address-invalid")
+		}
+		args = append(append([]string(nil), base...), "--broker", address)
+	}
+}
+
+func normalizeInviteServer(address string) string {
+	address = strings.TrimSpace(address)
+	if !strings.Contains(address, "://") {
+		address = "nats://" + address
+	}
+	return address
+}
+
 // The engine owns creation and service configuration. Stop on the first failure;
 // in particular, remove the credential file before installing a service.
 func createInviter(s inviteSteps, input inviteIdentity, profile string) error {

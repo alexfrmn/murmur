@@ -88,6 +88,48 @@ func TestCreateInviterRejectsCredentialsInServerAddress(t *testing.T) {
 	}
 }
 
+func TestInvitePublicAddressRetry(t *testing.T) {
+	base := []string{"invite", "--out", "backup", "--json"}
+	calls := [][]string{}
+	out, err := inviteWithPublicServer(func(args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if len(calls) == 1 {
+			return nil, errors.New("onboarding.invite-public-server-required")
+		}
+		return []byte("success"), nil
+	}, base, func(err error) (string, bool) {
+		if err.Error() != "onboarding.invite-public-server-required" {
+			t.Fatal(err)
+		}
+		return " public.example.org:4222 ", true
+	})
+	if err != nil || string(out) != "success" {
+		t.Fatalf("result %s %v", out, err)
+	}
+	if len(calls) != 2 || !reflect.DeepEqual(calls[0], base) || !reflect.DeepEqual(calls[1], append(append([]string(nil), base...), "--broker", "nats://public.example.org:4222")) {
+		t.Fatalf("calls %v", calls)
+	}
+}
+
+func TestInvitePublicAddressCancelAndUnsafeAddress(t *testing.T) {
+	for _, tc := range []struct {
+		address string
+		ok      bool
+	}{{"", false}, {"nats://synthetic-secret@example.org:4222", true}} {
+		calls := 0
+		_, err := inviteWithPublicServer(func(...string) ([]byte, error) {
+			calls++
+			return nil, errors.New("onboarding.invite-public-server-required")
+		}, []string{"invite"}, func(error) (string, bool) { return tc.address, tc.ok })
+		if err == nil || calls != 1 {
+			t.Fatalf("unexpected retry: %d %v", calls, err)
+		}
+		if !tc.ok && !errors.Is(err, errOnboardingCancelled) {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestInvitationContentRefusesUntrustedOutput(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "invite.txt")
 	for _, tc := range []struct {

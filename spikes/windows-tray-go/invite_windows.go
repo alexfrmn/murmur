@@ -116,7 +116,20 @@ func (a *app) inviteColleague() {
 	// Unique filename avoids O_EXCL collision on repeat invitations
 	inviteFile := filepath.Join(inviteDir, fmt.Sprintf("invite-%d.txt", time.Now().UnixNano()))
 
-	out, err := runSetupCLI(ctx, b, "invite", "--out", inviteFile, "--data-dir", b.Profile, "--json")
+	out, err := inviteWithPublicServer(func(args ...string) ([]byte, error) {
+		// The user can take any time in the address form; each CLI call gets a fresh deadline.
+		callCtx, callCancel := context.WithTimeout(context.Background(), mutationTimeout)
+		defer callCancel()
+		return runSetupCLI(callCtx, b, args...)
+	}, []string{"invite", "--out", inviteFile, "--data-dir", b.Profile, "--json"}, func(err error) (string, bool) {
+		a.mu.Lock()
+		a.actionErr = errors.New(safeInviteCode(err))
+		a.mu.Unlock()
+		return showInvitePublicServer(a.copyDiagnostics)
+	})
+	if errors.Is(err, errOnboardingCancelled) {
+		return
+	}
 	if err != nil {
 		errStr := err.Error()
 		// Check for specific error codes with localized messages

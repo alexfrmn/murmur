@@ -60,7 +60,7 @@
   "icons.failed": "Icon %s could not be built",
   "invite.clipboardFailed": "Could not copy the invitation. Copy diagnostics for details.",
   "invite.credentialWarning": "This invitation contains server access credentials. Share it only with the person you are inviting, in a private message.",
-  "invite.done": "Invitation copied. Send it to your colleague in a private message.\n\nBackup file:\n%s",
+  "invite.done": "Invitation copied. Send it to your colleague in a private message.\n\nKeep the backup private: it may contain the Server key.\n%s",
   "invite.failed": "The invitation could not be created. Copy diagnostics for details.",
   "invite.folderFailed": "Could not prepare the invitations folder. Copy diagnostics for details.",
   "invite.identityFailed": "Could not confirm your identity. Copy diagnostics for details.",
@@ -233,5 +233,9 @@
   "invite.required": "Enter an Identity name and Server address.",
   "invite.createFailed": "Could not finish creating your Identity and Service. Copy diagnostics to check the failed step.",
   "invite.copyDiagnostics": "Copy diagnostics",
-  "invite.close": "Close"
+  "invite.close": "Close",
+  "invite.publicAddress": "Public Server address",
+  "invite.publicAddressHint": "This Invitation needs a public Server address. Enter the address your colleague can reach.",
+  "invite.publicAddressRequired": "Enter a public Server address.",
+  "invite.retry": "Create Invitation"
 }
