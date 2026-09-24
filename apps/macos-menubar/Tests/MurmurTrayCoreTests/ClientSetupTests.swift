@@ -74,6 +74,15 @@ func runClientSetupChecks(fixtures: URL) throws -> Int {
     let helper = ClientSetupClient(executable: executable, profile: profile,
         environment: ["HOME": directory.path, "CODEX_HOME": directory.appendingPathComponent("custom codex").path,
                       "CLAUDE_CONFIG_DIR": "/custom-claude", "NODE_OPTIONS": "bad", "OPENAI_API_KEY": "fixture-never-inherit", "DATA_DIR": "/wrong"])
+    // /usr/bin/python3 is an Xcode launcher on macOS; its first startup is not
+    // the CLI behavior under test. Warm the fixture interpreter separately while
+    // retaining the real 5-second status and 8-second client command budgets.
+    try measuredChecks("ClientSetup Python fixture startup") {
+        try withCLI("exec /usr/bin/python3 -c 'print(\"{}\")'") { url in
+            _ = try CLIProbe(executable: url, timeout: 60,
+                             environment: ["HOME": directory.path]).run("status")
+        }
+    }
     try check(try measuredChecks("ClientSetup detect") { try helper.detect(expectedAgent: "agent-misha") }.count == 1, "Detection from canonical CLI"); count += 1
     let preview = try measuredChecks("ClientSetup preview") { try helper.preview(.codexCLI, expectedAgent: "agent-misha") }
     _ = try measuredChecks("ClientSetup configure") { try helper.configure(preview, expectedAgent: "agent-misha") }
