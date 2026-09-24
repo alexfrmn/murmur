@@ -139,19 +139,35 @@ function waitForMainWindowTitle(processId, title) {
   return result.stdout.replace(/^\uFEFF/, '').trim();
 }
 
+// The shape earlier launchers wrote: Windows PowerShell running Open-Murmur.ps1 with the selection.
+function writeLegacyShortcut(shortcutPath, launcher, workingDirectory, profile, windowStyle) {
+  const quote = value => `"${value}"`;
+  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher, '-NodePath', process.execPath,
+    '-DataDir', profile, '-ServiceName', 'ChosenService'].map(quote).join(' ');
+  const result = runPowerShell(`$shell=New-Object -ComObject WScript.Shell;$link=$shell.CreateShortcut(${psLiteral(shortcutPath)});` +
+    `$link.TargetPath=${psLiteral(systemPowerShell)};$link.Arguments=${psLiteral(args)};$link.WorkingDirectory=${psLiteral(workingDirectory)};` +
+    `$link.Description='Open Murmur controls (managed by Murmur)';$link.IconLocation=${psLiteral(path.join(workingDirectory, 'murmur.ico') + ',0')};` +
+    `$link.WindowStyle=${windowStyle};$link.Save()`);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+}
+
 function removeOwnedShortcuts(shortcutPaths, trayPath) {
   const command = `$shell=New-Object -ComObject WScript.Shell;foreach($path in @(${shortcutPaths.map(psLiteral).join(',')})){` +
     `if(Test-Path -LiteralPath $path -PathType Leaf){try{$link=$shell.CreateShortcut($path);` +
-    `if($link.Description -ceq 'Open Murmur controls (managed by Murmur)' -and $link.TargetPath -ieq ${psLiteral(trayPath)}){Remove-Item -LiteralPath $path -Force}}catch{}}}`;
+    `if($link.Description -ceq 'Open Murmur controls (managed by Murmur)' -and ($link.TargetPath -ieq ${psLiteral(trayPath)} -or ` +
+    `$link.Arguments.IndexOf(${psLiteral(path.dirname(trayPath))},[StringComparison]::OrdinalIgnoreCase) -ge 0)){Remove-Item -LiteralPath $path -Force}}catch{}}}`;
   const result = runPowerShell(command);
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
 
-for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal-return']) {
+const opensTray = mode => mode === 'normal-return' || mode === 'installed';
+
+for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal-return', 'installed']) {
   test(`Windows launcher invokes real tray and bound CLI: ${mode}`, { skip: process.platform !== 'win32' }, async t => {
     const dir = await mkdtemp(path.join(tmpdir(), "Murmur tray's bundle "));
     let shortcutPaths = [];
     let foreignShortcut = null;
+    let installedBefore = null;
     let launcherPathForCleanup = path.join(dir, 'Open-Murmur.ps1');
     try {
       await cp(path.join(root, 'apps/windows-tray/packaging'), dir, { recursive: true });
@@ -205,7 +221,8 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       const launcher = path.join(canonicalDir, 'Open-Murmur.ps1');
       launcherPathForCleanup = launcher;
       const localAppData = path.join(dir, 'local-app-data');
-      if (mode === 'normal-return') {
+      const opens = opensTray(mode);
+      if (opens) {
         await mkdir(localAppData);
         shortcutPaths = userShortcutPaths();
         const occupied = [];
@@ -218,7 +235,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         }
       }
       const launchArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher,
-        '-NodePath', process.execPath, '-DataDir', canonicalProfile, '-ServiceName', 'ChosenService', ...(mode === 'normal-return' ? [] : ['-Check'])];
+        '-NodePath', process.execPath, '-DataDir', canonicalProfile, '-ServiceName', 'ChosenService', ...(opens ? [] : ['-Check'])];
       const launchOptions = {
         timeout: 20_000, encoding: 'utf8', windowsHide: true,
         env: { ...process.env, LOCALAPPDATA: localAppData, NODE_OPTIONS: '--require C:/must-not-run.js', MURMUR_STORE_PATH: 'C:/wrong-store', MURMUR_UPDATE_CHECK: '0' },
@@ -254,6 +271,30 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         assert.deepEqual(await readFile(statePath), staleBindingBytes);
         assert.deepEqual(exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe')), []);
         await rm(shortcutPaths[0]);
+
+        // Shortcuts written by earlier launchers ran Windows PowerShell with the launcher. One that
+        // names ANOTHER bundle's launcher is foreign and still refuses; this bundle's are migrated.
+        const otherLauncher = path.join(canonicalDir, 'other bundle', 'Open-Murmur.ps1');
+        writeLegacyShortcut(shortcutPaths[0], otherLauncher, canonicalDir, canonicalProfile, 1);
+        const otherLegacyBytes = await readFile(shortcutPaths[0]);
+        const otherRefused = spawnSync('powershell.exe', launchArgs, launchOptions);
+        assert.notEqual(otherRefused.status, 0, otherRefused.stdout + otherRefused.stderr);
+        assert.match(otherRefused.stdout, /Shortcut location is occupied by another target/);
+        assert.deepEqual(await readFile(shortcutPaths[0]), otherLegacyBytes);
+        assert.deepEqual(exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe')), []);
+        await rm(shortcutPaths[0]);
+        writeLegacyShortcut(shortcutPaths[1], launcher, canonicalDir, canonicalProfile, 1);
+        writeLegacyShortcut(shortcutPaths[2], launcher, canonicalDir, canonicalProfile, 7);
+      }
+      if (mode === 'installed') {
+        // Installed by setup.exe: the installer owns the shortcuts. With its marker the launcher creates,
+        // migrates and removes none of them: a missing one stays missing, an older one of this bundle
+        // keeps its bytes, a foreign one does not stop Murmur from opening.
+        await writeFile(path.join(canonicalDir, 'murmur-install.json'), '{"installer":"setup","appId":"test","version":"0.0.0"}\r\n');
+        foreignShortcut = shortcutPaths[1];
+        await writeFile(foreignShortcut, Buffer.from('foreign shortcut sentinel\r\n', 'utf8'));
+        writeLegacyShortcut(shortcutPaths[2], launcher, canonicalDir, canonicalProfile, 7);
+        installedBefore = await Promise.all(shortcutPaths.map(shortcut => readFile(shortcut).catch(() => null)));
       }
       const result = spawnSync('powershell.exe', launchArgs, launchOptions);
       assert.equal(result.error, undefined);
@@ -265,6 +306,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
       if (mode === 'normal-return') {
         assert.equal(result.status, 0, result.stdout + result.stderr + JSON.stringify(observed));
         assert.match(result.stdout, /Murmur opened/);
+        assert.equal(result.stdout.match(/Updated the Murmur shortcut to open the tray directly/g)?.length, 2, result.stdout);
         const statePath = path.join(localAppData, 'Murmur/tray-launch-binding.json');
         const stateText = await readFile(statePath, 'utf8');
         const state = JSON.parse(stateText);
@@ -324,6 +366,14 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         assert.deepEqual(await readFile(statePath), stateBeforeCheck);
         const processesAfterRefusal = exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe'));
         assert.deepEqual(processesAfterRefusal.map(value => value.ProcessId), [state.pid]);
+
+      } else if (mode === 'installed') {
+        assert.equal(result.status, 0, result.stdout + result.stderr + JSON.stringify(observed));
+        assert.match(result.stdout, /Murmur opened/);
+        assert.doesNotMatch(result.stdout, /Updated the Murmur shortcut/);
+        assert.deepEqual(await Promise.all(shortcutPaths.map(shortcut => readFile(shortcut).catch(() => null))), installedBefore);
+        assert.equal(installedBefore[0], null);
+        assert.equal(exactTrayProcesses(path.join(canonicalDir, 'murmur-tray.exe')).length, 1);
       } else if (mode === 'valid') {
         assert.equal(result.status, 0, result.stdout + result.stderr + JSON.stringify(observed));
         const output = JSON.parse(result.stdout.replace(/^\uFEFF/, ''));
@@ -331,7 +381,7 @@ for (const mode of ['valid', 'null-identity', 'future', 'missing-field', 'normal
         assert.equal(output.probe.schema, 'murmur.tray-probe/1');
       } else assert.notEqual(result.status, 0, 'invalid profile must refuse before GUI');
     } finally {
-      if (mode === 'normal-return') {
+      if (opensTray(mode)) {
         // Only the executable created by this test may be stopped.
         const listed = spawnSync('powershell.exe', ['-NoProfile', '-Command',
           'ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process -Filter "Name=\'murmur-tray.exe\'" | Select-Object ProcessId,ExecutablePath)'], {
@@ -469,6 +519,91 @@ test('Without a profile named, the launcher opens the tray instead of a folder d
   } finally {
     stopTray();
     await new Promise(r => setTimeout(r, 300));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Migration is staged like creation: the old shortcut is replaced only while it still has the bytes
+// that were recognized, and a later failure puts those bytes back instead of deleting the shortcut.
+test('A migrated launcher shortcut is replaced only as recognized and rolls back to its old bytes', { skip: process.platform !== 'win32' }, async () => {
+  // ASCII with a space and an apostrophe: WScript.Shell cannot save paths outside the system ANSI
+  // code page (covered by its own test below), and CI runners use 1252.
+  // Long form: a runner's temp folder is an 8.3 name, WScript.Shell stores targets in the long form.
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), "Murmur migration it's ")));
+  try {
+    const shortcut = path.join(dir, 'Murmur.lnk');
+    const tray = path.join(dir, 'murmur-tray.exe');
+    await writeFile(tray, '');
+    writeLegacyShortcut(shortcut, path.join(dir, 'Open-Murmur.ps1'), dir, path.join(dir, 'profile'), 7);
+    const oldBytes = await readFile(shortcut);
+    const launcher = path.join(root, 'apps/windows-tray/packaging/Open-Murmur.ps1');
+    const result = runPowerShell(`$ErrorActionPreference='Stop';$ast=[Management.Automation.Language.Parser]::ParseFile(${psLiteral(launcher)},[ref]$null,[ref]$null);` +
+      `foreach($name in 'Test-LinkedItem','Install-MissingShortcuts','Test-ExactCreatedShortcut','Remove-CreatedShortcuts'){` +
+      `$definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true);. ([scriptblock]::Create($definition.Extent.Text))};` +
+      `function Initialize-TrayActivationApi {};$path=${psLiteral(shortcut)};$old=[Convert]::ToBase64String([IO.File]::ReadAllBytes($path));` +
+      `$entry=@{Path=$path;Exists=$false;OldBytes=$old;Target=${psLiteral(tray)};Arguments='';WorkingDirectory=${psLiteral(dir)};Description='Open Murmur controls (managed by Murmur)';Icon=${psLiteral(path.join(dir, 'murmur.ico') + ',0')};WindowStyle=1};` +
+      `$stale=$entry.Clone();$stale.OldBytes=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('something else'));` +
+      `try{$null=Install-MissingShortcuts @($stale);$staleError=''}catch{$staleError=$_.Exception.Message};` +
+      `$afterStale=[Convert]::ToBase64String([IO.File]::ReadAllBytes($path));` +
+      `$created=@(Install-MissingShortcuts @($entry));$link=(New-Object -ComObject WScript.Shell).CreateShortcut($path);$migrated=[ordered]@{target=$link.TargetPath;arguments=$link.Arguments;windowStyle=$link.WindowStyle};` +
+      `Remove-CreatedShortcuts $created;` +
+      `[ordered]@{staleError=$staleError;untouchedAfterStale=($afterStale -ceq $old);migrated=$migrated;restored=([Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) -ceq $old);` +
+      `leftovers=@(Get-ChildItem -LiteralPath ${psLiteral(dir)} -Filter '.murmur-*' -Force).Count}|ConvertTo-Json -Compress`);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const outcome = parsePowerShellJson(result.stdout);
+    assert.match(outcome.staleError, /The old Murmur shortcut changed before it could be updated/);
+    assert.equal(outcome.untouchedAfterStale, true);
+    assert.equal(outcome.migrated.target.toLowerCase(), tray.toLowerCase());
+    assert.equal(outcome.migrated.arguments, '');
+    assert.equal(outcome.migrated.windowStyle, 1);
+    assert.equal(outcome.restored, true);
+    assert.equal(outcome.leftovers, 0);
+    assert.deepEqual(await readFile(shortcut), oldBytes);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// WScript.Shell converts paths through the system ANSI code page; a character outside it makes the
+// shortcut impossible to save. Opening Murmur must not depend on that: the shortcut is skipped with a
+// plain message, an older shortcut keeps its bytes, and nothing staged is left behind.
+test('A shortcut Windows cannot save for a path outside the ANSI code page is skipped, not fatal', { skip: process.platform !== 'win32' }, async t => {
+  const probe = runPowerShell(`$enc=[Text.Encoding]::Default;$c=@('中','ó','Ж','ا','ə')|Where-Object{$enc.GetString($enc.GetBytes($_)) -cne $_}|Select-Object -First 1;` +
+    `[ordered]@{codePage=$enc.CodePage;char=$c}|ConvertTo-Json -Compress`);
+  assert.equal(probe.status, 0, probe.stdout + probe.stderr);
+  const { codePage, char } = parsePowerShellJson(probe.stdout);
+  if (!char) return t.skip(`every candidate character is representable in code page ${codePage}`);
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'Murmur ansi ')));
+  try {
+    const bundle = path.join(dir, `bundle ${char}`);
+    await mkdir(bundle);
+    await writeFile(path.join(bundle, 'murmur-tray.exe'), '');
+    const fresh = path.join(dir, 'fresh', 'Murmur.lnk');
+    const older = path.join(dir, 'older', 'Murmur.lnk');
+    await mkdir(path.dirname(fresh));
+    await mkdir(path.dirname(older));
+    writeLegacyShortcut(older, path.join(dir, 'Open-Murmur.ps1'), dir, path.join(dir, 'profile'), 7);
+    const olderBytes = await readFile(older);
+    const launcher = path.join(root, 'apps/windows-tray/packaging/Open-Murmur.ps1');
+    const entry = target => `@{Path=${psLiteral(target)};Exists=$false;OldBytes=$null;Target=${psLiteral(path.join(bundle, 'murmur-tray.exe'))};Arguments='';` +
+      `WorkingDirectory=${psLiteral(bundle)};Description='Open Murmur controls (managed by Murmur)';Icon=${psLiteral(path.join(bundle, 'murmur.ico') + ',0')};WindowStyle=1}`;
+    const result = runPowerShell(`$ErrorActionPreference='Stop';$ast=[Management.Automation.Language.Parser]::ParseFile(${psLiteral(launcher)},[ref]$null,[ref]$null);` +
+      `foreach($name in 'Test-LinkedItem','Install-MissingShortcuts','Test-ExactCreatedShortcut','Remove-CreatedShortcuts'){` +
+      `$definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true);. ([scriptblock]::Create($definition.Extent.Text))};` +
+      `function Initialize-TrayActivationApi {};$fresh=${entry(fresh)};$older=${entry(older)};` +
+      `$older.OldBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes(${psLiteral(older)}));` +
+      `$created=@(Install-MissingShortcuts @($fresh,$older));Write-Output ('created=' + $created.Count)`);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /created=0/);
+    assert.match(result.stdout, /Murmur shortcut was not created: Windows could not save the shortcut /);
+    assert.match(result.stdout, new RegExp(`A path contains characters outside code page ${codePage}`));
+    assert.match(result.stdout, /Murmur shortcut was not updated: /);
+    assert.equal(await stat(fresh).then(() => true, () => false), false);
+    assert.deepEqual(await readFile(older), olderBytes);
+    for (const folder of [path.dirname(fresh), path.dirname(older)]) {
+      assert.deepEqual((await readdir(folder)).filter(name => name.startsWith('.murmur-')), []);
+    }
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });

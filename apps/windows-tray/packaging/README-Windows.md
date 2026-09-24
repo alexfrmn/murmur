@@ -19,7 +19,10 @@ opening the menu. It does not create a profile or write client config. After the
 first successful open it adds a Murmur shortcut to the Start menu, the Desktop and
 the per-user Startup folder. They start murmur-tray.exe directly, without a PowerShell
 window, so the tray comes back after sign-in (the service already starts with Windows).
-Delete those shortcuts to undo it. Only one tray runs per bundle in a Windows session: opening
+Delete those shortcuts to undo it. A Murmur shortcut made by an earlier build of this bundle
+(one that started PowerShell) is updated in place to start the tray directly; a shortcut of
+another bundle or program is never changed. When Murmur was installed with setup.exe, the
+installer owns the shortcuts and the launcher leaves them alone. Only one tray runs per bundle in a Windows session: opening
 a shortcut or `murmur-tray.exe` again opens the menu of the running tray instead of adding a
 second icon. "Open an existing profile…" uses the service name the CLI derives from the
 profile path; a profile with a custom service name is opened with the launcher (known limitation
