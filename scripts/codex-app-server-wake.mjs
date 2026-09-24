@@ -87,15 +87,16 @@ const readSessionLogTail = (sessionPath) => {
   }
 };
 
-export const readFinalAnswerFromSessionLog = (sessionPath, turnId) => {
-  if (!sessionPath || !turnId) return "";
+const readTurnFromSessionLog = (sessionPath, turnId) => {
+  if (!sessionPath || !turnId) return null;
   let data = "";
   try {
     data = readSessionLogTail(sessionPath);
   } catch {
-    return "";
+    return null;
   }
 
+  let finalText = '';
   const lines = data.split("\n").filter(Boolean);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index];
@@ -110,7 +111,7 @@ export const readFinalAnswerFromSessionLog = (sessionPath, turnId) => {
 
     const payload = entry?.payload || {};
     if (entry.type === "event_msg" && payload.type === "task_complete" && payload.turn_id === turnId) {
-      return typeof payload.last_agent_message === "string" ? payload.last_agent_message : "";
+      return { turnId, status: 'completed', finalText: typeof payload.last_agent_message === "string" ? payload.last_agent_message : finalText };
     }
 
     const metadataTurnId = payload?.internal_chat_message_metadata_passthrough?.turn_id;
@@ -121,11 +122,13 @@ export const readFinalAnswerFromSessionLog = (sessionPath, turnId) => {
       && metadataTurnId === turnId
       && Array.isArray(payload.content)
     ) {
-      return payload.content.map((part) => part?.text || "").join("\n").trim();
+      finalText ||= payload.content.map((part) => part?.text || "").join("\n").trim();
     }
   }
-  return "";
+  return finalText ? { turnId, status: 'inProgress', finalText } : null;
 };
+
+export const readFinalAnswerFromSessionLog = (sessionPath, turnId) => readTurnFromSessionLog(sessionPath, turnId)?.finalText ?? '';
 
 export const buildThreadStartParams = (binding = null, peer = null) => ({
   model: binding?.model ?? peer?.model ?? null,
@@ -259,13 +262,18 @@ export class CodexAppServerClient {
   startTurnAndWaitForFinal(params, {
     completionTimeoutMs = DEFAULT_TURN_COMPLETION_TIMEOUT_MS,
     sessionPath = null,
+    acceptedTurn = null,
+    onAccepted = () => {},
+    onWorking = () => {},
   } = {}) {
     return new Promise((resolve, reject) => {
       let settled = false;
       let initialized = false;
-      let turnId = null;
+      let turnId = acceptedTurn?.turnId ?? null;
       let startResult = null;
       let finalText = "";
+      let receipt = Promise.resolve();
+      let observing = Boolean(turnId), polling = false, reported = null;
       const requestId = this.nextId++;
       const initId = `init-${this.nextId++}`;
       const url = `ws+unix://${this.socketPath}:/`;
@@ -273,15 +281,45 @@ export class CodexAppServerClient {
         perMessageDeflate: false,
         handshakeTimeout: Math.min(this.timeoutMs, INITIALIZE_TIMEOUT_MS),
       });
-      const timer = setTimeout(() => {
-        finish(new Error(`codex-app-server-turn-completion-timeout:${this.socketPath}:${turnId || "unknown"}`));
-      }, completionTimeoutMs);
+      const working = (reason) => {
+        observing = true;
+        if (reported !== reason) { reported = reason; onWorking({ threadId: params.threadId, turnId, reason }); }
+      };
+      let timer = setTimeout(() => {
+        if (turnId) working('completion-window-elapsed');
+        else finish(new Error('codex-app-server-turn-start-timeout'));
+      }, turnId ? completionTimeoutMs : this.timeoutMs);
+      const accept = (id) => {
+        if (!id || turnId) return;
+        turnId = id;
+        try { receipt = Promise.resolve(onAccepted({ threadId: params.threadId, turnId, sessionPath })); }
+        catch (error) { receipt = Promise.reject(error); }
+        // Observe receipt-write failures immediately, without losing the accepted ID.
+        receipt.catch(() => {});
+        clearTimeout(timer);
+        timer = setTimeout(() => working('completion-window-elapsed'), completionTimeoutMs);
+      };
+      const inspect = async () => {
+        if (settled || !turnId || polling) return;
+        const savedTurn = sessionPath && readTurnFromSessionLog(sessionPath, turnId);
+        if (savedTurn?.status === 'completed') {
+          finish(null, { ...startResult, ...savedTurn, finalText: finalText || savedTurn.finalText, source: "session-log" });
+          return;
+        }
+        if (!observing) return;
+        polling = true;
+        try {
+          const turn = await this.readTurn(params.threadId, turnId);
+          if (settled || !turn || !['completed', 'failed', 'interrupted'].includes(turn.status)) return;
+          const answer = turn.items?.filter(item => item.type === 'agentMessage' && item.phase === 'final_answer')
+            .map(item => item.text ?? '').join('\n').trim();
+          finish(null, { finalText: finalText || answer || '', turnId, status: turn.status,
+            error: turn.error ?? null, source: 'app-server-read' });
+        } catch { working('observation-unavailable'); }
+        finally { polling = false; }
+      };
       const sessionLogTimer = setInterval(() => {
-        if (settled || !sessionPath || !turnId) return;
-        const text = readFinalAnswerFromSessionLog(sessionPath, turnId);
-        if (!text) return;
-        finalText = finalText || text;
-        finish(null, { ...startResult, finalText, turnId, source: "session-log" });
+        void inspect();
       }, SESSION_LOG_POLL_INTERVAL_MS);
 
       const finish = (err, result) => {
@@ -294,8 +332,7 @@ export class CodexAppServerClient {
         } catch {
           // Ignore close races; the request already has a terminal result.
         }
-        if (err) reject(err);
-        else resolve(result);
+        receipt.then(() => err ? reject(err) : resolve(result), reject);
       };
 
       const sendJson = (message) => socket.send(JSON.stringify(message));
@@ -342,12 +379,17 @@ export class CodexAppServerClient {
 
         if (message.id === initId) {
           if (message.error) {
+            if (turnId) { working('observation-unavailable'); return; }
             finish(new Error(`codex-app-server-initialize-error:${message.error.message || JSON.stringify(message.error)}`));
             return;
           }
           initialized = true;
           sendJson({ method: "initialized" });
-          sendJson({ id: requestId, method: "turn/start", params });
+          if (acceptedTurn) {
+            // Subscribe to the existing thread; never submit this letter again.
+            sendJson({ id: requestId, method: "thread/resume", params: { threadId: params.threadId } });
+            void inspect();
+          } else sendJson({ id: requestId, method: "turn/start", params });
           return;
         }
 
@@ -355,37 +397,37 @@ export class CodexAppServerClient {
 
         if (message.id === requestId) {
           if (message.error) {
+            if (turnId) { working('observation-unavailable'); return; }
             finish(new Error(`codex-app-server-error:${message.error.message || JSON.stringify(message.error)}`));
             return;
           }
           startResult = message.result;
-          turnId = message.result?.turn?.id || turnId;
+          if (acceptedTurn) sessionPath = message.result?.thread?.path || sessionPath;
+          else accept(message.result?.turn?.id);
           return;
         }
 
+        if (!turnId || (message.params?.threadId && message.params.threadId !== params.threadId)) return;
         if (message.method === "turn/started" && message.params?.turn?.id) {
-          turnId = turnId || message.params.turn.id;
           return;
         }
 
         if (message.method === "item/completed" && message.params?.turnId) {
-          turnId = turnId || message.params.turnId;
           if (message.params.turnId !== turnId) return;
           const item = message.params.item;
           if (item?.type === "agentMessage" && item.phase === "final_answer" && typeof item.text === "string") {
             finalText = item.text;
-            finish(null, { ...startResult, finalText, turnId, source: "app-server-final-item" });
           }
           return;
         }
 
         if (message.method === "turn/completed" && message.params?.turn?.id) {
-          turnId = turnId || message.params.turn.id;
           if (message.params.turn.id !== turnId) return;
           // #106 — `turn.status` (completed | interrupted | failed | inProgress) and
           // `turn.error` are part of the notification; a caller that ignores them cannot
           // tell a finished turn from a broken one.
           const turn = message.params.turn;
+          if (turn.status === 'inProgress') { working('turn-in-progress'); return; }
           finish(null, {
             ...startResult,
             finalText,
@@ -397,12 +439,37 @@ export class CodexAppServerClient {
         }
       });
       socket.on("error", (err) => {
+        if (settled) return;
+        if (turnId) { working('connection-lost'); return; }
         finish(new Error(`codex-app-server-connect-failed:${this.socketPath}:${err.message}`));
       });
       socket.on("close", () => {
+        if (settled) return;
+        if (turnId) { working('connection-lost'); return; }
         if (!settled) finish(new Error(`codex-app-server-closed-before-response:${this.socketPath}:${initialized ? "after-initialize" : "before-initialize"}`));
       });
     });
+  }
+
+  async readTurn(threadId, turnId) {
+    try {
+      const result = await this.request('thread/read', { threadId, includeTurns: true });
+      if (result?.thread?.id !== threadId) return null;
+      const turn = result.thread.turns?.find(turn => turn.id === turnId);
+      if (turn) return turn;
+    } catch (error) {
+      // New paginated threads reject the legacy full-history read.
+      if (!/paginat|includeTurns|full.history/i.test(error.message)) throw error;
+    }
+    let cursor;
+    for (let page = 0; page < 20; page++) {
+      const result = await this.request('thread/turns/list', { threadId, limit: 50, sortDirection: 'desc', itemsView: 'full', ...(cursor ? { cursor } : {}) });
+      const turn = result?.data?.find(turn => turn.id === turnId);
+      if (turn) return turn;
+      if (!result?.nextCursor || result.nextCursor === cursor) return null;
+      cursor = result.nextCursor;
+    }
+    return null;
   }
 }
 
@@ -536,6 +603,15 @@ export const createCodexAppServerInjector = ({
   // so the mapping survives restarts; without one it still lives per conversation, only
   // in memory. A static `peer.threadId` is an explicit pin and is never written here.
   const memoryThreads = new Map();
+  const memoryTurns = new Map();
+  const turns = {
+    get: async msgId => memoryTurns.get(msgId) ?? await threadStore?.getWakeTurn?.(msgId),
+    set: async record => { memoryTurns.set(record.msgId, record); await threadStore?.setWakeTurn?.(record); },
+    delete: async (msgId, turnId) => {
+      await threadStore?.deleteWakeTurn?.(msgId, turnId);
+      if (memoryTurns.get(msgId)?.turnId === turnId) memoryTurns.delete(msgId);
+    },
+  };
   const threads = threadStore ?? {
     getWakeThread: async (peerId, conversationId) => memoryThreads.get(`${peerId}|${conversationId}`),
     setWakeThread: async (record) => { memoryThreads.set(`${record.peerId}|${record.conversationId}`, record); },
@@ -559,12 +635,17 @@ export const createCodexAppServerInjector = ({
       return { finalText: null, turnId: null, source: "relay-idempotent", replyMsgId };
     }
 
+    const accepted = await turns.get(payload.msgId);
+    if (accepted && (accepted.peerId !== String(payload.from ?? '')
+      || accepted.conversationId !== String(payload.conversationId ?? '') || accepted.socketPath !== socketPath)) {
+      throw Object.assign(new Error('codex-app-server-accepted-turn-binding-changed'), { retryable: false });
+    }
     const client = new Client({ socketPath, timeoutMs });
     const text = buildCodexTurnText(payload, peer);
     const threadStartBinding = peer?.threadStartBinding ?? (resolveThreadStartBinding ? await resolveThreadStartBinding(payload, peer) : null);
     const bindingMetadata = threadStartBinding?.metadata ?? {};
     const shouldResumeThread = peer?.resume === true || (peer?.resume !== false && peer?.relayFinalToMurmur === true);
-    let threadPath = null;
+    let threadPath = accepted?.sessionPath ?? null;
     const resumeThread = async (threadId) => {
       if (!threadId || peer?.resume === false) return;
       try {
@@ -596,9 +677,19 @@ export const createCodexAppServerInjector = ({
         const result = await client.startTurnAndWaitForFinal(turnParams(threadId), {
           completionTimeoutMs: Number(peer?.replyTimeoutMs) || DEFAULT_TURN_COMPLETION_TIMEOUT_MS,
           sessionPath: threadPath,
+          acceptedTurn: accepted,
+          onAccepted: async receipt => {
+            await turns.set({ ...receipt, msgId: payload.msgId, peerId: String(payload.from ?? ''),
+              conversationId: String(payload.conversationId ?? ''), socketPath });
+            log('info', 'Codex app-server wake turn accepted', { msgId: payload.msgId, threadId, turnId: receipt.turnId });
+          },
+          onWorking: ({ turnId, reason }) => log('info', 'Codex Assistant still working; wake retained', {
+            msgId: payload.msgId, threadId, turnId, reason,
+          }),
         });
         const status = typeof result?.status === "string" ? result.status : null;
         if (status && status !== "completed") {
+          if (status === 'failed' && result.turnId) await turns.delete(payload.msgId, result.turnId);
           // #106 — a turn that failed or was interrupted is not a success, whatever text
           // it left behind. `failed` may clear on a retry (model/provider hiccup);
           // `interrupted` means someone stopped it on purpose — do not run it again.
@@ -670,9 +761,9 @@ export const createCodexAppServerInjector = ({
 
     // Resolution order: a remembered thread for this conversation, unless it was seeded to
     // replace a pin that has since changed; then the static pin; then a fresh seed.
-    const remembered = await threads.getWakeThread(threadKey.peerId, threadKey.conversationId);
+    const remembered = accepted ? null : await threads.getWakeThread(threadKey.peerId, threadKey.conversationId);
     const rememberedUsable = remembered && (!peer?.threadId || !remembered.replacesThreadId || remembered.replacesThreadId === peer.threadId);
-    let threadId = rememberedUsable ? remembered.threadId : peer?.threadId;
+    let threadId = accepted?.threadId ?? (rememberedUsable ? remembered.threadId : peer?.threadId);
     if (rememberedUsable && remembered.threadPath) threadPath = remembered.threadPath;
     let seededHere = false;
     if (!threadId) {
@@ -682,11 +773,11 @@ export const createCodexAppServerInjector = ({
 
     let result;
     try {
-      if (shouldResumeThread && !seededHere) await resumeThread(threadId);
+      if (shouldResumeThread && !seededHere && !accepted) await resumeThread(threadId);
       result = await startTurn(threadId);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
-      if (!e.message.startsWith("codex-app-server-error:thread not found:")) throw e;
+      if (accepted || !e.message.startsWith("codex-app-server-error:thread not found:")) throw e;
       threadId = await seedThread("re-seeded");
       result = await startTurn(threadId);
     }

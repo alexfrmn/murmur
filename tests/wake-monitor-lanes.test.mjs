@@ -177,3 +177,46 @@ test("normalizeWakeConfig carries the lane count through, defaulting to 4", () =
   assert.equal(normalizeWakeConfig({ wake: { concurrency: 8 } }).concurrency, 8);
   assert.equal(normalizeWakeConfig({}).concurrency, 4);
 });
+
+test("a getWakeBatch read failure cannot release another conversation's active lane", async () => {
+  const { store, cleanup } = withStore();
+  const slow = gate(), calls = [], runs = [];
+  let active = 0, maxLane = 0, reads = 0;
+  const getWakeBatch = store.getWakeBatch.bind(store);
+  store.getWakeBatch = async (msgId) => {
+    if (msgId === "n1" && ++reads === 1) throw new Error("SQLITE_BUSY");
+    return getWakeBatch(msgId);
+  };
+  const monitor = new WakeMonitor({ deliveries: store, hook: async (payload) => {
+    calls.push(payload.msgId);
+    if (payload.conversationId === "c1") {
+      active += 1; maxLane = Math.max(maxLane, active);
+      if (payload.msgId === "m1") await slow.opened;
+      active -= 1;
+    }
+  } });
+  const track = (run) => { const result = run.catch(error => error); runs.push(result); return result; };
+  try {
+    track(monitor.onInbound(await receive(store, "m1", "agent-a", "c1")));
+    assert.ok(await until(() => calls.includes("m1")));
+    await monitor.onInbound(await receive(store, "m2", "agent-a", "c1"));
+    await monitor.onInbound(await receive(store, "n1", "agent-a", "c2"));
+    assert.ok(await until(() => reads === 1));
+    // The timer in #257 calls drain again without waiting for the first one.
+    track(monitor.drain());
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(maxLane, 1, "SQLITE_BUSY must not allow a second turn in c1");
+    assert.equal(monitor.processing, true);
+    assert.deepEqual(calls, ["m1"]);
+    assert.equal((await store.wakeStateFor("n1")).status, "pending");
+    slow.release();
+    await Promise.all(runs); await monitor.drain();
+    assert.equal(maxLane, 1);
+    assert.deepEqual(calls, ["m1", "m2", "n1"]);
+    assert.ok(reads >= 2, "the failed conversation is offered again");
+    for (const id of ["m1", "m2", "n1"]) assert.equal((await store.wakeStateFor(id)).status, "handled");
+  } finally {
+    monitor.enabled = false; slow.release();
+    await Promise.all(runs); cleanup();
+  }
+});

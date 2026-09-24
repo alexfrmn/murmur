@@ -240,11 +240,16 @@ export class WakeMonitor {
           const [payload] = this.queue.splice(index, 1);
           this.queuedKeys.delete(this.keyFor(payload));
           const lane = this.laneKeyFor(payload);
-          const previousBatch = await this.deliveries?.getWakeBatch?.(payload.msgId);
-          if (!previousBatch && !this.batchOptions(payload)) this.enqueuedAt.delete(payload.msgId);
-          const run = (previousBatch || this.batchOptions(payload)
-            ? this.processLaneBatch(payload, previousBatch)
-            : this.processPayload(payload))
+          // Claim the lane before any asynchronous store access. A failed batch
+          // read belongs to this lane; it must not unwind the dispatcher and release
+          // drain's single-flight guard while another lane still has an active turn.
+          const run = Promise.resolve().then(async () => {
+            const previousBatch = await this.deliveries?.getWakeBatch?.(payload.msgId);
+            if (!previousBatch && !this.batchOptions(payload)) this.enqueuedAt.delete(payload.msgId);
+            return previousBatch || this.batchOptions(payload)
+              ? this.processLaneBatch(payload, previousBatch)
+              : this.processPayload(payload);
+          })
             .catch((err) => {
               const e = err instanceof Error ? err : new Error(String(err));
               this.log("error", "WakeMonitor lane crashed", { error: e.message, msgId: payload.msgId, lane });
@@ -613,13 +618,15 @@ export class WakeMonitor {
   }
 
   /**
-   * Which payloads must never run together. A Codex peer pinned to one static thread
-   * takes one turn at a time whatever the conversation; everything else is serialised
+   * Which payloads must never run together. Contacts pinned to the same Codex thread
+   * share one lane across conversations; everything else is serialised
    * per (peer, conversation), which is also how #108 scopes Codex threads.
    */
   laneKeyFor(payload) {
     const peer = this.peerFor(payload);
-    if (peer.mode === "codex_app_server" && peer.threadId) return `peer:${payload.from}`;
+    if (peer.mode === "codex_app_server" && peer.threadId) {
+      return `thread:${JSON.stringify([peer.socketPath || peer.target || null, peer.threadId])}`;
+    }
     return `conv:${payload.from}|${payload.conversationId ?? ""}`;
   }
 
