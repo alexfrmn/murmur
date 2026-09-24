@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -51,6 +53,13 @@ func (f *fakeOnboarding) steps() onboardingSteps {
 			if args[0] == "clients" && args[1] == "detect" {
 				return []byte(f.detect), nil
 			}
+			if args[0] == "clients" && (args[1] == "preview" || args[1] == "configure") {
+				schema := "murmur.client-plan/1"
+				if args[1] == "configure" {
+					schema = "murmur.client/1"
+				}
+				return json.Marshal(map[string]any{"schema": schema, "client": args[3], "dataDir": args[5], "agentId": "agent-me", "configPath": filepath.Join(os.TempDir(), "fake-assistant.json"), "planId": strings.Repeat("a", 64), "action": "add", "changed": true})
+			}
 			return []byte(`{}`), nil
 		},
 		elevated: func(args ...string) error {
@@ -64,7 +73,7 @@ func (f *fakeOnboarding) steps() onboardingSteps {
 	}
 }
 
-const profile, replyDir = `C:\Users\me\AppData\Local\Murmur`, `C:\Users\me\Desktop`
+var profile, replyDir = filepath.Join(os.TempDir(), "murmur-fake-onboarding-profile"), filepath.Join(os.TempDir(), "murmur-fake-onboarding-replies")
 
 func TestDefaultAgentIDIsValidAndReadable(t *testing.T) {
 	for in, want := range map[string]string{"vasil": "agent-vasil", "Иван Петров": "agent-user", "John.Smith": "agent-john-smith", "": "agent-user", "__x__": "agent-x"} {
@@ -88,8 +97,10 @@ func TestOnboardingJoinsInstallsTheServiceAndConnectsDetectedClients(t *testing.
 	wantCLI := [][]string{
 		{"join", "--agent-id", "agent-me", "--invite-file", `C:\Users\me\Downloads\murmur-invite.txt`, "--reply-out", reply, "--data-dir", profile},
 		{"clients", "detect", "--data-dir", profile},
-		{"clients", "configure", "--client", "claude-code", "--data-dir", profile},
-		{"clients", "configure", "--client", "codex-cli", "--data-dir", profile},
+		{"clients", "preview", "--client", "claude-code", "--data-dir", profile, "--json"},
+		{"clients", "configure", "--client", "claude-code", "--data-dir", profile, "--plan-id", strings.Repeat("a", 64), "--json"},
+		{"clients", "preview", "--client", "codex-cli", "--data-dir", profile, "--json"},
+		{"clients", "configure", "--client", "codex-cli", "--data-dir", profile, "--plan-id", strings.Repeat("a", 64), "--json"},
 	}
 	if !reflect.DeepEqual(f.cliCalls, wantCLI) {
 		t.Fatalf("cli calls\n got %q\nwant %q", f.cliCalls, wantCLI)
@@ -131,13 +142,13 @@ func TestOnboardingStopsOnAFailedJoinAndReportsDeclinedSteps(t *testing.T) {
 		t.Fatalf("nothing after a failed join: %q %q", f.cliCalls, f.elevatedCalls)
 	}
 	// Service declined, clients declined: the profile stays, nothing elevated, nothing configured.
-	g := &fakeOnboarding{answers: []bool{false, false}, detect: `{"clients":[{"id":"claude-code","installed":true}]}`}
+	g := &fakeOnboarding{answers: []bool{false, false}, detect: `{"schema":"murmur.clients/1","clients":[{"id":"claude-code","installed":true}]}`}
 	r, err := runOnboarding(g.steps(), profile, "agent-me", replyDir)
 	if err != nil || r.ServiceInstalled || len(r.Clients) != 0 || len(g.elevatedCalls) != 0 {
 		t.Fatalf("declined steps: %+v %v %q", r, err, g.elevatedCalls)
 	}
 	// A declined or failed UAC prompt is told, and client setup is still offered.
-	h := &fakeOnboarding{answers: []bool{true, true}, failElevated: true, detect: `{"clients":[{"id":"codex-cli","installed":true}]}`}
+	h := &fakeOnboarding{answers: []bool{true, true}, failElevated: true, detect: `{"schema":"murmur.clients/1","clients":[{"id":"codex-cli","installed":true}]}`}
 	r, err = runOnboarding(h.steps(), profile, "agent-me", replyDir)
 	if err != nil || r.ServiceInstalled || !reflect.DeepEqual(r.Clients, []string{"Codex"}) {
 		t.Fatalf("failed service: %+v %v", r, err)

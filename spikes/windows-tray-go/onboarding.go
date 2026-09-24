@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,14 +12,16 @@ import (
 // onboardingSteps are the user-facing and system actions of first-profile setup. The flow is
 // plain logic over them, so it is tested without dialogs, a CLI or a UAC prompt.
 type onboardingSteps struct {
-	pickInvitation func() (string, bool)                 // file dialog; false when cancelled
-	pickReply      func(suggested string) (string, bool) // save dialog; false when cancelled
-	confirm        func(title, text string) bool         // yes/no
-	inform         func(title, text string)              // ok
-	revealFile     func(path string)                     // show the reply in Explorer and copy its path
-	cli            func(args ...string) ([]byte, error)  // runs the bundle CLI as the user
-	elevated       func(args ...string) error            // runs the bundle CLI after one UAC prompt
-	exists         func(path string) bool
+	chooseClients            func([]string) []string
+	confirmClientReplacement func(string, string) bool
+	pickInvitation           func() (string, bool)                 // file dialog; false when cancelled
+	pickReply                func(suggested string) (string, bool) // save dialog; false when cancelled
+	confirm                  func(title, text string) bool         // yes/no
+	inform                   func(title, text string)              // ok
+	revealFile               func(path string)                     // show the reply in Explorer and copy its path
+	cli                      func(args ...string) ([]byte, error)  // runs the bundle CLI as the user
+	elevated                 func(args ...string) error            // runs the bundle CLI after one UAC prompt
+	exists                   func(path string) bool
 }
 
 type onboardingResult struct {
@@ -82,36 +83,7 @@ func runOnboarding(s onboardingSteps, profile, agentID, replyDir string) (onboar
 		}
 	}
 
-	var detected struct {
-		Clients []struct {
-			ID        string `json:"id"`
-			Installed bool   `json:"installed"`
-		} `json:"clients"`
-	}
-	names := map[string]string{"claude-code": "Claude Code", "codex-cli": "Codex"}
-	var found []string
-	if out, err := s.cli("clients", "detect", "--data-dir", profile); err == nil && json.Unmarshal(out, &detected) == nil {
-		for _, c := range detected.Clients {
-			if c.Installed && names[c.ID] != "" {
-				found = append(found, c.ID)
-			}
-		}
-	}
-	if len(found) > 0 {
-		labels := make([]string, len(found))
-		for i, id := range found {
-			labels[i] = names[id]
-		}
-		if s.confirm(tr("onboarding.title"), tr("onboarding.clientsAsk", strings.Join(labels, ", "))) {
-			for _, id := range found {
-				if _, err := s.cli("clients", "configure", "--client", id, "--data-dir", profile); err != nil {
-					s.inform(tr("onboarding.title"), tr("onboarding.clientFailed", names[id], err))
-					continue
-				}
-				r.Clients = append(r.Clients, names[id])
-			}
-		}
-	}
+	r.Clients = connectAssistants(s, profile, agentID)
 	return r, nil
 }
 
