@@ -33,9 +33,16 @@ test('CLI invite handshake proves daemon roundtrip without an AI responder or wa
   const env=id=>({PATH:process.env.PATH,HOME:base,DATA_DIR:path.join(base,id)});
   const cli=async(id,...args)=>JSON.parse((await exec(process.execPath,['packages/setup/bin/murmur.mjs',...args,'--data-dir',path.join(base,id),'--json'],{cwd:root,env:env(id)})).stdout);
   await cli('agent-a','init','--agent-id','agent-a','--broker-url',url);
-  await cli('agent-a','invite','--out',path.join(base,'invite'));
+  const publicUrl=`nats://server.example.com:${port}`;
+  await cli('agent-a','invite','--broker',publicUrl,'--out',path.join(base,'invite'));
   assert.equal((await cli('agent-b','join','--agent-id','agent-b','--invite-file',path.join(base,'invite'),'--reply-out',path.join(base,'reply'))).paired,null);
   await cli('agent-a','add-peer','--reply-file',path.join(base,'reply'));
+  // The Invitation carries a public name. Route only this disposable recipient
+  // back to the isolated broker; this test performs no DNS or Internet access.
+  const recipientPath=path.join(base,'agent-b','agent-config.json');
+  const recipient=JSON.parse(await fs.readFile(recipientPath,'utf8'));
+  assert.equal(recipient.natsUrl,publicUrl);
+  await fs.writeFile(recipientPath,JSON.stringify({...recipient,natsUrl:url}));
   for(const id of ['agent-a','agent-b']) children.push(spawn(process.execPath,['scripts/murmur-daemon.mjs'],{cwd:root,env:env(id),stdio:'ignore'}));
   const read=(id,sql,...params)=>{const db=new DatabaseSync(path.join(base,id,'murmur.db'),{readOnly:true});try{return db.prepare(sql).get(...params);}finally{db.close();}};
   for(const id of ['agent-a','agent-b']) await until(async()=>{

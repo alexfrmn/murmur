@@ -10,6 +10,7 @@ import { loadConfig, validateConfig, validAgentId, type AgentConfig, type PeerCo
 import { writeState } from './state.js';
 import { refuseVirtualizedAppData } from './appdata.js';
 import { protectPrivateFile } from './private-file.js';
+import { invitationServerAddress } from './invitation-server.js';
 import type { ServiceContext } from './types.js';
 
 type PrivateFile = 'invite-file' | 'reply-file' | 'token-file';
@@ -177,10 +178,11 @@ export async function initialize(c: ServiceContext, options: { agentId: string; 
     return { schema: 'murmur.init/1', agentId: config.agentId, dataDir: c.dataDir, serviceName: c.serviceName, existing: false };
   });
 }
-export async function invite(c: ServiceContext, outFile: string) {
+export async function invite(c: ServiceContext, outFile: string, options: { brokerUrl?: string } = {}) {
   await validateOutput(c, outFile);
   const config = await loadConfig(c);
-  await outputBlob(outFile, { v: 1, type: 'invite', ...publicPeer(config), natsUrl: config.natsUrl, ...(config.natsToken ? { natsToken: config.natsToken } : {}) }, 'MURMUR:');
+  const server = invitationServerAddress(options.brokerUrl ?? config.natsUrl);
+  await outputBlob(outFile, { v: 1, type: 'invite', ...publicPeer(config), natsUrl: server, ...(config.natsToken ? { natsToken: config.natsToken } : {}) }, 'MURMUR:');
   // The warning names what is actually inside. A person weighs "password" and "identity"
   // differently, and the same sentence for both teaches them to ignore it.
   const containsBrokerCredential = !!config.natsToken;

@@ -15,7 +15,7 @@ async function fixture(t) {
   t.after(async () => { for (const close of cleanup.reverse()) await close(); await fs.rm(root, { recursive: true, force: true }); });
   const command = (id, args) => main([...args, '--data-dir', path.join(root, id)], adapter);
   const config = id => fs.readFile(path.join(root, id, 'agent-config.json'), 'utf8').then(JSON.parse);
-  const init = id => command(id, ['init', '--agent-id', id, '--broker-url', 'nats://127.0.0.1:4222']);
+  const init = id => command(id, ['init', '--agent-id', id, '--broker-url', 'nats://server.example.com:4222']);
   return { root, command, config, init, cleanup };
 }
 test('two profiles can exchange private invite/reply files without shell-specific env syntax', async t => {
@@ -36,7 +36,7 @@ test('two profiles can exchange private invite/reply files without shell-specifi
 test('repeat init/add-peer preserves existing identity and rejects a peer key change', async t => {
   const f = await fixture(t); await f.init('agent-a'); const before = await f.config('agent-a');
   assert.equal((await f.init('agent-a')).existing, true); assert.deepEqual((await f.config('agent-a')).keys, before.keys);
-  await assert.rejects(f.command('agent-a', ['init', '--agent-id', 'other', '--broker-url', 'nats://127.0.0.1:4222']), /existing-profile-conflict/);
+  await assert.rejects(f.command('agent-a', ['init', '--agent-id', 'other', '--broker-url', 'nats://server.example.com:4222']), /existing-profile-conflict/);
   const reply = path.join(f.root, 'reply.txt');
   const value = { v: 1, type: 'reply', agentId: 'agent-b', subject: 'msg.agent-b', encryption: { publicKey: before.keys.encryption.publicKey }, signing: { publicKey: before.keys.signing.publicKey } };
   const write = () => fs.writeFile(reply, 'MURMUR-REPLY:' + Buffer.from(JSON.stringify(value)).toString('base64'));
@@ -55,7 +55,7 @@ test('the invite warning names what is inside, and says password only when a cre
   assert.match(plain.instruction, /identity/i);
 
   const token = path.join(f.root, 'token'); await fs.writeFile(token, 'broker-secret');
-  await f.command('agent-b', ['init', '--agent-id', 'agent-b', '--broker-url', 'nats://127.0.0.1:4222', '--token-file', token]);
+  await f.command('agent-b', ['init', '--agent-id', 'agent-b', '--broker-url', 'nats://server.example.com:4222', '--token-file', token]);
   const secret = await f.command('agent-b', ['invite', '--out', path.join(f.root, 'secret-invite')]);
   assert.equal(secret.containsBrokerCredential, true);
   assert.match(secret.instruction, /password/i, 'an invite carrying a broker credential must say so in the words a person acts on');
@@ -75,7 +75,7 @@ test('malformed invite fails before profile creation and never overwrites an out
 });
 test('broker credentials come from a private input file and are absent from command result', async t => {
   const f = await fixture(t), token = path.join(f.root, 'token'); await fs.writeFile(token, 'fixture-secret-token\n', { mode: 0o600 });
-  const result = await f.command('agent-a', ['init', '--agent-id', 'agent-a', '--broker-url', 'nats://127.0.0.1:4222', '--token-file', token]);
+  const result = await f.command('agent-a', ['init', '--agent-id', 'agent-a', '--broker-url', 'nats://server.example.com:4222', '--token-file', token]);
   assert.ok(!JSON.stringify(result).includes('fixture-secret-token'));
   assert.equal((await f.config('agent-a')).natsToken, 'fixture-secret-token');
 });
@@ -144,7 +144,7 @@ test('case-insensitive volumes reject fresh and existing mixed-case profile outp
 test('Windows credential invite does not inherit public read access from its output folder', { skip: process.platform !== 'win32' }, async t => {
   const f = await fixture(t), token = path.join(f.root, 'token');
   await fs.writeFile(token, 'fixture-broker-secret');
-  await f.command('agent-a', ['init', '--agent-id', 'agent-a', '--broker-url', 'nats://127.0.0.1:4222', '--token-file', token]);
+  await f.command('agent-a', ['init', '--agent-id', 'agent-a', '--broker-url', 'nats://server.example.com:4222', '--token-file', token]);
   const shared = path.join(f.root, 'shared'); await fs.mkdir(shared);
   await allowPublicReadInFixtureDirectory(shared);
   const control = path.join(shared, 'public-control'); await fs.writeFile(control, 'synthetic');

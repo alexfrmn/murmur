@@ -26,7 +26,7 @@ async function broadParent(t) {
   assert.ok(aces(probe).some(a => a.startsWith(`${AUTHENTICATED_USERS}|`)), 'fixture parent must hand broad access to new files');
   return root;
 }
-const initArgs = root => ['init', '--agent-id', 'agent-a', '--broker-url', 'nats://127.0.0.1:4222', '--token-file', path.join(root, 'token.txt'), '--data-dir', path.join(root, 'agent-a')];
+const initArgs = root => ['init', '--agent-id', 'agent-a', '--broker-url', 'nats://server.example.com:4222', '--token-file', path.join(root, 'token.txt'), '--data-dir', path.join(root, 'agent-a')];
 function assertOwnerOnly(target) {
   const actual = aces(target);
   for (const broad of [AUTHENTICATED_USERS, USERS]) assert.ok(!actual.some(a => a.startsWith(`${broad}|`)), `${path.basename(target)} grants ${broad}: ${actual}`);
