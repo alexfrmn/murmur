@@ -47,6 +47,20 @@ final class TrayModel: ObservableObject {
     @Published var creationServer = ""
     @Published var creationAccessFile: URL?
     @Published var showCreateProfileSheet = false
+    @Published var showPairingSheet = false
+    @Published var pairingMode: PairingMode = .join
+    @Published var pairingInput = ""
+    @Published var pairingOutput: String?
+    @Published var pairingError: String?
+    @Published var pairingMessage: String?
+    @Published var pairingInvitation: PairingInvitation?
+    @Published var pairingConfirmed = false
+    @Published var pairingNeedsPublicServer = false
+    @Published var pairingServer = ""
+    @Published private(set) var pairingIdentity: String?
+    private var pairingSelectionID: UUID?
+    private var inviteAfterCreation = false
+    private var openCreatedInvitation = false
     @Published var setupAgentID: String?
     @Published var setupReplyFile: URL?
     @Published var pendingCreation: PendingOnboarding?
@@ -64,9 +78,9 @@ final class TrayModel: ObservableObject {
     private var updatesClient: UpdatesClient?
     private var selectionID = UUID()
 
-    init() {
+    init(startRuntime: Bool = true) {
         isDemo = ProcessInfo.processInfo.arguments.contains("--demo")
-        if !isDemo { prepareRuntime() }
+        if startRuntime && !isDemo { prepareRuntime() }
     }
 
     func prepareRuntime() {
@@ -230,7 +244,7 @@ final class TrayModel: ObservableObject {
         } catch { selectionError = error.localizedDescription }
     }
 
-    private func bind(_ chosen: ProfileBinding, expectedAgent: String? = nil, skipInitialDoctor: Bool = false) {
+    func bind(_ chosen: ProfileBinding, expectedAgent: String? = nil, skipInitialDoctor: Bool = false) {
         selectionID = UUID()
         aiClients = nil; aiReceipt = nil; aiSetupError = nil
         resetReplyTest()
@@ -373,6 +387,7 @@ final class TrayModel: ObservableObject {
 
     func beginOwnProfile() {
         guard !busy, !isDemo, runtimeError == nil else { return }
+        inviteAfterCreation = false
         refreshSavedSetup()
         guard !hasPendingSetup, !needsExistingProfileChoice else { return }
         selectionError = nil; selectionErrorDetail = nil
@@ -383,20 +398,153 @@ final class TrayModel: ObservableObject {
     func useInvitation() {
         guard !busy, !isDemo, runtimeError == nil else { return }
         refreshSavedSetup()
-        guard !hasPendingSetup, !needsExistingProfileChoice else { return }
+        guard canUseInvitation else { return }
         selectionError = nil; selectionErrorDetail = nil
-        let picker = NSOpenPanel()
-        picker.title = L10n.text("Use a Murmur invitation")
-        picker.message = L10n.text("Choose the invitation file sent by someone you trust")
-        picker.prompt = L10n.text("Use invitation")
-        picker.canChooseFiles = true; picker.canChooseDirectories = false; picker.allowsMultipleSelection = false
-        NSApp.activate(ignoringOtherApps: true)
-        guard picker.runModal() == .OK, let file = picker.url else { return }
+        if profile == nil { creationAgentID = NewProfilePlan.suggestedAgentID() }
+        beginPairing(.join)
+    }
+    var canPair: Bool { !busy && !isDemo && client != nil && agentID != nil && status != nil }
+    var canUseInvitation: Bool {
+        !busy && !isDemo && runtimeError == nil && !hasPendingSetup &&
+            (profile != nil ? canPair : !needsExistingProfileChoice)
+    }
+    var invitationBlockReason: String? {
+        guard !canUseInvitation else { return nil }
+        if isDemo { return L10n.text("Demo mode") }
+        if let runtimeError { return runtimeError }
+        if busy { return L10n.text("Wait for the current command to finish") }
+        if hasPendingSetup { return L10n.text("Continue the saved setup before creating another profile") }
+        if profile != nil { return L10n.text("Refresh the status of this Identity before using an Invitation.") }
+        return L10n.text("Choose an existing connection before using an Invitation.")
+    }
+    func beginPairing(_ mode: PairingMode) {
+        guard !busy, !isDemo else { return }
+        if mode != .join { guard canPair else { return } }
+        pairingMode = mode; pairingInput = ""; pairingOutput = nil
+        pairingError = nil; pairingMessage = nil; pairingInvitation = nil
+        pairingConfirmed = false; pairingNeedsPublicServer = false; pairingServer = ""
+        pairingIdentity = mode == .join && profile != nil ? agentID : nil
+        pairingSelectionID = selectionID
+        showPairingSheet = true
+        if mode == .invite { makeInvitation() }
+    }
+    func beginInviting() {
+        if canPair { beginPairing(.invite); return }
+        beginOwnProfile()
+        inviteAfterCreation = showCreateProfileSheet
+    }
+    func ownProfileSheetDismissed() {
+        guard openCreatedInvitation else { inviteAfterCreation = false; return }
+        openCreatedInvitation = false
+        pairingMode = .invite; clearPairing()
+        pairingNeedsPublicServer = false; pairingServer = ""
+        showPairingSheet = true
+    }
+    func joinInvitationLine() {
+        guard !busy, !hasPendingSetup, !isDemo else { return }
+        guard pairingSelectionID == selectionID else { pairingError = PairingError.unconfirmed.localizedDescription; return }
+        if let identity = pairingIdentity {
+            joinWithCurrentIdentity(identity)
+            return
+        }
+        guard profile == nil else { pairingError = PairingError.unconfirmed.localizedDescription; return }
         do {
-            let plan = try NewProfilePlan(applicationDirectory: applicationDirectory)
+            let line = try PairingLine.validated(pairingInput)
+            let plan = try NewProfilePlan(applicationDirectory: applicationDirectory, agentID: creationAgentID)
             creationPlan = plan
-            create(plan: plan, invitation: file)
-        } catch { creationError = error.localizedDescription }
+            create(plan: plan, invitation: line)
+        } catch { pairingError = PairingError.message(for: error) }
+    }
+    private func joinWithCurrentIdentity(_ identity: String) {
+        guard identity == agentID, let helper = pairingClient else {
+            pairingError = PairingError.unconfirmed.localizedDescription; return
+        }
+        let selected = selectionID, input = pairingInput
+        operating = true; pairingError = nil; pairingMessage = nil
+        Task {
+            let result = await Task.detached { Result { try helper.joinInvitation(input, expectedAgent: identity) } }.value
+            guard selectionID == selected else { return }
+            operating = false
+            switch result {
+            case .success(let joined):
+                pairingInput = ""; pairingOutput = joined.reply
+                copyPairingLine()
+            case .failure(let error): pairingError = PairingError.message(for: error)
+            }
+            refreshStatus()
+        }
+    }
+    private var pairingClient: ProfilePairingClient? {
+        guard let client else { return nil }
+        return ProfilePairingClient(executable: client.executable, profile: client.profile)
+    }
+    func makeInvitation() {
+        guard !busy, !isDemo, let helper = pairingClient, let agentID else { return }
+        let selected = selectionID
+        let server = pairingNeedsPublicServer ? pairingServer : nil
+        operating = true; pairingError = nil; pairingMessage = nil
+        Task {
+            let result = await Task.detached { Result { try helper.invite(expectedAgent: agentID, publicServer: server) } }.value
+            guard selectionID == selected else { return }
+            operating = false
+            switch result {
+            case .success(let invitation):
+                pairingInvitation = invitation; pairingConfirmed = false
+                if !invitation.containsBrokerCredential { copyPairingLine() }
+            case .failure(let error):
+                if let cause = error as? PairingError, cause == .publicServerRequired || cause == .invalidServer {
+                    pairingNeedsPublicServer = true
+                }
+                pairingError = PairingError.message(for: error)
+            }
+        }
+    }
+    func addReplyLine() {
+        guard !busy, !isDemo, let helper = pairingClient, let agentID else { return }
+        let selected = selectionID, line = pairingInput
+        operating = true; pairingError = nil; pairingMessage = nil
+        Task {
+            let result = await Task.detached { Result { try helper.addReply(line, expectedAgent: agentID) } }.value
+            guard selectionID == selected else { return }
+            operating = false
+            switch result {
+            case .success(let contact):
+                pairingInput = ""
+                pairingMessage = L10n.text("Contact %@ added. Check the connection after both Services are running.", contact)
+            case .failure(let error): pairingError = PairingError.message(for: error)
+            }
+            refreshStatus()
+        }
+    }
+    func copyPairingLine() {
+        guard !operating, !creatingProfile else { return }
+        do {
+            let line: String
+            if let invitation = pairingInvitation {
+                line = try invitation.lineForCopy(confirmedPersonalSharing: pairingConfirmed)
+            } else if let output = pairingOutput { line = try PairingLine.validated(output) }
+            else { return }
+            NSPasteboard.general.clearContents()
+            guard NSPasteboard.general.setString(line, forType: .string) else { throw PairingError.failed }
+            // An Invitation can contain the Server key. Keep it on the
+            // clipboard only; the visible/selectable output is for Replies.
+            if pairingInvitation == nil { pairingOutput = line }
+            pairingMessage = L10n.text("Copied. Send this line personally to your colleague.")
+        } catch { pairingError = PairingError.message(for: error) }
+    }
+    func showSavedReply() {
+        guard !busy, setupAgentID == agentID, let setupReplyFile else { return }
+        do {
+            let reply = try PairingLine.recovered(from: setupReplyFile)
+            beginPairing(.join)
+            pairingOutput = reply
+            copyPairingLine()
+        } catch { operationError = PairingError.message(for: error) }
+    }
+    func clearPairing() {
+        pairingInput = ""; pairingOutput = nil; pairingInvitation = nil
+        pairingConfirmed = false; pairingError = nil; pairingMessage = nil
+        pairingIdentity = nil; pairingSelectionID = nil
     }
     func createOwnProfile(agentID: String, server: String, accessFile: URL?) {
         guard !busy, !isDemo, runtimeError == nil, !hasPendingSetup else { return }
@@ -407,7 +555,7 @@ final class TrayModel: ObservableObject {
             create(plan: plan, server: server, accessFile: accessFile)
         } catch { creationError = error.localizedDescription }
     }
-    private func create(plan: NewProfilePlan, invitation: URL? = nil, server: String? = nil, accessFile: URL? = nil) {
+    private func create(plan: NewProfilePlan, invitation: String? = nil, server: String? = nil, accessFile: URL? = nil) {
         guard let executable = CLIProbe.locate() else { creationError = ProbeError.missingCLI.localizedDescription; return }
         creatingProfile = true; creationError = nil
         let onboarding = ProfileOnboardingClient(executable: executable)
@@ -415,11 +563,11 @@ final class TrayModel: ObservableObject {
         Task {
             let result = await Task.detached { () -> Result<CreatedProfile, Error> in
                 Result {
-                    if let invitation { return try onboarding.join(plan, invitation: invitation, journal: journal) }
+                    if let invitation { return try onboarding.join(plan, invitationLine: invitation, journal: journal) }
                     return try onboarding.initialize(plan, brokerURL: server ?? "", tokenFile: accessFile, journal: journal)
                 }
             }.value
-            finishCreation(result)
+            finishCreation(result, isInvitation: invitation != nil)
         }
     }
     private func persistCreatedSelection(_ created: CreatedProfile) throws {
@@ -433,7 +581,7 @@ final class TrayModel: ObservableObject {
         else { preferences.removeObject(forKey: "setupReplyFile") }
         guard preferences.synchronize() else { throw OnboardingJournalError.invalidJournal }
     }
-    private func finishCreation(_ result: Result<CreatedProfile, Error>) {
+    private func finishCreation(_ result: Result<CreatedProfile, Error>, isInvitation: Bool = false) {
         creatingProfile = false
         switch result {
         case .success(let created):
@@ -447,6 +595,15 @@ final class TrayModel: ObservableObject {
                 showCreateProfileSheet = false
                 bind(created.profile, expectedAgent: created.agentID)
                 operationMessage = L10n.text("Profile created; connection has not been checked yet")
+                if let reply = created.reply {
+                    pairingMode = .join; showPairingSheet = true
+                    pairingInput = ""; pairingOutput = reply
+                    copyPairingLine()
+                } else if inviteAfterCreation {
+                    inviteAfterCreation = false
+                    // Open the next sheet only after the creation sheet closes.
+                    openCreatedInvitation = true
+                }
             } catch {
                 creationError = error.localizedDescription; refreshSavedSetup()
                 showCreateProfileSheet = false
@@ -460,10 +617,11 @@ final class TrayModel: ObservableObject {
                 }
             }
         case .failure(let error):
-            creationError = error.localizedDescription
+            creationError = isInvitation ? PairingError.message(for: error) : error.localizedDescription
+            if isInvitation { pairingError = creationError }
             refreshSavedSetup()
         }
-        if hasPendingSetup { showCreateProfileSheet = false }
+        if hasPendingSetup { showCreateProfileSheet = false; showPairingSheet = false }
     }
     private func restoreSetup(for profile: ProfileBinding) {
         setupAgentID = nil; setupReplyFile = nil
@@ -477,10 +635,6 @@ final class TrayModel: ObservableObject {
            URL(fileURLWithPath: path).standardizedFileURL.path == path,
            let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
            values.isRegularFile == true, values.isSymbolicLink != true { setupReplyFile = URL(fileURLWithPath: path) }
-    }
-    func showReplyFile() {
-        guard let setupReplyFile else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([setupReplyFile])
     }
     func startNewProfile() {
         guard canStartNewProfile, let client, let agentID else { return }

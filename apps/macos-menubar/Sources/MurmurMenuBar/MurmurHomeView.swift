@@ -56,7 +56,8 @@ struct MurmurHomeView: View {
                 Spacer()
                 Button(L10n.text("Quit")) { NSApp.terminate(nil) }.keyboardShortcut("q")
             }.padding(16)
-        }.sheet(isPresented: $model.showCreateProfileSheet) { CreateProfileSheet(model: model) }
+        }.sheet(isPresented: $model.showCreateProfileSheet, onDismiss: { model.ownProfileSheetDismissed() }) { CreateProfileSheet(model: model) }
+            .sheet(isPresented: $model.showPairingSheet, onDismiss: { model.clearPairing() }) { PairingSheet(model: model) }
             .onChange(of: model.profile) { _ in showingNewConnection = false; entry = "welcome" }
     }
 
@@ -102,16 +103,22 @@ struct MurmurHomeView: View {
                             .buttonStyle(.borderedProminent).disabled(model.busy)
                     } else if entry == "no-invitation" {
                         Button(L10n.text("Back")) { entry = "welcome" }.buttonStyle(.link)
-                        Text(L10n.text("Ask someone already using Murmur for an invitation file. You will return a reply file, then test the connection."))
+                        Text(L10n.text("Ask your colleague for an Invitation line. Return your Reply, then check the connection."))
                         Text(L10n.text("Starting the network yourself? You need an existing connection server and its details. This app does not create a server."))
                             .foregroundStyle(.secondary)
                         Button(L10n.text("I already have my own server…")) { model.beginOwnProfile() }.disabled(model.busy)
                     } else {
                         Button(L10n.text("I have an invitation…")) { model.useInvitation() }
                             .buttonStyle(.borderedProminent).controlSize(.large)
-                            .disabled(model.busy).keyboardShortcut(.defaultAction)
-                        Text(L10n.text("Choose the file sent by the person whose assistant you want to connect to."))
+                            .disabled(model.busy || !model.canUseInvitation).keyboardShortcut(.defaultAction)
+                            .help(model.invitationBlockReason ?? L10n.text("Paste the Invitation line sent by your colleague."))
+                        if let reason = model.invitationBlockReason {
+                            Text(reason).font(.callout).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Text(L10n.text("Paste the Invitation line sent by your colleague."))
                             .font(.callout).foregroundStyle(.secondary)
+                        Button(L10n.text("Invite a colleague")) { model.beginInviting() }.disabled(model.busy)
                         Divider()
                         navigationRow("I do not have an invitation yet", detail: "How to get one or connect to your own server") { entry = "no-invitation" }
                         navigationRow("I have used Murmur before", detail: "Open settings already saved on this Mac") { entry = "restore" }
@@ -146,9 +153,6 @@ struct MurmurHomeView: View {
             if let pending = model.pendingCreation {
                 Text(pending.plan.agentID).font(.headline)
                 Text(pending.plan.profile.dataDirectory).font(.caption).textSelection(.enabled)
-                if pending.kind == .invitation {
-                    Text(L10n.text("Reply file: %@", pending.plan.replyFile.path)).font(.caption).textSelection(.enabled)
-                }
                 if model.pendingCanRetryCreation {
                     Text(L10n.text("No profile or reply files were found. You can try the setup again."))
                         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -189,6 +193,12 @@ struct MurmurHomeView: View {
                 Label(model.verdict.reason, systemImage: model.verdict.indicator.symbol)
                     .font(.headline).fixedSize(horizontal: false, vertical: true)
                 if let agent = model.agentID { Text(L10n.text("Your assistant: %@", agent)) }
+            }
+            if model.status != nil && !model.isDemo {
+                HStack {
+                    Button(L10n.text("Invite a colleague")) { model.beginInviting() }
+                    Button(L10n.text("Paste colleague's Reply")) { model.beginPairing(.reply) }
+                }.disabled(!model.canPair)
             }
             if model.hasSetupSteps { setupSteps }
             if let peers = model.status?.peers.list, !peers.isEmpty {
@@ -259,12 +269,12 @@ struct MurmurHomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.text("Next steps")).font(.headline)
             if model.setupReplyFile != nil {
-                Text(L10n.text("Send the reply file to the person who invited you so they can finish pairing."))
+                Text(L10n.text("Send your Reply line to the colleague who invited you."))
                     .fixedSize(horizontal: false, vertical: true)
-                Button(L10n.text("Show reply file")) { model.showReplyFile() }.disabled(model.busy)
+                Button(L10n.text("Show and copy Reply")) { model.showSavedReply() }.disabled(model.busy)
             }
             if model.status?.service.isRunning == true {
-                Text(L10n.text("Murmur is running. Check the connection after exchanging reply files."))
+                Text(L10n.text("The Service is running. Check the connection after exchanging the Reply."))
                     .fixedSize(horizontal: false, vertical: true)
                 Button(L10n.text("Check connection")) { model.refreshDoctor(); model.refreshStatus() }
                     .disabled(model.busy || !model.canControl)
@@ -375,6 +385,10 @@ struct MurmurHomeView: View {
     }
 
     @ViewBuilder private var preferences: some View {
+        Button(L10n.text("I have an invitation…")) { model.useInvitation() }
+            .disabled(!model.canUseInvitation)
+            .help(model.invitationBlockReason ?? L10n.text("Paste the Invitation line sent by your colleague."))
+        Divider()
         Menu(L10n.text("Language")) {
             ForEach(AppLanguage.allCases, id: \.self) { language in
                 Button { model.selectLanguage(language) } label: {

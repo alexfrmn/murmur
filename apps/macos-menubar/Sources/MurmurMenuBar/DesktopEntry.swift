@@ -176,6 +176,10 @@ private final class MurmurAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         add(L10n.text("Open an existing connection"), enabled: !model.busy && !model.isDemo && model.runtimeError == nil) { [weak self] in
             self?.model.chooseProfile()
         }
+        add(L10n.text("I have an invitation…"), enabled: model.canUseInvitation) { [weak self] in
+            self?.showWindow()
+            self?.model.useInvitation()
+        }
         if model.profile != nil || model.isDemo {
             add(L10n.text("Refresh status"), enabled: !model.busy && !model.isDemo) { [weak self] in self?.model.refreshStatus() }
             if model.status?.wake.config.enabled != nil {

@@ -23,7 +23,7 @@ private struct OnboardingFixture {
         try write("init", ["schema": "murmur.init/1", "agentId": plan.agentID,
                            "dataDir": plan.profile.dataDirectory, "existing": false])
         try write("join", ["schema": "murmur.join/1", "agentId": plan.agentID, "peerId": "inviter",
-                           "paired": NSNull(), "replyFile": plan.replyFile.path, "restartRequired": true])
+                           "paired": NSNull(), "replyFile": plan.replyFile.path, "restartRequired": true, "reply": "MURMUR:synthetic-reply"])
         let script = """
         #!/bin/sh
         key="$1"; shift
@@ -36,7 +36,7 @@ private struct OnboardingFixture {
           status) ;;
           *) exit 73 ;;
         esac
-        if [ "$key" = join ]; then printf 'public reply' > \(onboardingShell(plan.replyFile.path)); fi
+        if [ "$key" = join ]; then /bin/cat > \(onboardingShell(directory.appendingPathComponent("stdin").path)); printf 'MURMUR:synthetic-reply' > \(onboardingShell(plan.replyFile.path)); fi
         exec /bin/cat \(onboardingShell(directory.path))/"$key.json"
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
@@ -76,6 +76,39 @@ func runOnboardingChecks(fixtures: URL) throws -> Int {
             throw error
         }
         count += 1; print("PASS onboarding: \(name)")
+    }
+    try scenario("join line goes only to stdin and returns the Reply for the clipboard") { f in
+        let journal = OnboardingJournal(applicationDirectory: f.plan.applicationRoot)
+        let result = try f.client().join(f.plan, invitationLine: "  MURMUR:synthetic-invitation\n", journal: journal)
+        try check(result.reply == "MURMUR:synthetic-reply", "Reply comes from JSON")
+        try check(try String(contentsOf: f.directory.appendingPathComponent("stdin"), encoding: .utf8) == "MURMUR:synthetic-invitation", "Trimmed stdin only")
+        let argv = try f.argv("join")
+        try check(argv.contains("--invite-stdin") && !argv.contains("--invite-file") && !argv.contains("MURMUR:synthetic-invitation"), "No Invitation in argv or exchange file")
+        try check(try journal.load()?.creationConfirmed == true && f.calls() == ["join", "status"], "One mutation, verified Identity, recovery kept")
+    }
+    for input in ["", "MURMUR:", "MURMUR:first\nMURMUR:second", "MURMUR:$(whoami)", "MURMUR:" + String(repeating: "a", count: 16384)] {
+        try scenario("invalid line cannot create an Identity or journal") { f in
+            let journal = OnboardingJournal(applicationDirectory: f.plan.applicationRoot)
+            try onboardingRejects { _ = try f.client().join(f.plan, invitationLine: input, journal: journal) }
+            try check(try f.calls().isEmpty && journal.load() == nil, "Reject before mutation")
+        }
+    }
+    try scenario("lost join receipt recovers its Reply without a second join") { f in
+        let journal = OnboardingJournal(applicationDirectory: f.plan.applicationRoot)
+        try f.write("join", ["schema": "broken"])
+        try onboardingRejects { _ = try f.client().join(f.plan, invitationLine: "MURMUR:test", journal: journal) }
+        let pending = try journal.load()!
+        let recovered = try f.client().resume(pending)
+        try check(recovered.reply == "MURMUR:synthetic-reply", "Reply survives restart")
+        try check(try f.calls() == ["join", "status"], "Recovery reads; no repeated join")
+    }
+    try scenario("non-reading stdin still respects the command deadline") { f in
+        try "#!/bin/sh\nwhile :; do :; done\n".write(to: f.executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.executable.path)
+        let client = ProfileOnboardingClient(executable: f.executable, environment: ["HOME": f.directory.path], timeout: 0.15)
+        let started = Date()
+        try onboardingRejects { _ = try client.join(f.plan, invitationLine: "MURMUR:" + String(repeating: "a", count: 16377)) }
+        try check(Date().timeIntervalSince(started) < 3, "stdin does not block timeout")
     }
     try scenario("init uses literal explicit profile and verifies identity, without starting service") { f in
         let token = f.directory.appendingPathComponent("token's $(literal).txt")
