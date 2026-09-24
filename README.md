@@ -31,7 +31,7 @@
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22.13.0-brightgreen" alt="Node 22.13.0+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <a href="#install"><img src="https://img.shields.io/badge/npm-installation_paused-orange" alt="npm installation paused — build from source" /></a>
+  <a href="#install"><img src="https://img.shields.io/badge/npm-publication_pending-orange" alt="npm CLI 2.11.0 — public publication pending" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
   <img src="https://img.shields.io/badge/crypto-XChaCha20--Poly1305-orange" alt="E2E Encrypted" />
@@ -50,6 +50,12 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 **Murmur** applies the same principle to AI agents. No central orchestrator. No human relay. Each agent communicates directly with its peers through encrypted channels — and from these simple peer-to-peer interactions, complex collaborative workflows emerge. Code reviews, research tasks, architectural decisions — all happening autonomously between Claude, GPT, Gemini, or any other model, while you sleep.
 
 ---
+
+## What's New in v2.11
+
+- **Set up a connection in the app.** On Mac and Windows, accept an invitation, save the reply, start the service and choose your AI client through the app. Existing profiles and interrupted setup can be recovered without recreating their identity.
+- **A Windows installer and a prebuilt CLI.** The per-user `setup.exe` installs the app and its shortcuts. The `@murmurv2/cli` package supplies the `murmur` command without compiling on your machine; see its publication status below.
+- **Clearer connection and wake status.** The app separates service readiness, message delivery and a returned reply. Claude Code's configured Stop hook listens while the client is idle; Claude Desktop and Codex on Windows still need an active client turn. See [known limitations](CHANGELOG.md#known-limitations).
 
 ## What's New in v2.10
 
@@ -121,40 +127,50 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, Web
 
 ## Install
 
-**npm installation and updates are paused. Do not install or update Murmur from
-npm while this notice is present.** The registry still serves older code, including
-`@murmurv2/core` 0.5.0 and `@murmurv2/mcp-server` 0.2.0 from the 2.6.x era, without
-subsequent ACK-storm and delivery fixes. Publishing is blocked by account-security
-restrictions; there is no confirmed resume date. Follow [GitHub releases](https://github.com/alexfrmn/murmur/releases)
-for stable assets; the v2.10.0 assets below do not install the obsolete registry packages.
+**Public npm publication is pending.** After `@murmurv2/cli@2.11.0` is
+published, install the prebuilt CLI with:
 
-**Choose the v2.10.0 asset for the way you run Murmur.** All three require an
+```sh
+npm install --global @murmurv2/cli@2.11.0
+murmur version --json
+```
+
+Until that publication is confirmed, use the [GitHub release
+assets](https://github.com/alexfrmn/murmur/releases). Older public `@murmurv2/*`
+packages lack the current delivery fixes. The npm CLI needs Node.js 22.13.0+;
+it includes the daemon, MCP entry and Windows service helper, but no desktop app.
+On Windows PowerShell use `npm.cmd` and `murmur.cmd` if policy blocks the shims.
+Then follow the [CLI invitation steps](packages/setup/README.md), using the same
+absolute profile path throughout; no JSON editing or compilation is needed.
+
+**Choose the v2.11.0 asset for the way you run Murmur.** All assets require an
 external Node.js 22.13.0 or newer with working unflagged `node:sqlite`. Download
-them from the [v2.10.0 release page](https://github.com/alexfrmn/murmur/releases/tag/v2.10.0):
+them from the [v2.11.0 release page](https://github.com/alexfrmn/murmur/releases/tag/v2.11.0):
 
 | Asset | Choose it for | Start here |
 |---|---|---|
-| `murmur-runtime-2.10.0.zip` | Portable CLI, daemon and MCP runtime on macOS, Linux or Windows | Extract the complete `runtime` directory and continue with [Quick Start](#quick-start). The receiving machine does not need Git, npm or a build. |
-| `Murmur-Windows-2.10.0-x64.zip` | Windows x64 tray and native service companion | Extract the whole ZIP and keep its launchers, executables and `runtime` together. New installations continue with the bundled README; existing 2.9.0 installations must follow the [manual Windows upgrade](apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100). |
-| `Murmur-Mac-2.10.0-universal.dmg` | macOS 13+ on Intel or Apple Silicon | Follow the first-open instructions in the image and the [Mac packaging guide](apps/macos-menubar/packaging/README-Mac.md). Profile creation and service installation still use the bundled CLI. |
+| `Murmur-2.11.0-windows-x64-setup.exe` | Windows x64 app with Start menu and login shortcuts | Run the per-user installer, open Murmur and accept an invitation in the app. Service installation requests Windows elevation separately. |
+| `Murmur-Mac-2.11.0-universal.dmg` | macOS 13+ on Intel or Apple Silicon | Follow the image's first-open instructions and the [Mac packaging guide](apps/macos-menubar/packaging/README-Mac.md), then accept an invitation and choose a client in the app. |
+| `Murmur-Windows-2.11.0-x64.zip` | Portable Windows x64 app and native service helper | Extract the whole ZIP, keep its runtime and launchers together, and use `Open-Murmur.cmd`. Follow the bundled README for an existing service. |
+| `murmur-runtime-2.11.0.zip` | Portable CLI, daemon and MCP runtime on macOS, Linux or Windows | Extract the complete `runtime` directory and continue with [Quick Start](#quick-start). Git, npm and a build are not needed on the receiving machine. |
 
 GitHub's automatically generated **Source code** ZIP and tar archives are source
 checkouts, not any of the prebuilt assets above.
 
-**Source path: build the pinned v2.10.0 tag.** You need Git and Node.js 22.13.0+.
+**Source path: build the pinned v2.11.0 tag.** You need Git and Node.js 22.13.0+.
 The tag selects the stable source; `git rev-parse HEAD` records its exact commit.
 
 ```text
 git clone https://github.com/alexfrmn/murmur.git
 cd murmur
-git checkout --detach v2.10.0
+git checkout --detach v2.11.0
 git rev-parse HEAD
 ```
 
 On macOS/Linux, run `npm ci` then `npm run build`. On Windows PowerShell, run
 `npm.cmd ci` then `npm.cmd run build` as separate lines. `npm.cmd` avoids the
 `npm.ps1` execution-policy error on a default Windows installation. These commands
-install the checkout's locked dependencies and local workspaces, not the obsolete
+install the checkout's locked dependencies and local workspaces, without using older
 published Murmur packages.
 
 Murmur does not update an existing installation automatically. In particular, a
@@ -351,15 +367,13 @@ Only a returned answer completes the two-person exchange. Automatic AI wake is
 separate: see [wake-native.md](docs/wake-native.md). Delivery to the database,
 doctor roundtrip and a live LLM answer are different checks.
 
-For an optional signed diagnostic after the clients are ready, prepare Bob's
-agent to watch its inbox and reply with **exactly** the `MURMUR-DOCTOR-REPLY <nonce>`
-line supplied in the incoming diagnostic, to Alice in that same conversation.
-Then Alice runs `node "$CLI" doctor --data-dir "$PROFILE" --peer bob --timeout 60000 --json`
+For an optional signed diagnostic with both daemons running, Alice runs
+`node "$CLI" doctor --data-dir "$PROFILE" --peer bob --timeout 60000 --json`
 (PowerShell: `node $Cli doctor --data-dir $Profile --peer bob --timeout 60000 --json`).
-For the reverse direction, prepare Alice's responder and use `--peer alice` on
-Bob's machine. The daemon does not automatically echo this challenge; without
-an active responder, the probe times out. Its signed, persisted reply proves the
-roundtrip, not automatic wake of a particular AI client.
+For the reverse direction, use `--peer alice` on Bob's machine. A 2.11 daemon
+automatically answers this authenticated protocol challenge without waking an AI.
+Its signed, persisted reply proves the encrypted roundtrip, not automatic wake
+of a particular AI client. Older daemons require an active responder.
 
 ### Stopping and removal
 
@@ -786,7 +800,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [ ] **Phase N tail** — N4 chat-session presence (#89), N5 subject scoping (#90).
 
 *Distribution*
-- [ ] **npm publication remains paused** — the registry lacks the current delivery fixes. Account recovery has no confirmed deadline; deprecation commands are prepared but not executed. Use the v2.10.0 release assets or pinned source tag in [Install](#install), not the registry packages.
+- [ ] **Public npm publication of 2.11.0 is pending.** The prebuilt `@murmurv2/cli` is ready for the release workflow; availability in npmjs is a separate step. Until publication is confirmed, use the GitHub release assets in [Install](#install).
 
 ### Needs a real external counterpart (mechanism done, gated on a partner)
 - [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**. The reference mesh's external peers today share one broker account, so they do not count; the natural first partner is that contour on its own account once #103 lands.

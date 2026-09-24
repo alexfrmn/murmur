@@ -1,6 +1,6 @@
 {
   "name": "@murmurv2/cli",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "type": "module",
   "main": "runtime/packages/setup/dist/src/index.js",
   "types": "runtime/packages/setup/dist/src/index.d.ts",
@@ -37,5 +37,6 @@
     "bin/murmur-npm.mjs",
     "runtime",
     "LICENSE"
-  ]
+  ],
+  "homepage": "https://murmurconnect.com"
 }

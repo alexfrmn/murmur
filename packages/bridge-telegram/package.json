@@ -1,6 +1,6 @@
 {
   "name": "@murmurv2/bridge-telegram",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -26,7 +26,7 @@
     "LICENSE"
   ],
   "description": "Murmur V2 Telegram notification adapter.",
-  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "homepage": "https://murmurconnect.com",
   "bugs": {
     "url": "https://github.com/alexfrmn/murmur/issues"
   },

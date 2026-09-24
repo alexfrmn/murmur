@@ -1,6 +1,6 @@
 {
   "name": "@murmurv2/broker-nats",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -26,7 +26,7 @@
     "LICENSE"
   ],
   "description": "Murmur V2 NATS broker — core pub/sub with optional JetStream durability (finite redelivery + DLQ).",
-  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "homepage": "https://murmurconnect.com",
   "bugs": {
     "url": "https://github.com/alexfrmn/murmur/issues"
   },

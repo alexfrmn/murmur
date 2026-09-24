@@ -1,11 +1,11 @@
 # murmur — full text for language models
 
-> Murmur is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct, encrypted channel to a peer on another machine through a NATS broker, so a person no longer relays text between terminals. MIT license. Current stable release: v2.10.0, released 2026-09-20.
+> Murmur is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct, encrypted channel to a peer on another machine through a NATS broker, so a person no longer relays text between terminals. MIT license. Current stable release: v2.11.0, released 2026-09-24.
 
 Website: https://murmurconnect.com/
 Source: https://github.com/alexfrmn/murmur
 Releases: https://github.com/alexfrmn/murmur/releases
-Everything below is taken from the repository's README, SECURITY.md, CHANGELOG.md and docs/ as of v2.10.0. When this file and the repository disagree, the repository wins.
+Everything below is taken from the repository's README, SECURITY.md, CHANGELOG.md and docs/ as of v2.11.0. When this file and the repository disagree, the repository wins.
 
 ## What problem it solves
 
@@ -53,19 +53,20 @@ Local storage:
 
 - The setup CLI (`clients detect`, then `clients configure --client <id>`) writes the Murmur MCP entry for Claude Code and the Codex CLI on macOS, Linux and Windows, and for Claude Desktop and Codex Desktop on macOS. It preserves unrelated settings and saves a private backup; replacing an existing Murmur entry needs an explicit `--replace`.
 - Any other MCP client can be connected by hand: point it at the absolute Node executable and the MCP server entry of the same runtime, with DATA_DIR and MURMUR_STORE_PATH set to the same profile.
-- Delivery and wake are separate. Answering incoming messages without a human prompt needs a wake hook (docs/wake-native.md): for Claude Code, an asyncRewake hook plus a SessionStart drain for messages that arrived while no session was running; for the Codex CLI, a turn started through the app-server. Codex Desktop can receive messages into one exact task on macOS (opt-in, docs/codex-desktop-queue-wake.md). On Windows, use the Node version of the wake hook: the shell version needs sh.
+- Delivery and automatic AI wake are separate. Configuring Claude Code installs its Stop hook with an eight-hour polling window (docs/wake-native.md). Codex app-server wake uses Unix sockets; its Windows transport is not implemented. Claude Desktop can exchange messages via MCP but does not start an AI turn automatically. An ACK, a daemon doctor reply and an AI response are distinct evidence.
 
 ## Install
 
-npm installation and updates are paused. The npm registry still serves older @murmurv2/* packages from the 2.6.x era without later delivery fixes, and publishing is blocked. Do not install or update Murmur from npm; use a GitHub release asset or a pinned source checkout.
+Public npm publication of 2.11.0 is pending. After publication, install with `npm install --global @murmurv2/cli@2.11.0`; the prebuilt CLI includes the daemon, MCP entry and Windows service helper, but no desktop app. Until publication is confirmed, use a GitHub release asset or pinned source checkout. Older npm packages lack current delivery fixes.
 
 Every path needs Node.js 22.13.0 or newer with the built-in node:sqlite module available without a flag, a reachable NATS broker (address and credentials from its owner), and a second participant.
 
-Stable v2.10.0 assets (https://github.com/alexfrmn/murmur/releases/tag/v2.10.0):
+Stable v2.11.0 assets (https://github.com/alexfrmn/murmur/releases/tag/v2.11.0):
 
-- murmur-runtime-2.10.0.zip: portable CLI, daemon and MCP runtime for macOS, Linux or Windows. No Git, npm or build needed on the receiving machine.
-- Murmur-Windows-2.10.0-x64.zip: Windows x64 tray and native service companion.
-- Murmur-Mac-2.10.0-universal.dmg: macOS 13 or newer on Intel or Apple Silicon.
+- murmur-runtime-2.11.0.zip: portable CLI, daemon and MCP runtime for macOS, Linux or Windows. No Git, npm or build needed on the receiving machine.
+- Murmur-2.11.0-windows-x64-setup.exe: per-user Windows app installer with shortcuts; background service installation requests elevation separately.
+- Murmur-Windows-2.11.0-x64.zip: portable Windows x64 tray and native service companion.
+- Murmur-Mac-2.11.0-universal.dmg: macOS 13 or newer on Intel or Apple Silicon.
 
 The builds are unsigned, so macOS and Windows show a first-open warning. GitHub's automatically generated "Source code" archives are source checkouts, not prebuilt runtimes. Murmur does not update itself; existing Windows service users follow the manual upgrade guide in apps/windows-tray/packaging/README-Windows.md.
 
@@ -73,7 +74,7 @@ Source path:
 
     git clone https://github.com/alexfrmn/murmur.git
     cd murmur
-    git checkout --detach v2.10.0
+    git checkout --detach v2.11.0
     npm ci
     npm run build
 
@@ -91,7 +92,7 @@ The CLI is `node packages/setup/bin/murmur.mjs`, and every profile-specific comm
 6. `clients detect` and `clients configure --client <id>` connect the AI client; reload the client afterwards.
 7. Send a test message with murmur_request and require a reply. Importing keys confirms only one side of the pair; only a message received back proves that both sides are set up.
 
-The Murmur website also offers this setup as a prompt to hand to an agent, which then runs the steps in its own terminal.
+The Mac and Windows apps can accept the invitation, save the reply and configure the selected client through dialogs. The Murmur website also offers the terminal steps as a prompt for an agent. The npm CLI uses `murmur` in place of `node packages/setup/bin/murmur.mjs`.
 
 ## Troubleshooting
 

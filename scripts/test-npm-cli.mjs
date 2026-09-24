@@ -38,7 +38,10 @@ try {
   }
   await fs.access(path.join(consumer, 'node_modules/.bin', process.platform === 'win32' ? 'murmur.cmd' : 'murmur'));
   const proof = JSON.parse(execFileSync(process.execPath, [path.join(root, 'scripts/check-npm-cli.mjs'), cli], {
-    cwd: temp, env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 45000,
+    // Three bounded Windows CLI commands (60s each), MCP checks (30s total),
+    // and cleanup must fit inside the parent budget instead of being killed at 45s.
+    cwd: temp, env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: process.platform === 'win32' ? 240_000 : 45_000,
   }));
   console.log(JSON.stringify({ ...proof, install: 'local Murmur tarballs, scripts disabled, isolated prefix', packed }));
 } finally { await fs.rm(temp, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }

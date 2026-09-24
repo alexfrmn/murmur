@@ -55,7 +55,9 @@ test('site agent prompts use the canonical invite, join and add-peer file workfl
   ]) {
     assert.equal(site.split(command).length - 1, 2, `${command} must appear once per language`);
   }
-  assert.match(site, /blob\/v2\.10\.0\/docs\/setup-onboarding\.md/);
+  const { version } = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
+  assert.ok(site.includes(`blob/v${version}/docs/setup-onboarding.md`),
+    'the canonical onboarding link must match the product release');
   assert.ok(!site.includes('claude mcp add murmur'), 'site must use the shared client-settings writer');
   // The English prompt lives in the static <pre id="prompt"> so crawlers without
   // JavaScript see it; the script reads it back with textContent. The Russian prompt
@@ -79,7 +81,8 @@ test('site agent prompts use the canonical invite, join and add-peer file workfl
       'murmur.mjs invite --out',
       'murmur.mjs join --agent-id',
       'murmur.mjs add-peer --reply-file',
-      'scripts/murmur-daemon.mjs',
+      'murmur.mjs service install --data-dir',
+      'murmur.mjs service start --data-dir',
       'murmur.mjs clients detect',
       'murmur.mjs clients configure',
     ].map(command => prompt.indexOf(command));

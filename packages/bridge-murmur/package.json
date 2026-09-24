@@ -1,6 +1,6 @@
 {
   "name": "@murmurv2/bridge-murmur",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -22,7 +22,7 @@
     "LICENSE"
   ],
   "description": "Murmur V2 Murmur-to-Murmur bridge (experimental placeholder/stub).",
-  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "homepage": "https://murmurconnect.com",
   "bugs": {
     "url": "https://github.com/alexfrmn/murmur/issues"
   },
