@@ -68,6 +68,24 @@
       "reason": "search-engine category term: people search for «ИИ-агенты», so the Russian page title and description keep that phrase; the page body says помощники."
     },
     {
+      "file": "site/index.html",
+      "key": "ld+json.@graph[1].keywords",
+      "term": "agent",
+      "reason": "search keyword: people search for 'agent-to-agent communication' and 'AI agent messaging'; JSON-LD keywords are read by search engines and are never shown on the page."
+    },
+    {
+      "file": "site/index.html",
+      "key": "ld+json.@graph[1].keywords",
+      "term": "NATS",
+      "reason": "search keyword: developers look for messaging built on NATS; JSON-LD keywords are read by search engines and are never shown on the page."
+    },
+    {
+      "file": "site/ru/index.html",
+      "key": "ld+json.@graph[1].keywords",
+      "term": "NATS",
+      "reason": "search keyword: developers look for messaging built on NATS; JSON-LD keywords are read by search engines and are never shown on the page."
+    },
+    {
       "file": "site/ru/index.html",
       "key": "<title>",
       "term": "агент",

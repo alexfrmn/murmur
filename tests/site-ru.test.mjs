@@ -92,6 +92,16 @@ test("the Russian page reaches assets one level up", () => {
   assert.deepEqual(relative.filter((url) => !url.startsWith("../")), []);
 });
 
+test("npm scopes in visible text are shielded from Cloudflare email obfuscation", () => {
+  // Cloudflare skips <head> and <script>; everywhere else "@scope/name@version" can be
+  // rewritten into "[email protected]" unless it sits between email_off comments.
+  for (const [name, html] of [["site/index.html", en], ["site/ru/index.html", ru]]) {
+    const visible = body(html).replace(/<!--email_off-->[\s\S]*?<!--\/email_off-->/g, "");
+    assert.deepEqual(visible.match(/@[a-z0-9][\w.-]*\/[\w.-]+/gi) || [], [], `${name}: wrap it in <!--email_off-->…<!--/email_off-->`);
+    assert.match(body(html), /<!--email_off-->[\s\S]*?@murmurv2\/cli[\s\S]*?<!--\/email_off-->/);
+  }
+});
+
 test("the primary button leads to installation", () => {
   for (const html of [en, ru]) {
     assert.match(html, /<a class="chip primary" href="#install" data-i18n="installCta">/);

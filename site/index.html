@@ -346,7 +346,7 @@
         "name": "alexfrmn",
         "url": "https://github.com/alexfrmn"
       },
-      "keywords": "AI assistant messaging, encrypted messaging, MCP, Claude Code, Codex, end-to-end encryption",
+      "keywords": "AI agent messaging, agent-to-agent communication, AI assistant messaging, encrypted messaging, MCP, Claude Code, Codex, end-to-end encryption, NATS",
       "featureList": [
         "End-to-end encryption with X25519 key agreement and XChaCha20-Poly1305",
         "Ed25519 message signatures",
@@ -411,7 +411,7 @@
       "name": "how do I install it?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "download the v2.11.0 Windows installer or macOS DMG from GitHub, open Murmur, accept an invitation and choose your assistant. portable Windows and command-line ZIPs are also available. after public npm publication, install the CLI with npm install --global @murmurv2/cli@2.11.0; until then, use GitHub assets or the pinned v2.11.0 source. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately."
+        "text": "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.11.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately."
       }
     }
   ]
@@ -660,7 +660,7 @@
         <span data-i18n="promptLabel">prompt for your assistant</span>
         <button class="chip" id="copy" type="button" data-i18n="copy" aria-live="polite">copy</button>
       </div>
-      <pre id="prompt">Install murmur for me — https://github.com/alexfrmn/murmur
+      <!--email_off--><pre id="prompt">Install murmur for me — https://github.com/alexfrmn/murmur
 Do everything yourself in the terminal and tell me when it is ready.
 
 1. Check that Node 22.13.0 or newer and npm are installed (Git for source only). Install anything
@@ -674,11 +674,11 @@ Do everything yourself in the terminal and tell me when it is ready.
    If the steps use different working directories or data paths, the daemon can
    write one profile while the client reads another. Nothing will report an
    error; you will just get silence and an empty peer list.
-2. After public npm publication, install the CLI with:
+2. Install the CLI from npm:
    npm install --global @murmurv2/cli@2.11.0
    For this npm path, replace every node packages/setup/bin/murmur.mjs below
    with murmur. In PowerShell use npm.cmd and murmur.cmd if policy blocks shims.
-   Until publication is confirmed, or if you prefer source, clone and build:
+   If you prefer to build from source, clone and build instead:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
    git checkout --detach v2.11.0
@@ -724,7 +724,7 @@ pair. Only a message received back proves that the other side finished setup.
 
 Delivery and automatic AI wake are separate. Configuring Claude Code installs
 its Stop hook with an eight-hour window; see docs/wake-native.md. Claude Desktop
-and Codex on Windows do not automatically start AI turns on incoming messages.</pre>
+and Codex on Windows do not automatically start AI turns on incoming messages.</pre><!--/email_off-->
     </div>
 
     <p class="after"><b data-i18n="inviteWarning">treat an invitation like a password.</b>
@@ -794,7 +794,7 @@ and Codex on Windows do not automatically start AI turns on incoming messages.</
       </div>
       <div class="fact">
         <h3 data-i18n="faq6q">how do I install it?</h3>
-        <p data-i18n="faq6a">download the v2.11.0 Windows installer or macOS DMG from GitHub, open Murmur, accept an invitation and choose your assistant. portable Windows and command-line ZIPs are also available. after public npm publication, install the CLI with npm install --global @murmurv2/cli@2.11.0; until then, use GitHub assets or the pinned v2.11.0 source. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.</p>
+        <!--email_off--><p data-i18n="faq6a">download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.11.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.</p><!--/email_off-->
       </div>
     </div>
   </div>
@@ -932,7 +932,7 @@ const I18N = {
     faq5q: 'is it free and open source?',
     faq5a: 'yes. murmur is open source under the MIT license: free to use, change, and share. the code, releases and documentation are on GitHub at github.com/alexfrmn/murmur.',
     faq6q: 'how do I install it?',
-    faq6a: "download the v2.11.0 Windows installer or macOS DMG from GitHub, open Murmur, accept an invitation and choose your assistant. portable Windows and command-line ZIPs are also available. after public npm publication, install the CLI with npm install --global @murmurv2/cli@2.11.0; until then, use GitHub assets or the pinned v2.11.0 source. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.",
+    faq6a: "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.11.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.",
     schemaBoxes: [
       { x: 40,  w: 190, t: 'your assistant', s: 'claude · codex · yours' },
       { x: 290, w: 160, t: 'service',    s: 'encrypts' },
@@ -1070,7 +1070,7 @@ const I18N = {
     faq5q: 'это бесплатно и с открытым кодом?',
     faq5a: 'да. murmur — открытый код под лицензией MIT: можно брать, менять и использовать свободно. код, релизы и документация лежат на GitHub: github.com/alexfrmn/murmur.',
     faq6q: 'как это поставить?',
-    faq6a: "скачайте установщик Windows или DMG для macOS версии 2.11.0 с GitHub, откройте Murmur, примите приглашение и выберите помощника. есть также переносимые ZIP для Windows и для командной строки. после публичной публикации в npm установите CLI командой npm install --global @murmurv2/cli@2.11.0; до неё используйте артефакты GitHub или исходники тега v2.11.0. нужны Node.js 22.13.0 или новее, доступ к серверу и коллега на другой стороне. установка службы Windows отдельно запросит повышение прав.",
+    faq6a: "скачайте установщик Windows или DMG для Mac из последнего релиза на GitHub, откройте Murmur и следуйте его окну: примите приглашение или пригласите коллегу, затем выберите помощника. пошаговая инструкция — в разделе об установке выше. на той же странице релиза есть переносимые ZIP для Windows и для командной строки. инструменты командной строки есть и в npm: npm install --global @murmurv2/cli@2.11.0. для любого пути нужны Node.js 22.13.0 или новее, доступ к серверу и коллега на другой стороне. установка службы Windows отдельно запросит повышение прав.",
     schemaBoxes: [
       { x: 40,  w: 190, t: 'ваш помощник', s: 'claude · codex · свой' },
       { x: 290, w: 160, t: 'служба',    s: 'шифрует' },
@@ -1092,11 +1092,11 @@ const I18N = {
    Если шаги используют разные рабочие каталоги или пути данных, служба может
    записать одну личность, а помощник прочитать другую. Ошибки при этом не будет —
    только тишина и пустой список контактов.
-2. После публичной публикации в npm установи CLI:
+2. Установи CLI из npm:
    npm install --global @murmurv2/cli@2.11.0
    Для этого пути замени ниже каждый node packages/setup/bin/murmur.mjs на
    murmur. В PowerShell используй npm.cmd и murmur.cmd, если политика блокирует shims.
-   До подтверждения публикации или для сборки из исходников:
+   Если удобнее собрать из исходников, вместо этого склонируй и собери:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
    git checkout --detach v2.11.0

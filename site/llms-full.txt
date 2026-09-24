@@ -57,7 +57,7 @@ Local storage:
 
 ## Install
 
-Public npm publication of 2.11.0 is pending. After publication, install with `npm install --global @murmurv2/cli@2.11.0`; the prebuilt CLI includes the daemon, MCP entry and Windows service helper, but no desktop app. Until publication is confirmed, use a GitHub release asset or pinned source checkout. Older npm packages lack current delivery fixes.
+The desktop apps are the easy path: https://murmurconnect.com/#install walks through the Mac DMG and the Windows installer. The CLI is published on npm: install it with `npm install --global @murmurv2/cli@2.11.0`; the prebuilt CLI includes the daemon, MCP entry and Windows service helper, but no desktop app. A GitHub release asset or a pinned source checkout also works. Older npm packages lack current delivery fixes.
 
 Every path needs Node.js 22.13.0 or newer with the built-in node:sqlite module available without a flag, a reachable NATS broker (address and credentials from its owner), and a second participant.
 
