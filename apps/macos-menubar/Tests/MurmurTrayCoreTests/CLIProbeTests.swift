@@ -3,6 +3,24 @@ import MurmurTrayCore
 
 struct CheckFailure: Error { let message: String }
 
+func measuredChecks<T>(_ name: String, _ action: () throws -> T) throws -> T {
+    let start = ProcessInfo.processInfo.systemUptime
+    func report(_ state: String) {
+        let elapsed = String(format: "%.3f", ProcessInfo.processInfo.systemUptime - start)
+        // A fatal error can leave stdout buffered at an unrelated earlier test.
+        FileHandle.standardError.write(Data("CHECK GROUP \(name): \(state) (\(elapsed)s)\n".utf8))
+    }
+    report("START")
+    do {
+        let result = try action()
+        report("PASS")
+        return result
+    } catch {
+        report("FAIL \(error)")
+        throw error
+    }
+}
+
 func check(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
     guard try condition() else { throw CheckFailure(message: message) }
 }
@@ -278,16 +296,16 @@ struct ProbeChecks {
             print("PASS additive/optional input: \(name)"); extraChecks += 1
         }
         let canonicalCount = files.count + doctorFiles.count
-        let controlCount = try runControlChecks(fixtures: directory)
-        let updateCount = try runUpdateChecks()
-        let runtimeCount = try runBundledRuntimeChecks()
-        let localizationCount = try runLocalizationChecks()
-        let presentationCount = try runStatusPresentationChecks(fixtures: directory, base: base, now: clock)
-        let markCount = try runMarkChecks(fixtures: directory)
-        let onboardingCount = try runOnboardingChecks(fixtures: directory)
-        let guidanceCount = try runConnectionGuidanceChecks(fixtures: directory)
-        let clientSetupCount = try runClientSetupChecks(fixtures: directory)
-        let outboxCount = try runOutboxAttentionChecks(fixtures: directory)
+        let controlCount = try measuredChecks("Control") { try runControlChecks(fixtures: directory) }
+        let updateCount = try measuredChecks("Update") { try runUpdateChecks() }
+        let runtimeCount = try measuredChecks("BundledRuntime") { try runBundledRuntimeChecks() }
+        let localizationCount = try measuredChecks("Localization") { try runLocalizationChecks() }
+        let presentationCount = try measuredChecks("StatusPresentation") { try runStatusPresentationChecks(fixtures: directory, base: base, now: clock) }
+        let markCount = try measuredChecks("Mark") { try runMarkChecks(fixtures: directory) }
+        let onboardingCount = try measuredChecks("Onboarding") { try runOnboardingChecks(fixtures: directory) }
+        let guidanceCount = try measuredChecks("ConnectionGuidance") { try runConnectionGuidanceChecks(fixtures: directory) }
+        let clientSetupCount = try measuredChecks("ClientSetup") { try runClientSetupChecks(fixtures: directory) }
+        let outboxCount = try measuredChecks("OutboxAttention") { try runOutboxAttentionChecks(fixtures: directory) }
         print("\(guidanceCount) connection guidance checks passed")
         print("\(7 + canonicalCount + extraChecks + controlCount + updateCount + runtimeCount + localizationCount + presentationCount + markCount + onboardingCount + guidanceCount + clientSetupCount + outboxCount) checks passed; canonical \(canonicalCount), transport 7, boundary \(extraChecks), profile controls \(controlCount), updates \(updateCount), bundled runtime \(runtimeCount), localization \(localizationCount), presentation \(presentationCount), mark \(markCount), onboarding \(onboardingCount), guidance \(guidanceCount), client setup \(clientSetupCount), outbox \(outboxCount)")
     }
