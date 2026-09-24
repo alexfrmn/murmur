@@ -191,7 +191,7 @@
 "Wait for the current command to finish" = "Wait for the current command to finish";
 "Waiting for agent delivery: %@" = "Waiting for agent delivery: %@";
 "Warning" = "Warning";
-"Wake failed — copy diagnostics for details" = "Wake failed — copy diagnostics for details";
+"Wake failed — copy diagnostics for details" = "Wake-up failed — copy diagnostics for details";
 "Working…" = "Working…";
 "agent delivery enabled" = "agent delivery enabled";
 "agent delivery paused" = "agent delivery paused";

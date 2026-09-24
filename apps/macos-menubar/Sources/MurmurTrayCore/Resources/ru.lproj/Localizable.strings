@@ -191,7 +191,7 @@
 "Wait for the current command to finish" = "Дождитесь завершения текущей команды";
 "Waiting for agent delivery: %@" = "Ожидают передачи агенту: %@";
 "Warning" = "Предупреждение";
-"Wake failed — copy diagnostics for details" = "Wake не сработал — подробности есть в диагностике";
+"Wake failed — copy diagnostics for details" = "Пробуждение не сработало — подробности есть в диагностике";
 "Working…" = "Выполняется…";
 "agent delivery enabled" = "передача агенту включена";
 "agent delivery paused" = "передача агенту на паузе";

@@ -22,8 +22,8 @@
       "ru": "Пара не подтверждена — выполните проверку"
     },
     "status.wakeFault": {
-      "en": "Wake failed — copy diagnostics for details",
-      "ru": "Wake не сработал — подробности есть в диагностике"
+      "en": "Wake-up failed — copy diagnostics for details",
+      "ru": "Пробуждение не сработало — подробности есть в диагностике"
     },
     "status.ready": {
       "en": "Service connected and ready",

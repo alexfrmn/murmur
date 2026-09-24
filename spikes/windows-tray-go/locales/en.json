@@ -153,7 +153,7 @@
   "status.unmeasured": "Some status details were not measured — run a check",
   "status.unpaired": "Pairing is not confirmed — run a check",
   "status.unparsableDate": "Snapshot time is unknown — run Check",
-  "status.wakeFault": "Wake failed — copy diagnostics for details",
+  "status.wakeFault": "Wake-up failed — copy diagnostics for details",
   "time.unknown": "time unknown",
   "tip.attention": "Not ready",
   "tip.failed": "Action needed",
