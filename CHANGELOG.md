@@ -27,9 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are included in the combined pilot.
 - **Windows tray onboarding and service consent** (#228): accept an invitation,
   select a reply location and configure detected clients through native dialogs.
-  Service controls request Windows elevation for the CLI. One tray runs per
-  bundle; a second launch opens the existing menu. Start, Desktop and Startup
-  shortcuts target the tray directly.
+  Service controls request Windows elevation for the CLI.
 - **Per-user Windows setup installer** (#229). `Murmur-VERSION-windows-x64-setup.exe`
   installs the app and its shortcuts without an elevation prompt; installing the
   background service requests elevation separately. Upgrade/uninstall retain
@@ -124,6 +122,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Node.js remains an external prerequisite.** The app/runtime checks the
   supported version. macOS bundles are ad-hoc signed, without Developer ID or
   notarization, so first-open guidance still applies.
+  Windows setup.exe and tray binaries are not code-signed; SmartScreen may show
+  “Windows protected your PC” on first run (More info → Run anyway).
 
 ## [2.10.0] - 2026-09-20
 
