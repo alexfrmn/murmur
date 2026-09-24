@@ -1,6 +1,6 @@
 {
   "name": "@murmurv2/federation",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -26,7 +26,7 @@
     "LICENSE"
   ],
   "description": "Murmur V2 federation — org/agent addressing, Ed25519 signed roster + RosterStore, roster-backed auth tokens.",
-  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "homepage": "https://murmurconnect.com",
   "bugs": {
     "url": "https://github.com/alexfrmn/murmur/issues"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@murmurv2/mcp-server",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -27,7 +27,7 @@
     "LICENSE"
   ],
   "description": "Murmur V2 MCP server — agent-to-agent messaging and scoped-channel roster tools over the Model Context Protocol.",
-  "homepage": "https://github.com/alexfrmn/murmur#readme",
+  "homepage": "https://murmurconnect.com",
   "bugs": {
     "url": "https://github.com/alexfrmn/murmur/issues"
   },

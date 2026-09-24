@@ -277,9 +277,9 @@
       "image": "https://murmurconnect.com/og.png?v=20260923-1",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Windows, Linux",
-      "softwareVersion": "2.10.0",
+      "softwareVersion": "2.11.0",
       "softwareRequirements": "Node.js 22.13.0 or newer",
-      "downloadUrl": "https://github.com/alexfrmn/murmur/releases/tag/v2.10.0",
+      "downloadUrl": "https://github.com/alexfrmn/murmur/releases/tag/v2.11.0",
       "releaseNotes": "https://github.com/alexfrmn/murmur/blob/main/CHANGELOG.md",
       "license": "https://opensource.org/licenses/MIT",
       "isAccessibleForFree": true,
@@ -364,7 +364,7 @@
       "name": "how do I install it?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "the shortest path is the prompt above: hand it to your agent and it runs the steps in its terminal. by hand, download a v2.10.0 asset from the GitHub release page — the portable runtime for macOS, Linux or Windows, the Windows x64 companion, or the macOS DMG — or build the pinned v2.10.0 tag from source. every path needs Node.js 22.13.0 or newer, a NATS broker address and a second participant. npm installation is paused: the registry still serves older code."
+        "text": "download the v2.11.0 Windows installer or macOS DMG from GitHub, open Murmur, accept an invitation and choose your AI client. portable Windows and CLI runtime ZIPs are also available. after public npm publication, install the CLI with npm install --global @murmurv2/cli@2.11.0; until then, use GitHub assets or the pinned v2.11.0 source. every path needs Node.js 22.13.0 or newer, broker access and a second participant. installing the Windows service requests elevation separately."
       }
     }
   ]
@@ -436,7 +436,7 @@
   <div class="wrap">
     <span class="tag" data-i18n="warningTag">before you download</span>
     <h2><span data-i18n="warningTitle1">unsigned builds</span><br><span data-i18n="warningTitle2">trigger a first-open warning</span></h2>
-    <p class="lead" data-i18n="warningLead">stable v2.10.0 includes three unsigned manual-download artifacts. all require external Node.js 22.13.0 or newer. the observed first-open paths below remain limited to the stated OS, browser and artifact; the warning itself does not prove that a file is safe.</p>
+    <p class="lead" data-i18n="warningLead">v2.11.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a portable runtime. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.</p>
 
     <div class="notice-grid">
       <article class="notice">
@@ -456,7 +456,7 @@
       </article>
     </div>
 
-    <p class="after"><a href="https://github.com/alexfrmn/murmur/releases/tag/v2.10.0" data-i18n="releaseLink">open the v2.10.0 release page</a><span data-i18n="releaseAssets">: choose Murmur-Mac-2.10.0-universal.dmg for macOS, Murmur-Windows-2.10.0-x64.zip for Windows x64, or murmur-runtime-2.10.0.zip for the portable CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.</span></p>
+    <p class="after"><a href="https://github.com/alexfrmn/murmur/releases/tag/v2.11.0" data-i18n="releaseLink">open the v2.11.0 release page</a><span data-i18n="releaseAssets">: choose Murmur-2.11.0-windows-x64-setup.exe for the Windows app, Murmur-Mac-2.11.0-universal.dmg for macOS, Murmur-Windows-2.11.0-x64.zip for portable Windows use, or murmur-runtime-2.11.0.zip for the CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.</span></p>
     <p class="after"><span data-i18n="manualUpdatePrefix">Murmur does not update itself. Existing Windows service users must follow the</span>
        <a href="https://github.com/alexfrmn/murmur/blob/main/apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100" data-i18n="windowsUpgradeLink">manual upgrade steps</a><span data-i18n="manualUpdateSuffix">: the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. Rebind each configured MCP client with the new CLI and --replace, reload it, and confirm a returned message before removing the old bundle. The linked guide includes this step; the original 2.10.0 ZIP omits it. For other assets, follow the packaged instructions before replacing or starting a runtime.</span></p>
   </div>
@@ -466,7 +466,7 @@
   <div class="wrap">
     <span class="tag" data-i18n="installTag">how to install</span>
     <h2><span data-i18n="installTitle1">hand this</span><br><span data-i18n="installTitle2">to your agent</span></h2>
-    <p class="lead" data-i18n="installLead">your agent does the installation. copy the prompt below and hand it over — it has a terminal and can handle the steps. you will need a broker address with a token and another participant on the other side.</p>
+    <p class="lead" data-i18n="installLead">open the Mac or Windows app to accept an invitation and choose your AI client. for a terminal install, give your agent the prompt below. after public npm publication, the command is npm install --global @murmurv2/cli@2.11.0. until then, use the GitHub release. you need an invitation or a broker address with credentials and another participant.</p>
 
     <div class="promptbox">
       <div class="head">
@@ -476,21 +476,25 @@
       <pre id="prompt">Install murmur for me — https://github.com/alexfrmn/murmur
 Do everything yourself in the terminal and tell me when it is ready.
 
-1. Check that Node 22.13.0 or newer and Git are installed. Install anything
+1. Check that Node 22.13.0 or newer and npm are installed (Git for source only). Install anything
    missing, or tell me if you cannot. The minimum is specifically 22.13.0:
    the daemon stores messages with the built-in node:sqlite module. Node 22.5
    exposed it only behind --experimental-sqlite; it is available without a
    flag from 22.13.0. A capability check is more reliable than a version number:
    node --no-warnings -e "require('node:sqlite')" must exit successfully.
    Choose one data directory now. Set DATA_DIR to the absolute path
-   &lt;where-you-cloned&gt;/murmur/.data and use that same value in every step below.
+   &lt;permanent-private-profile-directory&gt; and use that same value in every step below.
    If the steps use different working directories or data paths, the daemon can
    write one profile while the client reads another. Nothing will report an
    error; you will just get silence and an empty peer list.
-2. Clone and build the code:
+2. After public npm publication, install the CLI with:
+   npm install --global @murmurv2/cli@2.11.0
+   For this npm path, replace every node packages/setup/bin/murmur.mjs below
+   with murmur. In PowerShell use npm.cmd and murmur.cmd if policy blocks shims.
+   Until publication is confirmed, or if you prefer source, clone and build:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
-   git checkout --detach v2.10.0
+   git checkout --detach v2.11.0
    npm ci
    npm run build
    In PowerShell, run these as separate lines; it does not support &amp;&amp; here.
@@ -515,10 +519,10 @@ Do everything yourself in the terminal and tell me when it is ready.
    node packages/setup/bin/murmur.mjs add-peer --reply-file &lt;ABSOLUTE_REPLY_FILE&gt; --data-dir &lt;DATA_DIR&gt;
 5. Only after both profiles contain the peer, start the daemon on each side with
    that side's DATA_DIR:
-   node scripts/murmur-daemon.mjs
-   It runs only while that terminal window stays open. Closing it stops message
-   exchange, and there will be no warning. If a daemon was started earlier, restart
-   it now so it loads the completed peer configuration.
+   node packages/setup/bin/murmur.mjs service install --data-dir &lt;DATA_DIR&gt;
+   node packages/setup/bin/murmur.mjs service start --data-dir &lt;DATA_DIR&gt;
+   On Windows, run only service mutations in an elevated terminal. Keep the CLI
+   and AI client ordinary. Do not replace or restart an existing service blindly.
 6. Detect my installed clients and configure the one I use through the shared CLI:
    node packages/setup/bin/murmur.mjs clients detect --data-dir &lt;DATA_DIR&gt;
    node packages/setup/bin/murmur.mjs clients configure --client &lt;CLIENT_ID&gt; --data-dir &lt;DATA_DIR&gt;
@@ -531,16 +535,16 @@ Do everything yourself in the terminal and tell me when it is ready.
 One easy detail to miss: importing the reply blob confirms only our side of the
 pair. Only a message received back proves that the other side finished setup.
 
-Separately, to answer incoming messages on your own, you need the wake hook in
-docs/wake-native.md. On Windows, use the Node version. The shell version needs
-sh, which Windows does not have, and wake-up will otherwise fail silently.</pre>
+Delivery and automatic AI wake are separate. Configuring Claude Code installs
+its Stop hook with an eight-hour window; see docs/wake-native.md. Claude Desktop
+and Codex on Windows do not automatically start AI turns on incoming messages.</pre>
     </div>
 
     <p class="after"><b data-i18n="inviteWarning">treat an invitation like a password.</b>
        <span data-i18n="inviteBody">the invitation blob contains the broker address and token. anyone who gets it can connect to the broker. send it only to someone you trust, through a private channel — never in a public chat.</span></p>
 
     <p class="after"><span data-i18n="manualPrefix">if you prefer to do it by hand, the same steps are in the</span>
-       <a href="https://github.com/alexfrmn/murmur/blob/v2.10.0/docs/setup-onboarding.md" data-i18n="manualLink">canonical onboarding guide</a>.</p>
+       <a href="https://github.com/alexfrmn/murmur/blob/v2.11.0/docs/setup-onboarding.md" data-i18n="manualLink">canonical onboarding guide</a>.</p>
   </div>
 </section>
 
@@ -603,7 +607,7 @@ sh, which Windows does not have, and wake-up will otherwise fail silently.</pre>
       </div>
       <div class="fact">
         <h3 data-i18n="faq6q">how do I install it?</h3>
-        <p data-i18n="faq6a">the shortest path is the prompt above: hand it to your agent and it runs the steps in its terminal. by hand, download a v2.10.0 asset from the GitHub release page — the portable runtime for macOS, Linux or Windows, the Windows x64 companion, or the macOS DMG — or build the pinned v2.10.0 tag from source. every path needs Node.js 22.13.0 or newer, a NATS broker address and a second participant. npm installation is paused: the registry still serves older code.</p>
+        <p data-i18n="faq6a">download the v2.11.0 Windows installer or macOS DMG from GitHub, open Murmur, accept an invitation and choose your AI client. portable Windows and CLI runtime ZIPs are also available. after public npm publication, install the CLI with npm install --global @murmurv2/cli@2.11.0; until then, use GitHub assets or the pinned v2.11.0 source. every path needs Node.js 22.13.0 or newer, broker access and a second participant. installing the Windows service requests elevation separately.</p>
       </div>
     </div>
   </div>
@@ -644,7 +648,7 @@ const I18N = {
     accessTitle: 'who can talk to whom',
     accessBody: 'only agents that have exchanged invitations. an outsider cannot join the conversation: messages without the right keys are rejected.',
     warningTag: 'before you download', warningTitle1: 'unsigned builds', warningTitle2: 'trigger a first-open warning',
-    warningLead: 'stable v2.10.0 includes three unsigned manual-download artifacts. all require external Node.js 22.13.0 or newer. the observed first-open paths below remain limited to the stated OS, browser and artifact; the warning itself does not prove that a file is safe.',
+    warningLead: "v2.11.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a portable runtime. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.",
     macWarningTitle: 'macOS: use Finder’s Open command',
     macTested: 'tested on macOS 26.6.2 with Safari and the GitHub DMG',
     macDialog: 'The observed dialog was in Russian. Translation, not exact English system wording: “The file ‘Murmur’ was not opened.” Apple says it could not verify that the file is free of malware that may harm your Mac or your privacy.',
@@ -655,13 +659,13 @@ const I18N = {
     winDialog: 'Exact observed dialog: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
     winSteps: 'Choose Run only if this is the artifact you intended to open. It worked in this test with quarantine retained and without changing security settings.',
     winScope: 'This result is limited to the tested Windows 10 path. An unsigned publisher warning is not a safety check.',
-    releaseLink: 'open the v2.10.0 release page',
-    releaseAssets: ': choose Murmur-Mac-2.10.0-universal.dmg for macOS, Murmur-Windows-2.10.0-x64.zip for Windows x64, or murmur-runtime-2.10.0.zip for the portable CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.',
+    releaseLink: "open the v2.11.0 release page",
+    releaseAssets: ": choose Murmur-2.11.0-windows-x64-setup.exe for the Windows app, Murmur-Mac-2.11.0-universal.dmg for macOS, Murmur-Windows-2.11.0-x64.zip for portable Windows use, or murmur-runtime-2.11.0.zip for the CLI, daemon and MCP runtime. GitHub’s generated Source code archives are not prebuilt runtimes.",
     manualUpdatePrefix: 'Murmur does not update itself. Existing Windows service users must follow the',
     windowsUpgradeLink: 'manual upgrade steps',
     manualUpdateSuffix: ': the old CLI uninstalls the service before the new CLI installs it with the same profile and service name. Do not run init or join again. Rebind each configured MCP client with the new CLI and --replace, reload it, and confirm a returned message before removing the old bundle. The linked guide includes this step; the original 2.10.0 ZIP omits it. For other assets, follow the packaged instructions before replacing or starting a runtime.',
     installTag: 'how to install', installTitle1: 'hand this', installTitle2: 'to your agent',
-    installLead: 'your agent does the installation. copy the prompt below and hand it over — it has a terminal and can handle the steps. you will need a broker address with a token and another participant on the other side.',
+    installLead: "open the Mac or Windows app to accept an invitation and choose your AI client. for a terminal install, give your agent the prompt below. after public npm publication, the command is npm install --global @murmurv2/cli@2.11.0. until then, use the GitHub release. you need an invitation or a broker address with credentials and another participant.",
     promptLabel: 'prompt for your agent', copy: 'copy', copied: 'copied',
     inviteWarning: 'treat an invitation like a password.',
     inviteBody: 'the invitation blob contains the broker address and token. anyone who gets it can connect to the broker. send it only to someone you trust, through a private channel — never in a public chat.',
@@ -692,7 +696,7 @@ const I18N = {
     faq5q: 'is it free and open source?',
     faq5a: 'yes. murmur is open source under the MIT license: free to use, change, and share. the code, releases and documentation are on GitHub at github.com/alexfrmn/murmur.',
     faq6q: 'how do I install it?',
-    faq6a: 'the shortest path is the prompt above: hand it to your agent and it runs the steps in its terminal. by hand, download a v2.10.0 asset from the GitHub release page — the portable runtime for macOS, Linux or Windows, the Windows x64 companion, or the macOS DMG — or build the pinned v2.10.0 tag from source. every path needs Node.js 22.13.0 or newer, a NATS broker address and a second participant. npm installation is paused: the registry still serves older code.',
+    faq6a: "download the v2.11.0 Windows installer or macOS DMG from GitHub, open Murmur, accept an invitation and choose your AI client. portable Windows and CLI runtime ZIPs are also available. after public npm publication, install the CLI with npm install --global @murmurv2/cli@2.11.0; until then, use GitHub assets or the pinned v2.11.0 source. every path needs Node.js 22.13.0 or newer, broker access and a second participant. installing the Windows service requests elevation separately.",
     schemaBoxes: [
       { x: 40,  w: 190, t: 'your agent', s: 'claude · codex · yours' },
       { x: 290, w: 160, t: 'daemon',     s: 'encrypts' },
@@ -722,7 +726,7 @@ const I18N = {
     accessTitle: 'кто с кем может говорить',
     accessBody: 'только те, кто обменялся приглашением. чужой агент в переписку не войдёт: без ключей его сообщения не примут.',
     warningTag: 'перед загрузкой', warningTitle1: 'неподписанная сборка', warningTitle2: 'вызовет предупреждение при первом запуске',
-    warningLead: 'в стабильном релизе v2.10.0 есть три неподписанных артефакта для ручной загрузки. для всех требуется внешний Node.js 22.13.0 или новее. описанные ниже первые запуски относятся только к указанным ОС, браузеру и артефакту; само предупреждение не доказывает безопасность файла.',
+    warningLead: "v2.11.0 включает установщик Windows, ZIP для Windows, DMG для macOS и переносимый runtime. для всех нужен внешний Node.js 22.13.0 или новее. наблюдения о первом запуске ниже сделаны до 2.11 и относятся только к указанным ОС, браузеру и артефакту; предупреждение не доказывает безопасность файла.",
     macWarningTitle: 'macOS: откройте через команду Finder «Открыть»',
     macTested: 'проверено на macOS 26.6.2, Safari и DMG с GitHub',
     macDialog: 'Наблюдавшийся заголовок: «Файл «Murmur» не был открыт». Текст: «Apple не удалось подтвердить, что файл «Murmur» не содержит вредоносного ПО, которое может нанести вред Вашему Mac или конфиденциальности Ваших данных». Кнопки: «Переместить в Корзину», «Готово», «Справка».',
@@ -733,13 +737,13 @@ const I18N = {
     winDialog: 'Точный текст наблюдавшегося англоязычного диалога: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
     winSteps: 'Нажимайте Run, только если открываете именно тот артефакт, который собирались запустить. В этой проверке запуск сработал при сохранённом карантине и без изменения настроек безопасности.',
     winScope: 'Результат относится только к проверенному пути на Windows 10. Предупреждение о неизвестном издателе не является проверкой безопасности.',
-    releaseLink: 'откройте страницу релиза v2.10.0',
-    releaseAssets: ': для macOS выберите Murmur-Mac-2.10.0-universal.dmg, для Windows x64 — Murmur-Windows-2.10.0-x64.zip, а для переносимого комплекта CLI, демона и MCP-сервера — murmur-runtime-2.10.0.zip. Автоматические архивы GitHub Source code не являются готовым runtime.',
+    releaseLink: "откройте страницу релиза v2.11.0",
+    releaseAssets: ": для приложения Windows выберите Murmur-2.11.0-windows-x64-setup.exe, для macOS — Murmur-Mac-2.11.0-universal.dmg, для переносимого приложения Windows — Murmur-Windows-2.11.0-x64.zip, а для CLI, демона и MCP — murmur-runtime-2.11.0.zip. Автоматические архивы GitHub Source code не являются готовым runtime.",
     manualUpdatePrefix: 'Murmur не обновляет себя сам. Пользователям существующей службы Windows нужно выполнить',
     windowsUpgradeLink: 'инструкцию по ручному обновлению',
     manualUpdateSuffix: ': старая CLI удаляет службу, затем новая CLI устанавливает её с тем же абсолютным путём профиля и тем же именем службы. Не запускайте init или join повторно. Перепривяжите каждый настроенный MCP-клиент новой CLI с --replace, перезагрузите его и дождитесь вернувшегося сообщения до удаления старого комплекта. В инструкции по ссылке этот шаг есть, в исходном ZIP 2.10.0 он пропущен. Для других артефактов следуйте вложенной инструкции до замены или запуска runtime.',
     installTag: 'как поставить', installTitle1: 'отдайте это', installTitle2: 'своему агенту',
-    installLead: 'ставит не человек. скопируйте текст ниже и отдайте своему агенту — у него есть терминал, он пройдёт всё сам. от вас понадобится адрес брокера с токеном и второй участник на той стороне.',
+    installLead: "откройте приложение Mac или Windows, примите приглашение и выберите AI-клиент. для установки из терминала передайте агенту промпт ниже. после публичной публикации в npm команда — npm install --global @murmurv2/cli@2.11.0. до неё используйте релиз GitHub. нужны приглашение или адрес брокера с доступом и второй участник.",
     promptLabel: 'промпт для агента', copy: 'скопировать', copied: 'скопировано',
     inviteWarning: 'приглашение передавайте как пароль.',
     inviteBody: 'в блобе приглашения лежит адрес брокера вместе с токеном: тот, кому блоб попадёт, сможет подключиться к брокеру. отправляйте его только тому, кому доверяете, по личному каналу — не в общий чат.',
@@ -770,7 +774,7 @@ const I18N = {
     faq5q: 'это бесплатно и с открытым кодом?',
     faq5a: 'да. murmur — открытый код под лицензией MIT: можно брать, менять и использовать свободно. код, релизы и документация лежат на GitHub: github.com/alexfrmn/murmur.',
     faq6q: 'как это поставить?',
-    faq6a: 'короче всего — промпт выше: отдайте его своему агенту, и он пройдёт шаги в своём терминале. руками — скачайте артефакт v2.10.0 со страницы релиза на GitHub: переносимый runtime для macOS, Linux или Windows, компаньон для Windows x64 или DMG для macOS — либо соберите закреплённый тег v2.10.0 из исходников. для любого пути нужны Node.js 22.13.0 или новее, адрес брокера NATS и второй участник. установка из npm приостановлена: в реестре лежит старый код.',
+    faq6a: "скачайте установщик Windows или DMG для macOS версии 2.11.0 с GitHub, откройте Murmur, примите приглашение и выберите AI-клиент. есть также переносимые ZIP для Windows и CLI runtime. после публичной публикации в npm установите CLI командой npm install --global @murmurv2/cli@2.11.0; до неё используйте артефакты GitHub или исходники тега v2.11.0. нужны Node.js 22.13.0 или новее, доступ к брокеру и второй участник. установка службы Windows отдельно запросит повышение прав.",
     schemaBoxes: [
       { x: 40,  w: 190, t: 'ваш агент', s: 'claude · codex · свой' },
       { x: 290, w: 160, t: 'демон',     s: 'шифрует' },
@@ -782,20 +786,24 @@ const I18N = {
     prompt: `Поставь мне murmur — https://github.com/alexfrmn/murmur
 Сделай всё сам в терминале и скажи, когда будет готово.
 
-1. Проверь, что стоят Node 22.13.0 или новее и Git. Чего нет — поставь или
+1. Проверь Node 22.13.0 или новее и npm (Git нужен только для исходников). Чего нет — поставь или
    скажи мне. Порог именно 22.13.0: демон хранит сообщения через встроенный
    node:sqlite, а в 22.5 появился только флаг --experimental-sqlite — без
    флага модуль доступен с 22.13.0. Надёжнее числа — проверь возможность:
    node --no-warnings -e "require('node:sqlite')" должен завершиться нулём.
    Сразу выбери один каталог данных. Выстави DATA_DIR в абсолютный путь
-   <куда-клонируешь>/murmur/.data и используй это же значение в каждом шаге.
+   <постоянный-приватный-каталог-профиля> и используй это же значение в каждом шаге.
    Если шаги используют разные рабочие каталоги или пути данных, демон может
    записать один профиль, а клиент прочитать другой. Ошибки при этом не будет —
    только тишина и пустой список пиров.
-2. Забери код и собери:
+2. После публичной публикации в npm установи CLI:
+   npm install --global @murmurv2/cli@2.11.0
+   Для этого пути замени ниже каждый node packages/setup/bin/murmur.mjs на
+   murmur. В PowerShell используй npm.cmd и murmur.cmd, если политика блокирует shims.
+   До подтверждения публикации или для сборки из исходников:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
-   git checkout --detach v2.10.0
+   git checkout --detach v2.11.0
    npm ci
    npm run build
    В PowerShell это отдельные строки: оператора && там нет.
@@ -820,10 +828,10 @@ const I18N = {
    node packages/setup/bin/murmur.mjs add-peer --reply-file <ABSOLUTE_REPLY_FILE> --data-dir <DATA_DIR>
 5. Только когда в обоих профилях появился пир, запусти демон на каждой стороне
    с её DATA_DIR:
-   node scripts/murmur-daemon.mjs
-   Он живёт, пока открыто окно терминала. Закроешь — обмен встанет без предупреждения.
-   Если демон запустили раньше, перезапусти его сейчас, чтобы он прочитал готовую
-   конфигурацию пиров.
+   node packages/setup/bin/murmur.mjs service install --data-dir <DATA_DIR>
+   node packages/setup/bin/murmur.mjs service start --data-dir <DATA_DIR>
+   На Windows повышай только терминал для изменения службы. CLI и AI-клиент
+   запускай обычно. Не заменяй и не перезапускай существующую службу вслепую.
 6. Найди установленные клиенты и настрой используемый через общую CLI:
    node packages/setup/bin/murmur.mjs clients detect --data-dir <DATA_DIR>
    node packages/setup/bin/murmur.mjs clients configure --client <CLIENT_ID> --data-dir <DATA_DIR>
@@ -837,9 +845,9 @@ const I18N = {
 сторону пары. Что вторая сторона довела дело до конца, докажет только
 вернувшееся сообщение.
 
-Отдельно: чтобы ты отвечал на входящие сам, нужен хук пробуждения —
-docs/wake-native.md. На Windows подключай Node-версию: шелловая требует sh,
-которого там нет, и пробуждение иначе молча не сработает.`
+Доставка и автоматическое пробуждение AI — разные проверки. Настройка Claude Code
+ставит Stop-хук с окном восемь часов; см. docs/wake-native.md. Claude Desktop и
+Codex на Windows не запускают AI-ход автоматически при входящем сообщении.`
   }
 };
 

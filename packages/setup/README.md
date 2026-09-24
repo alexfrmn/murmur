@@ -3,11 +3,13 @@
 Install once, join with a private invitation file, and connect an AI client to
 Murmur's encrypted messaging mesh. The executable is `murmur`.
 
-The public npm release is pending. During the release rehearsal, use the registry
-URL supplied by the coordinator; do not use old public registry packages.
+The public npm release is pending. After `@murmurv2/cli@2.11.0` is published,
+use the command below. Until publication is confirmed, use a GitHub release
+asset; older public registry packages do not contain the current fixes.
+Maintainers rehearsing a release use only their coordinator-approved registry.
 
 ```sh
-npm install --global @murmurv2/cli --registry <approved-registry-url>
+npm install --global @murmurv2/cli@2.11.0
 murmur version --json
 ```
 

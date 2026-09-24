@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Pending
+- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
+- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+
+## [2.11.0] - 2026-09-24
+
+### Added
+- **Install the prebuilt `@murmurv2/cli` with the `murmur` command** (#218). The
+  package contains the setup runtime and Windows service helper; installation
+  requires neither a compiler nor install scripts. Its commands cover joining,
+  service setup, client configuration and diagnostics. Package
+  checks preserve compatible dependency ranges and validate all tarballs before
+  publication; versions of all twelve libraries receive a fresh patch release.
+- **Mac onboarding in the app** (#226, integrating #208–#213): accept an invitation,
+  save the reply, create or reopen a profile, and explicitly install/start its
+  service. Recover interrupted setup without recreating keys or deleting history.
+  Client selection, RU/EN localization, help, update checking and lifecycle fixes
+  are included in the combined pilot.
+- **Windows tray onboarding and service consent** (#228): accept an invitation,
+  select a reply location and configure detected clients through native dialogs.
+  Service controls request Windows elevation for the CLI. One tray runs per
+  bundle; a second launch opens the existing menu. Start, Desktop and Startup
+  shortcuts target the tray directly.
+- **Per-user Windows setup installer** (#229). `Murmur-VERSION-windows-x64-setup.exe`
+  installs the app and its shortcuts without an elevation prompt; installing the
+  background service requests elevation separately. Upgrade/uninstall retain
+  profiles and refuse to remove a runtime still referenced by a service.
+- **Claude Code Stop hook during client configuration** (#231). The installed
+  hook polls while Claude Code is idle, including its first Stop; cursor, lock
+  and anchor paths are scoped to the profile so separate profiles do not compete.
+- **Encrypted doctor response from the daemon** (#236). A verified, fresh protocol
+  challenge receives a signed reply through the durable outbox without asking an
+  AI to reproduce a nonce. Duplicate challenges are idempotent and rate limited;
+  diagnostic traffic is muted and does not trigger AI wake.
+
+### Changed
+- **Service readiness and peer exchange proof are separate** (#234). A running,
+  connected service may be green while an untested peer says “Exchange not checked
+  yet.” No missing pair proof is turned into success; measured mismatches warn.
+- **MCP learns new peers without a client restart** (#238). It refreshes a safely
+  opened configuration and refuses stale keys after a read or policy failure.
+  Local identity, keys and runtime binding changes still require a restart.
+  `murmur_request` waits at most 45 seconds, then returns `awaiting_reply`, its
+  conversation ID and actual delivery state. Only ACKed messages are described
+  as delivered. The optional broker tap cannot block durable store polling.
+- **Dead-letter and paused-wake explanations** (#230). Mac users can inspect
+  unsent-message metadata and dismiss or restore a warning without changing
+  delivery state, deleting messages or resending. Active failures remain visible.
+- **Project homepage is `murmurconnect.com`**. The site adds locale links, FAQ and
+  crawler metadata (#223); package homepages point to the project site.
+
 ### Fixed
 - **Windows: one tray per bundle.** Start, Desktop and Startup shortcuts start `murmur-tray.exe`
   directly; a second launch now opens the running tray's menu and exits with 0 instead of adding
@@ -18,13 +69,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows: an installed Murmur keeps its installer's shortcuts.** With `murmur-install.json`
   next to the launcher (written by setup.exe) the launcher creates, updates and removes no shortcuts.
 
-### Known limitations
-- **Windows tray: "Open an existing profile…"** uses the service name derived from the profile
-  path. Profiles with a custom service name are opened with `Open-Murmur.cmd -DataDir … -ServiceName …`.
+- **Windows ZIP paths outside the system ANSI code page** (#237). The launcher
+  opens the app even when it cannot create shortcuts for such paths, and explains
+  the skipped shortcuts. Installer-owned shortcuts remain under installer control.
+- **Windows profile and invitation privacy** (#215): private DACLs prevent broad
+  inherited access to new secrets; a failed ACL step does not leave a partial
+  profile that a retry could mistake for a valid installation.
+- **Windows path and service diagnostics** (#214, #216, #217, #220, #224, #225,
+  #232): refuse service-invisible MSIX AppData profiles and trailing path
+  separators; preserve native helper reason codes and system error names.
+  File identity checks handle Node's differing Windows volume identifiers while
+  preserving full inode precision.
+- **CLI entry and next steps** (#221, #222): `murmur --version` works, unknown
+  options are identified, and doctor gives a next-step hint for a missing profile
+  or stopped service. The existing doctor exit-code contract is unchanged.
+- **Portable and native acceptance coverage** (#219, #226): Windows setup, private
+  file checks, native helper/version probes and the combined Mac pilot run in CI.
+  Mac test fixtures warm their Python interpreter before bounded status/client
+  probes; diagnostic timings identify a slow stage without changing product
+  timeout budgets (#241).
+- **Runtime probe cleanup and Windows startup budgets** (#235). The checker waits
+  for the MCP child to close before removing its temporary profile and reports
+  cleanup errors alongside the original failure. Windows CLI probes allow for
+  cold PowerShell ACL startup and identify the timed-out command and budget.
+- **Mac client configuration respects custom homes** (#242). The bundled native
+  launcher retains `CODEX_HOME` and `CLAUDE_CONFIG_DIR` for client detection,
+  preview and configuration, preserving the locations selected in the app.
+- **Private-file ACL startup on Windows** (#240). Both the product ACL helper
+  and native test fixture allow up to 60 seconds for cold PowerShell startup.
+  ACL checks, ownership and refusal behavior remain unchanged.
+- **Claude Code Stop listener survives SQLite writer locks** (#239). Read-only
+  queries wait for short locks; polling retries BUSY/LOCKED until its deadline
+  without advancing the cursor or waking on muted diagnostics. The shell
+  one-shot hook also waits and leaves its cursor untouched on a failed read.
 
-### Pending
-- **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
-- **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
+### Known limitations
+- **Delivery, doctor and automatic AI wake are separate checks.** Claude Desktop
+  can use MCP to send/read messages, but does not automatically start an AI turn
+  when a message arrives; opening the inbox or starting a turn is still required.
+- **Codex app-server automatic wake uses Unix-domain sockets.** Its Windows
+  transport is not implemented; Windows MCP inbox, send and request/reply work
+  without waking Codex automatically. Claude Code on Windows uses its Stop hook.
+- **Claude Code's Stop hook has an eight-hour window.** A new Stop is required
+  after that window; it is not an always-on process independent of the client.
+- **Sessions sharing one profile share its inbox.** Use separate profiles when
+  independent sessions need separate delivery and wake state.
+- **Windows “Open an existing profile…” uses the derived service name.** Open
+  profiles with a custom service name through `Open-Murmur.cmd -DataDir …
+  -ServiceName …`.
+- **The Windows ZIP launcher may skip shortcuts.** If the bundle or shortcut
+  folder path contains characters outside the system ANSI code page (for example,
+  “中” on Russian or English Windows), it opens Murmur without creating shortcuts.
+  The `setup.exe` installer is unaffected.
+- **Node.js remains an external prerequisite.** The app/runtime checks the
+  supported version. macOS bundles are ad-hoc signed, without Developer ID or
+  notarization, so first-open guidance still applies.
 
 ## [2.10.0] - 2026-09-20
 
@@ -524,7 +623,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Durable unified notify queue with quick init presets ([e7069d0])
 - Invite-based peer setup -- 3 commands, zero JSON editing ([6a60294])
 
-[Unreleased]: https://github.com/alexfrmn/murmur/compare/v2.10.0...HEAD
+[Unreleased]: https://github.com/alexfrmn/murmur/compare/v2.11.0...HEAD
+[2.11.0]: https://github.com/alexfrmn/murmur/compare/v2.10.0...v2.11.0
 [2.10.0]: https://github.com/alexfrmn/murmur/compare/v2.9.0...v2.10.0
 [2.0.0]: https://github.com/alexfrmn/murmur/compare/v0.2.0...v2.0.0
 [0.2.0]: https://github.com/alexfrmn/murmur/compare/v0.1.0...v0.2.0
