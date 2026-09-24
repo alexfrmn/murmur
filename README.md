@@ -31,7 +31,7 @@
   <img src="https://github.com/alexfrmn/murmur/actions/workflows/ci.yml/badge.svg" alt="CI" />
   <img src="https://img.shields.io/badge/node-%3E%3D22.13.0-brightgreen" alt="Node 22.13.0+" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
-  <a href="#install"><img src="https://img.shields.io/badge/npm-publication_pending-orange" alt="npm CLI 2.11.0 — public publication pending" /></a>
+  <a href="https://www.npmjs.com/package/@murmurv2/cli"><img src="https://img.shields.io/npm/v/@murmurv2/cli" alt="npm @murmurv2/cli" /></a>
   <img src="https://img.shields.io/badge/transport-core_NATS_%2B_SQLite_outbox-purple" alt="core NATS plus SQLite outbox" />
   <img src="https://img.shields.io/badge/durability-optional_JetStream-teal" alt="optional JetStream durability" />
   <img src="https://img.shields.io/badge/crypto-XChaCha20--Poly1305-orange" alt="E2E Encrypted" />
@@ -121,23 +121,23 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 - **Validated: real cross-host A2A.** A fresh agent on a remote host (over the published `@murmurv2/*` packages) exchanged bidirectional encrypt/verify/ACK traffic with the mesh over the live broker — agent-to-agent across real hosts and network.
 - **Single canonical signing payload.** `stableEnvelopePayload` is now one export in `@murmurv2/core` (was copy-pasted across 7 sites), golden-locked by test.
 
-> Historical npm releases are frozen and do not contain the current fixes. Use a stable [GitHub release asset or pinned source checkout](#install) below.
+> The npm packages of the 2.11.0 release carry the current fixes. `@murmurv2/*` packages published before the 2.11.0 release (24 Sep 2026) are frozen and lack them; install `@murmurv2/cli@2.11.0` or use a stable [GitHub release asset or pinned source checkout](#install) below.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, WebSocket adapter, roster auth tokens, JetStream durability, federation, A2A bridge, native wake).
 
 ## Install
 
-**Public npm publication is pending.** After `@murmurv2/cli@2.11.0` is
-published, install the prebuilt CLI with:
+**`@murmurv2/cli@2.11.0` is published on
+[npmjs](https://www.npmjs.com/package/@murmurv2/cli).** Install the prebuilt CLI with:
 
 ```sh
 npm install --global @murmurv2/cli@2.11.0
 murmur version --json
 ```
 
-Until that publication is confirmed, use the [GitHub release
-assets](https://github.com/alexfrmn/murmur/releases). Older public `@murmurv2/*`
-packages lack the current delivery fixes. The npm CLI needs Node.js 22.13.0+;
+The same release is available as [GitHub release
+assets](https://github.com/alexfrmn/murmur/releases/tag/v2.11.0). `@murmurv2/*`
+packages published before the 2.11.0 release (24 Sep 2026) are frozen and lack the current delivery fixes. The npm CLI needs Node.js 22.13.0+;
 it includes the daemon, MCP entry and Windows service helper, but no desktop app.
 On Windows PowerShell use `npm.cmd` and `murmur.cmd` if policy blocks the shims.
 Then follow the [CLI invitation steps](packages/setup/README.md), using the same
@@ -785,7 +785,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [x] **Versioned protocol spec** — machine-readable schema (`protocol-v1.schema.json`) + prose (`docs/protocol-v1.md`) + compatibility matrix (`docs/protocol-compatibility.md`)
 
 *Distribution*
-- [x] **npm — public** under `@murmurv2/*` (MIT). Registry today: `core` 0.5.0, `mcp-server` 0.2.0, `federation`/`broker-nats` 0.2.0, `security`/`observability` 0.1.1, the rest 0.1.0 — three releases behind the repo until the publish hold lifts (see In Progress → Distribution)
+- [x] **npm — public** under `@murmurv2/*` (MIT), in step with release 2.11.0. Registry today: `cli` 2.11.0, `core` 0.6.4, `broker-nats` 0.3.5, `broker-ws` 0.2.3, `mcp-server` 0.2.3, `bridge-a2a` 0.2.1, `federation` 0.2.1, `observability` 0.1.3, `security` 0.1.2, `bridge-murmur` 0.1.2, `bridge-openclaw` 0.1.1, `bridge-telegram` 0.1.1, `federation-nats` 0.1.1
 
 ### In Progress (next up)
 
@@ -798,9 +798,6 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [ ] **Lifecycle events writer** — `message_events` (`queued → delivered → woke → handled → replied`), `recordEvent`, `traceMessage`, `traceConversation` and `stalledOutbound` are in `@murmurv2/core` with tests, and nothing in the daemon or MCP server calls them: after four days and thousands of messages the table holds zero rows. Since v2.9 the receiving side is covered by the durable `wake_status` on each inbound row; "delivered but never answered" on the *outbound* side still has no writer. Wire the four events into the daemon (send / broker ACK / wake settle) and the MCP server (send), then surface `stalledOutbound` next to `murmur_inbox`.
 - [ ] **Lane coalescing** (#124) — since v2.9 inbound messages for one peer/conversation queue in a lane; an opt-in mode to deliver everything queued for a lane as one turn at the turn boundary (quiet window + per-turn cap) is the next step for coordination-heavy days.
 - [ ] **Phase N tail** — N4 chat-session presence (#89), N5 subject scoping (#90).
-
-*Distribution*
-- [ ] **Public npm publication of 2.11.0 is pending.** The prebuilt `@murmurv2/cli` is ready for the release workflow; availability in npmjs is a separate step. Until publication is confirmed, use the GitHub release assets in [Install](#install).
 
 ### Needs a real external counterpart (mechanism done, gated on a partner)
 - [ ] **Federation** — `org/agentId` addressing, Ed25519-signed key directory, `fed.*` leaf-node/account contract, `RosterStore` (pinned-key trust + monotonic-version replay guard), and account-config renderer are **live-proven in isolation** (cross-org sealed+signed delivery on real NATS accounts + leaf-node topology + least-privilege pub/sub). Gate: a **second real partner org**. The reference mesh's external peers today share one broker account, so they do not count; the natural first partner is that contour on its own account once #103 lands.
