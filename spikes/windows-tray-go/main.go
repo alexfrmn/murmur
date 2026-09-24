@@ -733,15 +733,15 @@ func (a *app) connectToColleague() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	steps := onboardingSteps{
-		chooseClients: showAssistantChoices,
+		chooseClients:            showAssistantChoices,
 		confirmClientReplacement: showAssistantReplacement,
-		pickInvitation: func() (string, bool) { return fileDialog(false, tr("onboarding.pickInvite"), "") },
-		pickReply:      func(suggested string) (string, bool) { return fileDialog(true, tr("onboarding.pickReply"), suggested) },
-		confirm:        askYesNo,
-		inform:         tell,
-		revealFile:     revealAndCopy,
-		exists:         fileExists,
-		cli:            func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
+		pickInvitation:           func() (string, bool) { return fileDialog(false, tr("onboarding.pickInvite"), "") },
+		pickReply:                func(suggested string) (string, bool) { return fileDialog(true, tr("onboarding.pickReply"), suggested) },
+		confirm:                  askYesNo,
+		inform:                   tell,
+		revealFile:               revealAndCopy,
+		exists:                   fileExists,
+		cli:                      func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
 		elevated: func(args ...string) error {
 			if serviceAdmin() {
 				_, err := runSetupCLI(ctx, b, args...)
