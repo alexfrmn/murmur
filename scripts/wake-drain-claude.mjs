@@ -71,6 +71,8 @@
 // profiles on one machine never share a cursor, a lock or an anchor.
 //   MURMUR_WAKE_SESSION_MAX max messages --session prints (default 20; older ones
 //                           are counted, not printed)
+//   MURMUR_WAKE_FIRST_MAX   on a store never drained before, how many of the newest
+//                           inbound rows the first run still reports (default 20)
 //   MURMUR_WAKE_SKIP_SENDERS        comma-separated sender ids not to wake on
 //   MURMUR_WAKE_SKIP_CONVERSATIONS  comma-separated conversation ids not to wake on
 //   MURMUR_WAKE_SKIP_INELIGIBLE     "1" to also skip rows the daemon marked wake_eligible=0
@@ -116,6 +118,7 @@ const POLL_MS = Number(process.env.MURMUR_WAKE_POLL_MS || 10000);
 const ONCE = process.argv.includes("--once");
 const SESSION = process.argv.includes("--session");
 const SESSION_MAX = Number(process.env.MURMUR_WAKE_SESSION_MAX || 20);
+const FIRST_MAX = Number(process.env.MURMUR_WAKE_FIRST_MAX || 20);
 
 // Shared across sessions on purpose: this one is NOT suffixed with the session key.
 // It answers "how far has anyone drained this store", which is what a cold start
@@ -309,6 +312,14 @@ function recordSkipped(entries) {
   }
 }
 
+// The rowid just below the newest `keep` inbound rows (0 when the store holds fewer).
+function firstRunStart(db, keep) {
+  const row = db.prepare(
+    "SELECT rowid FROM local_messages WHERE direction='inbound' ORDER BY rowid DESC LIMIT 1 OFFSET ?",
+  ).get(Math.max(0, Math.floor(keep)));
+  return row ? Number(row.rowid) : 0;
+}
+
 /**
  * One drain pass. Returns null when there is nothing new, otherwise the rows to report,
  * the rows recorded as skipped, and the rowid the cursor may safely advance to — which is
@@ -445,15 +456,20 @@ async function main() {
     process.exit(0);
   }
 
-  // First run ever: establish a baseline at the current tip, do not dump history — and then
-  // go on in the requested mode. The installed hook is a Stop hook only, so a run that seeded
-  // and exited left the first idle wait of every new session deaf.
+  // First run of this session: start where the contour stopped reading, not at the tip, and
+  // then go on in the requested mode. Seeding at the tip hid every letter that arrived before
+  // the session's first Stop — on 24.09 a new user's first letter from a colleague did not
+  // wake anything until someone opened the inbox by hand. The installed hook is a Stop hook
+  // only, so a run that seeded and exited also left the first idle wait deaf.
+  //   anchor exists → start at the anchor: every row above it was never reported to anyone.
+  //   no anchor     → this store has never been drained: start FIRST_MAX inbound rows below
+  //                   the tip. A new Identity sees its first letters; an old store upgraded
+  //                   from a build without anchors does not replay its whole history.
   let cursorExists = true;
   try { statSync(CURSOR); } catch { cursorExists = false; }
   if (!cursorExists) {
-    const tip = await readStore(maxInbound, deadline);
-    writeCursor(tip);
-    advanceAnchor(tip);
+    const anchor = readAnchor();
+    writeCursor(anchor > 0 ? anchor : await readStore(db => firstRunStart(db, FIRST_MAX), deadline));
   }
 
   if (ONCE) {

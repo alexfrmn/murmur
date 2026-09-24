@@ -58,10 +58,51 @@ function drain(ctx, extraEnv = {}) {
   });
 }
 
-test("node drain seeds the cursor to the tip on first run and stays silent", () => {
+// A store no drain has ever read belongs to a new Identity: its first letters are the ones a
+// colleague sent right after pairing, and they must wake the first run (24.09, finding 5).
+test("node drain on a never-drained store reports its first letters on the first run", () => {
   const ctx = withDb();
-  insertMessage(ctx.db, { msgId: "old-1", text: "history one" });
-  insertMessage(ctx.db, { msgId: "old-2", text: "history two" });
+  insertMessage(ctx.db, { msgId: "first-1", sender: "agent-colleague", text: "hi" });
+  insertMessage(ctx.db, { msgId: "first-2", sender: "agent-colleague", text: "are you there" });
+
+  const result = drain(ctx);
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /Murmur wake: 2 new inbound message\(s\):\n {2}rowid=1 \[agent-colleague\]\n {2}rowid=2 \[agent-colleague\]/);
+  assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "2");
+  assert.equal(fs.readFileSync(ctx.anchorPath, "utf8").trim(), "2");
+});
+
+test("node drain on a never-drained old store reports only the newest FIRST_MAX letters", () => {
+  const ctx = withDb();
+  for (let i = 1; i <= 5; i++) insertMessage(ctx.db, { msgId: `old-${i}`, sender: `agent-${i}` });
+
+  const result = drain(ctx, { MURMUR_WAKE_FIRST_MAX: "2" });
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /2 new inbound message\(s\):\n {2}rowid=4 \[agent-4\]\n {2}rowid=5 \[agent-5\]\n/);
+  assert.doesNotMatch(result.stderr, /agent-3\]/, "history below the window is not replayed");
+  assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "5");
+});
+
+test("a new session starts at the contour's anchor, not at the tip", () => {
+  const ctx = withDb();
+  insertMessage(ctx.db, { msgId: "read-1", sender: "agent-old" });
+  insertMessage(ctx.db, { msgId: "unread-2", sender: "agent-colleague" });
+  fs.writeFileSync(ctx.anchorPath, "1\n"); // an earlier session reported row 1
+
+  const result = drain(ctx);
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /1 new inbound message\(s\):\n {2}rowid=2 \[agent-colleague\]/);
+  assert.doesNotMatch(result.stderr, /agent-old/, "what the contour already reported is not replayed");
+});
+
+test("a new session with the anchor at the tip stays silent", () => {
+  const ctx = withDb();
+  insertMessage(ctx.db, { msgId: "read-1", text: "history one" });
+  insertMessage(ctx.db, { msgId: "read-2", text: "history two" });
+  fs.writeFileSync(ctx.anchorPath, "2\n");
 
   const result = drain(ctx);
 

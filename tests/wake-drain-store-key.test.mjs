@@ -114,7 +114,8 @@ test("a poller on one store does not hold the lock of another store", async t =>
   const h = setup(t);
   const a = h.store("a", 1);
   const b = h.store("b", 1);
-  for (const s of [a, b]) assert.equal(h.run(s, "same", ["--once"]).status, 0); // seed both cursors
+  // The first run on a never-drained store reports its row and seeds the cursor past it.
+  for (const s of [a, b]) assert.equal(h.run(s, "same", ["--once"]).status, 2);
   const start = (s) => {
     const child = spawn(process.execPath, ["--no-warnings", script, "--db", s.dbPath, "--max-seconds", "20"], { env: h.env("same") });
     let stderr = "";
