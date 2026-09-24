@@ -76,6 +76,7 @@ type app struct {
 	mSvcInstall, mSvcUninstall, mAssistants, mAssistantConnect *systray.MenuItem
 	mHome                                                      [5]*systray.MenuItem
 	homeActions                                                [5]string
+	mPasteReply                                                *systray.MenuItem
 	mNext, mMessages, mPeerOverflow                            *systray.MenuItem
 	nextAction                                                 string
 	homeClicks                                                 chan int
@@ -196,6 +197,7 @@ func (a *app) setupMenu() {
 	a.mMessages = systray.AddMenuItem(tr("messages.menu"), "")
 	a.mInvite = systray.AddMenuItem(tr("menu.invite"), tr("menu.inviteTooltip"))
 	a.mPeersRoot = systray.AddMenuItem(tr("peer.connections"), tr("peer.wakeSeparate"))
+	a.mPasteReply = a.mPeersRoot.AddSubMenuItem(tr("pairing.pasteReply"), "")
 	for i := 0; i < peerMenuLimit; i++ {
 		item := a.mPeersRoot.AddSubMenuItem("…", "")
 		state := item.AddSubMenuItem("…", "")
@@ -428,6 +430,8 @@ func (a *app) refreshDoctor() {
 func (a *app) handleClicks() {
 	for {
 		select {
+		case <-a.mPasteReply.ClickedCh:
+			go a.pasteColleagueReply()
 		case <-a.mMessages.ClickedCh:
 			go a.openMessages()
 		case <-a.mNext.ClickedCh:
@@ -636,6 +640,7 @@ func (a *app) changeLocale(locale string) {
 }
 
 func (a *app) applyLocale() {
+	a.mPasteReply.SetTitle(tr("pairing.pasteReply"))
 	a.mPeersRoot.SetTitle(tr("peer.connections"))
 	a.mPeersRoot.SetTooltip(tr("peer.wakeSeparate"))
 	a.mDoctorRoot.SetTitle(tr("menu.doctor"))
@@ -706,9 +711,8 @@ func (a *app) showGuide() {
 	}
 }
 
-// connectToColleague sets Murmur up from an invitation file without a terminal: the default
-// profile %LOCALAPPDATA%Murmur, a name from the Windows user, the reply saved where the user
-// chooses, one UAC prompt for the service, and the detected AI clients connected.
+// connectToColleague joins a pasted Invitation and displays a copyable Reply.
+// Service and Assistant setup remain explicit, optional subsequent steps.
 func (a *app) connectToColleague() {
 	a.mu.Lock()
 	if a.actionBusy {
@@ -733,12 +737,11 @@ func (a *app) connectToColleague() {
 	steps := onboardingSteps{
 		chooseClients:            showAssistantChoices,
 		confirmClientReplacement: showAssistantReplacement,
-		pickInvitation:           func() (string, bool) { return fileDialog(false, tr("onboarding.pickInvite"), "") },
-		pickReply:                func(suggested string) (string, bool) { return fileDialog(true, tr("onboarding.pickReply"), suggested) },
+		pickInvitation:           func() (string, bool) { return showPairingInput(false, "") },
+		showReply:                func(line string) { showPairingReply(line, textToClipboard) },
+		cliInput:                 func(line string, args ...string) ([]byte, error) { return runSetupCLIInput(ctx, b, line, args...) },
 		confirm:                  askYesNo,
 		inform:                   tell,
-		revealFile:               revealAndCopy,
-		exists:                   fileExists,
 		cli:                      func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
 		elevated: func(args ...string) error {
 			if serviceAdmin() {
@@ -752,11 +755,7 @@ func (a *app) connectToColleague() {
 			return err
 		},
 	}
-	replyDir := desktopFolder()
-	if replyDir == "" {
-		replyDir = os.Getenv("USERPROFILE")
-	}
-	r, err := runOnboarding(steps, profile, defaultAgentID(os.Getenv("USERNAME")), replyDir)
+	r, err := runOnboarding(steps, profile, defaultAgentID(os.Getenv("USERNAME")))
 	if errors.Is(err, errOnboardingCancelled) {
 		return
 	}

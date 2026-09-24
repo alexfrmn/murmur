@@ -69,6 +69,7 @@ var inviteDialogCommand func(uintptr, uintptr) bool
 var inviteDialogCallback = syscall.NewCallback(func(hwnd uintptr, msg uint32, w, l uintptr) uintptr {
 	switch msg {
 	case 0x110:
+		inviteDialogCommand(hwnd, 0)
 		user32.NewProc("ShowWindow").Call(hwnd, 5)
 		user32.NewProc("ShowWindow").Call(hwnd, 5)
 		user32.NewProc("SetForegroundWindow").Call(hwnd)

@@ -2,9 +2,7 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -14,14 +12,13 @@ import (
 type onboardingSteps struct {
 	chooseClients            func([]string) []string
 	confirmClientReplacement func(string, string) bool
-	pickInvitation           func() (string, bool)                 // file dialog; false when cancelled
-	pickReply                func(suggested string) (string, bool) // save dialog; false when cancelled
-	confirm                  func(title, text string) bool         // yes/no
-	inform                   func(title, text string)              // ok
-	revealFile               func(path string)                     // show the reply in Explorer and copy its path
-	cli                      func(args ...string) ([]byte, error)  // runs the bundle CLI as the user
-	elevated                 func(args ...string) error            // runs the bundle CLI after one UAC prompt
-	exists                   func(path string) bool
+	pickInvitation           func() (string, bool) // pasted line; file is an optional input in the UI
+	showReply                func(string)
+	cliInput                 func(string, ...string) ([]byte, error)
+	confirm                  func(title, text string) bool
+	inform                   func(title, text string)
+	cli                      func(args ...string) ([]byte, error) // runs the bundle CLI as the user
+	elevated                 func(args ...string) error           // runs the bundle CLI after one UAC prompt
 }
 
 type onboardingResult struct {
@@ -47,33 +44,26 @@ func defaultAgentID(user string) string {
 	return "agent-" + name
 }
 
-// runOnboarding: invitation file -> join (profile, identity, reply file) -> reply shown and copied
-// -> one UAC prompt for the service -> detected Claude Code / Codex connected after one
-// confirmation. Every step after join is optional and reported; nothing is silently skipped.
-func runOnboarding(s onboardingSteps, profile, agentID, replyDir string) (onboardingResult, error) {
+// Join uses an in-memory line and returns an in-memory Reply; no exchange file.
+func runOnboarding(s onboardingSteps, profile, agentID string) (onboardingResult, error) {
 	r := onboardingResult{AgentID: agentID, Profile: profile}
-	invite, ok := s.pickInvitation()
+	invitation, ok := s.pickInvitation()
 	if !ok {
 		return r, errOnboardingCancelled
 	}
-	suggested := filepath.Join(replyDir, "murmur-reply-"+agentID+".txt")
-	for {
-		reply, ok := s.pickReply(suggested)
-		if !ok {
-			return r, errOnboardingCancelled
-		}
-		if !s.exists(reply) {
-			r.Reply = reply
-			break
-		}
-		// The CLI never overwrites a reply file; ask for another name instead of failing.
-		s.inform(tr("onboarding.title"), tr("onboarding.replyExists", reply))
+	line, err := pairingLine(invitation)
+	if err != nil {
+		return r, err
 	}
-	if _, err := s.cli("join", "--agent-id", agentID, "--invite-file", invite, "--reply-out", r.Reply, "--data-dir", profile); err != nil {
-		return r, fmt.Errorf("%s", tr("onboarding.joinFailed", err))
+	out, err := s.cliInput(line, "join", "--agent-id", agentID, "--invite-stdin", "--json", "--data-dir", profile)
+	if err != nil {
+		return r, errors.New(pairingError(err, false))
 	}
-	s.revealFile(r.Reply)
-	s.inform(tr("onboarding.title"), tr("onboarding.replySaved", agentID, r.Reply))
+	r.Reply, err = joinReply(out, agentID)
+	if err != nil {
+		return r, errors.New(tr("pairing.joinUnconfirmed"))
+	}
+	s.showReply(r.Reply)
 
 	if s.confirm(tr("onboarding.title"), tr("onboarding.serviceAsk")) {
 		if err := s.elevated("service", "install", "--json", "--data-dir", profile); err != nil {

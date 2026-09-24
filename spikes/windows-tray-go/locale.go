@@ -145,9 +145,10 @@ func trError(key string, cause error, args ...any) error {
 }
 
 type trayPreferences struct {
-	Schema    string `json:"schema"`
-	Locale    string `json:"locale"`
-	GuideSeen bool   `json:"guideSeen,omitempty"`
+	PendingReplies map[string]string `json:"pendingReplies,omitempty"`
+	Schema         string            `json:"schema"`
+	Locale         string            `json:"locale"`
+	GuideSeen      bool              `json:"guideSeen,omitempty"`
 }
 
 var preferencesMu sync.Mutex
@@ -302,4 +303,28 @@ func messageCount(n int) string {
 		return tr("count.messages.one", n)
 	}
 	return tr("count.messages.many", n)
+}
+
+// Store only the exact selected profile and public Identity, never exchange lines.
+func pendingReplyPreference(path, profile, identity string) bool {
+	preferencesMu.Lock()
+	defer preferencesMu.Unlock()
+	return identity != "" && loadTrayPreferences(path).PendingReplies[profile] == identity
+}
+func savePendingReplyPreference(path, profile, identity string, pending bool) error {
+	preferencesMu.Lock()
+	defer preferencesMu.Unlock()
+	if path == "" || profile == "" || identity == "" {
+		return errors.New("pairing.preference-invalid")
+	}
+	value := loadTrayPreferences(path)
+	if value.PendingReplies == nil {
+		value.PendingReplies = map[string]string{}
+	}
+	if pending {
+		value.PendingReplies[profile] = identity
+	} else if value.PendingReplies[profile] == identity {
+		delete(value.PendingReplies, profile)
+	}
+	return saveTrayPreferences(path, value)
 }

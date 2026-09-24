@@ -156,6 +156,10 @@ func (a *app) inviteColleague() {
 		}
 	}
 
+	// Remember the next step across restarts, bound to this profile and Identity.
+	if err := savePendingReplyPreference(a.preferencesPath, b.Profile, fresh.AgentID, true); err != nil {
+		tell(tr("invite.title"), tr("pairing.preferenceFailed"))
+	}
 	// Copy to clipboard
 	if err := textToClipboard(inviteLine); err != nil {
 		a.inviteError("invite.clipboardFailed", "clipboard-failed")

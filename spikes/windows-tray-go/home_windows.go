@@ -28,6 +28,7 @@ func (a *app) startMenuActions() {
 }
 
 func (a *app) renderHome() {
+	b, bindingErr := selectedCLI()
 	a.mu.Lock()
 	assistant := a.assistantState
 	if a.status == nil || a.assistantIdentity != a.status.AgentID {
@@ -38,6 +39,9 @@ func (a *app) renderHome() {
 		a.homeActions[i] = row.Action
 		a.mHome[i].SetTitle(menuText(row.Text))
 	}
+	if bindingErr == nil && a.status != nil && pendingReplyPreference(a.preferencesPath, b.Profile, a.status.AgentID) {
+		next = homeRow{tr("pairing.nextReply"), "reply"}
+	}
 	a.nextAction = next.Action
 	a.mNext.SetTitle(next.Text)
 	a.mu.Unlock()
@@ -45,6 +49,8 @@ func (a *app) renderHome() {
 
 func (a *app) performHomeAction(action string) {
 	switch action {
+	case "reply":
+		a.pasteColleagueReply()
 	case "setup":
 		a.showFirstRun()
 	case "identity":
