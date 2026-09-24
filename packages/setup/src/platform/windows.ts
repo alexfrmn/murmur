@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { realpath, stat } from 'node:fs/promises';
+import { access, realpath, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { ClientDetection, PlatformAdapter, ServiceContext, ServiceSnapshot } from '../types.js';
@@ -130,6 +131,26 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
   }
   return {
     manager: 'windows-service',
+    async logDirectory(c) {
+      validate(c);
+      if (!(await inspect(c)).installed) throw new Error('logs.service-not-installed');
+      const programData = Object.entries(env).find(([key]) => key.toLowerCase() === 'programdata')?.[1];
+      if (!programData || !paths.isAbsolute(programData)) throw new Error('logs.windows-native-location-unavailable');
+      // This is the native helper's ProgramData/Murmur/logs/<service> layout.
+      // Verify ownership above and containment after resolving junctions below.
+      try {
+        const root = await canonicalize(paths.join(programData, 'Murmur', 'logs'));
+        const logDir = await canonicalize(paths.join(programData, 'Murmur', 'logs', c.serviceName));
+        if (paths.relative(root, logDir) !== c.serviceName) throw new Error('logs.path-outside-service');
+        if (!(await stat(logDir)).isDirectory()) throw new Error('logs.not-directory');
+        await access(logDir, constants.R_OK);
+        return logDir;
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('logs.')) throw error;
+        const code = (error as NodeJS.ErrnoException).code;
+        throw new Error(code === 'ENOENT' ? 'logs.directory-missing' : code === 'EACCES' || code === 'EPERM' ? 'logs.directory-unreadable' : 'logs.path-unavailable');
+      }
+    },
     async observeStore(c, pid) {
       validate(c);
       if (!natural(pid) || pid === 0) return null;

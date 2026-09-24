@@ -81,7 +81,10 @@ export async function main(args: string[], adapter = platformAdapter()): Promise
     return rawCliOutput('');
   }
   if (command === 'logs' && action === 'path') {
-    if (process.platform === 'win32') throw new Error('logs.windows-native-location-unavailable');
+    if (process.platform === 'win32') {
+      if (!adapter.logDirectory) throw new Error('logs.windows-native-location-unavailable');
+      return readLogPath(context, adapter);
+    }
     return readLogPath(context);
   }
   if (command === 'doctor' && !action) return runDoctor({ context, adapter, peer: values.peer, timeoutMs: values.timeout === undefined ? undefined : Number(values.timeout) });

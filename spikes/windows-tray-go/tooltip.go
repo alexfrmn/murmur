@@ -8,7 +8,7 @@ import (
 
 // Identity, measured state and independent signals precede detail. A long CLI
 // reason must never push the product name or unread/update information offscreen.
-func statusTooltip(v Verdict, unreadCount int, updateAvailable bool) string {
+func statusTooltip(v Verdict, pendingCount int, updateAvailable bool) string {
 	state := tr("tip.unknown")
 	switch v.Level {
 	case LevelRed:
@@ -20,10 +20,10 @@ func statusTooltip(v Verdict, unreadCount int, updateAvailable bool) string {
 	}
 	tip := "Murmur — " + state
 	if v.Unread {
-		if unreadCount < 0 {
-			unreadCount = 0
+		if pendingCount < 0 {
+			pendingCount = 0
 		}
-		tip += tr("tip.unread", unreadCount)
+		tip += tr("tip.pending", pendingCount)
 	}
 	if updateAvailable {
 		tip += tr("tip.update")

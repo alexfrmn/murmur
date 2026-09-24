@@ -43,4 +43,6 @@ export interface PlatformAdapter {
   stop(context: ServiceContext): Promise<void>;
   uninstall?(context: ServiceContext): Promise<void>;
   detectClients(context: ServiceContext): Promise<ClientDetection[]>;
+  /** Native log location, after verifying the selected service owns this profile. */
+  logDirectory?(context: ServiceContext): Promise<string>;
 }

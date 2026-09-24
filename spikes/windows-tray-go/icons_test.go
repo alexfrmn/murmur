@@ -18,8 +18,8 @@ func TestSharedMarkSourceIsExactlyTheGeneratedInput(t *testing.T) {
 	if fmt.Sprintf("%x", sha256.Sum256(data)) != markSourceSHA256 {
 		t.Fatal("shared SVG changed; regenerate Windows mark")
 	}
-	if len(markShapes) != 5 || len(markShapes["unread-overlay"]) != 2 {
-		t.Fatal("four source states and outlined unread signal required")
+	if len(markShapes) != 6 || len(markShapes["unread-overlay"]) != 2 {
+		t.Fatal("five source states and outlined pending signal required")
 	}
 }
 func pixelCounts(img *image.NRGBA) (bright, red, visible int) {
@@ -64,8 +64,10 @@ func TestLogoHasVisibleWavesLockAndIndependentState(t *testing.T) {
 			t.Logf("bright=%d red=%d visible=%d", bright, red, visible)
 		})
 	}
-	if !bytes.Equal(iconBytes(colGrey, false), iconBytes(colYellow, false)) {
-		t.Fatal("schema2 idle mapping differs for grey/yellow")
+	for _, pair := range [][2]color.NRGBA{{colGrey, colYellow}, {colYellow, colRed}, {colGrey, colRed}} {
+		if bytes.Equal(iconBytes(pair[0], false), iconBytes(pair[1], false)) {
+			t.Fatal("health states share one icon")
+		}
 	}
 }
 func TestIndependentSignalsPreserveHealthAndLogo(t *testing.T) {
@@ -84,6 +86,29 @@ func TestIndependentSignalsPreserveHealthAndLogo(t *testing.T) {
 	c := img.NRGBAAt(6, 20)
 	if c.R <= 2*c.G {
 		t.Fatal("unread replaced failed health")
+	}
+}
+
+func TestHealthStatesHaveDifferentWhiteShapes(t *testing.T) {
+	// Compare the badge geometry independently of the background palette.
+	seen := map[string]bool{}
+	for _, base := range []color.NRGBA{colGrey, colYellow, colRed} {
+		img := renderMark(base, false, false)
+		mask := []byte{}
+		for y := 21; y < 30; y++ {
+			for x := 4; x < 13; x++ {
+				p := img.NRGBAAt(x, y)
+				v := byte(0)
+				if p.R > 220 && p.G > 220 && p.B > 220 && p.A > 128 {
+					v = 1
+				}
+				mask = append(mask, v)
+			}
+		}
+		if seen[string(mask)] {
+			t.Fatal("state badges differ only by colour")
+		}
+		seen[string(mask)] = true
 	}
 }
 func TestDumpMarkAcceptance(t *testing.T) {

@@ -58,3 +58,10 @@ prefix in place while its service and client configuration refer to it.
 
 [`docs/setup-onboarding.md`](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md)
 documents the shared commands and their evidence limits.
+
+On Windows, `murmur logs path --data-dir <profile> --json` verifies the native
+Service's profile before returning its existing readable folder under
+`%ProgramData%\Murmur\logs\<service-name>`. The response uses
+`murmur.logs/1` with `source: "native"`. Missing or unverified Services and folders
+are refused; the command does not create directories or change the Service.
+Pass the same `--service-name` used during installation when it was customized.

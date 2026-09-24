@@ -1,7 +1,7 @@
 # contracts/visual/
 
 `murmur-mark.svg` — the status mark for the menu bar and the tray. One file,
-both platforms, four states.
+both platforms, five source states.
 
 It sits next to `contracts/setup/v1/` because it is the same kind of thing: an
 agreement two implementations must not drift from.
@@ -39,21 +39,19 @@ why the circle is a filled disc: it carries its own background and reads on both
 | symbol | what changes | reads as |
 |---|---|---|
 | `murmur-ready` | indigo to violet | connected |
-| `murmur-idle` | the same drawing in grey | not connected |
-| `murmur-unread` | red dot on the upper right, white outline | something new arrived |
-| `murmur-failed` | the whole circle turns red | the channel is broken |
+| `murmur-idle` | grey circle and horizontal bar | not connected |
+| `murmur-attention` | amber circle and exclamation mark | needs attention |
+| `murmur-unread` | red dot on the upper right, white outline | delivery to an Assistant is pending |
+| `murmur-failed` | red circle and cross | the channel is broken |
 
-Measured at 18 px: `ready` has no red pixels at all, `unread` has 30 of 275,
-`failed` has 243 of 261. The three are not confusable at a glance, which is the
-only test that matters here.
+Windows uses the bar, exclamation mark and cross to distinguish grey, yellow and
+red by shape as well as colour. The first menu line and hover tooltip name the
+measured state in words. The dot uses `wake.delivery.pendingUndelivered > 0`;
+an unread inbox count alone does not add it. The source symbol keeps its frozen
+`unread` name for existing consumers.
 
-Four states cover seven internal ones on purpose. `unknown`, `stopped`, `paused`
-and `offline` all map to `murmur-idle`: the mark answers the coarse question,
-and the exact state is spelled out in words in the first menu item.
-
-On Windows the same four are used directly, since colour is the native carrier
-there. The hover tooltip must still name the product and the state in words —
-colour alone is not a message.
+The macOS generator carries all five drawings; its state mapping is unchanged.
+`unknown`, `stopped`, `paused` and `offline` still map to `murmur-idle` there.
 
 ## Contrast is part of the palette, not an afterthought
 
@@ -78,8 +76,8 @@ body; these numbers describe the fill, and a universal guarantee is not claimed.
 `role="img"` with a `<title>` makes it readable by a screen reader.
 `data-schema` names the version, so a consumer can refuse a file it does not
 understand rather than draw something unexpected. The glyph lives once in a
-`<g>` and is referenced by all four symbols, so a change to the lock or the
-waves cannot apply to three states out of four. The `<use>` at the end renders
+`<g>` and is referenced by all five symbols, so a change to the lock or the
+waves cannot apply to only some states. The `<use>` at the end renders
 `murmur-ready`, which turns the source into its own preview.
 
 ## A known overlap, left on purpose
