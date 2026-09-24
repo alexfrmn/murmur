@@ -88,7 +88,7 @@ test("a legacy anchor above this store's tip is ignored, not adopted", t => {
   fs.writeFileSync(path.join(h.home, ".murmur-wake-anchor"), "9\n"); // written for another store
   const first = h.run(s, "s1", ["--session"]);
   assert.equal(first.status, 0);
-  assert.equal(first.stdout, "", "no anchor of ours yet: baseline at the tip, silent");
+  assert.match(first.stdout, /text of profile-1/, "no anchor of ours yet: a never-drained store shows its first letter");
   s.insert("profile-2", "agent-mac-fresh");
   const cold = h.run(s, "s2", ["--session"]);
   assert.match(cold.stdout, /text of profile-2/, "a message between our tip and the foreign anchor must not be lost");

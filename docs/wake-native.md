@@ -169,9 +169,14 @@ SHA-256 of the store's absolute path (`~/.murmur-wake-cursor-<store>-<session>`,
 on one machine never share them. Names written by earlier builds are read once to carry the
 position over; a value above this store's tip belonged to another store and is ignored.
 
-Unlike the shell version, the first run in a new session seeds the cursor at the tip and
-then keeps polling: the installed hook is a Stop hook only, so a run that seeded and exited
-would leave the first idle wait of every session deaf.
+Unlike the shell version, the first run in a new session starts at the shared anchor (below)
+and then keeps polling: the installed hook is a Stop hook only, so a run that seeded and exited
+would leave the first idle wait of every session deaf, and a run that seeded at the tip would
+skip a letter that arrived before the first Stop. On a store no drain has read yet (a new
+Identity), the first run reports the newest `MURMUR_WAKE_FIRST_MAX` inbound rows (default 20),
+so a colleague's first letter wakes the session. An anchor above the store's tip belonged to
+a store that no longer exists at that path and is replaced. One wake prints at most
+`MURMUR_WAKE_SESSION_MAX` rows and counts the rest.
 
 A fault — no store, an unreadable store, no `node:sqlite` — prints one line to stderr
 and exits `0`. Exiting non-zero would wake the session with a false alarm; exiting
@@ -192,10 +197,11 @@ closed, that poller stays alive until its window ends, then exits.
 
 The cursor is per session. That is what makes a message wake every live session
 instead of only the first one to reach the hook — but it also means a brand-new
-session has no cursor and seeds its baseline at the current tip. Anything that
-landed while no session was alive is then skipped by every session that follows.
+session has no cursor of its own. The node drain starts such a session at the shared
+anchor below, so the Stop hook alone already reports what landed while no session was
+alive (the shell drain still seeds at the tip).
 
-`--session` closes that gap. It reads a **shared** anchor
+`--session` reports the same thing earlier, at session start. It reads a **shared** anchor
 (`MURMUR_WAKE_ANCHOR`, default `~/.murmur-wake-anchor-<store>` for the node drain) that records how far the
 contour as a whole has been drained, reports what came in past it, and moves the
 anchor forward. Register it on `SessionStart`:

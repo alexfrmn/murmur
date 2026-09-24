@@ -232,16 +232,99 @@ function drainSession(ctx, extraEnv = {}) {
   });
 }
 
-test("session drain adopts the tip when no anchor exists yet and stays silent", () => {
+test("session drain on a never-drained store prints its first letters", () => {
   const ctx = withDb();
-  insertMessage(ctx.db, { msgId: "pre-1", text: "before the anchor existed" });
+  insertMessage(ctx.db, { msgId: "pre-1", sender: "agent-colleague", text: "the first letter" });
 
   const result = drainSession(ctx);
 
   assert.equal(result.status, 0);
-  assert.equal(result.stdout, "");
+  assert.match(result.stdout, /1 inbound message\(s\) arrived while no session was alive/);
+  assert.match(result.stdout, /the first letter/);
   assert.equal(fs.readFileSync(ctx.anchorPath, "utf8").trim(), "1");
   assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "1");
+});
+
+test("session drain with FIRST_MAX=0 on a never-drained store adopts the tip silently", () => {
+  const ctx = withDb();
+  insertMessage(ctx.db, { msgId: "pre-1", text: "before the anchor existed" });
+
+  const result = drainSession(ctx, { MURMUR_WAKE_FIRST_MAX: "0" });
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(fs.readFileSync(ctx.anchorPath, "utf8").trim(), "1");
+});
+
+// A store recreated at the same path (reset, re-join, restore) leaves the old anchor behind.
+// Trusted, it would make every reader deaf until rowids caught up with it.
+test("an anchor above this store's tip is replaced, not trusted", () => {
+  const ctx = withDb();
+  insertMessage(ctx.db, { msgId: "new-store-1", sender: "agent-colleague" });
+  fs.writeFileSync(ctx.anchorPath, "500\n");
+
+  const result = drain(ctx);
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /rowid=1 \[agent-colleague\]/);
+  assert.equal(fs.readFileSync(ctx.anchorPath, "utf8").trim(), "1", "the stale anchor is rewritten to this store");
+  insertMessage(ctx.db, { msgId: "new-store-2", sender: "agent-colleague" });
+  assert.equal(drain(ctx).status, 2, "the next row wakes too — nothing waits for rowid 500");
+});
+
+test("session drain replaces an anchor above this store's tip", () => {
+  const ctx = withDb();
+  insertMessage(ctx.db, { msgId: "new-store-1", sender: "agent-colleague", text: "after the reset" });
+  fs.writeFileSync(ctx.anchorPath, "500\n");
+
+  const result = drainSession(ctx);
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /after the reset/);
+  assert.equal(fs.readFileSync(ctx.anchorPath, "utf8").trim(), "1");
+});
+
+test("one wake prints at most SESSION_MAX rows and counts the rest", () => {
+  const ctx = withDb();
+  for (let i = 1; i <= 30; i++) insertMessage(ctx.db, { msgId: `dark-${i}`, sender: `agent-${i}` });
+  fs.writeFileSync(ctx.anchorPath, "1\n"); // the contour was dark for 29 letters
+
+  const result = drain(ctx);
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /Murmur wake: 29 new inbound message\(s\); showing the newest 20, 9 older not printed:\n {2}rowid=11 \[agent-11\]/);
+  assert.equal(result.stderr.match(/rowid=/g).length, 20);
+  assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "30", "every examined row is passed");
+});
+
+for (const bad of ["abc", "Infinity", "-3", "1e400"]) {
+  test(`a malformed MURMUR_WAKE_FIRST_MAX (${bad}) falls back instead of deafening the hook`, () => {
+    const ctx = withDb();
+    insertMessage(ctx.db, { msgId: "first-1", sender: "agent-colleague" });
+
+    const result = drain(ctx, { MURMUR_WAKE_FIRST_MAX: bad });
+
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /rowid=1 \[agent-colleague\]/);
+    assert.equal(fs.readFileSync(ctx.cursorPath, "utf8").trim(), "1");
+  });
+}
+
+// End to end, no hand-written anchor: session A reports a letter, a new session B must not
+// report it again, and must wake on the next one.
+test("what one session reported is not replayed to the next, which still wakes on new mail", () => {
+  const ctx = withDb();
+  insertMessage(ctx.db, { msgId: "letter-1", sender: "agent-colleague" });
+  const cursorB = path.join(ctx.dir, "cursor-b");
+
+  assert.equal(drain(ctx).status, 2, "session A reports the first letter");
+  const quiet = drain(ctx, { MURMUR_WAKE_CURSOR: cursorB });
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.equal(quiet.stderr, "", "session B does not replay what A reported");
+  insertMessage(ctx.db, { msgId: "letter-2", sender: "agent-colleague" });
+  const woke = drain(ctx, { MURMUR_WAKE_CURSOR: cursorB });
+  assert.equal(woke.status, 2);
+  assert.match(woke.stderr, /1 new inbound message\(s\):\n {2}rowid=2 \[agent-colleague\]/);
 });
 
 test("session drain reports what arrived while no session was alive", () => {
