@@ -130,6 +130,23 @@ test('a new process recovers the persisted accepted turn before starting queued 
   assert.equal((await f.store.wakeStateFor('first')).status, 'handled');
 });
 
+test('disabling reply relay does not discard an accepted turn on restart', async t => {
+  const f = fixture(t), first = await f.receive('first');
+  await f.store.claimWake(first.msgId);
+  await f.store.setWakeTurn({ msgId: first.msgId, peerId: first.from, conversationId: first.conversationId,
+    socketPath: '/unused-test.sock', threadId: 'thread-1', turnId: 'previous-turn' });
+  f.turns.set('previous-turn', { id: 'previous-turn', status: 'inProgress', items: [] });
+  f.restart(); f.monitor.peers.colleague.relayFinalToMurmur = false;
+  const run = f.monitor.drain();
+  await until(() => f.requests.some(r => r.method === 'thread/read' || r.method === 'turn/start'));
+  assert.equal(f.starts.length, 0, 'the saved acceptance still owns this instruction');
+  assert.equal((await f.store.wakeStateFor('first')).status, 'inflight');
+  f.turns.set('previous-turn', { id: 'previous-turn', status: 'completed', items: [] });
+  await run;
+  assert.equal((await f.store.wakeStateFor('first')).status, 'handled');
+  assert.deepEqual(f.relays, []); assert.equal(f.starts.length, 0);
+});
+
 for (const status of ['failed', 'interrupted']) test(`a verified ${status} turn keeps its existing retry policy`, async t => {
   const f = fixture(t);
   f.monitor.retryBackoffMs = 10000;

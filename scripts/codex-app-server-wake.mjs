@@ -673,7 +673,9 @@ export const createCodexAppServerInjector = ({
       },
     });
     const startTurn = async (threadId) => {
-      if (relayEnabled) {
+      // A configuration change must not turn an accepted receipt back into a
+      // fire-and-forget start. Observe it even if reply relay was disabled later.
+      if (relayEnabled || accepted) {
         const result = await client.startTurnAndWaitForFinal(turnParams(threadId), {
           completionTimeoutMs: Number(peer?.replyTimeoutMs) || DEFAULT_TURN_COMPLETION_TIMEOUT_MS,
           sessionPath: threadPath,
@@ -707,6 +709,7 @@ export const createCodexAppServerInjector = ({
             { retryable: status === "failed" },
           );
         }
+        if (!relayEnabled) return result;
         const finalText = String(result?.finalText || "").trim();
         if (!finalText) {
           // #106 — the turn ended and there is nothing to relay. That is not a relay;

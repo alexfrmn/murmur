@@ -59,7 +59,9 @@ An `item/completed` final-answer item alone is not proof that the turn finished.
 The injector saves the accepted message/batch ID, socket, thread and turn in the
 additive SQLite `wake_turns` table before settling the delivery. After a daemon
 restart it resumes observation of that exact turn, including when the configured
-thread pin has changed. A changed Contact/conversation/socket binding is refused.
+thread pin has changed or final-reply relay was disabled. Disabling relay only
+suppresses the reply; it never resubmits an accepted instruction.
+A changed Contact/conversation/socket binding is refused.
 Connection loss after acceptance also keeps the instruction in progress. The
 watcher uses matching terminal events, a `task_complete` session-journal entry,
 or read-only `thread/read` / `thread/turns/list` observations. See the
