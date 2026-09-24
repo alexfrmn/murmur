@@ -1,0 +1,71 @@
+{
+  "schema": "murmur.vocabulary-allowlist/1",
+  "exceptions": [
+    {
+      "file": "site/index.html",
+      "key": "<title>",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html",
+      "key": "meta:description",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html",
+      "key": "meta:og:title",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html",
+      "key": "meta:og:description",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html",
+      "key": "meta:twitter:title",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html",
+      "key": "meta:twitter:description",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html",
+      "key": "ld+json.@graph[0].description",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html#I18N",
+      "key": "en.title",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html#I18N",
+      "key": "en.description",
+      "term": "agent",
+      "reason": "search-engine category term: people search for 'AI agents', so the page title and description keep that phrase; the page body says assistants."
+    },
+    {
+      "file": "site/index.html#I18N",
+      "key": "ru.title",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the Russian page title and description keep that phrase; the page body says помощники."
+    },
+    {
+      "file": "site/index.html#I18N",
+      "key": "ru.description",
+      "term": "агент",
+      "reason": "search-engine category term: people search for «ИИ-агенты», so the Russian page title and description keep that phrase; the page body says помощники."
+    }
+  ]
+}

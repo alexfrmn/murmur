@@ -23,13 +23,13 @@ func runLocalizationChecks() throws -> Int {
     try check(L10n.language(in: preferences) == .english, "Unsupported preference falls back to English")
     passed("invalid preference falls back to English")
 
-    try check(L10n.localized("Choose profile folder…", language: .english) == "Choose profile folder…"
-              && L10n.localized("Choose profile folder…", language: .russian) == "Выбрать папку профиля…",
+    try check(L10n.localized("Choose profile folder…", language: .english) == "Choose identity folder…"
+              && L10n.localized("Choose profile folder…", language: .russian) == "Выбрать папку личности…",
               "Both real resource catalogs must be readable")
     passed("English and Russian resources load")
     let literal = "user's профиль %@ ; $(false)"
-    try check(L10n.localized("Profile: %@", language: .english, arguments: [literal]) == "Profile: " + literal
-              && L10n.localized("Profile: %@", language: .russian, arguments: [literal]) == "Профиль: " + literal,
+    try check(L10n.localized("Profile: %@", language: .english, arguments: [literal]) == "Identity: " + literal
+              && L10n.localized("Profile: %@", language: .russian, arguments: [literal]) == "Личность: " + literal,
               "Values must remain literal in both languages")
     passed("Unicode, quotes and format characters remain literal")
     let node = "Murmur needs Node.js %@ or newer. Install the current LTS version from nodejs.org, then select Try again."

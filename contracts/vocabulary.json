@@ -1,0 +1,53 @@
+{
+  "schema": "murmur.vocabulary/1",
+  "terms": [
+    { "id": "identity", "ru": "Личность", "en": "Identity" },
+    { "id": "contact", "ru": "Контакт", "en": "Contact" },
+    { "id": "invitation", "ru": "Приглашение", "en": "Invitation" },
+    { "id": "reply", "ru": "Ответ", "en": "Reply" },
+    { "id": "service", "ru": "Служба", "en": "Service" },
+    { "id": "assistant", "ru": "Помощник", "en": "Assistant" },
+    { "id": "wakeup", "ru": "Пробуждение", "en": "Wake-up" },
+    { "id": "server", "ru": "Сервер", "en": "Server" }
+  ],
+  "forbidden": {
+    "ru": [
+      { "term": "профиль", "pattern": "(?<!\\p{L})профил\\p{L}*", "use": "Личность" },
+      { "term": "пир", "pattern": "(?<!\\p{L})пир(?:ы|а|у|ом|е|ов|ам|ами|ах|ова\\p{L}*|ован\\p{L}*|у[йею]\\p{L}*)?(?!\\p{L})", "use": "Контакт" },
+      { "term": "агент", "pattern": "(?<!\\p{L})агент\\p{L}*", "use": "Личность, Контакт или Помощник — по смыслу" },
+      { "term": "демон", "pattern": "(?<!\\p{L})демон\\p{L}*", "use": "Служба" },
+      { "term": "daemon", "pattern": "(?<!\\p{L})daemons?(?!\\p{L})", "use": "Служба" },
+      { "term": "LaunchAgent", "pattern": "LaunchAgent", "use": "Служба" },
+      { "term": "runtime", "pattern": "(?<!\\p{L})runtime(?!\\p{L})", "use": "Служба" },
+      { "term": "брокер", "pattern": "(?<!\\p{L})брокер\\p{L}*", "use": "Сервер" },
+      { "term": "NATS", "pattern": "(?<!\\p{L})NATS(?!\\p{L})", "use": "Сервер" },
+      { "term": "nats://", "pattern": "nats://", "use": "Сервер" },
+      { "term": "AI-приложение", "pattern": "(?<!\\p{L})(?:AI|ИИ)[- ]приложени\\p{L}*", "use": "Помощник" },
+      { "term": "клиент", "pattern": "(?<!\\p{L})клиент\\p{L}*", "use": "Помощник" },
+      { "term": "AI-сессия", "pattern": "(?<!\\p{L})(?:AI|ИИ)[- ]сесси\\p{L}*", "use": "Помощник" },
+      { "term": "wake", "pattern": "(?<!\\p{L})wake(?!\\p{L})", "use": "Пробуждение" },
+      { "term": "drain", "pattern": "(?<!\\p{L})drain\\p{L}*", "use": "Пробуждение" },
+      { "term": "reply", "pattern": "(?<!\\p{L})reply(?!\\p{L})", "use": "Ответ" },
+      { "term": "invite", "pattern": "(?<!\\p{L})invite(?!\\p{L})", "use": "Приглашение" },
+      { "term": "блоб", "pattern": "(?<!\\p{L})(?:блоб|blob)\\p{L}*", "use": "Приглашение или Ответ" }
+    ],
+    "en": [
+      { "term": "peer", "pattern": "\\bpeers?\\b", "use": "Contact" },
+      { "term": "agent", "pattern": "\\bagents?\\b", "use": "Identity, Contact or Assistant, by meaning" },
+      { "term": "profile", "pattern": "\\bprofiles?\\b", "use": "Identity" },
+      { "term": "daemon", "pattern": "\\bdaemons?\\b", "use": "Service" },
+      { "term": "LaunchAgent", "pattern": "LaunchAgent", "use": "Service" },
+      { "term": "runtime", "pattern": "\\bruntimes?\\b", "use": "Service" },
+      { "term": "broker", "pattern": "\\bbrokers?\\b", "use": "Server" },
+      { "term": "NATS", "pattern": "\\bNATS\\b", "use": "Server" },
+      { "term": "nats://", "pattern": "nats://", "use": "Server" },
+      { "term": "AI app", "pattern": "\\bAI[- ](?:apps?|applications?|clients?|sessions?)\\b", "use": "Assistant" },
+      { "term": "client", "pattern": "\\bclients?\\b", "use": "Assistant" },
+      { "term": "wake", "pattern": "\\bwak(?:e|es|ed|ing)\\b(?!-up)", "use": "Wake-up" },
+      { "term": "drain", "pattern": "\\bdrain\\w*", "use": "Wake-up" },
+      { "term": "blob", "pattern": "\\bblobs?\\b", "use": "Invitation or Reply" },
+      { "term": "invite file", "pattern": "\\binvite (?:files?|strings?)\\b", "use": "Invitation" },
+      { "term": "reply file", "pattern": "\\breply (?:files?|blobs?)\\b", "use": "Reply" }
+    ]
+  }
+}

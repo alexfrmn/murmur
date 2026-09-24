@@ -70,7 +70,9 @@ test('site agent prompts use the canonical invite, join and add-peer file workfl
   const decode = text => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
   const english = decode(englishMarkup[1]);
   assert.ok(english.startsWith('Install murmur for me'), 'static prompt must be the English agent prompt');
-  const scripted = [...site.matchAll(/prompt: `([\s\S]*?)`/g)].map(match => match[1]);
+  // The Russian prompt quotes commands in escaped backticks (\`), so the template
+  // string ends at the first backtick that is not escaped.
+  const scripted = [...site.matchAll(/prompt: `((?:\\[\s\S]|[^`\\])*)`/g)].map(match => match[1]);
   assert.equal(scripted.length, 1, 'only the Russian prompt is a JavaScript string');
   assert.ok(scripted[0].startsWith('Поставь мне murmur'), 'scripted prompt must be the Russian agent prompt');
   const prompts = [english, ...scripted];

@@ -41,13 +41,27 @@ func runStatusPresentationChecks(fixtures: URL, base: [String: Any], now: Date) 
               "Pairing-only selector must match the shared exposure contract")
     var count = 5
 
+    // Status.swift looks reasons up by these source keys; the shared contract carries
+    // the displayed text, which follows contracts/vocabulary.md and may differ from the key.
+    let sourceKeys = [
+        "status.ready": "Service connected and ready",
+        "status.pairingUnknown": "Pairing has not been checked yet — run a check",
+        "status.schema": "The status response format is not supported — copy diagnostics for details",
+        "status.unavailable": "Status is unavailable — copy diagnostics for details",
+        "status.unmeasured": "Some status details were not measured — run a check",
+        "status.unpaired": "Pairing is not confirmed — run a check",
+        "status.wakeFault": "Wake failed — copy diagnostics for details",
+    ]
     for (id, message) in messages.sorted(by: { $0.key < $1.key }) {
         guard let english = message["en"], let russian = message["ru"] else {
             throw CheckFailure(message: "Missing shared presentation translation: \(id)")
         }
-        try check(L10n.localized(english, language: .english) == english,
+        guard let key = sourceKeys[id] else {
+            throw CheckFailure(message: "Shared presentation message has no source key: \(id)")
+        }
+        try check(L10n.localized(key, language: .english) == english,
                   "English catalog differs from shared presentation text: \(id)")
-        try check(L10n.localized(english, language: .russian) == russian,
+        try check(L10n.localized(key, language: .russian) == russian,
                   "Russian catalog differs from shared presentation text: \(id)")
         print("PASS status presentation catalogs: \(id)"); count += 1
     }
