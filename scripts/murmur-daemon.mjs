@@ -22,6 +22,7 @@ import { WakeMonitor, createAuditShellHook, createShellHook, normalizeWakeConfig
 import { SessionLeaseStore, createNativeLeaseGate } from "./lease.mjs";
 import { ensurePrivateDirectory, setPrivateUmask } from "./secure-state.mjs";
 import { createDaemonContacts } from "./daemon-contacts.mjs";
+import { flushTick } from "./daemon-flush-tick.mjs";
 import { createDaemonObservation } from "./daemon-observation.mjs";
 import { normalizeAckSecurity } from "./ack-security.mjs";
 import { classifyVerifiedDoctorMessage, createDoctorResponder } from "./doctor-protocol.mjs";
@@ -398,26 +399,12 @@ const flushLoop = async () => {
     // A rejected config replacement keeps the last valid Contacts and reports
     // its own diagnostic. Contact refresh must not gate queued deliveries.
     contacts.refresh();
-    try {
-      await broker.flushOutbox({ outbox: store, maxAttempts: 5, ackTimeoutMs, ackWindow });
-    } catch (err) {
-      log("error", "Outbox flush error", { error: err.message });
-    }
-
-    try {
-      await flushNotifyQueue({ queue: notifyQueue, log, limit: 100 });
-    } catch (err) {
-      log("error", "Notify flush error", { error: err.message });
-    }
-
-    // #105 — retry tick: deliveries whose backoff has elapsed, and anything a previous
-    // process left behind, are picked up from the table here.
-    try {
-      await wakeMonitor.drain();
-    } catch (err) {
-      log("error", "Wake retry drain error", { error: err.message });
-    }
-
+    await flushTick({
+      flushOutbox: () => broker.flushOutbox({ outbox: store, maxAttempts: 5, ackTimeoutMs, ackWindow }),
+      flushNotify: () => flushNotifyQueue({ queue: notifyQueue, log, limit: 100 }),
+      drainWake: () => wakeMonitor.drain(),
+      log,
+    });
     await sleep(flushIntervalMs);
   }
 };

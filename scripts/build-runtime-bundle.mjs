@@ -14,7 +14,7 @@ export const WORKSPACES = ['core', 'security', 'broker-nats', 'broker-ws', 'mcp-
 export const SCRIPTS = ['murmur-daemon.mjs', 'murmur-shell-send.mjs', 'runtime-capability.mjs',
   'notify-router.mjs', 'codex-app-server-wake.mjs', 'murmur-jetstream-advisory.mjs',
   'wake-monitor.mjs', 'lease.mjs', 'secure-state.mjs', 'daemon-observation.mjs', 'ack-security.mjs',
-  'doctor-protocol.mjs', 'daemon-contacts.mjs',
+  'doctor-protocol.mjs', 'daemon-contacts.mjs', 'daemon-flush-tick.mjs',
   // The Claude Code Stop hook that "murmur clients configure --client claude-code" installs runs this.
   'wake-drain-claude.mjs'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
