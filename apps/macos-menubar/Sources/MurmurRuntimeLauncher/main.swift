@@ -9,7 +9,16 @@ do {
     let node = try BundledRuntime.findNode(runtime: runtime)
     let arguments = [node.path, runtime.appendingPathComponent("packages/setup/bin/murmur.mjs").path]
         + Array(CommandLine.arguments.dropFirst())
-    let environment = BundledRuntime.cleanEnvironment(ProcessInfo.processInfo.environment)
+    let inherited = ProcessInfo.processInfo.environment
+    var runtimeEnvironment = BundledRuntime.cleanEnvironment(inherited)
+    // Match CLIProbe's command-scoped routing: a second environment filter must
+    // not redirect client preview/configure to the user's default config.
+    if CommandLine.arguments.dropFirst().first == "clients" {
+        for key in ["CODEX_HOME", "CLAUDE_CONFIG_DIR"] {
+            if let value = inherited[key] { runtimeEnvironment[key] = value }
+        }
+    }
+    let environment = runtimeEnvironment
         .sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
     let argv = arguments.map { strdup($0) } + [nil]
     let envp = environment.map { strdup($0) } + [nil]

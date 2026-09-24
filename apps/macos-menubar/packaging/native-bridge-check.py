@@ -58,11 +58,14 @@ def main(app):
         cli = runtime / "packages/setup/bin/murmur.mjs"
         cli.write_text("console.log(JSON.stringify({pid:process.pid,argv:process.argv.slice(2),"
                        "env:Object.fromEntries(['NODE_OPTIONS','NODE_PATH','DYLD_INSERT_LIBRARIES',"
-                       "'DATA_DIR','MURMUR_DATA_DIR','MURMUR_STORE_PATH','MURMUR_UPDATE_CHECK']"
+                       "'DATA_DIR','MURMUR_DATA_DIR','MURMUR_STORE_PATH','MURMUR_UPDATE_CHECK',"
+                       "'CODEX_HOME','CLAUDE_CONFIG_DIR']"
                        ".map(k=>[k,process.env[k]??null]))}));")
         arguments = ["status", "/literal user's folder/кириллица", "; $(false) `false`", "line1\nline2"]
         hostile = {**environment, "NODE_OPTIONS": "--require /must-not-load.js", "NODE_PATH": "/wrong",
-                   "DATA_DIR": "/production", "MURMUR_DATA_DIR": "/production", "MURMUR_STORE_PATH": "/production"}
+                   "DATA_DIR": "/production", "MURMUR_DATA_DIR": "/production", "MURMUR_STORE_PATH": "/production",
+                   "CODEX_HOME": str(root / "custom user's codex/кодекс"),
+                   "CLAUDE_CONFIG_DIR": str(root / "custom user's claude/клод")}
         # DYLD injection must be stripped by the caller before a Mach-O loads; the
         # GUI's CLIProbe does that. Do not claim a helper can sanitize its own loader.
         process = subprocess.Popen([str(binary), *arguments], cwd=root, env=hostile,
@@ -78,11 +81,28 @@ def main(app):
         require(value["argv"] == arguments, "Arguments must remain literal")
         require(value["pid"] == process.pid, "Helper must exec Node instead of leaving a child behind")
         expected = {key: None for key in ["NODE_OPTIONS", "NODE_PATH", "DYLD_INSERT_LIBRARIES", "DATA_DIR",
-                                         "MURMUR_DATA_DIR", "MURMUR_STORE_PATH"]}
+                                         "MURMUR_DATA_DIR", "MURMUR_STORE_PATH", "CODEX_HOME", "CLAUDE_CONFIG_DIR"]}
         expected["MURMUR_UPDATE_CHECK"] = "0"
         require(value["env"] == expected, "Node injection or production profile environment leaked")
         checks.extend(["literal argv including quotes Unicode shell syntax and newline",
                        "native exec preserves PID", "isolated environment with update opt-out"])
+        for command in ["detect", "preview", "configure"]:
+            result = subprocess.run([str(binary), "clients", command, "--json"], cwd=root, env=hostile,
+                                    text=True, capture_output=True, timeout=10)
+            require(result.returncode == 0, f"Client routing fixture failed: {result.stderr}")
+            value = json.loads(result.stdout)
+            routed = {**expected, "CODEX_HOME": hostile["CODEX_HOME"],
+                      "CLAUDE_CONFIG_DIR": hostile["CLAUDE_CONFIG_DIR"]}
+            require(value["env"] == routed, "Native clients command lost custom homes or leaked other overrides")
+            require(value["argv"] == ["clients", command, "--json"], "Client command argv changed")
+        checks.append("custom Codex and Claude homes survive native clients detect/preview/configure")
+        for arguments in [["doctor"], ["version"], ["--help"], ["setup", "--client", "codex-cli"],
+                          ["status", "clients"], ["clients-other"]]:
+            result = subprocess.run([str(binary), *arguments], cwd=root, env=hostile,
+                                    text=True, capture_output=True, timeout=10)
+            require(result.returncode == 0, f"Non-client routing fixture failed: {result.stderr}")
+            require(json.loads(result.stdout)["env"] == expected, "Client homes leaked into a different command")
+        checks.append("custom client homes are removed from every non-client command")
         (runtime / "scripts/murmur-daemon.mjs").unlink()
         result = subprocess.run([str(binary), "status"], cwd=root, env=environment,
                                 text=True, capture_output=True, timeout=10)
