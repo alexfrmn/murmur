@@ -172,6 +172,7 @@ const threadStartBindingResolver = channelRosterStore
   : null;
 const nativeConfigured = wakeConfig.mode === "codex_app_server" || Object.values(wakeConfig.peers).some((peer) => peer.mode === "codex_app_server");
 const observation = createDaemonObservation({ dataDir, storePath: dbPath, agentId, log,
+  contacts: () => contacts.diagnostics(),
   wake: { enabled: wakeConfig.enabled, mode: nativeConfigured ? "monitor" : config.onReceive ? "hook" : "none",
     // A custom shell command's identity cannot be inferred from arbitrary text.
     responder: nativeConfigured ? "codex" : config.onReceive ? null : "none" } });
@@ -394,8 +395,10 @@ let running = true;
 
 const flushLoop = async () => {
   while (running) {
+    // A rejected config replacement keeps the last valid Contacts and reports
+    // its own diagnostic. Contact refresh must not gate queued deliveries.
+    contacts.refresh();
     try {
-      contacts.refresh();
       await broker.flushOutbox({ outbox: store, maxAttempts: 5, ackTimeoutMs, ackWindow });
     } catch (err) {
       log("error", "Outbox flush error", { error: err.message });
@@ -434,7 +437,7 @@ const shutdown = async (signal) => {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGHUP", () => { try { contacts.refresh(true); } catch { /* refresh logs a safe reason */ } });
+if (process.platform !== "win32") process.on("SIGHUP", () => { contacts.refresh(true); });
 
 try {
   await observation.start();

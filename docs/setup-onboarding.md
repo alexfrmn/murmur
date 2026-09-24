@@ -112,14 +112,30 @@ Windows additionally needs the matching native service helper and elevation for
 service mutations; see [Windows CLI](windows-service-cli.md). The 2.12 Service
 checks the configuration before inbound messages, delivery receipts and each
 queue flush (normally every two seconds). POSIX SIGHUP also requests a refresh.
-It pins the original Identity, Server, route and directory, replaces the Contact
-map atomically, and fails closed on invalid or unreadable configuration. Wake-up
-and other runtime settings keep their existing restart semantics.
+It pins the original Identity, Server, route and directory. An unreadable or
+rejected configuration replacement retains the last valid Contacts so queued
+letters can still be sent; no new keys from that replacement are trusted. A
+malformed Contact is skipped individually, including at startup, while valid
+additions and removals take effect. Repeated failures are logged once until the
+reason changes or a valid replacement recovers. Wake-up and other runtime
+settings keep their existing restart semantics. Windows uses the file trigger;
+only POSIX installs a SIGHUP handler.
+
+`status --json` adds nullable `peers.reload`: `state` is `current`, `partial`
+(invalid Contacts skipped), or `retained` (last valid map still used); `count`,
+`invalidCount`, `lastSuccessAt`, `lastError` and `lastErrorAt` describe the observed
+reload. Errors are safe `agent-config-*` codes. It comes from fresh, PID/store-bound
+runtime observation, refreshed every five seconds. A broken on-disk configuration
+does not hide this diagnostic; its configured Contact list remains unknown.
+No observation or an older Service returns `peers.reload: null`.
 
 A first Contact may come online after the ordinary delivery retry window. On
 its first verified positive ACK to a direct letter, the SQLite queue atomically
 retries its direct letters stopped by `max-attempts:ack-timeout` or
-`max-attempts:unknown-sender:`.
+`max-attempts:unknown-sender:`, or JetStream `max_deliver` exhaustion.
+JetStream max-deliver advisories preserve an existing DLQ diagnosis, cannot
+overwrite a concurrently settled verdict, and ignore events older than a queue
+transition. A termination advisory remains final.
 A late ACK of the waiting letter itself can settle it without another send. The
 original message ID is kept so the receiver stores it once. Security, policy and
 poison verdicts, group deliveries, and established Contacts retain their existing
@@ -129,6 +145,9 @@ timestamp and durable nonce replay protection. This is transport evidence, not
 an Assistant Reply. In plain NATS a new message or `doctor --peer` supplies that
 first ACK; JetStream may deliver the original stored message after the Contact
 starts. No heartbeat protocol or background AI request is introduced.
+This automatic first-exchange recovery currently has no age cutoff and does not
+consult the separate dismissed-attention file: an eligible dismissed letter can
+also be resent. Dismissal acknowledges attention; it is not cancellation.
 
 Without `--json`, errors are actionable English sentences using the shared
 vocabulary; unrecognized codes receive a safe diagnostic action. `--json` keeps

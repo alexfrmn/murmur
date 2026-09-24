@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { loadConfig, readJson, safeError, type AgentConfig } from "./config.js";
+import { loadConfig, readJson, safeError, validAgentId, type AgentConfig } from "./config.js";
 import { readOutboxAttention } from "./outbox-attention.js";
 import { assistantRead, wakeColumns } from "./message-status.js";
 import type { PlatformAdapter, ServiceContext, ServiceSnapshot } from "./types.js";
@@ -29,6 +29,20 @@ function exchangeTime(value: unknown, now: number): string | null {
   return Number.isFinite(timestamp) && timestamp <= now + 5000 ? new Date(timestamp).toISOString() : null;
 }
 
+interface ContactReload {
+  state: "current" | "partial" | "retained"; count: number; invalidCount: number;
+  lastSuccessAt: string | null; lastError: string | null; lastErrorAt: string | null;
+}
+function contactReload(raw: any, now: number): ContactReload | null {
+  if (!raw || !["current", "partial", "retained"].includes(raw.state)
+    || !Number.isSafeInteger(raw.count) || raw.count < 0
+    || !Number.isSafeInteger(raw.invalidCount) || raw.invalidCount < 0
+    || (raw.lastError !== null && (typeof raw.lastError !== "string" || !/^agent-config-[a-z-]+$/.test(raw.lastError)))) return null;
+  return { state: raw.state, count: raw.count, invalidCount: raw.invalidCount,
+    lastSuccessAt: exchangeTime(raw.lastSuccessAt, now), lastError: raw.lastError,
+    lastErrorAt: exchangeTime(raw.lastErrorAt, now) };
+}
+
 export interface StatusOptions { context: ServiceContext; adapter: PlatformAdapter; now?: () => number }
 
 export async function readStatus({ context: c, adapter, now = Date.now }: StatusOptions) {
@@ -52,7 +66,9 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
     const timestamp = Date.parse(raw.measuredAt);
     const storePath = await realpath(c.storePath);
     if (raw.schema === "murmur.runtime/1" && Number.isSafeInteger(raw.pid) && raw.pid > 0
-      && raw.agentId === config?.agentId && raw.storePath === storePath
+      // A rejected on-disk config must not hide an already running process's
+      // reload diagnostic. Fresh PID/open-store evidence still gates acceptance.
+      && validAgentId(raw.agentId) && (!config || raw.agentId === config.agentId) && raw.storePath === storePath
       && Number.isFinite(timestamp) && started - timestamp >= -5000 && started - timestamp <= 15000
       && ["connected", "disconnected", "unauthorized", "unknown"].includes(raw.broker?.state)
       && typeof raw.wake?.enabled === "boolean" && ["hook", "monitor", "none"].includes(raw.wake?.mode)) {
@@ -85,9 +101,10 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
     measurements: { store: unknown("store.unavailable"), runtime: runtimeMeasurement } };
   const peers: { list: Array<{ agentId: string; paired: boolean | null; lastInboundAt: string | null; lastOutboundAt: string | null;
       lastExchangeAt: string | null; connection: "connected" | "stale" | "unverified" }> | null;
-    unknownReason: string | null; measurements: Record<string, Measurement> } = {
+    reload: ContactReload | null; unknownReason: string | null; measurements: Record<string, Measurement> } = {
     list: config ? Object.keys(config.peers).map((agentId) => ({ agentId, paired: null, lastInboundAt: null, lastOutboundAt: null,
       lastExchangeAt: null, connection: "unverified" })) : null,
+    reload: contactReload(observation?.contacts, started),
     unknownReason: configError, measurements: { config: config ? measured(at) : unknown(configError ?? "config.unavailable"), store: unknown("store.unavailable"), proof: unknown("peers.proof-unavailable") },
   };
   let deliveries: Array<Record<string, unknown>> | null = null;
@@ -160,7 +177,7 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
   inbox.unknownReason = reason(inbox.measurements); outbox.unknownReason = reason(outbox.measurements);
   wake.unknownReason = reason(wake.measurements); peers.unknownReason = reason(peers.measurements);
   return {
-    schema: "murmur.status/1" as const, generatedAt: at, agentId: config?.agentId ?? null, serviceName: c.serviceName,
+    schema: "murmur.status/1" as const, generatedAt: at, agentId: config?.agentId ?? observation?.agentId ?? null, serviceName: c.serviceName,
     service: { ...service, managed: service.state === "running" ? true : service.state === "running-unmanaged" ? false : null, lastFailureAt: null,
       restartsLastHour: service.state === "running-unmanaged" ? null : restartsLastHour, restartFailureThreshold: 5,
       unknownReason: service.state === "unknown" ? service.detail ?? "service.unavailable" : null,

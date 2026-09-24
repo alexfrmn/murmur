@@ -24,7 +24,7 @@ async function fixture(t) {
     if (reason) await store.markDlq(id, reason);
   };
   const ack = async (id, mutate = x => x) => {
-    const unsigned = createBoundAck(envelope(id), 'receiver', 'ack');
+    const unsigned = createBoundAck((await store.getOutboxRecord(id)).envelope, 'receiver', 'ack');
     const signed = { ...unsigned, signature: await signEnvelope(stableAckPayload(unsigned), keys.privateKey) };
     await broker.processAckFrame(StringCodec().encode(JSON.stringify(mutate(signed))), {
       outbox: store, ackReceipts: store, recoverFirstContact: true,
@@ -32,7 +32,13 @@ async function fixture(t) {
       onInvalidAck: event => invalid.push(event.reason),
     });
   };
-  return { enqueue, ack, invalid, broker, get store() { return store; },
+  const advisory = async (id, kind = 'max_deliver', timestamp = new Date().toISOString()) => {
+    broker.jsm = { streams: { getMessage: async () => ({ data: StringCodec().encode(JSON.stringify((await store.getOutboxRecord(id)).envelope)) }) } };
+    await broker.processJetStreamAdvisoryFrame(StringCodec().encode(JSON.stringify({
+      type: `io.nats.jetstream.advisory.v1.${kind}`, timestamp, stream: 'MURMUR', consumer: 'receiver', stream_seq: 1, deliveries: 5,
+    })), store);
+  };
+  return { enqueue, ack, advisory, invalid, broker, get store() { return store; },
     restart() { store.close(); store = new SQLiteDedupeOutboxStore(file); } };
 }
 
@@ -77,6 +83,68 @@ test('an acknowledged group letter does not prove a direct exchange with every m
   assert.equal((await f.store.getOutboxRecord('early')).status, 'pending');
   assert.equal((await f.store.getOutboxRecord('group')).status, 'acked');
   assert.deepEqual(f.invalid, []);
+});
+
+test('a member first ACK neither revives a group DLQ nor recovers direct letters via a group receipt', async t => {
+  const f = await fixture(t); await f.enqueue('direct', 'max-attempts:ack-timeout');
+  const group = { ...(await f.store.getOutboxRecord('direct')).envelope, recipients: ['receiver', 'another-member'] };
+  await f.store.enqueue('msg.receiver', { ...group, msgId: 'group-waiting' });
+  await f.store.markDlq('group-waiting', 'max-attempts:ack-timeout');
+  await f.store.enqueue('msg.receiver', { ...group, msgId: 'group-probe' });
+  await f.ack('group-probe');
+  assert.equal((await f.store.getOutboxRecord('direct')).status, 'dlq');
+  await f.enqueue('direct-probe'); await f.ack('direct-probe');
+  assert.equal((await f.store.getOutboxRecord('direct')).status, 'pending');
+  assert.equal((await f.store.getOutboxRecord('group-waiting')).status, 'dlq');
+  await f.ack('group-waiting');
+  assert.equal((await f.store.getOutboxRecord('group-waiting')).status, 'dlq');
+  assert.deepEqual(f.invalid, ['message-not-in-flight']);
+});
+
+test('max-deliver advisory preserves first-contact and security DLQ reasons', async t => {
+  const f = await fixture(t);
+  for (const [id, reason] of [['waiting', 'max-attempts:unknown-sender:sender'], ['security', 'poison-message:signature-invalid'],
+    ['policy', 'policy-rejected:denied'], ['terminated', 'jetstream-advisory:terminated:receiver']]) {
+    await f.enqueue(id, reason); await f.advisory(id);
+    assert.equal((await f.store.getOutboxRecord(id)).lastError, reason);
+  }
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.equal((await f.store.getOutboxRecord('waiting')).status, 'pending');
+  for (const id of ['security', 'policy', 'terminated']) assert.equal((await f.store.getOutboxRecord(id)).status, 'dlq');
+});
+
+test('max-deliver before the outbox attempt cap is recoverable on the first direct ACK', async t => {
+  const f = await fixture(t); await f.enqueue('early'); await f.advisory('early');
+  assert.match((await f.store.getOutboxRecord('early')).lastError, /^jetstream-advisory:max_deliver:/);
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.equal((await f.store.getOutboxRecord('early')).status, 'pending');
+});
+
+test('termination remains final even after a first-contact timeout', async t => {
+  const f = await fixture(t); await f.enqueue('early', 'max-attempts:ack-timeout'); await f.advisory('early', 'terminated');
+  await f.enqueue('probe'); await f.ack('probe');
+  assert.equal((await f.store.getOutboxRecord('early')).status, 'dlq');
+  assert.match((await f.store.getOutboxRecord('early')).lastError, /^jetstream-advisory:terminated:/);
+});
+
+test('late or racing advisory cannot undo a settled ACK', async t => {
+  const f = await fixture(t); await f.enqueue('acked'); await f.ack('acked'); await f.advisory('acked');
+  assert.equal((await f.store.getOutboxRecord('acked')).status, 'acked');
+  await f.enqueue('racing');
+  const markDlq = f.store.markDlq.bind(f.store);
+  f.store.markDlq = async (id, reason, version) => { await f.store.markAcked(id); await markDlq(id, reason, version); };
+  await f.advisory('racing');
+  assert.equal((await f.store.getOutboxRecord('racing')).status, 'acked');
+});
+
+test('an advisory issued before first-contact recovery cannot close the requeued letter', async t => {
+  const f = await fixture(t); await f.enqueue('early', 'max-attempts:ack-timeout');
+  const issuedAt = new Date(Date.now() - 1000).toISOString();
+  await f.enqueue('probe'); await f.ack('probe');
+  await f.advisory('early', 'max_deliver', issuedAt);
+  assert.equal((await f.store.getOutboxRecord('early')).status, 'pending');
+  await f.ack('early');
+  assert.equal((await f.store.getOutboxRecord('early')).status, 'acked');
 });
 
 for (const reason of ['poison-message:signature-invalid', 'policy-rejected:denied', 'max-attempts:missing-column', 'jetstream-advisory:terminated:x']) {

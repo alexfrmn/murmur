@@ -63,6 +63,18 @@ for (const Store of [JsonFileOutboxStore, SQLiteDedupeOutboxStore]) {
     assert.equal((await outbox.getOutboxRecord(envelope.msgId)).status, "acked");
   });
 
+  for (const [status, reason] of [['ack', undefined], ['nack', 'poison-message:signature-invalid']]) {
+    test(`${Store.name}: advisory compare-and-swap preserves a concurrent ${status} verdict`, async t => {
+      const outbox = setup(t);
+      await outbox.enqueue('msg.agent-receiver', envelope);
+      const observed = await outbox.getOutboxRecord(envelope.msgId);
+      await outbox.applyAckTransition(envelope.msgId, status, reason);
+      const settled = await outbox.getOutboxRecord(envelope.msgId);
+      await outbox.markDlq(envelope.msgId, 'jetstream-advisory:max_deliver:agent-receiver', observed.version);
+      assert.deepEqual(await outbox.getOutboxRecord(envelope.msgId), settled);
+    });
+  }
+
   test(`${Store.name}: repeated timeouts retain the peer's diagnosis through DLQ (#143)`, async (t) => {
     const outbox = setup(t);
     await outbox.enqueue("msg.agent-receiver", envelope);

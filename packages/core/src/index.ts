@@ -342,7 +342,8 @@ export interface OutboxRecord {
 export function isFirstContactWaiting(record: OutboxRecord): boolean {
   return record.status === 'dlq' && record.envelope.recipients.length === 1
     && (record.lastError === 'max-attempts:ack-timeout'
-      || record.lastError?.startsWith('max-attempts:unknown-sender:') === true);
+      || record.lastError?.startsWith('max-attempts:unknown-sender:') === true
+      || record.lastError?.startsWith('jetstream-advisory:max_deliver:') === true);
 }
 
 export interface OutboxStore {
@@ -362,7 +363,8 @@ export interface OutboxStore {
   markSent(msgId: string, expectedVersion?: number): Promise<void>;
   markAcked(msgId: string): Promise<void>;
   markFailed(msgId: string, error: string, nextAttemptAt: string): Promise<void>;
-  markDlq(msgId: string, error: string): Promise<void>;
+  /** A broker advisory must not overwrite a verdict changed since its lookup. */
+  markDlq(msgId: string, error: string, expectedVersion?: number): Promise<void>;
   applyAckTransition(
     msgId: string,
     status: AckV1["status"],
@@ -474,10 +476,11 @@ export class JsonFileOutboxStore implements OutboxStore {
     await this.save(state);
   }
 
-  async markDlq(msgId: string, error: string): Promise<void> {
+  async markDlq(msgId: string, error: string, expectedVersion?: number): Promise<void> {
     const state = await this.load();
     const row = state.records.find((r) => r.msgId === msgId);
     if (!row) return;
+    if (expectedVersion !== undefined && (row.version ?? 1) !== expectedVersion) return;
     row.status = "dlq";
     row.lastError = error;
     row.updatedAt = new Date().toISOString();
@@ -789,7 +792,12 @@ export class SQLiteDedupeOutboxStore implements DedupeStore, OutboxStore, AckRec
     }));
   }
 
-  async markDlq(msgId: string, error: string): Promise<void> {
+  async markDlq(msgId: string, error: string, expectedVersion?: number): Promise<void> {
+    if (expectedVersion !== undefined) {
+      this.db.prepare(`UPDATE outbox SET status = 'dlq', last_error = ?, updated_at = ?, version = version + 1
+        WHERE msg_id = ? AND version = ?`).run(error, new Date().toISOString(), msgId, expectedVersion);
+      return;
+    }
     await this.updateOutboxOptimistic(msgId, () => ({
       status: "dlq",
       lastError: error,

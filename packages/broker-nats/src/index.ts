@@ -94,6 +94,7 @@ export interface InvalidAckEvent {
 
 interface JetStreamConsumerAdvisory {
   type?: string;
+  timestamp?: string;
   stream?: string;
   consumer?: string;
   stream_seq?: number;
@@ -899,7 +900,17 @@ export class NatsBroker {
       const envelope = JSON.parse(this.sc.decode(stored.data));
       if (!isEnvelopeV1(envelope)) return;
 
-      await outbox.markDlq(envelope.msgId, this.jetStreamAdvisoryReason(advisoryKind, advisory, streamSeq));
+      const record = await outbox.getOutboxRecord(envelope.msgId);
+      if (!record || record.status === 'acked') return;
+      // A delayed max-deliver event may belong to the attempt before first-ACK
+      // recovery. It must not close a freshly requeued letter a second time.
+      if (advisoryKind === 'max_deliver' && typeof advisory.timestamp === 'string'
+        && Date.parse(advisory.timestamp) < Date.parse(record.updatedAt)) return;
+      // Max-deliver is transport exhaustion, not a new security/policy verdict.
+      // Preserve a more specific DLQ reason, including unknown-sender waiting.
+      // A termination may still close a waiting first-contact letter permanently.
+      if (record.status === 'dlq' && (advisoryKind === 'max_deliver' || !isFirstContactWaiting(record))) return;
+      await outbox.markDlq(envelope.msgId, this.jetStreamAdvisoryReason(advisoryKind, advisory, streamSeq), record.version ?? 1);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       // Диагноз обязан называть то, чем ошибка является. Таймаут запроса к JetStream — не
