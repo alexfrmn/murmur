@@ -67,7 +67,7 @@ test('install metadata and documented Node floors agree with the runtime policy'
 test('documentation gate names mismatched requirements before build', async t => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'murmur-node-docs-'));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));
-  for (const file of ['package.json', 'README.md', 'CONTRIBUTING.md', 'docs/wake-native.md', 'scripts/runtime-capability.mjs', 'scripts/check-node-requirements.mjs']) {
+  for (const file of ['package.json', 'README.md', 'CONTRIBUTING.md', 'docs/wake-native.md', 'apps/windows-tray/packaging/murmur-setup.iss', 'scripts/runtime-capability.mjs', 'scripts/check-node-requirements.mjs']) {
     await fs.mkdir(path.dirname(path.join(temp, file)), { recursive: true });
     await fs.copyFile(path.join(root, file), path.join(temp, file));
   }

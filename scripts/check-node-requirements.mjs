@@ -10,6 +10,7 @@ const documents = [
   ['docs/wake-native.md', true],
   ['site/index.html', false],
   ['spikes/windows-onboarding/Install-Murmur.ps1', false],
+  ['apps/windows-tray/packaging/murmur-setup.iss', true],
 ];
 const errors = [];
 for (const [file, required] of documents) {
