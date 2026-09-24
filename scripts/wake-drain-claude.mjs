@@ -72,12 +72,11 @@
 //
 // <store> is the first 8 hex digits of the SHA-256 of the store's absolute path, so two
 // profiles on one machine never share a cursor, a lock or an anchor.
-//   MURMUR_WAKE_SESSION_MAX max messages --session prints (default 20; older ones
-//                           are counted, not printed)
+//   MURMUR_WAKE_SESSION_MAX max rows one wake prints, in --session and in the Stop hook
+//                           (default 20, minimum 1; older ones are counted, not printed)
 //   MURMUR_WAKE_FIRST_MAX   on a store never drained before, how many of the newest
 //                           inbound rows the first run still reports (default 20; 0 =
 //                           start at the tip)
-//   Both limits also cap how many rows one wake prints; the rest are counted.
 //   MURMUR_WAKE_SKIP_SENDERS        comma-separated sender ids not to wake on
 //   MURMUR_WAKE_SKIP_CONVERSATIONS  comma-separated conversation ids not to wake on
 //   MURMUR_WAKE_SKIP_INELIGIBLE     "1" to also skip rows the daemon marked wake_eligible=0
