@@ -32,7 +32,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
-UninstallDisplayIcon={app}\murmur-tray.exe
+UninstallDisplayIcon={app}\murmur.ico
 OutputDir={#OutputDir}
 OutputBaseFilename={#InstallerName}-{#ReleaseVersion}-windows-x64-setup
 Compression=lzma2
@@ -73,9 +73,9 @@ english.NodeDownloadFailed=Could not open the browser. Download Node.js from htt
 russian.NodeDownloadFailed=Не удалось открыть браузер. Скачайте Node.js с https://nodejs.org/en/download, затем снова откройте Murmur.
 
 [Icons]
-Name: "{userprograms}\{#InstallerName}\Murmur"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur-tray.exe"; Comment: "Open Murmur controls (managed by Murmur)"
-Name: "{userstartup}\{#InstallerName}"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur-tray.exe"; Comment: "Open Murmur controls (managed by Murmur)"; Tasks: startup; Flags: runminimized
-Name: "{userdesktop}\{#InstallerName}"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur-tray.exe"; Comment: "Open Murmur controls (managed by Murmur)"; Tasks: desktop
+Name: "{userprograms}\{#InstallerName}\Murmur"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur.ico"; Comment: "Open Murmur controls (managed by Murmur)"
+Name: "{userstartup}\{#InstallerName}"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur.ico"; Comment: "Open Murmur controls (managed by Murmur)"; Tasks: startup; Flags: runminimized
+Name: "{userdesktop}\{#InstallerName}"; Filename: "{app}\murmur-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\murmur.ico"; Comment: "Open Murmur controls (managed by Murmur)"; Tasks: desktop
 
 [UninstallDelete]
 Type: files; Name: "{app}\murmur-install.json"
