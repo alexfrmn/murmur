@@ -105,8 +105,10 @@ it does not claim exactly-once execution across a crash before that receipt is
 saved. Shell hook timeouts and native sends without final-reply relay retain
 their existing behavior.
 
-New messages stay FIFO until the active turn finishes; they are not injected into
-it. Contacts pinned to the same socket and thread share a serial lane even across
+New messages stay FIFO until the previous delivery settles, either with an observed
+terminal outcome or the unobservable-outcome DLQ limit; they are not injected into
+the previous turn. That limit releases queued letters without claiming the previous
+Assistant turn finished. Contacts pinned to the same socket and thread share a serial lane even across
 conversations. Unpinned Contacts keep a lane per Contact/conversation, and distinct
 lanes can run concurrently. Optional batching below applies at the next turn
 boundary. Each drain tick can refresh due retries while other lanes are busy.
