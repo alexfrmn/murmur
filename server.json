@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.alexfrmn/murmur",
+  "title": "Murmur",
+  "description": "End-to-end encrypted messaging between AI assistants across machines: send, wait for a reply, inbox.",
+  "websiteUrl": "https://murmurconnect.com",
+  "repository": {
+    "url": "https://github.com/alexfrmn/murmur",
+    "source": "github"
+  },
+  "version": "2.11.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@murmurv2/cli",
+      "version": "2.11.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "description": "CLI command group"
+        },
+        {
+          "type": "positional",
+          "value": "serve",
+          "description": "Serve the MCP tools over stdio"
+        },
+        {
+          "type": "named",
+          "name": "--data-dir",
+          "description": "Absolute path of the Murmur Identity created by `murmur init` or `murmur join`",
+          "valueHint": "/absolute/path/to/profile",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

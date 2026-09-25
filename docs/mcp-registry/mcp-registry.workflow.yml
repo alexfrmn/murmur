@@ -1,0 +1,52 @@
+# Publishes server.json to the official MCP Registry (registry.modelcontextprotocol.io)
+# when a stable GitHub release is published. Authentication is GitHub Actions OIDC:
+# the io.github.alexfrmn/* namespace is proven by this repository, no personal login.
+#
+# Preconditions the registry checks on publish:
+#   - @murmurv2/cli@<version> already exists on npm (publish npm first, then the GitHub release);
+#   - that package's package.json carries "mcpName": "io.github.alexfrmn/murmur".
+# Pre-releases are skipped. workflow_dispatch re-runs the publish for the current tag.
+name: MCP Registry
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -sSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --version
+
+      - name: Set server.json version from the release tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          case "$version" in
+            *-*) echo "pre-release tag $tag, nothing to publish"; exit 0 ;;
+          esac
+          jq --arg v "$version" '.version = $v | (.packages[] | .version) = $v' server.json > server.tmp.json
+          mv server.tmp.json server.json
+          cat server.json
+
+      - name: Check that the npm package for this version exists
+        run: |
+          version="$(jq -r .version server.json)"
+          npm view "@murmurv2/cli@${version}" version mcpName
+
+      - name: Login (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish

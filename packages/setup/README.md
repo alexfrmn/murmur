@@ -3,10 +3,10 @@
 Set up your Identity, exchange an Invitation and a Reply, and connect your
 Assistant to Murmur. The executable is `murmur`.
 
-The public npm release is pending. After `@murmurv2/cli@2.11.0` is published,
-use the command below. Until publication is confirmed, use a GitHub release
-asset; older public registry packages do not contain the current fixes.
-Maintainers rehearsing a release use only their coordinator-approved registry.
+`@murmurv2/cli@2.11.0` is published on npm (24 Sep 2026). `@murmurv2/*` packages
+published before that release are frozen and do not contain the current fixes;
+install the pinned version below or use a GitHub release asset. Step-by-step
+installation of the desktop app is on https://murmurconnect.com/#install.
 
 ```sh
 npm install --global @murmurv2/cli@2.11.0
