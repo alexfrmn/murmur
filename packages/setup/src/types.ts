@@ -42,6 +42,12 @@ export interface PlatformAdapter {
   start(context: ServiceContext): Promise<void>;
   stop(context: ServiceContext): Promise<void>;
   uninstall?(context: ServiceContext): Promise<void>;
+  /**
+   * Removes a Service registered under this name by another installation of Murmur (a pilot or
+   * an earlier version), so that install can follow in the same elevated process. Resolves
+   * without change when there is none; refuses a Service that does not run Murmur.
+   */
+  removePrevious?(context: ServiceContext): Promise<void>;
   detectClients(context: ServiceContext): Promise<ClientDetection[]>;
   /** Native log location, after verifying the selected service owns this profile. */
   logDirectory?(context: ServiceContext): Promise<string>;
