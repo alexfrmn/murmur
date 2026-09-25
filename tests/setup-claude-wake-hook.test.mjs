@@ -34,6 +34,7 @@ test('claude-code gets the MCP entry and the Stop wake hook for this profile', a
   assert.ok(JSON.parse(await fs.readFile(f.configPath, 'utf8')).mcpServers.murmur);
   const [hook] = await f.ourHooks();
   assert.equal(hook.type, 'command'); assert.equal(hook.asyncRewake, true);
+  assert.equal(hook.timeout, 28800, 'the entry must carry its own timeout: Claude Code ends asyncRewake hooks after 600 s otherwise (#273)');
   assert.equal(hook.command, `"${slash(f.context.nodePath)}" --no-warnings "${slash(path.join(repoRoot, 'scripts', 'wake-drain-claude.mjs'))}" --db "${slash(f.context.storePath)}" --max-seconds 28800`);
   assert.doesNotMatch(hook.command, /\.sh"/);
   // Idempotent: a second run changes nothing and never duplicates the hook.

@@ -258,9 +258,13 @@ The CLI registers this drain as a Stop hook in `~/.claude/settings.json` (next t
 `~/.claude.json`) with `--db <profile>/murmur.db --max-seconds 28800`; a second run changes
 nothing, and a different Murmur wake hook is replaced only with `--replace`.
 
-Known limitation: the session is woken only within the window after the end of its last turn
-(8 hours for the installed hook, 20 minutes by default). A message that arrives later wakes it
-at the next human turn. One poller runs per cursor (the lock above); after Claude Code is
+Known limitation: the session is woken only within the window after the end of its last turn.
+The window is the smaller of two values: the drain's `--max-seconds` (28800 for the installed
+hook, 1200 by default) and the hook entry's own `timeout`, which Claude Code enforces (600 s
+when the entry has none, per the hooks reference). Entries written by 2.11.0 and earlier have
+no `timeout`, so their effective window is 600 s (#273); entries written by later versions carry
+`timeout: 28800`. An existing entry is updated with `clients configure --client claude-code
+--replace`. A message that arrives later wakes the session at the next human turn. One poller runs per cursor (the lock above); after Claude Code is
 closed, that poller stays alive until its window ends, then exits.
 
 ### Cold start: what arrived while nothing was listening
