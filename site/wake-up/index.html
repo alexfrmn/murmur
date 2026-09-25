@@ -76,7 +76,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
       "name": "Does Murmur keep Claude Code running?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "No. Murmur does not launch Claude Code. The Stop hook runs inside a session you started, after that session finishes a turn, and listens for up to eight hours; a message in that window starts the next turn of the same session."
+        "text": "No. Murmur does not launch Claude Code. The Stop hook runs inside a session you started, after that session finishes a turn, and listens for a window after that turn (ten minutes in 2.11.0, see issue #273); a message in that window starts the next turn of the same session."
       }
     },
     {
@@ -84,7 +84,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
       "name": "A message arrived, so why did Claude Code not answer?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Check, in order: that the session has finished at least one turn since it started; that its last turn ended less than eight hours ago; that wake-up is not paused; and that ~/.claude/settings.json has the Murmur Stop hook, which Murmur writes when you choose Claude Code as your assistant. In 2.11.0, a message that arrived before a new session’s first Stop is also skipped until you open the inbox."
+        "text": "Check, in order: that the session has finished at least one turn since it started; that its last turn ended inside the listening window (ten minutes in 2.11.0); that wake-up is not paused; and that ~/.claude/settings.json has the Murmur Stop hook, which Murmur writes when you choose Claude Code as your assistant. In 2.11.0, a message that arrived before a new session’s first Stop is also skipped until you open the inbox."
       }
     },
     {
@@ -142,7 +142,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
   <div class="wrap">
     <span class="tag">guide · wake-up</span>
     <h1>Wake-up: an idle Claude Code session answers when a message arrives</h1>
-    <p class="lead">Delivery puts a contact’s message into the Murmur store on your computer; wake-up makes your assistant start a turn and read it without anyone typing. In Claude Code, Murmur does this with a Stop hook: after each turn the hook watches the store for up to eight hours, and when a message arrives it exits with code 2, which Claude Code’s <code>asyncRewake</code> option turns into a new turn of the idle session. In the Codex CLI, the Murmur service connects to <code>codex app-server</code> over a Unix-domain socket and starts a turn on the session’s thread.</p>
+    <p class="lead">Delivery puts a contact’s message into the Murmur store on your computer; wake-up makes your assistant start a turn and read it without anyone typing. In Claude Code, Murmur does this with a Stop hook: after each turn the hook watches the store, in 2.11.0 for about ten minutes, and when a message arrives it exits with code 2, which Claude Code’s <code>asyncRewake</code> option turns into a new turn of the idle session. In the Codex CLI, the Murmur service connects to <code>codex app-server</code> over a Unix-domain socket and starts a turn on the session’s thread.</p>
     <p class="updated">Updated 25 September 2026 · Murmur 2.11.0</p>
   </div>
 </section>
@@ -176,10 +176,10 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <section class="zone" id="claude-code">
   <div class="wrap">
     <span class="tag">Claude Code</span>
-    <h2>a Stop hook that listens for eight hours</h2>
+    <h2>a Stop hook that listens after every turn</h2>
     <ol class="steps">
       <li><p>Choosing Claude Code as your assistant in the Murmur app, or running <code>murmur clients configure --client claude-code</code>, adds the Murmur MCP server to <code>~/.claude.json</code> and a Stop hook to <code>~/.claude/settings.json</code>. Running it again changes nothing; a different Murmur hook is replaced only with <code>--replace</code>.</p></li>
-      <li><p>Claude Code runs the hook when a turn ends. Because the hook has <code>asyncRewake</code> set, it keeps running in the background and polls the local Murmur store, one poller per session, for up to 28 800 seconds.</p></li>
+      <li><p>Claude Code runs the hook when a turn ends. Because the hook has <code>asyncRewake</code> set, it keeps running in the background and polls the local Murmur store, one poller per session. The command asks for up to 28&nbsp;800 seconds, but the entry sets no <code>timeout</code> of its own, and Claude Code applies its default of 600 seconds to <code>asyncRewake</code> hooks, so in 2.11.0 the effective window after each turn is ten minutes (<a href="https://github.com/alexfrmn/murmur/issues/273">issue #273</a>; the fix adds the timeout to the entry).</p></li>
       <li><p>When a message from a contact arrives, the hook prints one line with the sender and the number of new messages and exits with code 2. Claude Code shows that line to Claude as a system reminder and starts a new turn, though nobody typed anything.</p></li>
       <li><p>Claude reads the full text with <code>murmur_inbox</code> and answers with <code>murmur_send</code>. The line that started the turn carries no message text and says that the text is data, not instructions.</p></li>
     </ol>
@@ -266,7 +266,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
         <li><b>Codex sessions that are not attached to the app-server.</b> A plain <code>codex</code> session or a Codex Desktop session started on its own is not reached: app-server instances are isolated per session and do not talk to each other.</li>
         <li><b>A new Claude Code session before its first turn.</b> The Stop hook runs when a turn ends, so a session that has just started is not listening yet. For an unattended session, send one harmless prompt right after launch.</li>
         <li><b>In 2.11.0, a message that arrived before a new session’s first Stop.</b> The hook started reading at the newest message, so that message started nothing until the inbox was opened by hand. The fix is merged after 2.11.0 and not released yet (<a href="https://github.com/alexfrmn/murmur/blob/main/CHANGELOG.md#unreleased">CHANGELOG, Unreleased, #245</a>).</li>
-        <li><b>More than eight hours after the last turn.</b> The hook has stopped listening; the message starts a turn at the next prompt a person types.</li>
+        <li><b>After the listening window since the last turn</b> (ten minutes in 2.11.0). The hook has stopped listening; the message starts a turn at the next prompt a person types.</li>
         <li><b>Paused wake-up.</b> Messages wait in order until you resume it.</li>
         <li><b>A stopped Murmur service.</b> Nothing is received on that computer; the sender’s service retries within its limits.</li>
         <li><b>Diagnostic checks.</b> <code>murmur doctor</code> tests are answered by the service and never start a turn.</li>
@@ -283,11 +283,11 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
     <div class="qa">
       <div class="fact">
         <h3>Does Murmur keep Claude Code running?</h3>
-        <p>No. Murmur does not launch Claude Code. The Stop hook runs inside a session you started, after that session finishes a turn, and listens for up to eight hours; a message in that window starts the next turn of the same session.</p>
+        <p>No. Murmur does not launch Claude Code. The Stop hook runs inside a session you started, after that session finishes a turn, and listens for a window after that turn (ten minutes in 2.11.0, see issue #273); a message in that window starts the next turn of the same session.</p>
       </div>
       <div class="fact">
         <h3>A message arrived, so why did Claude Code not answer?</h3>
-        <p>Check, in order: that the session has finished at least one turn since it started; that its last turn ended less than eight hours ago; that wake-up is not paused; and that ~/.claude/settings.json has the Murmur Stop hook, which Murmur writes when you choose Claude Code as your assistant. In 2.11.0, a message that arrived before a new session’s first Stop is also skipped until you open the inbox.</p>
+        <p>Check, in order: that the session has finished at least one turn since it started; that its last turn ended inside the listening window (ten minutes in 2.11.0); that wake-up is not paused; and that ~/.claude/settings.json has the Murmur Stop hook, which Murmur writes when you choose Claude Code as your assistant. In 2.11.0, a message that arrived before a new session’s first Stop is also skipped until you open the inbox.</p>
       </div>
       <div class="fact">
         <h3>Does the hook put the message text into Claude’s context?</h3>

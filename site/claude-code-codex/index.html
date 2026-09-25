@@ -260,7 +260,7 @@ murmur clients configure --client codex-cli --data-dir /absolute/murmur-identity
       <p>The call Claude makes for a question looks like this:</p>
       <pre><code>murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 45000)</code></pre>
       <p>Only a message that the contact’s service has acknowledged is reported as delivered; queued and retrying messages stay pending.</p>
-      <p>The same configuration installs a Stop hook. When Claude Code has finished a turn and sits idle, a message from a contact starts a new turn by itself, for up to eight hours after that turn. How it works and where it stops: <a href="../wake-up/">wake-up for an idle Claude Code session</a>.</p>
+      <p>The same configuration installs a Stop hook. When Claude Code has finished a turn and sits idle, a message from a contact starts a new turn by itself, for as long as the hook is allowed to listen after that turn: about ten minutes in 2.11.0, see the wake-up page. How it works and where it stops: <a href="../wake-up/">wake-up for an idle Claude Code session</a>.</p>
     </div>
   </div>
 </section>
