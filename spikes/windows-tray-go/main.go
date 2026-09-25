@@ -32,17 +32,6 @@ const (
 	replaceTimeout = 3 * time.Minute
 )
 
-// Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
-// меню существовали до первого успешного вызова и показывали «не проверялось».
-var doctorStages = []struct{ id, messageKey string }{
-	{"config", "doctor.config"},
-	{"daemon", "doctor.daemon"},
-	{"broker", "doctor.broker"},
-	{"peers", "doctor.peers"},
-	{"roundtrip", "doctor.roundtrip"},
-	{"wake", "doctor.wake"},
-}
-
 type app struct {
 	mu                                                       sync.Mutex
 	status                                                   *Status
@@ -55,6 +44,8 @@ type app struct {
 	mWakeStatus                                              *systray.MenuItem
 	doctor                                                   *Doctor
 	doctorErr                                                error
+	doctorAt                                                 time.Time
+	lastFailed                                               *actionFailure
 	updates                                                  *updateSnapshot
 	updateErr                                                error
 	updateBusy                                               bool
@@ -427,7 +418,7 @@ func (a *app) refreshDoctor() {
 	if err != nil {
 		d = nil
 	}
-	a.doctor, a.doctorErr = d, err
+	a.doctor, a.doctorErr, a.doctorAt = d, err, time.Now()
 	a.mu.Unlock()
 
 	for _, st := range doctorStages {
@@ -467,7 +458,7 @@ func (a *app) handleClicks() {
 		case <-a.mPause.ClickedCh:
 			go a.runCLI("wake", "toggle")
 		case <-a.mCopy.ClickedCh:
-			go a.copyDiagnostics()
+			go a.copyFreshDiagnostics()
 		case <-a.mSvcStar.ClickedCh:
 			go a.runCLI("service", "start")
 		case <-a.mSvcStop.ClickedCh:
@@ -570,9 +561,9 @@ func (a *app) runCLI(args ...string) {
 		}
 	}
 	if err != nil {
+		a.recordFailure(args[0]+"."+args[1], "", err)
 		a.mu.Lock()
 		a.actionResult = "action.failed"
-		a.actionErr = err
 		a.mu.Unlock()
 		a.mActionStatus.SetTitle(tr("action.failed"))
 		a.mActionStatus.SetTooltip(tr("action.failedTooltip"))
@@ -586,22 +577,41 @@ func (a *app) runCLI(args ...string) {
 		a.mu.Unlock()
 		a.mActionStatus.SetTitle(tr("action.success"))
 		a.mActionStatus.SetTooltip("")
+		if args[0] == "service" {
+			// The doctor snapshot taken before this change no longer describes the Service.
+			go a.refreshDoctor()
+		}
 	}
 }
 
+// recordFailure keeps the error of a menu action for "Copy diagnostics": the action, its time,
+// the stable code and, for a failed CLI run, its masked stderr. A cancellation is not a failure.
+func (a *app) recordFailure(action, target string, err error) {
+	if err == nil || errors.Is(err, errOnboardingCancelled) {
+		return
+	}
+	failure := newActionFailure(action, target, err, time.Now())
+	a.mu.Lock()
+	a.actionErr, a.lastFailed = err, failure
+	a.mu.Unlock()
+}
+
+// copyFreshDiagnostics takes a new doctor snapshot first: one taken before the Service was
+// installed would describe a machine that no longer exists.
+func (a *app) copyFreshDiagnostics() {
+	systray.SetTooltip(tr("clipboard.collecting"))
+	a.refreshDoctor()
+	a.copyDiagnostics()
+}
+
+// copyDiagnostics copies at once; the payload carries the time of its doctor snapshot.
 func (a *app) copyDiagnostics() {
 	a.mu.Lock()
-	payload := map[string]any{
-		"collectedAt": time.Now().UTC().Format(time.RFC3339),
-		"status":      a.status,
-		"statusError": errText(a.statusErr),
-		"doctor":      a.doctor,
-		"doctorError": errText(a.doctorErr),
-		"actionError": errText(a.actionErr),
-	}
+	snapshot := diagnosticsSnapshot{status: a.status, statusErr: a.statusErr, doctor: a.doctor, doctorErr: a.doctorErr,
+		doctorAt: a.doctorAt, actionErr: a.actionErr, lastFailed: a.lastFailed}
 	a.mu.Unlock()
 
-	buf, err := json.MarshalIndent(payload, "", "  ")
+	buf, err := diagnosticsJSON(snapshot, time.Now())
 	if err != nil {
 		return
 	}
@@ -610,13 +620,6 @@ func (a *app) copyDiagnostics() {
 		return
 	}
 	systray.SetTooltip(tr("clipboard.copied"))
-}
-
-func errText(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }
 
 func stampNow(path string) error {
@@ -766,6 +769,7 @@ func (a *app) connectToColleague() {
 		cliInput:                 func(line string, args ...string) ([]byte, error) { return runSetupCLIInput(ctx, b, line, args...) },
 		confirm:                  askYesNo,
 		inform:                   tell,
+		failed:                   a.recordFailure,
 		cli:                      func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
 		elevated: func(args ...string) error {
 			if serviceAdmin() {

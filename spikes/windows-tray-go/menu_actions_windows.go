@@ -22,6 +22,9 @@ func serviceActionMessage(err error) string {
 			return tr(key)
 		}
 	}
+	if code := failureCode(err); code != "" {
+		return tr("menu.serviceActionFailed") + " " + codeSuffix(code)
+	}
 	return tr("menu.serviceActionFailed")
 }
 
@@ -44,6 +47,10 @@ func (a *app) connectSelectedAssistants() {
 	}()
 	b, err := selectedCLI()
 	if err != nil || !isProfile(b.Profile) {
+		if err == nil {
+			err = errors.New("profile.not-configured")
+		}
+		a.recordFailure("assistants.connect", "", err)
 		tell(tr("assistants.title"), tr("menu.needIdentity"))
 		return
 	}
@@ -58,12 +65,13 @@ func (a *app) connectSelectedAssistants() {
 		err = validatePinnedStatus(fresh, expected)
 	}
 	if err != nil {
+		a.recordFailure("assistants.connect", "", err)
 		tell(tr("assistants.title"), tr("menu.identityUnconfirmed"))
 		return
 	}
 	connected := connectAssistants(onboardingSteps{
 		chooseClients: showAssistantChoices, confirmClientReplacement: showAssistantReplacement,
-		confirm: askYesNo, inform: tell,
+		confirm: askYesNo, inform: tell, failed: a.recordFailure,
 		cli: func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, args...) },
 	}, b.Profile, fresh.AgentID)
 	message := tr("assistants.noneConnected")
