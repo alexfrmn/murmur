@@ -365,6 +365,45 @@ test('unmanaged liveness never authorizes a lifecycle operation against another 
   assert.equal(paused.effectiveEnabled, true); assert.equal(paused.restartRequired, true);
   assert.deepEqual(operations, []);
 });
+test('a live process of a previous installation Service keeps that label instead of running-unmanaged', async t => {
+  const f = await fixture(t);
+  Object.assign(f.snapshot, { state: 'unknown', manager: 'windows-service', pid: null, observedStorePath: null, detail: 'service.previous-installation' });
+  f.adapter.observeStore = async () => f.observation.storePath;
+  const s = await f.read();
+  assert.equal(s.service.state, 'unknown'); assert.equal(s.service.unknownReason, 'service.previous-installation');
+  assert.equal(s.service.managed, null); assert.equal(s.broker.state, 'connected');
+  assert.equal(statusVerdict(s, now).code, 'service.unknown');
+});
+test('install --replace-previous removes the previous Service first and still refuses a surviving process', async t => {
+  const f = await fixture(t);
+  await f.write('daemon-observation.json', { ...f.observation, measuredAt: new Date().toISOString() });
+  Object.assign(f.snapshot, { state: 'unknown', manager: 'windows-service', pid: null, observedStorePath: null, detail: 'service.previous-installation' });
+  f.adapter.observeStore = async () => f.observation.storePath;
+  const operations = [];
+  for (const action of ['install', 'start', 'stop', 'uninstall']) f.adapter[action] = async () => operations.push(action);
+  f.adapter.removePrevious = async () => {
+    operations.push('removePrevious');
+    Object.assign(f.snapshot, { state: 'stopped', manager: 'none', detail: 'service.not-installed' });
+  };
+  for (const action of ['start', 'stop', 'uninstall']) {
+    await assert.rejects(main(['service', action, '--replace-previous', '--data-dir', f.context.dataDir], f.adapter), /cli.replace-previous-only-for-install/);
+  }
+  assert.deepEqual(operations, []);
+  // The store is still held after the removal: this is a process outside any Service, so install stops.
+  await assert.rejects(main(['service', 'install', '--replace-previous', '--data-dir', f.context.dataDir], f.adapter), /service.running-unmanaged/);
+  assert.deepEqual(operations, ['removePrevious']);
+  // The removed Service took its process with it: the same command installs this installation's Service.
+  operations.length = 0;
+  Object.assign(f.snapshot, { state: 'unknown', manager: 'windows-service', detail: 'service.previous-installation' });
+  await fs.rm(path.join(f.context.dataDir, 'daemon-observation.json'));
+  const result = await main(['service', 'install', '--replace-previous', '--data-dir', f.context.dataDir], f.adapter);
+  assert.equal(result.schema, 'murmur.service/1'); assert.equal(result.action, 'install');
+  assert.deepEqual(operations, ['removePrevious', 'install']);
+  // Platforms without a previous-installation replacement refuse the option instead of ignoring it.
+  operations.length = 0; delete f.adapter.removePrevious;
+  await assert.rejects(main(['service', 'install', '--replace-previous', '--data-dir', f.context.dataDir], f.adapter), /service.replace-previous-unavailable/);
+  assert.deepEqual(operations, []);
+});
 test('inbox returns 20 newest legacy messages with unknown Assistant receipt without migration', async t => {
   const f = await fixture(t);
   const legacy = path.join(f.context.dataDir, 'legacy.db'), db = new DatabaseSync(legacy);

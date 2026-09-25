@@ -98,6 +98,8 @@ export function humanError(error: unknown): string {
     'config.identity-invalid': 'Choose an Identity name using letters, numbers, hyphens or underscores.',
     'config.broker-url-invalid': 'Enter a valid Server address supplied by your colleague and try again.',
     'service.running-unmanaged': 'This Service is running outside this app. Manage it where it was started.',
+    'service.previous-installation': 'A Service from a previous Murmur version uses this name. Replace it with: service install --replace-previous.',
+    'service.foreign-image': 'Another program already uses this Service name; Murmur will not change or remove it.',
     'cli.unknown-command': 'This command is not available. Run with --help to choose an action.',
     'cli.unknown-option': 'This option is not available. Run with --help to check the command.',
     'cli.invalid-arguments': 'The command is incomplete. Run with --help to check the required options.',

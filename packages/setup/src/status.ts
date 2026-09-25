@@ -78,7 +78,10 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       const independent = !managed && service.state !== "failed"
         ? await adapter.observeStore?.(c, raw.pid).catch(() => null) : null;
       if (managed || independent === storePath) {
-        if (!managed && raw.pid !== service.pid) service = { state: "running-unmanaged", manager: "none", pid: raw.pid,
+        // A Service of a previous Murmur installation keeps its own label: the live process is
+        // most likely its child, and "running outside this app" would hide the replacement.
+        const previous = service.detail === "service.previous-installation";
+        if (!managed && raw.pid !== service.pid && !previous) service = { state: "running-unmanaged", manager: "none", pid: raw.pid,
           observedStorePath: storePath, since: exchangeTime(raw.startedAt, started), lastExitCode: null,
           restartCount: null, restartWindowMs: null, detail: "service.running-unmanaged" };
         else if (independent === storePath) service = { ...service, observedStorePath: storePath };

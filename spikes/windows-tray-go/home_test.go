@@ -43,6 +43,31 @@ func TestHomeUsesFiveRowsAndFirstIncompleteStep(t *testing.T) {
 		setLocale(previous)
 	}
 }
+
+// The Service row names a previous installation's Service instead of "stopped" or "could not
+// confirm", and the next step is its replacement.
+func TestHomeNamesPreviousInstallationService(t *testing.T) {
+	defer setLocale(currentLocale())
+	for _, language := range []string{localeEnglish, localeRussian} {
+		setLocale(language)
+		s := load(t, "status-green.json")
+		s.Service.State, s.Service.Detail = "unknown", "service.previous-installation"
+		rows, next := homeRows(s, nil, "ready")
+		if rows[1].Text != tr("home.servicePrevious") || rows[1].Action != "replace" || next.Action != "replace" || next.Text != tr("home.nextReplace") {
+			t.Fatal(rows[1], next)
+		}
+		s.Service.Detail = "service.foreign-image"
+		rows, next = homeRows(s, nil, "ready")
+		if rows[1].Text != tr("home.serviceForeign") || rows[1].Action != "foreign" || next.Action == "replace" || next.Action == "install" {
+			t.Fatal(rows[1], next)
+		}
+		s.Service.Detail = "service.profile-unverified"
+		if rows, _ = homeRows(s, nil, "ready"); rows[1].Text != tr("home.serviceProblem") {
+			t.Fatal(rows[1])
+		}
+	}
+}
+
 func TestInstalledAssistantIsNotAssumedConnected(t *testing.T) {
 	profile := t.TempDir()
 	for action, want := range map[string]string{"add": "missing", "replace": "missing", "unchanged": "ready"} {

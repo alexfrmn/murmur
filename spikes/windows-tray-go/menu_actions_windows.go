@@ -17,7 +17,7 @@ func serviceActionMessage(err error) string {
 	if errors.As(err, &statusErr) && statusErr.code == "profile.not-configured" {
 		return tr("menu.needIdentity")
 	}
-	for _, key := range []string{"menu.serviceUnmanagedTooltip", "action.elevationCancelled", "action.elevatedTimeout"} {
+	for _, key := range []string{"menu.serviceUnmanagedTooltip", "menu.servicePreviousTooltip", "menu.serviceForeignTooltip", "action.elevationCancelled", "action.elevatedTimeout"} {
 		if err.Error() == tr(key) {
 			return tr(key)
 		}

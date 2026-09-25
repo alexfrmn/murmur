@@ -107,6 +107,8 @@ func main() {
 		mustDo(install())
 	case "uninstall":
 		mustDo(uninstall())
+	case "remove-previous":
+		mustDo(removePrevious())
 	case "start":
 		mustDo(startAndVerify())
 	case "stop":
@@ -554,6 +556,74 @@ func uninstall() error {
 	return nil
 }
 
+// removePrevious убирает службу этого имени, которую зарегистрировала другая установка Murmur
+// (пилот или прошлая версия): её образ — чужой murmur-svc.exe с той же привязкой «run <имя>».
+// Своя служба и служба, запускающая не Murmur, отвергаются до единого изменения. Личность,
+// ключи, переписка и журналы не трогаются; описание запуска этого имени перепишет следующая
+// установка. Команда нужна движку для замены в одном запросе прав администратора:
+// remove-previous, затем install.
+func removePrevious() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return trError("error.admin", err, err)
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(svcName())
+	if err != nil {
+		if serviceAbsent(err) {
+			say("%s", tr("previous.absent", svcName()))
+			return nil
+		}
+		return trError("error.existingCheck", err, err)
+	}
+	cfg, err := s.Config()
+	if err != nil {
+		s.Close()
+		return trError("error.readConfig", err, svcName(), err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		s.Close()
+		return err
+	}
+	switch classifyImage(cfg.BinaryPathName, self, svcName()) {
+	case foreignPreviousInstallation:
+	case "":
+		s.Close()
+		return trError("previous.own", nil, svcName())
+	default:
+		s.Close()
+		return trError("previous.notMurmur", nil, svcName())
+	}
+	if err := stopService(s); err != nil {
+		s.Close()
+		return trError("previous.stopFailed", err, err)
+	}
+	if err := s.Delete(); err != nil {
+		s.Close()
+		return trError("previous.deleteFailed", err, err)
+	}
+	s.Close()
+	// Delete только помечает запись; она исчезает, когда закрыт последний дескриптор.
+	// Установка сразу после этого получила бы ERROR_SERVICE_MARKED_FOR_DELETE.
+	deadline := time.Now().Add(startTimeout)
+	for {
+		probe, err := m.OpenService(svcName())
+		if err != nil && serviceAbsent(err) {
+			break
+		}
+		if err == nil {
+			probe.Close()
+		}
+		if time.Now().After(deadline) {
+			return trError("previous.pending", nil, svcName())
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	say("%s", tr("previous.removed", svcName()))
+	return nil
+}
+
 // removeLeftovers убирает то, что создала установка, кроме журнала: журнал переживает
 // удаление намеренно, разбирать отказ по нему будут уже после.
 func removeLeftovers() {
@@ -691,6 +761,10 @@ type ServiceStatus struct {
 	RestartsLastHour      *int    `json:"restartsLastHour"`
 	RestartsUnknownReason *string `json:"restartsUnknownReason"`
 	RestartsPerHourLimit  int     `json:"restartsPerHourLimit"`
+	// ForeignKind заполняется только при manager "foreign": previous-installation — служба
+	// другой установки Murmur, её можно заменить; not-murmur — имя занято другой программой.
+	// null — образ наш, а не сошлись описание запуска или выбранная Личность.
+	ForeignKind *string `json:"foreignKind"`
 }
 
 func limitOf(spec *launchSpec) int {
@@ -750,6 +824,7 @@ func printStatus() error {
 			if ownErr := ownService(s); ownErr != nil {
 				out.Manager = "foreign"
 				out.ObservedStoreReason = orNil(ownErr.Error())
+				out.ForeignKind = foreignKindOf(s)
 			} else if q, qerr := s.Query(); qerr == nil {
 				spec, specErr := resolveSpecFromFile()
 				if specErr == nil && requireExpectedProfile(spec) == nil {
@@ -840,6 +915,42 @@ func ownService(s *mgr.Service) error {
 }
 
 func serviceAbsent(err error) bool { return errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) }
+
+// foreignKindOf names what a Service with the bound name runs after ownService refused it.
+// Unknown stays null: nothing may be replaced on a guess.
+func foreignKindOf(s *mgr.Service) *string {
+	cfg, err := s.Config()
+	if err != nil {
+		return nil
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	return orNil(classifyImage(cfg.BinaryPathName, self, svcName()))
+}
+
+// classifyImage returns "" for this helper's own image (then the launch file or the selected
+// Identity differs, and replacing another Identity's Service is not this decision),
+// previous-installation for another Murmur helper registered under this name, and not-murmur
+// for anything else.
+func classifyImage(imagePath, self, name string) string {
+	if validateServiceImage(imagePath, self, name) == nil {
+		return ""
+	}
+	args, err := windows.DecomposeCommandLine(imagePath)
+	if err != nil {
+		return foreignNotMurmur
+	}
+	if len(args) > 0 && strings.EqualFold(filepath.Clean(args[0]), filepath.Clean(self)) {
+		// Our own path that could not be compared by file identity is still ours.
+		return ""
+	}
+	if previousInstallationImage(args, name) {
+		return foreignPreviousInstallation
+	}
+	return foreignNotMurmur
+}
 
 // SCM ImagePath is a Windows command line. Splitting on whitespace truncates a
 // quoted Program Files executable and strands an otherwise running service.

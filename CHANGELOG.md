@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A Service left by a pilot or an earlier version is replaced from the tray.**
+  After a new version was installed over a pilot, the Windows Service with the bound
+  name still ran the pilot's files: the CLI answered `service.profile-unverified`, the
+  tray could neither start nor remove it, and it took `sc.exe delete` in an
+  administrator terminal. Status now names that state (`service.previous-installation`),
+  the tray shows it as its own line and asks once whether to replace it, and
+  `service install --replace-previous` removes that Service and installs this one under
+  one administrator consent. The profile, keys and messages are not touched; a Service
+  of another program with the same name is refused (`service.foreign-image`).
 - **A colleague's first letter wakes Claude Code** (#245). A new session's Stop hook
   used to start reading at the newest message, so a letter that arrived before the
   session's first Stop woke nothing until the inbox was opened by hand. The first run

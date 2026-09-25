@@ -91,14 +91,21 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
       || !(v.lastExitCode === null || Number.isSafeInteger(v.lastExitCode))
       || !['since', 'lastFailureAt', 'observedStorePath', 'observedStoreUnknownReason', 'restartsUnknownReason'].every(k => textOrNull(v[k]))
       || !['since', 'lastFailureAt'].every(k => v[k] === null || Number.isFinite(Date.parse(v[k])))
-      || v.restartsPerHourLimit !== 5) fail('native-response-invalid');
+      || v.restartsPerHourLimit !== 5
+      // Older helpers omit foreignKind; it describes only a Service that is not this installation's.
+      || !(v.foreignKind === undefined || v.foreignKind === null
+        || v.manager === 'foreign' && ['previous-installation', 'not-murmur'].includes(v.foreignKind))) fail('native-response-invalid');
     if (!(v.restartCount === null && v.restartWindowMs === null || natural(v.restartCount) && natural(v.restartWindowMs) && v.restartWindowMs <= 3600000)
       || (v.restartWindowMs === 3600000 ? v.restartsLastHour !== v.restartCount : v.restartsLastHour !== null)) fail('native-response-invalid');
     if (v.manager === 'none') {
       if (v.state !== 'stopped' || v.profile !== null || v.pid !== 0 || v.daemonPid !== null || v.observedStorePath !== null || v.restartCount !== null) fail('native-response-invalid');
       return { snapshot: { ...empty('service.not-installed'), state: 'stopped' }, installed: false };
     }
-    if (v.manager === 'foreign' || !object(v.profile)) fail('profile-unverified');
+    // A Service left by another Murmur installation (a pilot or an earlier version) can be replaced
+    // on request; a name taken by another program never is. Anything else stays unverified.
+    if (v.manager === 'foreign') fail(v.foreignKind === 'previous-installation' ? 'previous-installation'
+      : v.foreignKind === 'not-murmur' ? 'foreign-image' : 'profile-unverified');
+    if (!object(v.profile)) fail('profile-unverified');
     const expected = { dataDir: c.dataDir, node: c.nodePath, workDir: c.repoRoot, entry: paths.join(c.repoRoot, 'scripts', 'murmur-daemon.mjs') };
     for (const [key, value] of Object.entries(expected)) {
       absolute(v.profile[key]);
@@ -129,8 +136,20 @@ export function createWindowsAdapter(options: WindowsOptions = {}): PlatformAdap
     if (action === 'uninstall' ? after.installed : !after.installed
       || (action === 'stop' ? after.snapshot.state !== 'stopped' : after.snapshot.state !== 'running' || after.snapshot.pid === null)) fail('action-unconfirmed');
   }
+  /** Removes only a Service that another Murmur installation registered under this name. */
+  async function removePrevious(c: ServiceContext) {
+    validate(c);
+    const found = await inspect(c).then(() => null, (error: unknown) => error);
+    if (found === null) return; // Absent or already this installation's: nothing to replace.
+    if (!(found instanceof Error && found.message === 'service.previous-installation')) throw found;
+    if (await elevated() === false) fail('elevation-required');
+    await invoke(c, 'remove-previous');
+    const after = await inspect(c).catch(() => null);
+    if (!after || after.installed) fail('action-unconfirmed');
+  }
   return {
     manager: 'windows-service',
+    removePrevious,
     async logDirectory(c) {
       validate(c);
       if (!(await inspect(c)).installed) throw new Error('logs.service-not-installed');

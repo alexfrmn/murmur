@@ -40,6 +40,13 @@
   "install.rollbackFailed": "%v; откат не удался, служба осталась в SCM: %v",
   "install.rollbackEvidence": "%v. Служба удалена из диспетчера. Намеренно остались: файл запуска %s, состояние %s и журнал %s, они нужны для разбора. Убрать целиком: murmur-svc uninstall",
   "logs.directory": "Каталог логов недоступен: %v",
+  "previous.absent": "Служба %s не зарегистрирована; заменять нечего",
+  "previous.own": "Служба %s принадлежит этой установке; ничего не изменено",
+  "previous.notMurmur": "Служба %s запускает не Murmur; ничего не изменено",
+  "previous.stopFailed": "Служба прошлой установки Murmur не остановилась; ничего не удалено: %v",
+  "previous.deleteFailed": "Не удалось удалить Службу прошлой установки Murmur: %v",
+  "previous.pending": "Windows ещё не закончила удаление Службы %s; закройте окно «Службы» или перезагрузите Windows и повторите",
+  "previous.removed": "Служба %s прошлой установки Murmur удалена; Личность, ключи, переписка и журналы сохранены",
   "service.description": "Murmur: зашифрованные сообщения между помощниками",
   "service.noEntryCleanup": "Службы %s в диспетчере нет, убираю оставшиеся файлы",
   "service.noFiles": "Убирать нечего",
@@ -62,5 +69,5 @@
   "store.noHolder": "файл хранилища никто не держит открытым",
   "store.otherHolder": "хранилище держит другой процесс, не наша служба",
   "usage.environment": "install читает MURMUR_NODE, MURMUR_ENTRY, MURMUR_WORKDIR и MURMUR_SERVICE_NAME",
-  "usage.line": "murmur-svc [--lang en|ru] install|uninstall|start|stop|status"
+  "usage.line": "murmur-svc [--lang en|ru] install|uninstall|start|stop|status|remove-previous"
 }

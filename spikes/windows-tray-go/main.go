@@ -27,6 +27,9 @@ const (
 	doctorTimeout = 30 * time.Second
 	// Сколько строк истории держать в меню. Пункты создаются один раз при старте.
 	historyLines = 4
+	// Removing a previous installation's Service and installing this one run as one elevated
+	// command: two helper actions with their own confirmation windows, longer than one action.
+	replaceTimeout = 3 * time.Minute
 )
 
 // Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
@@ -88,6 +91,9 @@ type app struct {
 	assistantBinding                                           cliBinding
 	assistantChecked                                           time.Time
 	assistantBusy                                              bool
+	// previousAsked: the replacement question for a previous installation's Service is asked
+	// once per tray start; afterwards the Service line keeps offering it.
+	previousAsked bool
 }
 
 func main() {
@@ -298,8 +304,15 @@ func (a *app) refreshStatus() {
 		a.pinnedAgent = s.AgentID
 	}
 	a.status, a.statusErr = s, err
+	askPrevious := err == nil && serviceOrigin(s) == serviceOriginPrevious && !a.previousAsked && !a.actionBusy
+	if askPrevious {
+		a.previousAsked = true
+	}
 	a.mu.Unlock()
 	a.render(resolve(s, err))
+	if askPrevious {
+		go a.runCLI("service", "replace")
+	}
 }
 func (a *app) pollLoop() {
 	for {
@@ -518,12 +531,23 @@ func (a *app) runCLI(args ...string) {
 		}
 	}
 	if err == nil && args[0] == "service" {
-		if allowed, _, hint := serviceControls(fresh, true, serviceAdmin()); !allowed {
-			err = fmt.Errorf("%s", hint)
+		request, question, refusal := serviceRequest(fresh, args[1])
+		switch {
+		case refusal != "":
+			err = fmt.Errorf("%s", refusal)
+		case request == nil:
+			return
+		case question != "" && !askYesNo(tr("menu.service"), question):
+			return
+		default:
+			args = request
 		}
 	}
-	if err == nil && args[0] == "service" && args[1] == "uninstall" && !askYesNo(tr("menu.service"), tr("menu.uninstallConfirm")) {
-		return
+	if err == nil && len(args) > 2 && args[2] == "--replace-previous" {
+		// Counted from the answer, not from the click: the question may wait on the person.
+		var cancelReplace context.CancelFunc
+		ctx, cancelReplace = context.WithTimeout(context.Background(), replaceTimeout)
+		defer cancelReplace()
 	}
 	if err == nil && args[0] == "service" && !serviceAdmin() {
 		// The elevated CLI cannot hand its reply back; it exits 0 only after confirming the

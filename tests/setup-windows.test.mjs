@@ -175,3 +175,75 @@ test('Windows native logs verifies ownership and opens only its existing directo
   await assert.rejects(adapter.logDirectory(context), /logs.path-outside-service/);
   assert.ok(calls.every(action => action === 'status'), 'log lookup must never mutate SCM');
 });
+
+// A pilot or an earlier version left a Service under the bound name that runs its own helper.
+const foreignService = (foreignKind = 'previous-installation') => native({ manager: 'foreign', state: 'unknown', profile: null, pid: 0, daemonPid: null,
+  since: null, observedStorePath: null, observedStoreUnknownReason: 'service.foreign-executable: refusing another service binary',
+  restartCount: null, restartWindowMs: null, restartsUnknownReason: 'service.history-host-unverified', foreignKind });
+const absentService = () => native({ manager: 'none', state: 'stopped', profile: null, pid: 0, daemonPid: null, observedStorePath: null,
+  restartCount: null, restartWindowMs: null, foreignKind: null });
+function replacement(initial, { elevated = true, removes = true } = {}) {
+  let value = initial; const calls = [];
+  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, elevated: async () => elevated,
+    run: async (file, args, options) => {
+      calls.push(args[0]); assert.equal(file, helper); assert.equal(options.env.MURMUR_SERVICE_NAME, context.serviceName);
+      if (args[0] === 'status') return { code: 0, stdout: JSON.stringify(value), stderr: '' };
+      if (args[0] === 'remove-previous' && removes) value = absentService();
+      if (args[0] === 'install') value = native();
+      return { code: 0, stdout: 'operation returned', stderr: '' };
+    } });
+  return { adapter, calls };
+}
+const legacyForeign = () => { const v = foreignService(); delete v.foreignKind; return v; };
+test('a Service of a previous Murmur installation has its own state, apart from a name taken by another program', async () => {
+  let s = await replacement(foreignService()).adapter.status(context);
+  assert.equal(s.state, 'unknown'); assert.equal(s.detail, 'service.previous-installation'); assert.equal(s.pid, null);
+  s = await replacement(foreignService('not-murmur')).adapter.status(context);
+  assert.equal(s.state, 'unknown'); assert.equal(s.detail, 'service.foreign-image');
+  // An older helper, or a Service of this image with another Identity, stays unverified as before.
+  for (const value of [legacyForeign(), foreignService(null)]) assert.equal((await replacement(value).adapter.status(context)).detail, 'service.profile-unverified');
+  for (const value of [foreignService('other'), native({ foreignKind: 'previous-installation' }), native({ ...absentService(), foreignKind: 'not-murmur' })]) {
+    assert.equal((await replacement(value).adapter.status(context)).detail, 'service.native-response-invalid');
+  }
+});
+test('replacing removes only the previous installation Service, then the ordinary install follows', async () => {
+  const f = replacement(foreignService());
+  await f.adapter.removePrevious(context);
+  await f.adapter.install(context);
+  assert.deepEqual(f.calls, ['status', 'remove-previous', 'status', 'status', 'install', 'status']);
+  // Every other action keeps refusing it, before any change.
+  for (const action of ['install', 'start', 'stop', 'uninstall']) {
+    const g = replacement(foreignService());
+    await assert.rejects(g.adapter[action](context), /^Error: service\.previous-installation$/);
+    assert.deepEqual(g.calls, ['status'], action);
+  }
+});
+test('a Service that does not run Murmur is refused before elevation or removal', async () => {
+  for (const [value, code] of [[foreignService('not-murmur'), 'foreign-image'], [foreignService(null), 'profile-unverified'], [legacyForeign(), 'profile-unverified']]) {
+    const f = replacement(value, { elevated: false });
+    await assert.rejects(f.adapter.removePrevious(context), new RegExp(`^Error: service\\.${code}$`));
+    assert.deepEqual(f.calls, ['status']);
+  }
+});
+test('replacing asks for elevation first, and an unconfirmed removal is reported as such', async () => {
+  const plain = replacement(foreignService(), { elevated: false });
+  await assert.rejects(plain.adapter.removePrevious(context), /^Error: service\.elevation-required$/);
+  assert.deepEqual(plain.calls, ['status']);
+  const stuck = replacement(foreignService(), { removes: false });
+  await assert.rejects(stuck.adapter.removePrevious(context), /^Error: service\.action-unconfirmed$/);
+  assert.deepEqual(stuck.calls, ['status', 'remove-previous', 'status']);
+});
+test('without a previous installation Service, replacing changes nothing', async () => {
+  for (const value of [absentService(), native()]) {
+    const f = replacement(value); await f.adapter.removePrevious(context);
+    assert.deepEqual(f.calls, ['status']);
+  }
+});
+test('a helper refusal during the replacement keeps its reason', async () => {
+  const calls = [];
+  const adapter = createWindowsAdapter({ helperPath: helper, canonicalize, elevated: async () => true,
+    run: async (_, args) => { calls.push(args[0]); return args[0] === 'status' ? { code: 0, stdout: JSON.stringify(foreignService()), stderr: '' }
+      : { code: 1, stdout: '', stderr: 'Service MurmurFixture does not run Murmur\nmurmur-svc: reason=previous.notMurmur\n' }; } });
+  await assert.rejects(adapter.removePrevious(context), /^Error: service\.helper\.previous\.notMurmur$/);
+  assert.deepEqual(calls, ['status', 'remove-previous']);
+});
