@@ -75,19 +75,53 @@ func configureAssistant(s onboardingSteps, client, profile, identity string) err
 	return nil
 }
 
+// assistantFailureKeys gives every client.* code the engine (packages/setup/src) or this tray
+// can return a sentence with an action. assistant_codes_test.go reads the engine sources, so a
+// new engine code without a sentence fails the build instead of reaching a person as a shrug.
+var assistantFailureKeys = map[string]string{
+	"client.plan-stale":              "assistants.stale",
+	"client.murmur-entry-conflict":   "assistants.conflictChanged",
+	"client.wake-hook-conflict":      "assistants.conflictChanged",
+	"client.not-detected":            "assistants.notDetectedError",
+	"client.config-path-unverified":  "assistants.pathUnverified",
+	"client.config-file-invalid":     "assistants.configFileInvalid",
+	"client.config-parse-failed":     "assistants.configParseFailed",
+	"client.settings-parse-failed":   "assistants.settingsParseFailed",
+	"client.hooks-invalid":           "assistants.hooksInvalid",
+	"client.mcp-table-invalid":       "assistants.mcpTableInvalid",
+	"client.config-roundtrip-failed": "assistants.roundtripFailed",
+	"client.wake-drain-missing":      "assistants.wakeFileMissing",
+	"client.plan-invalid":            "assistants.planInvalid",
+	"client.result-invalid":          "assistants.resultInvalid",
+}
+
+// assistantFailure is one sentence with an action. An unknown stable code is named at the end;
+// a CLI that failed without a code is said to have failed, with the details in diagnostics.
 func assistantFailure(err error) string {
-	switch err.Error() {
-	case "client.plan-stale":
-		return tr("assistants.stale")
-	case "client.murmur-entry-conflict", "client.wake-hook-conflict":
-		return tr("assistants.conflictChanged")
-	case "client.not-detected":
-		return tr("assistants.notDetectedError")
-	case "client.config-path-unverified":
-		return tr("assistants.pathUnverified")
-	default:
-		return tr("assistants.failed")
+	if key, ok := assistantFailureKeys[err.Error()]; ok {
+		return tr(key)
 	}
+	if cliCrashed(err) {
+		return cliCrashText()
+	}
+	if code := failureCode(err); code != "" {
+		return tr("assistants.failed") + " " + codeSuffix(code)
+	}
+	return tr("assistants.failed")
+}
+
+// cliCrashText points at the menu path where the details are.
+func cliCrashText() string {
+	return tr("action.cliCrashed", menuPath("menu.doctor", "menu.copy"))
+}
+
+// menuPath names a tray menu item as a person finds it: "Service → Install".
+func menuPath(keys ...string) string {
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, strings.TrimRight(tr(key), "…"))
+	}
+	return strings.Join(parts, " → ")
 }
 
 func connectAssistants(s onboardingSteps, profile, identity string) []string {
@@ -99,8 +133,18 @@ func connectAssistants(s onboardingSteps, profile, identity string) []string {
 		}
 	}
 	out, err := s.cli("clients", "detect", "--data-dir", profile)
-	if err != nil || json.Unmarshal(out, &detected) != nil || detected.Schema != "murmur.clients/1" {
-		s.inform(tr("assistants.title"), tr("assistants.detectFailed"))
+	if err == nil && (json.Unmarshal(out, &detected) != nil || detected.Schema != "murmur.clients/1") {
+		err = errors.New("client.detect-invalid")
+	}
+	if err != nil {
+		s.reportFailure("assistants.detect", "", err)
+		message := tr("assistants.detectFailed")
+		if cliCrashed(err) {
+			message = cliCrashText()
+		} else if code := failureCode(err); code != "" {
+			message += " " + codeSuffix(code)
+		}
+		s.inform(tr("assistants.title"), message)
 		return nil
 	}
 	found := []string{}
@@ -140,6 +184,7 @@ func connectAssistants(s onboardingSteps, profile, identity string) []string {
 			if errors.Is(err, errOnboardingCancelled) {
 				s.inform(tr("assistants.title"), tr("assistants.kept", assistantNames[id]))
 			} else {
+				s.reportFailure("assistants.connect", id, err)
 				s.inform(tr("assistants.title"), tr("assistants.clientFailed", assistantNames[id], assistantFailure(err)))
 			}
 			continue

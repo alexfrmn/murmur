@@ -2,6 +2,17 @@ package main
 
 import "time"
 
+// Этапы doctor в порядке, заданном лейном. Значок держит их список сам, чтобы строки
+// меню существовали до первого успешного вызова и показывали «не проверялось».
+var doctorStages = []struct{ id, messageKey string }{
+	{"config", "doctor.config"},
+	{"daemon", "doctor.daemon"},
+	{"broker", "doctor.broker"},
+	{"peers", "doctor.peers"},
+	{"roundtrip", "doctor.roundtrip"},
+	{"wake", "doctor.wake"},
+}
+
 // stageLabel intentionally omits raw doctor details. Exact reasons remain in
 // copied diagnostics, while the menu stays readable and avoids identifiers and
 // internal paths.

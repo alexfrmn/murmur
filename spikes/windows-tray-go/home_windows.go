@@ -179,19 +179,18 @@ func (a *app) checkPeer(peer string) {
 	a.renderPeers()
 	defer func() { a.mu.Lock(); delete(a.peerChecking, peer); a.mu.Unlock(); a.refreshStatus() }()
 	b, err := selectedCLI()
-	key := "peer.checkFailed"
+	key := ""
 	if err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), doctorTimeout)
 		defer cancel()
 		cli := func(args ...string) ([]byte, error) { return runSetupCLI(ctx, b, b.arguments(args)[1:]...) }
-		result, checkErr := checkContact(cli, expected, peer)
-		if checkErr == nil {
-			key = result
-		}
+		key, err = checkContact(cli, expected, peer)
 	}
-	message := tr(key)
-	if key == "peer.checkTimeout" {
-		message = tr(key, contactTimeoutSeconds)
+	switch {
+	case err != nil:
+		a.recordFailure("peer.check", peer, err)
+	case key == "peer.checkTimeout":
+		a.recordFailure("peer.check", peer, &contactStageFailure{Stage: "roundtrip", Reason: "roundtrip.timeout"})
 	}
-	tell(tr("peer.check", plainPreview(peer, 80)), message)
+	tell(tr("peer.check", plainPreview(peer, 80)), contactCheckMessage(key, err))
 }

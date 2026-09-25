@@ -175,7 +175,8 @@ func invokeCLI(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, errors.New(tr("binding.outputLarge"))
 	}
 	if err != nil {
-		return nil, trError("binding.cliFailed", err, err)
+		failure := newCLIFailure(stderr.Bytes(), err, ctx.Err())
+		return nil, trError("binding.cliFailed", failure, failure)
 	}
 	return stdout.Bytes(), nil
 }
@@ -222,8 +223,8 @@ func setupBinding(profile string) (cliBinding, error) {
 	return b, nil
 }
 
-// runSetupCLI runs the CLI as the user and returns stdout, or the CLI's own error code (the one
-// line safeError writes to stderr) so a failed step names its reason.
+// runSetupCLI runs the CLI as the user and returns stdout, or a *cliFailure whose Error is the
+// CLI's own code (the line safeError writes last to stderr) so a failed step names its reason.
 func runSetupCLI(ctx context.Context, b cliBinding, args ...string) ([]byte, error) {
 	return runSetupCLIInput(ctx, b, "", args...)
 }
@@ -248,10 +249,7 @@ func runSetupCLIInput(ctx context.Context, b cliBinding, input string, args ...s
 	var stdout, stderr boundedOutput
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		if code := strings.TrimSpace(stderr.String()); code != "" && !strings.ContainsAny(code, "\r\n") {
-			return nil, errors.New(code)
-		}
-		return nil, err
+		return nil, newCLIFailure(stderr.Bytes(), err, ctx.Err())
 	}
 	return stdout.Bytes(), nil
 }

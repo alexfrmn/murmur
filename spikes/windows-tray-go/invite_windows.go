@@ -84,7 +84,7 @@ func (a *app) inviteColleague() {
 		err = createInviter(steps, input, profile)
 		cancel()
 		if err != nil {
-			a.inviteError("invite.createFailed", safeInviteCode(err))
+			a.inviteError("invite.createFailed", safeInviteCode(err), err)
 			return
 		}
 		expected = input.Name
@@ -122,9 +122,7 @@ func (a *app) inviteColleague() {
 		defer callCancel()
 		return runSetupCLI(callCtx, b, args...)
 	}, []string{"invite", "--out", inviteFile, "--data-dir", b.Profile, "--json"}, func(err error) (string, bool) {
-		a.mu.Lock()
-		a.actionErr = errors.New(safeInviteCode(err))
-		a.mu.Unlock()
+		a.recordFailure("invite", "", &codedError{safeInviteCode(err), err})
 		return showInvitePublicServer(a.copyDiagnostics)
 	})
 	if errors.Is(err, errOnboardingCancelled) {
@@ -135,10 +133,10 @@ func (a *app) inviteColleague() {
 		// Check for specific error codes with localized messages
 		switch {
 		case strings.Contains(errStr, "onboarding.invite-public-server-required"):
-			a.inviteError("invite.publicServerRequired", "onboarding.invite-public-server-required")
+			a.inviteError("invite.publicServerRequired", "onboarding.invite-public-server-required", err)
 		default:
 			// P2/R8: safe fallback without raw error in UI
-			a.inviteError("invite.failed", safeInviteCode(err))
+			a.inviteError("invite.failed", safeInviteCode(err), err)
 		}
 		return
 	}
@@ -198,9 +196,13 @@ func safeInviteCode(err error) string {
 
 var inviteDiagnosticCode = regexp.MustCompile(`^(?:(?:onboarding|service|system|config)\.[A-Za-z0-9_.:-]{1,140}|token-cleanup-failed|init-response-invalid|operation-failed|timeout|elevation-cancelled)$`)
 
-func (a *app) inviteError(key, code string) {
-	a.mu.Lock()
-	a.actionErr = errors.New(code)
-	a.mu.Unlock()
+// inviteError keeps the sanitized step code as the error; a CLI failure passed as cause adds its
+// code and masked stderr to diagnostics.
+func (a *app) inviteError(key, code string, cause ...error) {
+	var underlying error
+	if len(cause) > 0 {
+		underlying = cause[0]
+	}
+	a.recordFailure("invite", "", &codedError{code, underlying})
 	showInviteError(tr(key), a.copyDiagnostics)
 }

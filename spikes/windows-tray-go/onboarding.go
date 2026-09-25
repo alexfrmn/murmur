@@ -17,8 +17,15 @@ type onboardingSteps struct {
 	cliInput                 func(string, ...string) ([]byte, error)
 	confirm                  func(title, text string) bool
 	inform                   func(title, text string)
-	cli                      func(args ...string) ([]byte, error) // runs the bundle CLI as the user
-	elevated                 func(args ...string) error           // runs the bundle CLI after one UAC prompt
+	cli                      func(args ...string) ([]byte, error)   // runs the bundle CLI as the user
+	elevated                 func(args ...string) error             // runs the bundle CLI after one UAC prompt
+	failed                   func(action, target string, err error) // keeps a failure for diagnostics
+}
+
+func (s onboardingSteps) reportFailure(action, target string, err error) {
+	if s.failed != nil {
+		s.failed(action, target, err)
+	}
 }
 
 type onboardingResult struct {
@@ -57,6 +64,7 @@ func runOnboarding(s onboardingSteps, profile, agentID string) (onboardingResult
 	}
 	out, err := s.cliInput(line, "join", "--agent-id", agentID, "--invite-stdin", "--json", "--data-dir", profile)
 	if err != nil {
+		s.reportFailure("pairing.join", "", err)
 		return r, errors.New(pairingError(err, false))
 	}
 	r.Reply, err = joinReply(out, agentID)
@@ -67,6 +75,7 @@ func runOnboarding(s onboardingSteps, profile, agentID string) (onboardingResult
 
 	if s.confirm(tr("onboarding.title"), tr("onboarding.serviceAsk")) {
 		if err := s.elevated("service", "install", "--json", "--data-dir", profile); err != nil {
+			s.reportFailure("service.install", "", err)
 			s.inform(tr("onboarding.title"), tr("onboarding.serviceFailed", err))
 		} else {
 			r.ServiceInstalled = true

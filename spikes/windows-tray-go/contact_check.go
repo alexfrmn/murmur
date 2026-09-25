@@ -26,7 +26,7 @@ func checkContact(cli func(...string) ([]byte, error), identity, peer string) (s
 		}
 	}
 	if !found {
-		return "", errors.New("peer.not-selected")
+		return "", errContactNotSelected
 	}
 	out, err = cli("doctor", "--peer", peer, "--timeout", "10000", "--json")
 	if err != nil {
@@ -63,5 +63,94 @@ func parseContactCheck(out []byte, identity, peer string) (string, error) {
 			return "peer.checkTimeout", nil
 		}
 	}
+	// An earlier stage stopped the check: the engine names it in the stages and repeats its
+	// reason in peerCheck. Anything less consistent is not evidence of a cause.
+	for _, stage := range d.Stages {
+		if stage.State == "fail" {
+			if p.State == "failed" && p.Reason == stage.Reason && stage.Reason != "" {
+				return "", &contactStageFailure{Stage: stage.ID, Reason: stage.Reason}
+			}
+			break
+		}
+	}
 	return "", invalid
+}
+
+var errContactNotSelected = errors.New("peer.not-selected")
+
+// contactStageFailure is a Contact check that the doctor answered for this Identity and
+// Contact, stopped at Stage with the engine's Reason code.
+type contactStageFailure struct{ Stage, Reason string }
+
+func (e *contactStageFailure) Error() string { return e.Stage + ": " + e.Reason }
+
+// doctorReasonKeys turn a doctor reason code into a sentence with a tray action. The engine's
+// fixHint (a terminal command) stays in --json and diagnostics; a window never shows it.
+var doctorReasonKeys = map[string]string{
+	"config.missing":            "doctorReason.configMissing",
+	"config.file-invalid":       "doctorReason.configFile",
+	"config.owner-mismatch":     "doctorReason.configFile",
+	"config.identity-invalid":   "doctorReason.configInvalid",
+	"config.broker-url-invalid": "doctorReason.configInvalid",
+	"config.keys-invalid":       "doctorReason.configInvalid",
+	"config.peers-invalid":      "doctorReason.configInvalid",
+	"config.peer-invalid":       "doctorReason.configInvalid",
+	"daemon.not-running":        "doctorReason.serviceNotRunning",
+	"daemon.store-unverified":   "doctorReason.serviceUnverified",
+	"broker.unreachable":        "doctorReason.serverUnreachable",
+	"broker.unauthorized":       "doctorReason.serverUnauthorized",
+	"peers.unknown":             "doctorReason.contactUnknown",
+	"peers.none":                "doctorReason.noContacts",
+	"roundtrip.timeout":         "doctorReason.contactTimeout",
+	"database is locked":        "doctorReason.busy",
+}
+
+func doctorReasonText(reason string) string {
+	switch key := doctorReasonKeys[reason]; key {
+	case "":
+		return tr("doctorReason.unknown")
+	case "doctorReason.serviceNotRunning":
+		return tr(key, menuPath("menu.service", "menu.install"), menuPath("menu.service", "menu.start"))
+	case "doctorReason.serviceUnverified":
+		return tr(key, menuPath("menu.service", "menu.stop"), menuPath("menu.service", "menu.start"))
+	default:
+		return tr(key)
+	}
+}
+
+func doctorStageName(id string) string {
+	for _, stage := range doctorStages {
+		if stage.id == id {
+			return tr(stage.messageKey)
+		}
+	}
+	return tr("stage.unknown")
+}
+
+// contactCheckMessage is the window text for "Check connection with …": the result, or the
+// stage and the code that stopped the check.
+func contactCheckMessage(key string, err error) string {
+	if err == nil {
+		if key == "peer.checkTimeout" {
+			return tr(key, contactTimeoutSeconds)
+		}
+		return tr(key)
+	}
+	var stage *contactStageFailure
+	switch {
+	case errors.As(err, &stage):
+		code := stage.Reason
+		if !isCLICode(code) {
+			code = "doctor.reason-invalid"
+		}
+		return tr("peer.checkStageFailed", doctorStageName(stage.Stage), doctorReasonText(stage.Reason), code)
+	case errors.Is(err, errContactNotSelected):
+		return tr("peer.notSelected")
+	case cliCrashed(err):
+		return cliCrashText()
+	}
+	if code := failureCode(err); code != "" {
+		return tr("peer.checkFailed") + " " + codeSuffix(code)
+	}
+	return tr("peer.checkFailed")
 }
