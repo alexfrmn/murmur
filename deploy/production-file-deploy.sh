@@ -32,6 +32,12 @@ FILES=(
   "packages/core/dist/src/discovery.d.ts"
   "packages/core/dist/src/lease.js"
   "packages/core/dist/src/lease.d.ts"
+  "packages/core/src/subjects.ts"
+  "packages/core/dist/src/subjects.js"
+  "packages/core/dist/src/subjects.d.ts"
+  "packages/core/src/outbox-attention.ts"
+  "packages/core/dist/src/outbox-attention.js"
+  "packages/core/dist/src/outbox-attention.d.ts"
   "packages/broker-nats/package.json"
   "packages/broker-nats/tsconfig.json"
   "packages/broker-nats/src/index.ts"
@@ -48,6 +54,9 @@ FILES=(
   "packages/mcp-server/src/codex-routing.ts"
   "packages/mcp-server/dist/src/codex-routing.js"
   "packages/mcp-server/dist/src/codex-routing.d.ts"
+  "packages/mcp-server/src/agent-config.ts"
+  "packages/mcp-server/dist/src/agent-config.js"
+  "packages/mcp-server/dist/src/agent-config.d.ts"
   "packages/broker-ws/package.json"
   "packages/broker-ws/tsconfig.json"
   "packages/broker-ws/src/index.ts"
@@ -55,12 +64,22 @@ FILES=(
   "packages/broker-ws/dist/src/index.d.ts"
   "packages/security/package.json"
   "packages/observability/package.json"
+  "packages/observability/tsconfig.json"
+  "packages/observability/src/index.ts"
+  "packages/observability/dist/src/index.js"
+  "packages/observability/dist/src/index.d.ts"
   "packages/federation/package.json"
   "packages/federation-nats/package.json"
   "packages/bridge-murmur/package.json"
   "packages/bridge-openclaw/package.json"
   "packages/bridge-telegram/package.json"
   "scripts/murmur-daemon.mjs"
+  "scripts/ack-security.mjs"
+  "scripts/daemon-contacts.mjs"
+  "scripts/daemon-flush-tick.mjs"
+  "scripts/daemon-observation.mjs"
+  "scripts/doctor-protocol.mjs"
+  "scripts/wake-drain-claude.mjs"
   "scripts/murmur-jetstream-advisory.mjs"
   "scripts/codex-app-server-wake.mjs"
   "scripts/wake-monitor.mjs"
@@ -82,14 +101,16 @@ verify_local_imports() {
   for f in "${FILES[@]}"; do
     case "$f" in *.mjs|*.js) ;; *) continue ;; esac
     [ -f "$root/$f" ] || continue
+    # Both quote styles and parent-relative paths count: daemon-contacts.mjs imports
+    # '../packages/mcp-server/dist/src/agent-config.js' with single quotes, and the
+    # earlier pattern let that slip past the gate while the file was absent live.
     while IFS= read -r m; do
-      resolved="$(dirname "$f")/${m#./}"
-      resolved="${resolved#./}"
+      resolved="$(realpath -m --relative-to="$root" "$root/$(dirname "$f")/$m")"
       if ! printf '%s\n' "${FILES[@]}" | grep -qxF "$resolved"; then
         echo "DEPLOY ABORT: $f imports $m -> '$resolved' is not in the deploy allowlist" >&2
         missing=1
       fi
-    done < <(grep -ohE 'from "\./[^"]+"' "$root/$f" 2>/dev/null | grep -oE '\./[^"]+')
+    done < <(grep -ohE "from ['\"]\.\.?/[^'\"]+['\"]" "$root/$f" 2>/dev/null | grep -oE "\.\.?/[^'\"]+")
   done
   return $missing
 }
