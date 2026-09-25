@@ -76,6 +76,26 @@ test('a different Murmur wake hook is replaced only on request, and the .sh vari
   assert.doesNotMatch((await f.ourHooks())[0].command, /\.sh/);
 });
 
+test('an entry written by 2.11.0 (no timeout) makes the whole plan a replace, so apps ask once and upgrade it', async t => {
+  const f = await fixture(t);
+  await main(['init', '--agent-id', 'hook-upgrade', '--broker-url', 'nats://127.0.0.1:4222', '--data-dir', f.context.dataDir], { manager: 'none' });
+  // First configure with the current engine, then strip the timeout the way 2.11.0 wrote it.
+  await configureClient(f.context, f.adapter, 'claude-code');
+  const current = await f.settings();
+  for (const group of current.hooks.Stop) for (const hook of group.hooks) if (hook.command.includes('wake-drain-claude')) delete hook.timeout;
+  await fs.writeFile(f.settingsPath, JSON.stringify(current));
+  const plan = await previewClientConfiguration(f.context, f.adapter, 'claude-code');
+  assert.equal(plan.wakeHook.action, 'replace');
+  assert.equal(plan.action, 'replace', 'the MCP entry is unchanged, but the plan must still say replace for the Mac app to pass --replace');
+  await assert.rejects(configureClient(f.context, f.adapter, 'claude-code'), /client\.wake-hook-conflict/);
+  const upgraded = await configureClient(f.context, f.adapter, 'claude-code', true);
+  assert.equal(upgraded.changed, true); assert.equal(upgraded.wakeHook.action, 'replace');
+  const [hook] = await f.ourHooks();
+  assert.equal(hook.timeout, 28800);
+  const settled = await previewClientConfiguration(f.context, f.adapter, 'claude-code');
+  assert.equal(settled.action, 'unchanged'); assert.equal(settled.wakeHook.action, 'unchanged');
+});
+
 test('the confirmation plan covers the hook and goes stale when settings change', async t => {
   const f = await fixture(t);
   await main(['init', '--agent-id', 'hook-test', '--broker-url', 'nats://127.0.0.1:4222', '--data-dir', f.context.dataDir], { manager: 'none' });

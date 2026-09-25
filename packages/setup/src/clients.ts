@@ -111,8 +111,12 @@ type ClientFile = Awaited<ReturnType<typeof readClientFile>>;
 async function planFor(c: ServiceContext, client: ClientDetection & { configPath: string }, current: ClientFile, settings?: ClientFile) {
   const config = await loadConfig(c), { original, key } = clientDocument(client, current.text);
   const entry = desiredEntry(c), previous = original[key]?.murmur;
-  const action = isDeepStrictEqual(previous, entry) ? 'unchanged' : previous === undefined ? 'add' : 'replace';
+  const entryAction = isDeepStrictEqual(previous, entry) ? 'unchanged' : previous === undefined ? 'add' : 'replace';
   const wakeHook = settings && { settingsPath: claudeSettingsPath(client.configPath), action: planWakeHook(c, settings.text).action };
+  // The plan's action speaks for both files: an app that sees 'replace' asks the person and
+  // passes --replace, so a Stop hook written by an earlier version (no timeout, #273) is
+  // upgraded instead of failing with client.wake-hook-conflict while the MCP entry is unchanged.
+  const action = wakeHook?.action === 'replace' ? 'replace' : entryAction === 'unchanged' && wakeHook?.action === 'add' ? 'add' : entryAction;
   // Bind confirmation to the target, exact bytes and selected identity/runtime.
   // No existing commands, environment values, auth or config contents leave the engine.
   const planId = createHash('sha256').update(JSON.stringify([client.id, client.configPath, current,
