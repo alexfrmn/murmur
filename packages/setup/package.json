@@ -33,6 +33,7 @@
     "access": "public"
   },
   "description": "Murmur CLI — invite-based setup, background service, client configuration and diagnostics.",
+  "mcpName": "io.github.alexfrmn/murmur",
   "files": [
     "bin/murmur-npm.mjs",
     "runtime",
