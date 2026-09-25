@@ -1,6 +1,8 @@
-# Contributing to Mur-Mur
+# Contributing to Murmur
 
 Thanks for your interest in contributing! This guide will help you get started.
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Prerequisites
 
