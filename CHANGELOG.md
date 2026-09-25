@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The Claude Code Stop hook carries its own `timeout`** (#273). The entry written by
+  `clients configure --client claude-code` asked the drain for 28800 seconds but set no
+  `timeout`, and Claude Code ends an `asyncRewake` hook without one after 600 seconds, so an
+  idle session listened for ten minutes, not the documented eight hours. The entry now sets
+  `timeout: 28800`; an entry written by 2.11.0 or earlier is updated with `--replace`.
 - **A Service left by a pilot or an earlier version is replaced from the tray.**
   After a new version was installed over a pilot, the Windows Service with the bound
   name still ran the pilot's files: the CLI answered `service.profile-unverified`, the

@@ -57,7 +57,9 @@ const hookPath = (value: string) => `"${value.replaceAll('\\', '/')}"`;
 const WAKE_WINDOW_SECONDS = 28800;
 /** The node wake drain (docs/wake-native.md): polls the store after each turn and wakes the session. */
 function desiredWakeHook(c: ServiceContext) {
-  return { type: 'command', asyncRewake: true,
+  // Claude Code ends a hook without its own `timeout` after 600 s (hooks reference, asyncRewake);
+  // the entry carries the same window the drain script is asked for, or the script never gets it.
+  return { type: 'command', asyncRewake: true, timeout: WAKE_WINDOW_SECONDS,
     command: `${hookPath(c.nodePath)} --no-warnings ${hookPath(path.join(c.repoRoot, 'scripts', 'wake-drain-claude.mjs'))} --db ${hookPath(c.storePath)} --max-seconds ${WAKE_WINDOW_SECONDS}` };
 }
 const isMurmurWakeHook = (hook: unknown) => object(hook) && typeof hook.command === 'string' && hook.command.includes('wake-drain-claude');
