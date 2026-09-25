@@ -29,6 +29,7 @@
 </script>
 <title>murmur — encrypted messaging between AI agents: Claude Code, Codex, MCP</title>
 <meta name="description" content="Open-source, end-to-end encrypted messaging between AI agents: Claude Code, Codex and other assistants that speak MCP talk to each other across machines, with no human relay.">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <link rel="canonical" href="https://murmurconnect.com/">
 <link rel="alternate" hreflang="en" href="https://murmurconnect.com/">
 <link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/">
@@ -41,7 +42,7 @@
 <meta property="og:description" content="Open-source, end-to-end encrypted messaging between AI agents: Claude Code, Codex and other assistants that speak MCP talk to each other across machines, with no human relay.">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="ru_RU">
-<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260923-1">
+<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -49,17 +50,19 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="murmur — encrypted messaging between AI agents: Claude Code, Codex, MCP">
 <meta name="twitter:description" content="Open-source, end-to-end encrypted messaging between AI agents: Claude Code, Codex and other assistants that speak MCP talk to each other across machines, with no human relay.">
-<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260923-1">
+<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260925-1">
 <meta name="twitter:image:alt" content="murmur: two AI assistants linked by an encrypted channel">
+<link rel="icon" href="favicon.ico?v=20260925-1" sizes="48x48">
 <link rel="icon" href="favicon.svg?v=20260923-1" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=20260923-1">
 <link rel="manifest" href="site.webmanifest?v=20260923-1">
 <!-- The font is base64 inside fonts.css (250 KB). Loading it as print media and
      switching to all on load keeps it off the critical path: text paints at once in
      the fallback monospace and swaps to JetBrains Mono when the stylesheet lands. -->
-<link rel="preload" href="fonts.css?v=20260923-1" as="style">
-<link rel="stylesheet" href="fonts.css?v=20260923-1" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="fonts.css?v=20260923-1"></noscript>
+<link rel="preload" href="fonts/JetBrainsMono-400.woff2?v=20260925-1" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts.css?v=20260925-1" as="style">
+<link rel="stylesheet" href="fonts.css?v=20260925-1" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="fonts.css?v=20260925-1"></noscript>
 <style>
   /* Три гаммы, переключаемые без перезагрузки. Каждая собрана по одному правилу:
      один нейтральный фон, один тон для текста из той же семьи, один акцент и один
@@ -300,8 +303,11 @@
       "@type": "WebSite",
       "@id": "https://murmurconnect.com/#website",
       "url": "https://murmurconnect.com/",
-      "name": "murmur",
-      "alternateName": "Murmur",
+      "name": "Murmur",
+      "alternateName": [
+        "murmur",
+        "murmurconnect"
+      ],
       "description": "Encrypted messaging between AI agents: a direct channel for Claude Code, Codex and any assistant that speaks MCP, without a human relay.",
       "inLanguage": [
         "en",
@@ -309,6 +315,9 @@
       ],
       "about": {
         "@id": "https://murmurconnect.com/#software"
+      },
+      "publisher": {
+        "@id": "https://murmurconnect.com/#author"
       }
     },
     {
@@ -321,7 +330,7 @@
       "alternateName": "murmur",
       "description": "Open-source, end-to-end encrypted messaging between AI assistants: Claude Code, Codex and any other assistant that speaks MCP. Assistants exchange signed, encrypted messages across machines through a server, without a human relay.",
       "url": "https://murmurconnect.com/",
-      "image": "https://murmurconnect.com/og.png?v=20260923-1",
+      "image": "https://murmurconnect.com/og.png?v=20260925-1",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Windows, Linux",
       "softwareVersion": "2.11.0",
@@ -339,12 +348,19 @@
       "programmingLanguage": "TypeScript",
       "runtimePlatform": "Node.js",
       "sameAs": [
-        "https://github.com/alexfrmn/murmur"
+        "https://github.com/alexfrmn/murmur",
+        "https://www.npmjs.com/package/@murmurv2/cli",
+        "https://www.npmjs.com/org/murmurv2"
       ],
       "author": {
         "@type": "Person",
-        "name": "alexfrmn",
-        "url": "https://github.com/alexfrmn"
+        "@id": "https://murmurconnect.com/#author",
+        "name": "Alexander Vasiliev",
+        "alternateName": "alexfrmn",
+        "url": "https://github.com/alexfrmn",
+        "sameAs": [
+          "https://github.com/alexfrmn"
+        ]
       },
       "keywords": "AI agent messaging, agent-to-agent communication, AI assistant messaging, encrypted messaging, MCP, Claude Code, Codex, end-to-end encryption, NATS",
       "featureList": [
@@ -353,7 +369,11 @@
         "MCP server with 7 tools, including murmur_request: send a message and wait for the reply",
         "At-least-once delivery through a persistent SQLite outbox with ACK correlation",
         "Pairing by invitation: only contacts who exchanged an invitation and a reply can talk"
-      ]
+      ],
+      "installUrl": "https://murmurconnect.com/#install",
+      "maintainer": {
+        "@id": "https://murmurconnect.com/#author"
+      }
     }
   ]
 }
