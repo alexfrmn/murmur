@@ -54,6 +54,11 @@ service.
 | `spec.aclRead` | The permissions of the service launch file could not be read. | Run elevated and retry. |
 | `spec.insecure` | The service launch file is writable by accounts other than SYSTEM and Administrators; the helper refuses to run it. | Reinstall the service elevated; do not edit files under `%ProgramData%\Murmur` by hand. |
 | `acl.read` / `acl.build` | The helper could not read or set permissions on its data folder. | Run elevated and retry. |
+| `previous.own` | `service install --replace-previous` found this installation's own Service; nothing was changed. | Use `service start`, or `service uninstall` first to reinstall. |
+| `previous.notMurmur` | The Service with this name runs another program; nothing was changed. | Choose another `--service-name`; Murmur does not remove other programs' services. |
+| `previous.stopFailed` | The previous installation's Service did not stop; nothing was removed. | Retry elevated; if it repeats, stop it with `sc.exe stop <name>` and retry. |
+| `previous.deleteFailed` | Windows refused to remove the previous installation's Service. | Retry elevated. |
+| `previous.pending` | The previous Service is marked for removal but still registered, usually because the Services window is open. | Close the Services window or restart Windows, then retry. |
 | `error.language` | The helper was given an unsupported language option. | Use `en` or `ru`. |
 | `error.unknown` | The helper failed for a reason it has no key for. | Report the code, with the service log if one exists. |
 

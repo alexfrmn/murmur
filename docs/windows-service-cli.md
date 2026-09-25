@@ -33,6 +33,26 @@ commands before installing the service. `uninstall` removes the service and its
 helper metadata, retaining the private profile and logs. It is currently supported
 by the Windows adapter; other adapters return `service.uninstall-unavailable`.
 
+A Service with the same name may still be registered by another Murmur installation,
+for example a pilot unpacked into another folder or an earlier version. Status then
+reports `service.previous-installation` instead of the generic
+`service.profile-unverified`, and start, stop, uninstall and a plain install refuse it.
+One elevated command replaces it:
+
+```powershell
+node $Cli service install --replace-previous --data-dir $DataDir --json
+```
+
+The helper removes only a Service whose program is another `murmur-svc.exe`
+registered as `run <service name>`; it stops that Service, deletes it, waits until
+Windows has finished removing it, and the ordinary install follows in the same
+process. The profile, keys, messages and logs are not touched. A Service with this
+name that runs any other program is reported as `service.foreign-image` and is never
+changed. If the removed Service leaves a process holding the profile's database,
+install stops with `service.running-unmanaged`. The tray asks "Found a Service of a
+previous Murmur version — replace it?" and runs this command under one administrator
+consent. Other adapters return `service.replace-previous-unavailable`.
+
 The default private profile is `%LOCALAPPDATA%\Murmur`, separate from public
 SCM metadata in `%ProgramData%\Murmur`. Existing profiles are not moved. For an
 existing explicit profile continue passing `--data-dir`; a profile under or above
