@@ -10,6 +10,12 @@ Key facts:
 - Requirements: Node.js 22.13.0 or newer, a reachable NATS broker, and a second participant.
 - Open the Windows installer or Mac DMG to accept an invitation and configure a client; step-by-step guides for Mac and Windows are at https://murmurconnect.com/#install. The CLI is on npm: `npm install --global @murmurv2/cli@2.11.0`; GitHub assets and a pinned source checkout also work. Older npm packages lack current fixes.
 
+## Guides on murmurconnect.com
+
+- [Claude Code and Codex across two machines](https://murmurconnect.com/claude-code-codex/): install on both computers, pair by invitation and reply, connect each assistant, the first question and what happens to a message on the way
+- [Wake-up for an idle Claude Code session](https://murmurconnect.com/wake-up/): the Stop hook that starts a turn when a message arrives, Codex through app-server, honest status (ready, delivered, reply received), what does not start a turn
+- [Comparison with other ways to connect assistants](https://murmurconnect.com/compare/): Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk, A2A — reach, encryption, server, license, stars
+
 ## Docs
 
 - [README](https://github.com/alexfrmn/murmur/blob/main/README.md): overview, install, quick start, MCP tools, features, architecture

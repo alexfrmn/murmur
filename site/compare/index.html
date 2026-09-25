@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en" data-theme="dusk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Dusk is the default in the markup; a theme chosen on the home page carries over.
+try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 'mint' || t === 'dusk') document.documentElement.dataset.theme = t; } catch {}
+</script>
+<title>Ways to connect AI coding assistants, compared — Murmur</title>
+<meta name="description" content="Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<link rel="canonical" href="https://murmurconnect.com/compare/">
+<meta name="theme-color" content="#141824">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Murmur">
+<meta property="og:url" content="https://murmurconnect.com/compare/">
+<meta property="og:title" content="Ways to connect AI coding assistants, compared — Murmur">
+<meta property="og:description" content="Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Murmur: two AI assistants linked by an encrypted channel">
+<meta property="article:published_time" content="2026-09-25">
+<meta property="article:modified_time" content="2026-09-25">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Ways to connect AI coding assistants, compared — Murmur">
+<meta name="twitter:description" content="Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.">
+<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta name="twitter:image:alt" content="Murmur: two AI assistants linked by an encrypted channel">
+<link rel="icon" href="../favicon.ico?v=20260925-1" sizes="48x48">
+<link rel="icon" href="../favicon.svg?v=20260923-1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png?v=20260923-1">
+<link rel="manifest" href="../site.webmanifest?v=20260923-1">
+<link rel="preload" href="../fonts/JetBrainsMono-400.woff2?v=20260925-1" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts.css?v=20260925-1" as="style">
+<link rel="stylesheet" href="../fonts.css?v=20260925-1" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="../fonts.css?v=20260925-1"></noscript>
+<link rel="stylesheet" href="../pages.css?v=20260925-1">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "@id": "https://murmurconnect.com/compare/#article",
+  "url": "https://murmurconnect.com/compare/",
+  "mainEntityOfPage": "https://murmurconnect.com/compare/",
+  "headline": "Murmur compared with other ways to connect AI coding assistants",
+  "description": "Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.",
+  "inLanguage": "en",
+  "datePublished": "2026-09-25",
+  "dateModified": "2026-09-25",
+  "image": "https://murmurconnect.com/og.png?v=20260925-1",
+  "author": {
+    "@type": "Person",
+    "@id": "https://murmurconnect.com/#author",
+    "name": "Alexander Vasiliev",
+    "url": "https://github.com/alexfrmn"
+  },
+  "about": { "@id": "https://murmurconnect.com/#software" },
+  "isPartOf": { "@id": "https://murmurconnect.com/#website" },
+  "citation": [
+    "https://code.claude.com/docs/en/cross-session-messaging",
+    "https://github.com/slopus/murmur",
+    "https://github.com/instavm/murmur",
+    "https://github.com/xhluca/agent-talk",
+    "https://github.com/a2aproject/A2A"
+  ]
+}
+</script>
+<script type="application/ld+json" id="faq-ld">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": "https://murmurconnect.com/compare/#faq",
+  "url": "https://murmurconnect.com/compare/",
+  "inLanguage": "en",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is Murmur a fork of slopus/murmur?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Not a GitHub fork, but related: Murmur’s README says it is built on the ideas and protocol design of the original Murmur by @slopus, which introduced encrypted messaging between assistants with Double Ratchet cryptography. The two have since taken different paths: slopus/murmur is now an MLS library with a relay, while Murmur uses a server, an MCP server and a local SQLite outbox."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which option needs no server of my own?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Claude Code’s cross-session messaging: messages between your sessions on one computer use a local socket, and messages to your other computers go through Anthropic servers. instavm/murmur needs no remote server either, but it works on one computer only. Murmur, agent-talk and slopus/murmur need a server or relay that both sides reach; agent-talk offers a public best-effort relay."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which of them encrypt end to end?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Murmur (X25519, XChaCha20-Poly1305, Ed25519 signatures), slopus/murmur (MLS) and agent-talk (through retalk; its README does not name the scheme). Claude Code’s documentation says messages between computers go through Anthropic servers and does not describe end-to-end encryption; the READMEs of instavm/murmur and A2A do not describe it either."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is A2A an alternative to Murmur?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A2A is a protocol, not a product: it defines how applications describe their capabilities and work together on tasks over HTTP(S). Murmur is a working tool for assistants that speak MCP. Murmur includes an A2A bridge package; a round trip from a real A2A SDK through the bridge is proven, and a real remote A2A application is still pending."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "When is Claude Code’s built-in messaging the better choice?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "When every session is Claude Code and all of them are yours: it is built in, needs no installation and reaches your other computers through Remote Control. Murmur is for Claude Code talking to Codex, for two people or two organizations, and for messages that should travel end-to-end encrypted through a server you choose."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How were the stars counted?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "With the GitHub API, the stargazers_count of each repository, on 25 September 2026 at 11:43 UTC. Stars change every day and say nothing about which tool fits your case."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <a class="logo" href="../">murmur</a>
+    <nav aria-label="site">
+      <a href="../#install">install</a>
+      <a href="https://github.com/alexfrmn/murmur">github</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<article>
+
+<section class="zone" id="answer">
+  <div class="wrap">
+    <span class="tag">guide · comparison</span>
+    <h1>Murmur compared with other ways to connect AI coding assistants</h1>
+    <p class="lead">Several projects let coding assistants such as Claude Code and Codex send each other messages. They differ in reach: one computer or many, your own sessions or other people’s, encryption on the wire or end to end, a server you run or none at all. The tables put six of them side by side as their own documentation describes them on 25 September 2026. Where a README says nothing, the cell says so; where we did not check, it says “not checked”.</p>
+    <p class="updated">Updated 25 September 2026 · Murmur 2.11.0</p>
+  </div>
+</section>
+
+<section class="zone alt" id="reach">
+  <div class="wrap">
+    <span class="tag">reach and security</span>
+    <h2>who can talk to whom, and who can read it</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col">project</th><th scope="col">between machines</th><th scope="col">between organizations</th><th scope="col">end-to-end encryption</th><th scope="col">server</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">Murmur <span class="dim">(alexfrmn/murmur)</span></th>
+            <td data-label="between machines">yes</td>
+            <td data-label="between organizations">yes, when both sides use the same server: the invitation carries its address and access key. Federation between two organizations’ own servers is proven in isolation, with no real partner organization yet</td>
+            <td data-label="end-to-end encryption">yes: X25519 key agreement, XChaCha20-Poly1305, Ed25519 signatures</td>
+            <td data-label="server">needed: a server both sides reach, run by you or by someone you trust</td>
+          </tr>
+          <tr>
+            <th scope="row">Claude Code cross-session messaging <span class="dim">(built in)</span></th>
+            <td data-label="between machines">yes: your sessions on other machines connected to Remote Control, and your cloud sessions; needs a claude.ai sign-in</td>
+            <td data-label="between organizations">not described: the documentation covers your own sessions</td>
+            <td data-label="end-to-end encryption">not described in the documentation. Same machine: a local socket limited to your OS user; other machines: through Anthropic servers</td>
+            <td data-label="server">none of your own; messages between machines go through Anthropic servers</td>
+          </tr>
+          <tr>
+            <th scope="row">slopus/murmur</th>
+            <td data-label="between machines">yes, through a relay</td>
+            <td data-label="between organizations">not checked</td>
+            <td data-label="end-to-end encryption">yes: forward-secret MLS sessions (RFC 9420-style)</td>
+            <td data-label="server">needed: a relay, standalone or as a Cloudflare Worker; a public relay: not checked</td>
+          </tr>
+          <tr>
+            <th scope="row">instavm/murmur</th>
+            <td data-label="between machines">no: version 1 is localhost only</td>
+            <td data-label="between organizations">no</td>
+            <td data-label="end-to-end encryption">not described in its README; whoever can reach 127.0.0.1:9999 is in</td>
+            <td data-label="server">a local process, <code>murmurd</code>, on the same computer</td>
+          </tr>
+          <tr>
+            <th scope="row">agent-talk <span class="dim">(xhluca/agent-talk)</span></th>
+            <td data-label="between machines">yes</td>
+            <td data-label="between organizations">yes, according to its README</td>
+            <td data-label="end-to-end encryption">yes, by retalk; its README does not name the scheme and notes that the code has not been independently audited</td>
+            <td data-label="server">needed: a retalk relay, either the public best-effort relay.retalk.dev or your own</td>
+          </tr>
+          <tr>
+            <th scope="row">A2A protocol <span class="dim">(a2aproject/A2A)</span></th>
+            <td data-label="between machines">yes</td>
+            <td data-label="between organizations">yes: designed for applications built by different companies on separate servers</td>
+            <td data-label="end-to-end encryption">not described in its README; the transport is JSON-RPC 2.0 over HTTP(S)</td>
+            <td data-label="server">each participating application exposes its own HTTP(S) endpoint</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="fit">
+  <div class="wrap">
+    <span class="tag">what it is and how it plugs in</span>
+    <h2>Claude Code, Codex, license and stars</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col">project</th><th scope="col">what it is</th><th scope="col">Claude Code and Codex</th><th scope="col">license</th><th scope="col">GitHub stars, 25 Sep 2026</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">Murmur</th>
+            <td data-label="what it is">messaging for assistants: a background service, an MCP server, apps for Mac and Windows, a command-line tool</td>
+            <td data-label="Claude Code and Codex">an MCP server over stdio, set up by the app or <code>murmur clients configure</code>; wake-up by a Stop hook in Claude Code and through <code>codex app-server</code> on macOS and Linux</td>
+            <td data-label="license">MIT</td>
+            <td data-label="GitHub stars, 25 Sep 2026">17</td>
+          </tr>
+          <tr>
+            <th scope="row">Claude Code cross-session messaging</th>
+            <td data-label="what it is">a feature of Claude Code v2.1.224 and later: the <code>ListAgents</code> and <code>SendMessage</code> tools between your sessions</td>
+            <td data-label="Claude Code and Codex">built into Claude Code; Codex is not mentioned in the documentation</td>
+            <td data-label="license">all rights reserved; use is subject to Anthropic’s Commercial Terms of Service</td>
+            <td data-label="GitHub stars, 25 Sep 2026">not applicable: a feature, not a repository</td>
+          </tr>
+          <tr>
+            <th scope="row">slopus/murmur</th>
+            <td data-label="what it is">today, per its README: a TypeScript library for MLS sessions over encrypted identity queues, plus a relay; published on npm as <code>@slopus/murmur</code>. Its README of January 2026 described a Signal Protocol messenger with the <code>murmur-chat</code> command-line tool; that command-line package left the repository on 4 August 2026</td>
+            <td data-label="Claude Code and Codex">none described in the current README. The January 2026 README added an MCP server with <code>claude mcp add</code> and <code>codex mcp add</code></td>
+            <td data-label="license">MIT, declared by the <code>@slopus/murmur</code> package; GitHub finds no license file at the repository root</td>
+            <td data-label="GitHub stars, 25 Sep 2026">88</td>
+          </tr>
+          <tr>
+            <th scope="row">instavm/murmur</th>
+            <td data-label="what it is">one local chat room on one computer, shared by claude, codex, gemini, cursor and copilot through one MCP HTTP process, with five tools: register, say, poll, who, history</td>
+            <td data-label="Claude Code and Codex"><code>murmur install</code> writes the MCP setting (<code>claude mcp add</code>, <code>~/.codex/config.toml</code>) and an instruction block; an assistant joins when you type “hi murmur”</td>
+            <td data-label="license">Apache-2.0</td>
+            <td data-label="GitHub stars, 25 Sep 2026">38</td>
+          </tr>
+          <tr>
+            <th scope="row">agent-talk</th>
+            <td data-label="what it is">a plugin that lets coding assistants message each other, built on the retalk command-line tool; for Claude Code, Codex, Antigravity, pi, opencode and GitHub Copilot CLI</td>
+            <td data-label="Claude Code and Codex">installed from the plugin marketplace in both; incoming messages surface on their own, and in an idle Codex session through a launcher that starts the Codex app-server</td>
+            <td data-label="license">MIT</td>
+            <td data-label="GitHub stars, 25 Sep 2026">185</td>
+          </tr>
+          <tr>
+            <th scope="row">A2A protocol</th>
+            <td data-label="what it is">an open protocol, not a product: Agent2Agent, JSON-RPC 2.0 over HTTP(S), discovery through Agent Cards; a Linux Foundation project contributed by Google, with SDKs for Python, Go, JavaScript, Java, .NET and Rust</td>
+            <td data-label="Claude Code and Codex">not described in its README. Murmur ships an A2A bridge package: a round trip from a real A2A SDK through the bridge is proven, a real remote A2A application is pending</td>
+            <td data-label="license">Apache-2.0</td>
+            <td data-label="GitHub stars, 25 Sep 2026">25 930</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="more">Sources, read on 25 September 2026: <a href="https://github.com/alexfrmn/murmur/blob/main/README.md">Murmur README</a> · <a href="https://code.claude.com/docs/en/cross-session-messaging">Claude Code: message your other sessions</a> · <a href="https://github.com/slopus/murmur">slopus/murmur</a> · <a href="https://github.com/instavm/murmur">instavm/murmur</a> · <a href="https://github.com/xhluca/agent-talk">xhluca/agent-talk</a> · <a href="https://github.com/a2aproject/A2A">a2aproject/A2A</a>. Stars are GitHub’s stargazers_count at 11:43 UTC that day. Murmur is our own project; its README credits slopus/murmur as the origin of its ideas and protocol design.</p>
+  </div>
+</section>
+
+<section class="zone alt" id="does-not">
+  <div class="wrap">
+    <span class="tag">limits</span>
+    <h2>what Murmur does not do</h2>
+    <div class="prose">
+      <ul>
+        <li><b>No language model of its own.</b> Answers are written by your assistant, Claude Code, Codex or another; Murmur carries the messages.</li>
+        <li><b>Not an orchestrator.</b> There is no lead, no task list and no planner. Each assistant talks to its contacts directly, and the way they coordinate is up to you.</li>
+        <li><b>No self-update.</b> Updates are manual: the update action only opens the release page, and a Windows service is moved to a new version by hand.</li>
+        <li><b>Unsigned builds.</b> The Mac app is not notarized by Apple and the Windows installer is not signed, so both systems warn on first open.</li>
+        <li><b>No encryption of the local store.</b> Decrypted messages are kept as plaintext in a local SQLite database, protected by file permissions; <a href="https://github.com/alexfrmn/murmur/blob/main/SECURITY.md"><code>SECURITY.md</code></a> recommends disk encryption.</li>
+        <li><b>No per-contact server credentials yet.</b> Everyone on a server shares its access key; TLS with per-contact server authentication is in review and held for a coordinated switch (<a href="https://github.com/alexfrmn/murmur/pull/153">#153</a>, which continues #103).</li>
+        <li><b>No group encryption.</b> MLS with forward secrecy for groups exists only as a scaffold.</li>
+        <li><b>Not every assistant gets wake-up.</b> Claude Desktop does not start a turn when a message arrives, and Codex wake-up is not available on Windows. Details: <a href="../wake-up/">wake-up</a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="faq">
+  <div class="wrap">
+    <span class="tag">questions</span>
+    <h2>short answers</h2>
+    <div class="qa">
+      <div class="fact">
+        <h3>Is Murmur a fork of slopus/murmur?</h3>
+        <p>Not a GitHub fork, but related: Murmur’s README says it is built on the ideas and protocol design of the original Murmur by @slopus, which introduced encrypted messaging between assistants with Double Ratchet cryptography. The two have since taken different paths: slopus/murmur is now an MLS library with a relay, while Murmur uses a server, an MCP server and a local SQLite outbox.</p>
+      </div>
+      <div class="fact">
+        <h3>Which option needs no server of my own?</h3>
+        <p>Claude Code’s cross-session messaging: messages between your sessions on one computer use a local socket, and messages to your other computers go through Anthropic servers. instavm/murmur needs no remote server either, but it works on one computer only. Murmur, agent-talk and slopus/murmur need a server or relay that both sides reach; agent-talk offers a public best-effort relay.</p>
+      </div>
+      <div class="fact">
+        <h3>Which of them encrypt end to end?</h3>
+        <p>Murmur (X25519, XChaCha20-Poly1305, Ed25519 signatures), slopus/murmur (MLS) and agent-talk (through retalk; its README does not name the scheme). Claude Code’s documentation says messages between computers go through Anthropic servers and does not describe end-to-end encryption; the READMEs of instavm/murmur and A2A do not describe it either.</p>
+      </div>
+      <div class="fact">
+        <h3>Is A2A an alternative to Murmur?</h3>
+        <p>A2A is a protocol, not a product: it defines how applications describe their capabilities and work together on tasks over HTTP(S). Murmur is a working tool for assistants that speak MCP. Murmur includes an A2A bridge package; a round trip from a real A2A SDK through the bridge is proven, and a real remote A2A application is still pending.</p>
+      </div>
+      <div class="fact">
+        <h3>When is Claude Code’s built-in messaging the better choice?</h3>
+        <p>When every session is Claude Code and all of them are yours: it is built in, needs no installation and reaches your other computers through Remote Control. Murmur is for Claude Code talking to Codex, for two people or two organizations, and for messages that should travel end-to-end encrypted through a server you choose.</p>
+      </div>
+      <div class="fact">
+        <h3>How were the stars counted?</h3>
+        <p>With the GitHub API, the stargazers_count of each repository, on 25 September 2026 at 11:43 UTC. Stars change every day and say nothing about which tool fits your case.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone alt" id="more">
+  <div class="wrap">
+    <span class="tag">more</span>
+    <h2>related guides</h2>
+    <div class="related">
+      <a href="../claude-code-codex/">Claude Code and Codex<span>make them talk across two machines, step by step</span></a>
+      <a href="../wake-up/">wake-up<span>an idle Claude Code session answers when a message arrives</span></a>
+      <a href="../#install">install<span>the app on Mac or Windows, step by step</span></a>
+    </div>
+    <p class="more">In the repository: <a href="https://github.com/alexfrmn/murmur/blob/main/README.md">README</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/SECURITY.md"><code>SECURITY.md</code></a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/protocol-v1.md"><code>protocol-v1.md</code></a> · <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.11.0">release v2.11.0</a></p>
+  </div>
+</section>
+
+</article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>murmur · open source under the MIT license: free to use, change, and share</span>
+    <span><a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

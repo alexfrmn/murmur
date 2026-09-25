@@ -15,4 +15,16 @@
     <xhtml:link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/"/>
   </url>
+  <url>
+    <loc>https://murmurconnect.com/claude-code-codex/</loc>
+    <lastmod>2026-09-25</lastmod>
+  </url>
+  <url>
+    <loc>https://murmurconnect.com/wake-up/</loc>
+    <lastmod>2026-09-25</lastmod>
+  </url>
+  <url>
+    <loc>https://murmurconnect.com/compare/</loc>
+    <lastmod>2026-09-25</lastmod>
+  </url>
 </urlset>
