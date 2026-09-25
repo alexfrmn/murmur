@@ -111,3 +111,7 @@ The Mac and Windows apps can accept the invitation, save the reply and configure
 ## License
 
 MIT. Free to use, change and share. Copyright (c) 2026 alexfrmn.
+
+## Guides
+
+Three longer pages on murmurconnect.com go deeper than this summary: how Claude Code and Codex talk across two machines (https://murmurconnect.com/claude-code-codex/), how an idle Claude Code session wakes up when a message arrives and where wake-up stops (https://murmurconnect.com/wake-up/), and a comparison with Claude Code's built-in cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and the A2A protocol (https://murmurconnect.com/compare/). Each page states its date and the Murmur version it describes.

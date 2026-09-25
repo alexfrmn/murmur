@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en" data-theme="dusk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Dusk is the default in the markup; a theme chosen on the home page carries over.
+try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 'mint' || t === 'dusk') document.documentElement.dataset.theme = t; } catch {}
+</script>
+<title>How to make Claude Code and Codex talk across two machines — Murmur</title>
+<meta name="description" content="Connect Claude Code on one computer with Codex on another: pair once with an invitation, then messages travel signed and end-to-end encrypted through a server.">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<link rel="canonical" href="https://murmurconnect.com/claude-code-codex/">
+<meta name="theme-color" content="#141824">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Murmur">
+<meta property="og:url" content="https://murmurconnect.com/claude-code-codex/">
+<meta property="og:title" content="How to make Claude Code and Codex talk across two machines — Murmur">
+<meta property="og:description" content="Connect Claude Code on one computer with Codex on another: pair once with an invitation, then messages travel signed and end-to-end encrypted through a server.">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Murmur: two AI assistants linked by an encrypted channel">
+<meta property="article:published_time" content="2026-09-25">
+<meta property="article:modified_time" content="2026-09-25">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="How to make Claude Code and Codex talk across two machines — Murmur">
+<meta name="twitter:description" content="Connect Claude Code on one computer with Codex on another: pair once with an invitation, then messages travel signed and end-to-end encrypted through a server.">
+<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta name="twitter:image:alt" content="Murmur: two AI assistants linked by an encrypted channel">
+<link rel="icon" href="../favicon.ico?v=20260925-1" sizes="48x48">
+<link rel="icon" href="../favicon.svg?v=20260923-1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png?v=20260923-1">
+<link rel="manifest" href="../site.webmanifest?v=20260923-1">
+<link rel="preload" href="../fonts/JetBrainsMono-400.woff2?v=20260925-1" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts.css?v=20260925-1" as="style">
+<link rel="stylesheet" href="../fonts.css?v=20260925-1" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="../fonts.css?v=20260925-1"></noscript>
+<link rel="stylesheet" href="../pages.css?v=20260925-1">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "@id": "https://murmurconnect.com/claude-code-codex/#article",
+  "url": "https://murmurconnect.com/claude-code-codex/",
+  "mainEntityOfPage": "https://murmurconnect.com/claude-code-codex/",
+  "headline": "How to make Claude Code and Codex talk to each other across two machines",
+  "description": "Connect Claude Code on one computer with Codex on another: pair once with an invitation, then messages travel signed and end-to-end encrypted through a server.",
+  "inLanguage": "en",
+  "datePublished": "2026-09-25",
+  "dateModified": "2026-09-25",
+  "image": "https://murmurconnect.com/og.png?v=20260925-1",
+  "author": {
+    "@type": "Person",
+    "@id": "https://murmurconnect.com/#author",
+    "name": "Alexander Vasiliev",
+    "url": "https://github.com/alexfrmn"
+  },
+  "about": { "@id": "https://murmurconnect.com/#software" },
+  "isPartOf": { "@id": "https://murmurconnect.com/#website" },
+  "proficiencyLevel": "Beginner"
+}
+</script>
+<script type="application/ld+json" id="faq-ld">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": "https://murmurconnect.com/claude-code-codex/#faq",
+  "url": "https://murmurconnect.com/claude-code-codex/",
+  "inLanguage": "en",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Do both computers need Murmur?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Each computer runs its own Murmur service with its own identity and keys, and each assistant talks only to its local service. The two services exchange encrypted messages through a server; the assistants never connect to each other directly."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need my own server?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "You need a server that both computers reach at a public address. It can be run by someone you trust, who gives you access through an invitation, or by you: the repository includes a Docker Compose file for it. Murmur does not create an invitation with a private or loopback server address."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can the server read the messages?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Each message is encrypted on the sender’s computer with X25519 key agreement and XChaCha20-Poly1305 and signed with Ed25519; only the recipient’s service decrypts it. The server sees the addressing (sender, recipients, conversation ID, time) and the size of each message."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What happens if Codex is not running when the question arrives?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "While the contact’s Murmur service runs, it stores the message and returns a signed receipt, so your side reports it as delivered. The question waits until Codex next runs a turn, or until wake-up through the Codex app-server starts one on macOS or Linux. murmur_request waits up to 45 seconds, then returns awaiting_reply with the conversation ID; the later answer is read with murmur_inbox."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does it work on Windows?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The app, the service and the MCP server run on Windows, and Claude Code there gets the same Stop hook for wake-up. Wake-up for Codex is not available on Windows in 2.11, so Codex on Windows answers when it next runs a turn."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is this different from Claude Code’s cross-session messaging?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Claude Code’s built-in messaging connects your own Claude Code sessions, on one computer or, through Anthropic servers and Remote Control, on several. Murmur connects any assistant that speaks MCP, Codex included, between different people and organizations, through a server you choose, with end-to-end encryption."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <a class="logo" href="../">murmur</a>
+    <nav aria-label="site">
+      <a href="../#install">install</a>
+      <a href="https://github.com/alexfrmn/murmur">github</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<article>
+
+<section class="zone" id="answer">
+  <div class="wrap">
+    <span class="tag">guide · Claude Code and Codex</span>
+    <h1>How to make Claude Code and Codex talk to each other across two machines</h1>
+    <p class="lead">Install Murmur on both computers, pair them once with an invitation and a reply, and connect each assistant to its local Murmur MCP server. Claude Code on one machine then calls <code>murmur_request</code> to send Codex a question and wait for the answer; Codex on the other machine reads it with <code>murmur_inbox</code> and answers with <code>murmur_send</code>. Each message is signed and encrypted on the sender’s computer and decrypted only on the recipient’s; the server between them passes ciphertext. You need Node.js 22.13.0 or newer on both computers and a server both can reach.</p>
+    <p class="updated">Updated 25 September 2026 · Murmur 2.11.0</p>
+  </div>
+</section>
+
+<section class="zone alt" id="need">
+  <div class="wrap">
+    <span class="tag">before you start</span>
+    <h2>what you need</h2>
+    <div class="facts">
+      <div class="fact">
+        <h3>two computers</h3>
+        <p>macOS, Windows or Linux. The Murmur app runs on Mac and Windows; the command-line tools also run on Linux. Each computer gets its own identity. The second computer can be a colleague’s, in your company or another one, or your own second machine.</p>
+      </div>
+      <div class="fact">
+        <h3>Node.js 22.13.0 or newer</h3>
+        <p>On both computers, from nodejs.org. Every Murmur 2.11.0 download needs it: the service stores messages with the SQLite module built into Node.js, which works without a flag from 22.13.0.</p>
+      </div>
+      <div class="fact">
+        <h3>a server both computers reach</h3>
+        <p>The two Murmur services exchange messages through a server with a public address. Use one run by someone you trust, or start your own: the repository has a Docker Compose file for it. Murmur does not create an invitation with a private or loopback server address.</p>
+      </div>
+      <div class="fact">
+        <h3>an invitation and a reply</h3>
+        <p>An invitation is one line that starts with <code>MURMUR:</code>. It carries the server address and can carry its access key, so pass it like a password, in a private message. The other side answers with a reply line; after that you are contacts.</p>
+      </div>
+      <div class="fact">
+        <h3>Claude Code and Codex</h3>
+        <p>Claude Code on one computer and the Codex CLI on the other. The same steps connect Claude Desktop and Codex Desktop on macOS, and either assistant can sit on either side.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="steps">
+  <div class="wrap">
+    <span class="tag">step by step</span>
+    <h2>from an invitation to the first answer</h2>
+    <p class="lead">The app does steps 1–6 with buttons; each step also shows the command for a terminal. The home page walks through the app version in <a href="../#first-minutes">the first five minutes</a>. The commands below use the npm install; keep the same absolute identity folder for every command on a computer.</p>
+    <ol class="steps">
+      <li>
+        <h3>install Murmur on both computers</h3>
+        <p>On Mac or Windows, download the app from the <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.11.0">v2.11.0 release page</a> and follow the <a href="../#install">installation steps</a> on the home page. In a terminal, install the command-line tools from npm:</p>
+        <!--email_off--><pre><code>npm install --global @murmurv2/cli@2.11.0</code></pre><!--/email_off-->
+      </li>
+      <li>
+        <h3>create an identity and an invitation</h3>
+        <p>On the first computer, choose to invite a colleague in the app. In a terminal, create the identity once and write the invitation to a new private file:</p>
+        <pre><code>murmur init --agent-id alice --broker-url tls://server.example.com:4222 --token-file /absolute/private/server-token.txt --data-dir /absolute/murmur-identity
+murmur invite --out /absolute/private/invitation.txt --data-dir /absolute/murmur-identity</code></pre>
+        <p>Send the invitation in a private message. It can contain the server access key: never post it in a group chat or an issue.</p>
+      </li>
+      <li>
+        <h3>the other side accepts</h3>
+        <p>On the second computer, choose “I have an invitation” in the app and paste the line. Murmur creates that identity and returns a reply line. In a terminal:</p>
+        <pre><code>murmur join --agent-id bob --invite-stdin --data-dir /absolute/murmur-identity</code></pre>
+        <p>The reply goes back the same private way. It holds public keys only, not the server access key and not the private keys.</p>
+      </li>
+      <li>
+        <h3>import the reply</h3>
+        <p>Back on the first computer, paste the reply in the app, or run:</p>
+        <pre><code>murmur add-peer --reply-stdin --data-dir /absolute/murmur-identity</code></pre>
+        <p>Now you are contacts. Importing the reply proves only your own side; the other side is proven by a message that comes back in step 7.</p>
+      </li>
+      <li>
+        <h3>start the service on both computers</h3>
+        <p>The app starts it for you; on Windows, installing the service asks for administrator rights separately. In a terminal:</p>
+        <pre><code>murmur service install --data-dir /absolute/murmur-identity
+murmur service start --data-dir /absolute/murmur-identity</code></pre>
+        <p>The service carries messages in the background, also while the app window is closed.</p>
+      </li>
+      <li>
+        <h3>connect Claude Code and Codex</h3>
+        <p>In the app, choose your assistant. In a terminal, find the installed assistants and configure the one on this computer, then reload it:</p>
+        <pre><code>murmur clients detect --data-dir /absolute/murmur-identity
+# on the computer with Claude Code:
+murmur clients configure --client claude-code --data-dir /absolute/murmur-identity
+# on the computer with Codex:
+murmur clients configure --client codex-cli --data-dir /absolute/murmur-identity</code></pre>
+        <p>For Claude Code this adds the Murmur MCP server to <code>~/.claude.json</code> and a Stop hook for wake-up to <code>~/.claude/settings.json</code>. For Codex it adds the server to <code>~/.codex/config.toml</code>. Other settings stay as they were, and a backup of the old file is saved.</p>
+      </li>
+      <li>
+        <h3>check the channel</h3>
+        <p>From the first computer:</p>
+        <pre><code>murmur doctor --peer bob --timeout 60000 --json --data-dir /absolute/murmur-identity</code></pre>
+        <p>In 2.11 the contact’s service answers this signed, encrypted test by itself. A returned answer proves the channel in both directions; it does not test the assistant on the other side.</p>
+      </li>
+      <li>
+        <h3>ask the first question</h3>
+        <p>In Claude Code, ask in plain words, for example: “ask bob through Murmur to review the migration plan and reply”. Claude calls <code>murmur_request</code>, which sends the message and waits up to 45 seconds. On the other computer, Codex reads the question with <code>murmur_inbox</code> and answers with <code>murmur_send</code> in the same conversation. If Codex is idle and wake-up is not set up for it, the question waits until Codex next runs a turn, and the answer then arrives in Claude Code’s inbox.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="zone alt" id="claude-code">
+  <div class="wrap">
+    <span class="tag">in Claude Code</span>
+    <h2>tools for messages, a hook for wake-up</h2>
+    <div class="prose">
+      <p>After configuration, Claude Code sees the tools of the Murmur MCP server. You rarely name them: ask in plain words and Claude picks the tool.</p>
+    </div>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col">tool</th><th scope="col">what it does</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>murmur_request</code></th><td data-label="what it does">Sends an encrypted message and waits up to 45 seconds for the answer. A slower answer returns <code>awaiting_reply</code> with the conversation ID and the delivery state; the answer is then read with <code>murmur_inbox</code>, not by sending again.</td></tr>
+          <tr><th scope="row"><code>murmur_send</code></th><td data-label="what it does">Sends an encrypted message and returns as soon as it is queued.</td></tr>
+          <tr><th scope="row"><code>murmur_inbox</code></th><td data-label="what it does">Reads incoming messages that the service has verified, decrypted and stored.</td></tr>
+          <tr><th scope="row"><code>murmur_peers</code></th><td data-label="what it does">Lists your contacts and whether their keys are present.</td></tr>
+          <tr><th scope="row"><code>send_message</code>, <code>list_conversations</code>, <code>search_messages</code></th><td data-label="what it does">Work with the local conversation store: save a message, list conversations, search stored messages.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <p>The call Claude makes for a question looks like this:</p>
+      <pre><code>murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 45000)</code></pre>
+      <p>Only a message that the contact’s service has acknowledged is reported as delivered; queued and retrying messages stay pending.</p>
+      <p>The same configuration installs a Stop hook. When Claude Code has finished a turn and sits idle, a message from a contact starts a new turn by itself, for as long as the hook is allowed to listen after that turn: about ten minutes in 2.11.0, see the wake-up page. How it works and where it stops: <a href="../wake-up/">wake-up for an idle Claude Code session</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="codex">
+  <div class="wrap">
+    <span class="tag">in Codex</span>
+    <h2>the same tools, a different wake-up</h2>
+    <div class="prose">
+      <p>Codex gets the same MCP tools through its configuration file, <code>~/.codex/config.toml</code> (or the one under <code>CODEX_HOME</code>). It reads a question with <code>murmur_inbox</code> and answers with <code>murmur_send</code>, using the conversation ID of the incoming message, so the answer reaches the <code>murmur_request</code> that is waiting for it.</p>
+      <p>Codex has no Stop hook. On macOS and Linux, the Murmur service can start a turn in Codex through <code>codex app-server</code> over a Unix-domain socket. It is set up by hand in the identity’s configuration and is not part of <code>clients configure</code>. On Windows it is not available: Codex answers when it next runs a turn. Details are on the <a href="../wake-up/#codex">wake-up page</a>.</p>
+      <p>In Codex Desktop on macOS, Murmur can deliver an incoming message to the exact task that started the conversation. This is opt-in and described in <a href="https://github.com/alexfrmn/murmur/blob/main/docs/codex-desktop-queue-wake.md"><code>codex-desktop-queue-wake.md</code></a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="zone alt" id="on-the-way">
+  <div class="wrap">
+    <span class="tag">what happens on the way</span>
+    <h2>signed, encrypted, acknowledged</h2>
+    <ol class="steps">
+      <li><p>Claude Code calls <code>murmur_request</code>. The Murmur MCP server on your computer encrypts the text for the contact with X25519 key agreement and XChaCha20-Poly1305, signs the envelope with Ed25519 and puts it into a local SQLite outbox.</p></li>
+      <li><p>Your service publishes the encrypted envelope to the server. Until the envelope is acknowledged, the service retries it; a message that keeps failing lands in a dead-letter queue where you can see it, instead of disappearing.</p></li>
+      <li><p>The server passes the envelope to your contact’s service. It sees the addressing (sender, recipients, conversation ID, time) and the size. The text is ciphertext to it, and the private keys never leave the two computers.</p></li>
+      <li><p>The contact’s service checks the signature, decrypts the text and stores it, then returns a signed receipt bound to that message. Only this receipt makes your side report the message as delivered.</p></li>
+      <li><p>Codex reads the message and answers. The answer travels the same way back, and <code>murmur_request</code> hands it to Claude Code.</p></li>
+    </ol>
+    <p class="more">Both sides keep their own copy of the conversation in a local SQLite database. Decrypted text is stored there unencrypted and protected by file permissions, so <a href="https://github.com/alexfrmn/murmur/blob/main/SECURITY.md"><code>SECURITY.md</code></a> recommends disk encryption. The message format is specified in <a href="https://github.com/alexfrmn/murmur/blob/main/docs/protocol-v1.md"><code>protocol-v1.md</code></a>.</p>
+  </div>
+</section>
+
+<section class="zone" id="built-in">
+  <div class="wrap">
+    <span class="tag">Claude Code’s own messaging</span>
+    <h2>how this differs from cross-session messaging</h2>
+    <div class="prose">
+      <p>Since v2.1.224, Claude Code can list and message your other Claude Code sessions with its <code>ListAgents</code> and <code>SendMessage</code> tools (<a href="https://code.claude.com/docs/en/cross-session-messaging">Anthropic documentation</a>). Sessions on the same computer talk over a local socket. Your sessions on other computers, and your cloud sessions, are reached through Anthropic servers while the sessions are connected to Remote Control, which needs a claude.ai sign-in. An idle receiving session starts a new turn with the message.</p>
+    </div>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col"></th><th scope="col">Claude Code cross-session messaging</th><th scope="col">Murmur</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">connects</th><td data-label="Claude Code cross-session messaging">your own Claude Code sessions</td><td data-label="Murmur">assistants that speak MCP: Claude Code, Codex, Claude Desktop, Codex Desktop, others by hand</td></tr>
+          <tr><th scope="row">across computers</th><td data-label="Claude Code cross-session messaging">yes, your sessions connected to Remote Control, and cloud sessions</td><td data-label="Murmur">yes</td></tr>
+          <tr><th scope="row">across people and organizations</th><td data-label="Claude Code cross-session messaging">the documentation describes your own sessions only</td><td data-label="Murmur">yes: two people pair with an invitation and a reply</td></tr>
+          <tr><th scope="row">route between computers</th><td data-label="Claude Code cross-session messaging">Anthropic servers</td><td data-label="Murmur">a server you choose or run</td></tr>
+          <tr><th scope="row">encryption between computers</th><td data-label="Claude Code cross-session messaging">end-to-end encryption is not described in the documentation</td><td data-label="Murmur">end to end: X25519 and XChaCha20-Poly1305, Ed25519 signatures</td></tr>
+          <tr><th scope="row">setup</th><td data-label="Claude Code cross-session messaging">built in and on by default from v2.1.224 (v2.1.234 on native Windows)</td><td data-label="Murmur">install on both computers, a server, one pairing</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="more">If every session is Claude Code and all of them are yours, the built-in feature is the shorter path. Murmur is for the other cases: Claude Code talking to Codex, two people or two companies, or messages that should travel end-to-end encrypted through a server you choose. A wider comparison: <a href="../compare/">Murmur compared with other ways to connect assistants</a>.</p>
+  </div>
+</section>
+
+<section class="zone alt" id="faq">
+  <div class="wrap">
+    <span class="tag">questions</span>
+    <h2>short answers</h2>
+    <div class="qa">
+      <div class="fact">
+        <h3>Do both computers need Murmur?</h3>
+        <p>Yes. Each computer runs its own Murmur service with its own identity and keys, and each assistant talks only to its local service. The two services exchange encrypted messages through a server; the assistants never connect to each other directly.</p>
+      </div>
+      <div class="fact">
+        <h3>Do I need my own server?</h3>
+        <p>You need a server that both computers reach at a public address. It can be run by someone you trust, who gives you access through an invitation, or by you: the repository includes a Docker Compose file for it. Murmur does not create an invitation with a private or loopback server address.</p>
+      </div>
+      <div class="fact">
+        <h3>Can the server read the messages?</h3>
+        <p>No. Each message is encrypted on the sender’s computer with X25519 key agreement and XChaCha20-Poly1305 and signed with Ed25519; only the recipient’s service decrypts it. The server sees the addressing (sender, recipients, conversation ID, time) and the size of each message.</p>
+      </div>
+      <div class="fact">
+        <h3>What happens if Codex is not running when the question arrives?</h3>
+        <p>While the contact’s Murmur service runs, it stores the message and returns a signed receipt, so your side reports it as delivered. The question waits until Codex next runs a turn, or until wake-up through the Codex app-server starts one on macOS or Linux. murmur_request waits up to 45 seconds, then returns awaiting_reply with the conversation ID; the later answer is read with murmur_inbox.</p>
+      </div>
+      <div class="fact">
+        <h3>Does it work on Windows?</h3>
+        <p>Yes. The app, the service and the MCP server run on Windows, and Claude Code there gets the same Stop hook for wake-up. Wake-up for Codex is not available on Windows in 2.11, so Codex on Windows answers when it next runs a turn.</p>
+      </div>
+      <div class="fact">
+        <h3>How is this different from Claude Code’s cross-session messaging?</h3>
+        <p>Claude Code’s built-in messaging connects your own Claude Code sessions, on one computer or, through Anthropic servers and Remote Control, on several. Murmur connects any assistant that speaks MCP, Codex included, between different people and organizations, through a server you choose, with end-to-end encryption.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="more">
+  <div class="wrap">
+    <span class="tag">more</span>
+    <h2>related guides</h2>
+    <div class="related">
+      <a href="../wake-up/">wake-up<span>an idle Claude Code session answers when a message arrives</span></a>
+      <a href="../compare/">compared<span>Murmur next to other ways to connect coding assistants</span></a>
+      <a href="../#install">install<span>the app on Mac or Windows, step by step</span></a>
+    </div>
+    <p class="more">In the repository: <a href="https://github.com/alexfrmn/murmur/blob/main/README.md#quick-start">README quick start</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md"><code>setup-onboarding.md</code></a> · <a href="https://github.com/alexfrmn/murmur/blob/main/packages/setup/README.md">CLI guide</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/wake-native.md"><code>wake-native.md</code></a> · <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.11.0">release v2.11.0</a></p>
+  </div>
+</section>
+
+</article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>murmur · open source under the MIT license: free to use, change, and share</span>
+    <span><a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
