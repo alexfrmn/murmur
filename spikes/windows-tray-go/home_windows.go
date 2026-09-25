@@ -65,6 +65,9 @@ func (a *app) performHomeAction(action string) {
 		a.refreshAssistantState()
 	case "install":
 		a.runCLI("service", "install")
+	case "replace", "foreign":
+		// The Service request asks before a replacement and refuses another program's Service.
+		a.runCLI("service", "replace")
 	case "start":
 		a.runCLI("service", "start")
 	case "messages":

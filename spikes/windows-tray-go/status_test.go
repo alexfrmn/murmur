@@ -240,3 +240,16 @@ func TestPauseConfiguredButNotEffective(t *testing.T) {
 		t.Errorf("нужное действие должно быть названо: %v", v.History)
 	}
 }
+
+// The colour rule is shared across implementations, so the code stays service.unknown; the
+// words tell a previous installation's Service and another program's name apart.
+func TestPreviousInstallationServiceKeepsSharedCode(t *testing.T) {
+	for detail, key := range map[string]string{"service.previous-installation": "status.servicePrevious", "service.foreign-image": "status.serviceForeign", "service.profile-unverified": "status.serviceUnknown"} {
+		s := load(t, "status-green.json")
+		s.Service.State, s.Service.Detail = "unknown", detail
+		v := resolve(s, nil)
+		if v.Level != LevelGrey || v.Code != "service.unknown" || v.Reason != tr(key) {
+			t.Fatalf("%s: %+v", detail, v)
+		}
+	}
+}

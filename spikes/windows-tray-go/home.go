@@ -35,6 +35,12 @@ func homeRows(s *Status, statusErr error, assistant string) ([5]homeRow, homeRow
 	if (s.Service.Manager == "none" || s.Service.Detail == "service.not-installed") && s.Service.State == "stopped" {
 		rows[1] = homeRow{tr("home.serviceMissing"), "install"}
 	}
+	switch serviceOrigin(s) {
+	case serviceOriginPrevious:
+		rows[1] = homeRow{tr("home.servicePrevious"), "replace"}
+	case serviceOriginForeign:
+		rows[1] = homeRow{tr("home.serviceForeign"), "foreign"}
+	}
 	if s.Broker.State == "connected" {
 		rows[2] = homeRow{tr("home.serverReady"), "check"}
 	}
@@ -52,6 +58,8 @@ func homeRows(s *Status, statusErr error, assistant string) ([5]homeRow, homeRow
 		rows[4] = homeRow{tr("home.assistantMissing"), "assistant"}
 	}
 	switch {
+	case rows[1].Action == "replace":
+		next = homeRow{tr("home.nextReplace"), "replace"}
 	case rows[1].Action == "install":
 		next = homeRow{tr("home.nextInstall"), "install"}
 	case rows[1].Action == "start":

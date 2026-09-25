@@ -308,6 +308,13 @@ func resolve(s *Status, err error) Verdict {
 	case "stopped":
 		return out(LevelGrey, "service.stopped", tr("status.serviceStopped"))
 	case "unknown", "":
+		// Same code for every implementation; only the words name what the person can do.
+		switch serviceOrigin(s) {
+		case serviceOriginPrevious:
+			return out(LevelGrey, "service.unknown", tr("status.servicePrevious"))
+		case serviceOriginForeign:
+			return out(LevelGrey, "service.unknown", tr("status.serviceForeign"))
+		}
 		return out(LevelGrey, "service.unknown", tr("status.serviceUnknown"))
 	case "failed":
 		return out(LevelRed, "service.failed", tr("status.serviceFailed"))
