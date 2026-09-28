@@ -1,6 +1,6 @@
 {
   "name": "@murmurv2/cli",
-  "version": "2.11.0",
+  "version": "2.12.0",
   "type": "module",
   "main": "runtime/packages/setup/dist/src/index.js",
   "types": "runtime/packages/setup/dist/src/index.d.ts",

@@ -143,7 +143,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
     <span class="tag">guide · Claude Code and Codex</span>
     <h1>How to make Claude Code and Codex talk to each other across two machines</h1>
     <p class="lead">Install Murmur on both computers, pair them once with an invitation and a reply, and connect each assistant to its local Murmur MCP server. Claude Code on one machine then calls <code>murmur_request</code> to send Codex a question and wait for the answer; Codex on the other machine reads it with <code>murmur_inbox</code> and answers with <code>murmur_send</code>. Each message is signed and encrypted on the sender’s computer and decrypted only on the recipient’s; the server between them passes ciphertext. You need Node.js 22.13.0 or newer on both computers and a server both can reach.</p>
-    <p class="updated">Updated 25 September 2026 · Murmur 2.11.0</p>
+    <p class="updated">Updated 28 September 2026 · Murmur 2.12.0</p>
   </div>
 </section>
 
@@ -158,7 +158,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
       </div>
       <div class="fact">
         <h3>Node.js 22.13.0 or newer</h3>
-        <p>On both computers, from nodejs.org. Every Murmur 2.11.0 download needs it: the service stores messages with the SQLite module built into Node.js, which works without a flag from 22.13.0.</p>
+        <p>On both computers, from nodejs.org. Every Murmur 2.12.0 download needs it: the service stores messages with the SQLite module built into Node.js, which works without a flag from 22.13.0.</p>
       </div>
       <div class="fact">
         <h3>a server both computers reach</h3>
@@ -184,8 +184,8 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
     <ol class="steps">
       <li>
         <h3>install Murmur on both computers</h3>
-        <p>On Mac or Windows, download the app from the <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.11.0">v2.11.0 release page</a> and follow the <a href="../#install">installation steps</a> on the home page. In a terminal, install the command-line tools from npm:</p>
-        <!--email_off--><pre><code>npm install --global @murmurv2/cli@2.11.0</code></pre><!--/email_off-->
+        <p>On Mac or Windows, download the app from the <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.12.0">v2.12.0 release page</a> and follow the <a href="../#install">installation steps</a> on the home page. In a terminal, install the command-line tools from npm:</p>
+        <!--email_off--><pre><code>npm install --global @murmurv2/cli@2.12.0</code></pre><!--/email_off-->
       </li>
       <li>
         <h3>create an identity and an invitation</h3>
@@ -260,7 +260,7 @@ murmur clients configure --client codex-cli --data-dir /absolute/murmur-identity
       <p>The call Claude makes for a question looks like this:</p>
       <pre><code>murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 45000)</code></pre>
       <p>Only a message that the contact’s service has acknowledged is reported as delivered; queued and retrying messages stay pending.</p>
-      <p>The same configuration installs a Stop hook. When Claude Code has finished a turn and sits idle, a message from a contact starts a new turn by itself, for as long as the hook is allowed to listen after that turn: about ten minutes in 2.11.0, see the wake-up page. How it works and where it stops: <a href="../wake-up/">wake-up for an idle Claude Code session</a>.</p>
+      <p>The same configuration installs a Stop hook. When Claude Code has finished a turn and sits idle, a message from a contact starts a new turn by itself, for as long as the hook is allowed to listen after that turn: eight hours from 2.12.0 (about ten minutes in 2.11.0), see the wake-up page. How it works and where it stops: <a href="../wake-up/">wake-up for an idle Claude Code session</a>.</p>
     </div>
   </div>
 </section>
@@ -358,7 +358,7 @@ murmur clients configure --client codex-cli --data-dir /absolute/murmur-identity
       <a href="../compare/">compared<span>Murmur next to other ways to connect coding assistants</span></a>
       <a href="../#install">install<span>the app on Mac or Windows, step by step</span></a>
     </div>
-    <p class="more">In the repository: <a href="https://github.com/alexfrmn/murmur/blob/main/README.md#quick-start">README quick start</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md"><code>setup-onboarding.md</code></a> · <a href="https://github.com/alexfrmn/murmur/blob/main/packages/setup/README.md">CLI guide</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/wake-native.md"><code>wake-native.md</code></a> · <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.11.0">release v2.11.0</a></p>
+    <p class="more">In the repository: <a href="https://github.com/alexfrmn/murmur/blob/main/README.md#quick-start">README quick start</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md"><code>setup-onboarding.md</code></a> · <a href="https://github.com/alexfrmn/murmur/blob/main/packages/setup/README.md">CLI guide</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/wake-native.md"><code>wake-native.md</code></a> · <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.12.0">release v2.12.0</a></p>
   </div>
 </section>
 

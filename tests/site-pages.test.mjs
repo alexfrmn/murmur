@@ -87,7 +87,7 @@ for (const dir of PAGES) {
     assert.match(html, /<link rel="icon" href="\.\.\/favicon\.ico\?v=[^"]+" sizes="48x48">/);
     assert.match(html, /<link rel="icon" href="\.\.\/favicon\.svg\?v=[^"]+" type="image\/svg\+xml">/);
     assert.match(html, /<link rel="stylesheet" href="\.\.\/pages\.css\?v=[^"]+">/);
-    assert.match(body(html), /Updated 25 September 2026 · Murmur 2\.11\.0/);
+    assert.match(body(html), /Updated 28 September 2026 · Murmur 2\.12\.0/);
     assert.deepEqual(html.match(/<script[^>]+\ssrc=/g) || [], [], "no external scripts");
     assert.deepEqual(html.match(/<img\b/g) || [], [], "no images or placeholder screenshots");
     for (const href of ["../", "../#install", "https://github.com/alexfrmn/murmur", ...PAGES.filter((p) => p !== dir).map((p) => `../${p}/`)]) {

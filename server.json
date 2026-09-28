@@ -8,12 +8,12 @@
     "url": "https://github.com/alexfrmn/murmur",
     "source": "github"
   },
-  "version": "2.11.0",
+  "version": "2.12.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@murmurv2/cli",
-      "version": "2.11.0",
+      "version": "2.12.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

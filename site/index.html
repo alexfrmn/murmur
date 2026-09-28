@@ -333,10 +333,10 @@
       "image": "https://murmurconnect.com/og.png?v=20260925-1",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Windows, Linux",
-      "softwareVersion": "2.11.0",
+      "softwareVersion": "2.12.0",
       "softwareRequirements": "Node.js 22.13.0 or newer",
-      "downloadUrl": "https://github.com/alexfrmn/murmur/releases/tag/v2.11.0",
-      "releaseNotes": "https://github.com/alexfrmn/murmur/releases/tag/v2.11.0",
+      "downloadUrl": "https://github.com/alexfrmn/murmur/releases/tag/v2.12.0",
+      "releaseNotes": "https://github.com/alexfrmn/murmur/releases/tag/v2.12.0",
       "license": "https://opensource.org/licenses/MIT",
       "isAccessibleForFree": true,
       "offers": {
@@ -431,7 +431,7 @@
       "name": "how do I install it?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.11.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately."
+        "text": "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.12.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately."
       }
     }
   ]
@@ -538,7 +538,7 @@
   <div class="wrap">
     <span class="tag" data-i18n="warningTag">before you download</span>
     <h2><span data-i18n="warningTitle1">unsigned builds</span><br><span data-i18n="warningTitle2">trigger a first-open warning</span></h2>
-    <p class="lead" data-i18n="warningLead">v2.11.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.</p>
+    <p class="lead" data-i18n="warningLead">v2.12.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.</p>
 
     <div class="notice-grid">
       <article class="notice">
@@ -558,7 +558,7 @@
       </article>
     </div>
 
-    <p class="after"><a href="https://github.com/alexfrmn/murmur/releases/tag/v2.11.0" data-i18n="releaseLink">open the v2.11.0 release page</a><span data-i18n="releaseAssets">: choose `Murmur-2.11.0-windows-x64-setup.exe` for the Windows app, `Murmur-Mac-2.11.0-universal.dmg` for macOS, `Murmur-Windows-2.11.0-x64.zip` for portable Windows use, or `murmur-runtime-2.11.0.zip` for the command line, the service and the MCP server. GitHub’s generated Source code archives are not prebuilt packages.</span></p>
+    <p class="after"><a href="https://github.com/alexfrmn/murmur/releases/tag/v2.12.0" data-i18n="releaseLink">open the v2.12.0 release page</a><span data-i18n="releaseAssets">: choose `Murmur-2.12.0-windows-x64-setup.exe` for the Windows app, `Murmur-Mac-2.12.0-universal.dmg` for macOS, `Murmur-Windows-2.12.0-x64.zip` for portable Windows use, or `murmur-runtime-2.12.0.zip` for the command line, the service and the MCP server. GitHub’s generated Source code archives are not prebuilt packages.</span></p>
     <p class="after"><span data-i18n="manualUpdatePrefix">Murmur does not update itself. Existing Windows service users must follow the</span>
        <a href="https://github.com/alexfrmn/murmur/blob/main/apps/windows-tray/packaging/README-Windows.md#manual-upgrade-from-290-to-2100" data-i18n="windowsUpgradeLink">manual upgrade steps</a><span data-i18n="manualUpdateSuffix">: the old CLI uninstalls the service before the new CLI installs it with the same identity and service name. Do not run init or join again. Reconnect each configured assistant with the new CLI and --replace, reload it, and confirm a returned message before removing the old bundle. The linked guide includes this step; the original 2.10.0 ZIP omits it. For other assets, follow the packaged instructions before replacing or starting Murmur.</span></p>
   </div>
@@ -673,7 +673,7 @@
     <span class="tag" data-i18n="installTag">install from the terminal</span>
     <h2><span data-i18n="installTitle1">hand this</span><br><span data-i18n="installTitle2">to your assistant</span></h2>
     <p class="lead" data-i18n="installLead">if you work in a terminal, give your assistant the prompt below: it installs Murmur and completes pairing step by step. you need an invitation, or a server address with an access key, and a colleague to pair with. the command-line tools are also on npm:</p>
-    <p class="after"><!--email_off--><code>npm install --global @murmurv2/cli@2.11.0</code><!--/email_off--></p>
+    <p class="after"><!--email_off--><code>npm install --global @murmurv2/cli@2.12.0</code><!--/email_off--></p>
 
     <div class="promptbox">
       <div class="head">
@@ -695,13 +695,13 @@ Do everything yourself in the terminal and tell me when it is ready.
    write one identity while the assistant reads another. Nothing will report an
    error; you will just get silence and an empty contact list.
 2. Install the CLI from npm:
-   npm install --global @murmurv2/cli@2.11.0
+   npm install --global @murmurv2/cli@2.12.0
    For this npm path, replace every node packages/setup/bin/murmur.mjs below
    with murmur. In PowerShell use npm.cmd and murmur.cmd if policy blocks shims.
    If you prefer to build from source, clone and build instead:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
-   git checkout --detach v2.11.0
+   git checkout --detach v2.12.0
    npm ci
    npm run build
    In PowerShell, run these as separate lines; it does not support &amp;&amp; here.
@@ -751,7 +751,7 @@ Desktop and Codex on Windows do not start an assistant turn on an incoming messa
        <span data-i18n="inviteBody">the invitation contains the server address and token. anyone who gets it can connect to the server. send it only to someone you trust, through a private channel — never in a public chat.</span></p>
 
     <p class="after"><span data-i18n="manualPrefix">if you prefer to do it by hand, the same steps are in the</span>
-       <a href="https://github.com/alexfrmn/murmur/blob/v2.11.0/docs/setup-onboarding.md" data-i18n="manualLink">canonical onboarding guide</a>.</p>
+       <a href="https://github.com/alexfrmn/murmur/blob/v2.12.0/docs/setup-onboarding.md" data-i18n="manualLink">canonical onboarding guide</a>.</p>
   </div>
 </section>
 
@@ -814,7 +814,7 @@ Desktop and Codex on Windows do not start an assistant turn on an incoming messa
       </div>
       <div class="fact">
         <h3 data-i18n="faq6q">how do I install it?</h3>
-        <!--email_off--><p data-i18n="faq6a">download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.11.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.</p><!--/email_off-->
+        <!--email_off--><p data-i18n="faq6a">download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.12.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.</p><!--/email_off-->
       </div>
     </div>
   </div>
@@ -905,7 +905,7 @@ const I18N = {
     minute5Title: "ask a live question",
     minute5Body: "ask your assistant, for example: “ask Anna’s assistant through Murmur what she is working on right now”. the question goes to your colleague’s assistant, and the answer comes back to yours. if wake-up is on for their assistant, it answers by itself; if not, it answers when your colleague next opens it.",
     warningTag: 'before you download', warningTitle1: 'unsigned builds', warningTitle2: 'trigger a first-open warning',
-    warningLead: "v2.11.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.",
+    warningLead: "v2.12.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.",
     macWarningTitle: 'macOS: use Finder’s Open command',
     macTested: 'tested on macOS 26.6.2 with Safari and the GitHub DMG',
     macDialog: 'The observed dialog was in Russian. Translation, not exact English system wording: “The file ‘Murmur’ was not opened.” Apple says it could not verify that the file is free of malware that may harm your Mac or your privacy.',
@@ -916,8 +916,8 @@ const I18N = {
     winDialog: 'Exact observed dialog: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
     winSteps: 'Choose Run only if this is the artifact you intended to open. It worked in this test with quarantine retained and without changing security settings.',
     winScope: 'This result is limited to the tested Windows 10 path. An unsigned publisher warning is not a safety check.',
-    releaseLink: "open the v2.11.0 release page",
-    releaseAssets: ": choose `Murmur-2.11.0-windows-x64-setup.exe` for the Windows app, `Murmur-Mac-2.11.0-universal.dmg` for macOS, `Murmur-Windows-2.11.0-x64.zip` for portable Windows use, or `murmur-runtime-2.11.0.zip` for the command line, the service and the MCP server. GitHub’s generated Source code archives are not prebuilt packages.",
+    releaseLink: "open the v2.12.0 release page",
+    releaseAssets: ": choose `Murmur-2.12.0-windows-x64-setup.exe` for the Windows app, `Murmur-Mac-2.12.0-universal.dmg` for macOS, `Murmur-Windows-2.12.0-x64.zip` for portable Windows use, or `murmur-runtime-2.12.0.zip` for the command line, the service and the MCP server. GitHub’s generated Source code archives are not prebuilt packages.",
     manualUpdatePrefix: 'Murmur does not update itself. Existing Windows service users must follow the',
     windowsUpgradeLink: 'manual upgrade steps',
     manualUpdateSuffix: ': the old CLI uninstalls the service before the new CLI installs it with the same identity and service name. Do not run init or join again. Reconnect each configured assistant with the new CLI and --replace, reload it, and confirm a returned message before removing the old bundle. The linked guide includes this step; the original 2.10.0 ZIP omits it. For other assets, follow the packaged instructions before replacing or starting Murmur.',
@@ -955,7 +955,7 @@ const I18N = {
     faq5q: 'is it free and open source?',
     faq5a: 'yes. murmur is open source under the MIT license: free to use, change, and share. the code, releases and documentation are on GitHub at github.com/alexfrmn/murmur.',
     faq6q: 'how do I install it?',
-    faq6a: "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.11.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.",
+    faq6a: "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.12.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.",
     schemaBoxes: [
       { x: 40,  w: 190, t: 'your assistant', s: 'claude · codex · yours' },
       { x: 290, w: 160, t: 'service',    s: 'encrypts' },
@@ -1045,7 +1045,7 @@ const I18N = {
     minute5Title: "задайте живой вопрос",
     minute5Body: "попросите своего помощника, например: «спроси через Murmur у помощника Анны, над чем она сейчас работает». вопрос уйдёт помощнику коллеги, а ответ вернётся к вашему. если у помощника коллеги включено пробуждение, он ответит сам; если нет — когда коллега его откроет.",
     warningTag: 'перед загрузкой', warningTitle1: 'неподписанная сборка', warningTitle2: 'вызовет предупреждение при первом запуске',
-    warningLead: "v2.11.0 включает установщик Windows, ZIP для Windows, DMG для macOS и ZIP с инструментами командной строки. для всех нужен внешний Node.js 22.13.0 или новее. наблюдения о первом запуске ниже сделаны до 2.11 и относятся только к указанным ОС, браузеру и артефакту; предупреждение не доказывает безопасность файла.",
+    warningLead: "v2.12.0 включает установщик Windows, ZIP для Windows, DMG для macOS и ZIP с инструментами командной строки. для всех нужен внешний Node.js 22.13.0 или новее. наблюдения о первом запуске ниже сделаны до 2.11 и относятся только к указанным ОС, браузеру и артефакту; предупреждение не доказывает безопасность файла.",
     macWarningTitle: 'macOS: откройте через команду Finder «Открыть»',
     macTested: 'проверено на macOS 26.6.2, Safari и DMG с GitHub',
     macDialog: 'Наблюдавшийся заголовок: «Файл «Murmur» не был открыт». Текст: «Apple не удалось подтвердить, что файл «Murmur» не содержит вредоносного ПО, которое может нанести вред Вашему Mac или конфиденциальности Ваших данных». Кнопки: «Переместить в Корзину», «Готово», «Справка».',
@@ -1056,8 +1056,8 @@ const I18N = {
     winDialog: 'Точный текст наблюдавшегося англоязычного диалога: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
     winSteps: 'Нажимайте Run, только если открываете именно тот артефакт, который собирались запустить. В этой проверке запуск сработал при сохранённом карантине и без изменения настроек безопасности.',
     winScope: 'Результат относится только к проверенному пути на Windows 10. Предупреждение о неизвестном издателе не является проверкой безопасности.',
-    releaseLink: "откройте страницу релиза v2.11.0",
-    releaseAssets: ": для приложения Windows выберите `Murmur-2.11.0-windows-x64-setup.exe`, для macOS — `Murmur-Mac-2.11.0-universal.dmg`, для переносимого приложения Windows — `Murmur-Windows-2.11.0-x64.zip`, а для командной строки, службы и MCP-сервера — `murmur-runtime-2.11.0.zip`. Автоматические архивы GitHub Source code не являются готовыми сборками.",
+    releaseLink: "откройте страницу релиза v2.12.0",
+    releaseAssets: ": для приложения Windows выберите `Murmur-2.12.0-windows-x64-setup.exe`, для macOS — `Murmur-Mac-2.12.0-universal.dmg`, для переносимого приложения Windows — `Murmur-Windows-2.12.0-x64.zip`, а для командной строки, службы и MCP-сервера — `murmur-runtime-2.12.0.zip`. Автоматические архивы GitHub Source code не являются готовыми сборками.",
     manualUpdatePrefix: 'Murmur не обновляет себя сам. Пользователям существующей службы Windows нужно выполнить',
     windowsUpgradeLink: 'инструкцию по ручному обновлению',
     manualUpdateSuffix: ': старая CLI удаляет службу, затем новая CLI устанавливает её с тем же абсолютным путём к папке личности и тем же именем службы. Не запускайте init или join повторно. Заново подключите каждого настроенного помощника новой CLI с --replace, перезагрузите его и дождитесь вернувшегося сообщения до удаления старого комплекта. В инструкции по ссылке этот шаг есть, в исходном ZIP 2.10.0 он пропущен. Для других артефактов следуйте вложенной инструкции до замены или запуска Murmur.',
@@ -1095,7 +1095,7 @@ const I18N = {
     faq5q: 'это бесплатно и с открытым кодом?',
     faq5a: 'да. murmur — открытый код под лицензией MIT: можно брать, менять и использовать свободно. код, релизы и документация лежат на GitHub: github.com/alexfrmn/murmur.',
     faq6q: 'как это поставить?',
-    faq6a: "скачайте установщик Windows или DMG для Mac из последнего релиза на GitHub, откройте Murmur и следуйте его окну: примите приглашение или пригласите коллегу, затем выберите помощника. пошаговая инструкция — в разделе об установке выше. на той же странице релиза есть переносимые ZIP для Windows и для командной строки. инструменты командной строки есть и в npm: npm install --global @murmurv2/cli@2.11.0. для любого пути нужны Node.js 22.13.0 или новее, доступ к серверу и коллега на другой стороне. установка службы Windows отдельно запросит повышение прав.",
+    faq6a: "скачайте установщик Windows или DMG для Mac из последнего релиза на GitHub, откройте Murmur и следуйте его окну: примите приглашение или пригласите коллегу, затем выберите помощника. пошаговая инструкция — в разделе об установке выше. на той же странице релиза есть переносимые ZIP для Windows и для командной строки. инструменты командной строки есть и в npm: npm install --global @murmurv2/cli@2.12.0. для любого пути нужны Node.js 22.13.0 или новее, доступ к серверу и коллега на другой стороне. установка службы Windows отдельно запросит повышение прав.",
     schemaBoxes: [
       { x: 40,  w: 190, t: 'ваш помощник', s: 'claude · codex · свой' },
       { x: 290, w: 160, t: 'служба',    s: 'шифрует' },
@@ -1118,13 +1118,13 @@ const I18N = {
    записать одну личность, а помощник прочитать другую. Ошибки при этом не будет —
    только тишина и пустой список контактов.
 2. Установи CLI из npm:
-   npm install --global @murmurv2/cli@2.11.0
+   npm install --global @murmurv2/cli@2.12.0
    Для этого пути замени ниже каждый node packages/setup/bin/murmur.mjs на
    murmur. В PowerShell используй npm.cmd и murmur.cmd, если политика блокирует shims.
    Если удобнее собрать из исходников, вместо этого склонируй и собери:
    git clone https://github.com/alexfrmn/murmur.git
    cd murmur
-   git checkout --detach v2.11.0
+   git checkout --detach v2.12.0
    npm ci
    npm run build
    В PowerShell это отдельные строки: оператора && там нет.

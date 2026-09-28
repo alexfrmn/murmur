@@ -3,13 +3,13 @@
 Set up your Identity, exchange an Invitation and a Reply, and connect your
 Assistant to Murmur. The executable is `murmur`.
 
-`@murmurv2/cli@2.11.0` is published on npm (24 Sep 2026). `@murmurv2/*` packages
+`@murmurv2/cli@2.12.0` is published on npm (28 Sep 2026). `@murmurv2/*` packages
 published before that release are frozen and do not contain the current fixes;
 install the pinned version below or use a GitHub release asset. Step-by-step
 installation of the desktop app is on https://murmurconnect.com/#install.
 
 ```sh
-npm install --global @murmurv2/cli@2.11.0
+npm install --global @murmurv2/cli@2.12.0
 murmur version --json
 ```
 

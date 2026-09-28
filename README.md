@@ -64,43 +64,43 @@ A **murmuration** is one of nature's most extraordinary phenomena — thousands 
 warning is on the website: [murmurconnect.com/#install](https://murmurconnect.com/#install)
 ([по-русски](https://murmurconnect.com/ru/#install)). Below is the path for the CLI and source.
 
-**`@murmurv2/cli@2.11.0` is published on
+**`@murmurv2/cli@2.12.0` is published on
 [npmjs](https://www.npmjs.com/package/@murmurv2/cli).** Install the prebuilt CLI with:
 
 ```sh
-npm install --global @murmurv2/cli@2.11.0
+npm install --global @murmurv2/cli@2.12.0
 murmur version --json
 ```
 
 The same release is available as [GitHub release
-assets](https://github.com/alexfrmn/murmur/releases/tag/v2.11.0). `@murmurv2/*`
-packages published before the 2.11.0 release (24 Sep 2026) are frozen and lack the current delivery fixes. The npm CLI needs Node.js 22.13.0+;
+assets](https://github.com/alexfrmn/murmur/releases/tag/v2.12.0). `@murmurv2/*`
+packages published before the 2.12.0 release (28 Sep 2026) are frozen and lack the current delivery fixes. The npm CLI needs Node.js 22.13.0+;
 it includes the daemon, MCP entry and Windows service helper, but no desktop app.
 On Windows PowerShell use `npm.cmd` and `murmur.cmd` if policy blocks the shims.
 Then follow the [CLI invitation steps](packages/setup/README.md), using the same
 absolute profile path throughout; no JSON editing or compilation is needed.
 
-**Choose the v2.11.0 asset for the way you run Murmur.** All assets require an
+**Choose the v2.12.0 asset for the way you run Murmur.** All assets require an
 external Node.js 22.13.0 or newer with working unflagged `node:sqlite`. Download
-them from the [v2.11.0 release page](https://github.com/alexfrmn/murmur/releases/tag/v2.11.0):
+them from the [v2.12.0 release page](https://github.com/alexfrmn/murmur/releases/tag/v2.12.0):
 
 | Asset | Choose it for | Start here |
 |---|---|---|
-| `Murmur-2.11.0-windows-x64-setup.exe` | Windows x64 app with Start menu and login shortcuts | Run the per-user installer, open Murmur and accept an invitation in the app. Service installation requests Windows elevation separately. |
-| `Murmur-Mac-2.11.0-universal.dmg` | macOS 13+ on Intel or Apple Silicon | Follow the image's first-open instructions and the [Mac packaging guide](apps/macos-menubar/packaging/README-Mac.md), then accept an invitation and choose a client in the app. |
-| `Murmur-Windows-2.11.0-x64.zip` | Portable Windows x64 app and native service helper | Extract the whole ZIP, keep its runtime and launchers together, and use `Open-Murmur.cmd`. Follow the bundled README for an existing service. |
-| `murmur-runtime-2.11.0.zip` | Portable CLI, daemon and MCP runtime on macOS, Linux or Windows | Extract the complete `runtime` directory and continue with [Quick Start](#quick-start). Git, npm and a build are not needed on the receiving machine. |
+| `Murmur-2.12.0-windows-x64-setup.exe` | Windows x64 app with Start menu and login shortcuts | Run the per-user installer, open Murmur and accept an invitation in the app. Service installation requests Windows elevation separately. |
+| `Murmur-Mac-2.12.0-universal.dmg` | macOS 13+ on Intel or Apple Silicon | Follow the image's first-open instructions and the [Mac packaging guide](apps/macos-menubar/packaging/README-Mac.md), then accept an invitation and choose a client in the app. |
+| `Murmur-Windows-2.12.0-x64.zip` | Portable Windows x64 app and native service helper | Extract the whole ZIP, keep its runtime and launchers together, and use `Open-Murmur.cmd`. Follow the bundled README for an existing service. |
+| `murmur-runtime-2.12.0.zip` | Portable CLI, daemon and MCP runtime on macOS, Linux or Windows | Extract the complete `runtime` directory and continue with [Quick Start](#quick-start). Git, npm and a build are not needed on the receiving machine. |
 
 GitHub's automatically generated **Source code** ZIP and tar archives are source
 checkouts, not any of the prebuilt assets above.
 
-**Source path: build the pinned v2.11.0 tag.** You need Git and Node.js 22.13.0+.
+**Source path: build the pinned v2.12.0 tag.** You need Git and Node.js 22.13.0+.
 The tag selects the stable source; `git rev-parse HEAD` records its exact commit.
 
 ```text
 git clone https://github.com/alexfrmn/murmur.git
 cd murmur
-git checkout --detach v2.11.0
+git checkout --detach v2.12.0
 git rev-parse HEAD
 ```
 
@@ -140,14 +140,22 @@ Maintainer-only [npm deprecation commands](docs/npm-deprecation-commands.md) are
 prepared for after account recovery. **They have not been executed:** npm clients
 will not display that warning until a maintainer applies the registry deprecations.
 
-## What's New in v2.11
+## What's New in v2.12
+
+- **Set up a connection without a terminal.** On Windows and Mac, paste an Invitation or a Reply from your messenger into the app; it picks the `MURMUR:` line out of the surrounding text, keeps a backup of the Invitation next to the profile and, on the Mac, keeps the Identity you selected through recovery. A Service left by a pilot or an earlier version is replaced from the tray with one administrator consent.
+- **Claude Code listens for eight hours, as documented.** The Stop hook entry now carries its own `timeout`; an entry written by 2.11.0 or earlier listened for ten minutes and is updated with `--replace` or by reconnecting the assistant in the app.
+- **A lost server link is no longer silent.** Every failed reconnect attempt is counted and logged once a minute, `murmur status` shows `broker.disconnectedAt` and `broker.reconnectAttempts`, and a daemon whose connection closed for good exits with code 3 so the service manager restarts it and shows the failure. See [docs/broker-link.md](docs/broker-link.md).
+- **Registry and site.** `server.json` for the MCP registry and `mcpName` on `@murmurv2/cli`; [murmurconnect.com](https://murmurconnect.com) has step-by-step install pages for Mac and Windows, a Russian page and guides on [Claude Code and Codex across machines](https://murmurconnect.com/claude-code-codex/), [wake-up](https://murmurconnect.com/wake-up/) and [comparison](https://murmurconnect.com/compare/).
+
+<details>
+<summary><strong>Earlier releases: v2.3 – v2.11</strong> (full history in <a href="CHANGELOG.md">CHANGELOG.md</a>)</summary>
+
+### v2.11
 
 - **Set up a connection in the app.** On Mac and Windows, accept an invitation, save the reply, start the service and choose your AI client through the app. Existing profiles and interrupted setup can be recovered without recreating their identity.
 - **A Windows installer and a prebuilt CLI.** The per-user `setup.exe` installs the app and its shortcuts. The `@murmurv2/cli` package supplies the `murmur` command without compiling on your machine; see its publication status below.
 - **Clearer connection and wake status.** The app separates service readiness, message delivery and a returned reply. Claude Code's configured Stop hook listens while the client is idle; Claude Desktop and Codex on Windows still need an active client turn. See [known limitations](CHANGELOG.md#known-limitations).
 
-<details>
-<summary><strong>Earlier releases: v2.3 – v2.10</strong> (full history in <a href="CHANGELOG.md">CHANGELOG.md</a>)</summary>
 
 #### v2.10
 
@@ -213,7 +221,7 @@ will not display that warning until a maintainer applies the registry deprecatio
 - **Validated: real cross-host A2A.** A fresh agent on a remote host (over the published `@murmurv2/*` packages) exchanged bidirectional encrypt/verify/ACK traffic with the mesh over the live broker — agent-to-agent across real hosts and network.
 - **Single canonical signing payload.** `stableEnvelopePayload` is now one export in `@murmurv2/core` (was copy-pasted across 7 sites), golden-locked by test.
 
-> The npm packages of the 2.11.0 release carry the current fixes. `@murmurv2/*` packages published before the 2.11.0 release (24 Sep 2026) are frozen and lack them; install `@murmurv2/cli@2.11.0` or use a stable [GitHub release asset or pinned source checkout](#install) below.
+> The npm packages of the 2.12.0 release carry the current fixes. `@murmurv2/*` packages published before the 2.12.0 release (28 Sep 2026) are frozen and lack them; install `@murmurv2/cli@2.12.0` or use a stable [GitHub release asset or pinned source checkout](#install) below.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full list (incl. v2.2: npm publish, WebSocket adapter, roster auth tokens, JetStream durability, federation, A2A bridge, native wake).
 
@@ -813,7 +821,7 @@ See [protocol-v1.md](docs/protocol-v1.md) for the full specification.
 - [x] **Versioned protocol spec** — machine-readable schema (`protocol-v1.schema.json`) + prose (`docs/protocol-v1.md`) + compatibility matrix (`docs/protocol-compatibility.md`)
 
 *Distribution*
-- [x] **npm — public** under `@murmurv2/*` (MIT), in step with release 2.11.0. Registry today: `cli` 2.11.0, `core` 0.6.4, `broker-nats` 0.3.5, `broker-ws` 0.2.3, `mcp-server` 0.2.3, `bridge-a2a` 0.2.1, `federation` 0.2.1, `observability` 0.1.3, `security` 0.1.2, `bridge-murmur` 0.1.2, `bridge-openclaw` 0.1.1, `bridge-telegram` 0.1.1, `federation-nats` 0.1.1
+- [x] **npm — public** under `@murmurv2/*` (MIT), in step with release 2.12.0. Registry today: `cli` 2.12.0, `core` 0.6.5, `broker-nats` 0.3.6, `broker-ws` 0.2.3, `mcp-server` 0.2.3, `bridge-a2a` 0.2.1, `federation` 0.2.1, `observability` 0.1.3, `security` 0.1.2, `bridge-murmur` 0.1.2, `bridge-openclaw` 0.1.1, `bridge-telegram` 0.1.1, `federation-nats` 0.1.1
 
 ### In Progress (next up)
 

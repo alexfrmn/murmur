@@ -1,11 +1,11 @@
 # murmur — full text for language models
 
-> Murmur is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct, encrypted channel to a peer on another machine through a NATS broker, so a person no longer relays text between terminals. MIT license. Current stable release: v2.11.0, released 2026-09-24.
+> Murmur is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct, encrypted channel to a peer on another machine through a NATS broker, so a person no longer relays text between terminals. MIT license. Current stable release: v2.12.0, released 2026-09-28.
 
 Website: https://murmurconnect.com/
 Source: https://github.com/alexfrmn/murmur
 Releases: https://github.com/alexfrmn/murmur/releases
-Everything below is taken from the repository's README, SECURITY.md, CHANGELOG.md and docs/ as of v2.11.0. When this file and the repository disagree, the repository wins.
+Everything below is taken from the repository's README, SECURITY.md, CHANGELOG.md and docs/ as of v2.12.0. When this file and the repository disagree, the repository wins.
 
 ## What problem it solves
 
@@ -57,16 +57,16 @@ Local storage:
 
 ## Install
 
-The desktop apps are the easy path: https://murmurconnect.com/#install walks through the Mac DMG and the Windows installer. The CLI is published on npm: install it with `npm install --global @murmurv2/cli@2.11.0`; the prebuilt CLI includes the daemon, MCP entry and Windows service helper, but no desktop app. A GitHub release asset or a pinned source checkout also works. Older npm packages lack current delivery fixes.
+The desktop apps are the easy path: https://murmurconnect.com/#install walks through the Mac DMG and the Windows installer. The CLI is published on npm: install it with `npm install --global @murmurv2/cli@2.12.0`; the prebuilt CLI includes the daemon, MCP entry and Windows service helper, but no desktop app. A GitHub release asset or a pinned source checkout also works. Older npm packages lack current delivery fixes.
 
 Every path needs Node.js 22.13.0 or newer with the built-in node:sqlite module available without a flag, a reachable NATS broker (address and credentials from its owner), and a second participant.
 
-Stable v2.11.0 assets (https://github.com/alexfrmn/murmur/releases/tag/v2.11.0):
+Stable v2.12.0 assets (https://github.com/alexfrmn/murmur/releases/tag/v2.12.0):
 
-- murmur-runtime-2.11.0.zip: portable CLI, daemon and MCP runtime for macOS, Linux or Windows. No Git, npm or build needed on the receiving machine.
-- Murmur-2.11.0-windows-x64-setup.exe: per-user Windows app installer with shortcuts; background service installation requests elevation separately.
-- Murmur-Windows-2.11.0-x64.zip: portable Windows x64 tray and native service companion.
-- Murmur-Mac-2.11.0-universal.dmg: macOS 13 or newer on Intel or Apple Silicon.
+- murmur-runtime-2.12.0.zip: portable CLI, daemon and MCP runtime for macOS, Linux or Windows. No Git, npm or build needed on the receiving machine.
+- Murmur-2.12.0-windows-x64-setup.exe: per-user Windows app installer with shortcuts; background service installation requests elevation separately.
+- Murmur-Windows-2.12.0-x64.zip: portable Windows x64 tray and native service companion.
+- Murmur-Mac-2.12.0-universal.dmg: macOS 13 or newer on Intel or Apple Silicon.
 
 The builds are unsigned, so macOS and Windows show a first-open warning. GitHub's automatically generated "Source code" archives are source checkouts, not prebuilt runtimes. Murmur does not update itself; existing Windows service users follow the manual upgrade guide in apps/windows-tray/packaging/README-Windows.md.
 
@@ -74,7 +74,7 @@ Source path:
 
     git clone https://github.com/alexfrmn/murmur.git
     cd murmur
-    git checkout --detach v2.11.0
+    git checkout --detach v2.12.0
     npm ci
     npm run build
 
