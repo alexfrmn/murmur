@@ -90,6 +90,8 @@ reason. Empty collections and zero mean a successful measurement of emptiness.
 | `broker.url` | URL or null | config without userinfo/token/query |
 | `broker.state`, `connectedAt` | consumer enum, RFC3339 or null | fresh daemon observation bound to observed PID/store |
 | `broker.lastError`, `lastErrorAt` | stable reason/RFC3339 or null | same daemon observation |
+| `broker.disconnectedAt` | RFC3339 or null | same daemon observation: when the link was lost, null while connected (#276) |
+| `broker.reconnectAttempts` | nonnegative integer or null | same daemon observation: failed reconnect attempts since the loss (#276) |
 | `peers.list` | array or null | validated config plus proof cache |
 | `peers.list[].agentId` | string | local peer identity |
 | `peers.list[].paired` | boolean or null | authenticated nonce roundtrip proof, not imported local keys |

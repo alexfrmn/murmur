@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A lost server link is no longer silent** (#276). The daemon used to log one
+  `disconnect` line and then nothing: every failed reconnect attempt, every async server
+  error and a stale connection were dropped, the process kept its PID, and a supervisor
+  saw a healthy service that delivered nothing for days. Now each `reconnecting` attempt
+  is counted and logged at most once a minute with `disconnectedAt` and
+  `disconnectedForMs`, `error` and `staleConnection` are logged with a stable reason, and a
+  connection that closed for good (an authorization abort after a rotated token, attempts
+  exhausted) is logged as `closed`. `daemon-observation.json` and `murmur status` carry
+  `broker.disconnectedAt` and `broker.reconnectAttempts`; a `closed` link is a red
+  `broker.closed` verdict. The daemon exits with code 3 when the link closed for good
+  (`MURMUR_EXIT_ON_CLOSED=0` or `exitOnClosed: false` keeps the old behaviour) and,
+  when `MURMUR_MAX_DISCONNECTED_MS` or `maxDisconnectedMs` is set, when the link stayed
+  lost longer than that, so the service manager restarts it and shows the failure.
+  See `docs/broker-link.md`.
+
 ### Fixed
 - **The Claude Code Stop hook carries its own `timeout`** (#273). The entry written by
   `clients configure --client claude-code` asked the drain for 28800 seconds but set no

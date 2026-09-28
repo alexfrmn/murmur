@@ -36,6 +36,10 @@ import {
   streamBackpressureAllowsSend,
   validateEnvelopePolicy,
 } from "@murmurv2/core";
+import { brokerConnectionReason, createBrokerLinkTracker, type BrokerLinkSnapshot, type BrokerLinkTracker } from "./link-tracker.js";
+
+export { brokerConnectionReason, createBrokerLinkTracker } from "./link-tracker.js";
+export type { BrokerLinkEvent, BrokerLinkLog, BrokerLinkOutcome, BrokerLinkSnapshot, BrokerLinkState, BrokerLinkTracker, BrokerLinkTrackerOptions } from "./link-tracker.js";
 
 export interface BrokerConfig {
   url: string;
@@ -55,6 +59,8 @@ export interface BrokerConfig {
   pingInterval?: number;
   maxPingOut?: number;
   waitOnFirstConnect?: boolean;
+  /** #276 — minimum spacing between two log lines of the same kind while the link is lost. Default 60 s. */
+  reconnectLogIntervalMs?: number;
   onStatus?: (status: BrokerStatusEvent) => void | Promise<void>;
 }
 
@@ -115,18 +121,6 @@ export const buildNatsConnectionOptions = (config: BrokerConfig): ConnectionOpti
 
 const ADVISORY_FAILURE_LOG_INTERVAL_MS = 60_000;
 
-/** Stable diagnostics only: never copy an endpoint, token, or arbitrary error text. */
-export function brokerConnectionReason(error: unknown): string {
-  const code = (error as { code?: string })?.code;
-  switch (code) {
-    case 'AUTHORIZATION_VIOLATION': case 'AUTHENTICATION_EXPIRED': return 'broker.unauthorized';
-    case 'ECONNREFUSED': case 'CONNECTION_REFUSED': return 'broker.connection-refused';
-    case 'ENOTFOUND': case 'EAI_AGAIN': return 'broker.name-unresolved';
-    case 'ETIMEDOUT': case 'TIMEOUT': case 'CONNECTION_TIMEOUT': return 'broker.timeout';
-    default: return 'broker.connection-failed';
-  }
-}
-
 export class NatsBroker {
   private nc?: NatsConnection;
   private js?: JetStreamClient;
@@ -141,8 +135,21 @@ export class NatsBroker {
   private readonly invalidAckCounts = new Map<string, number>();
   private reconnects = 0;
   private statusLoop?: Promise<void>;
+  private link?: BrokerLinkTracker;
+  /** True while this instance closes its own connection, so `nc.closed()` is not a loss. */
+  private closing = false;
 
   constructor(private readonly config: BrokerConfig) {}
+
+  private tracker(): BrokerLinkTracker {
+    this.link ??= createBrokerLinkTracker({ logIntervalMs: this.config.reconnectLogIntervalMs });
+    return this.link;
+  }
+
+  /** #276 — when the link was lost and how many reconnect attempts failed since. */
+  getLinkSnapshot(): BrokerLinkSnapshot {
+    return this.tracker().snapshot();
+  }
 
   async connect(): Promise<void> {
     if (this.nc) {
@@ -159,6 +166,7 @@ export class NatsBroker {
       try {
         this.nc = await connect(buildNatsConnectionOptions(this.config));
         this.startStatusLoop(this.nc);
+        this.watchClosed(this.nc);
         await this.ensureJetStream();
         return;
       } catch (err) {
@@ -166,8 +174,9 @@ export class NatsBroker {
         // A connection can succeed before JetStream setup fails. Dispose that
         // half-initialized connection before the next attempt, including its loop.
         if (this.nc) {
-          await this.nc.close();
-          await this.statusLoop;
+          this.closing = true;
+          try { await this.nc.close(); await this.statusLoop; }
+          finally { this.closing = false; }
           this.nc = undefined; this.js = undefined; this.jsm = undefined;
         }
         await this.config.onStatus?.({ type: 'connect_error', data: { reason: brokerConnectionReason(err) }, reconnects: this.reconnects });
@@ -182,6 +191,7 @@ export class NatsBroker {
 
   async close(): Promise<void> {
     if (!this.nc) return;
+    this.closing = true;
     await this.nc.drain();
     this.nc = undefined;
   }
@@ -267,11 +277,11 @@ export class NatsBroker {
     this.statusLoop = (async () => {
       for await (const status of nc.status()) {
         if (status.type === "reconnect") this.reconnects += 1;
-        if (status.type === "disconnect" || status.type === "reconnect" || status.type === "update") {
-          const event = { type: status.type, data: status.data, reconnects: this.reconnects };
-          this.config.onStatus?.(event);
-          console.info("[NatsBroker.status]", event);
-        }
+        // #276 — every status is classified: failed attempts are counted, the log is
+        // rate-limited while the link is lost, and only stable fields reach the line.
+        const outcome = this.tracker().handle(status, this.reconnects);
+        if (outcome.log) console[outcome.log.level]("[NatsBroker.status]", { type: status.type, message: outcome.log.message, ...outcome.log.data });
+        if (outcome.event) void Promise.resolve(this.config.onStatus?.(outcome.event)).catch(() => {});
       }
     })().catch((err) => {
       const e = err instanceof Error ? err : new Error(String(err));
@@ -279,6 +289,20 @@ export class NatsBroker {
     }).finally(() => {
       this.statusLoop = undefined;
     });
+  }
+
+  /**
+   * #276 — `nc.closed()` is the only signal that the client gave up for good (an
+   * authorization abort after a rotated token, reconnect attempts exhausted). Without
+   * it the process kept its PID and delivered nothing, and nobody was told.
+   */
+  private watchClosed(nc: NatsConnection): void {
+    void nc.closed().then((err) => {
+      if (this.closing || this.nc !== nc) return;
+      const outcome = this.tracker().closed(err, this.reconnects);
+      if (outcome.log) console.error("[NatsBroker.status]", { type: "closed", message: outcome.log.message, ...outcome.log.data });
+      if (outcome.event) void Promise.resolve(this.config.onStatus?.(outcome.event)).catch(() => {});
+    }, () => {});
   }
 
   async publish(subject: string, envelope: EnvelopeV1, policy?: SecurityPolicy, dedupeId = envelope.msgId): Promise<void> {

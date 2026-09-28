@@ -70,7 +70,7 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       // reload diagnostic. Fresh PID/open-store evidence still gates acceptance.
       && validAgentId(raw.agentId) && (!config || raw.agentId === config.agentId) && raw.storePath === storePath
       && Number.isFinite(timestamp) && started - timestamp >= -5000 && started - timestamp <= 15000
-      && ["connected", "disconnected", "unauthorized", "unknown"].includes(raw.broker?.state)
+      && ["connected", "disconnected", "unauthorized", "closed", "unknown"].includes(raw.broker?.state)
       && typeof raw.wake?.enabled === "boolean" && ["hook", "monitor", "none"].includes(raw.wake?.mode)) {
       const managed = service.state === "running" && raw.pid === service.pid && service.observedStorePath === storePath;
       // A fresh file alone cannot prove liveness: the OS must observe this PID's
@@ -190,7 +190,12 @@ export async function readStatus({ context: c, adapter, now = Date.now }: Status
       measurements: { manager: service.state === "unknown" ? unknown(service.detail ?? "service.unavailable") : measured(at), history: unknown("service.history-unavailable") } },
     broker: { url: config?.natsUrl ?? null, state: observation?.broker?.state ?? "unknown",
       connectedAt: observation?.broker?.connectedAt ?? null, lastError: observation?.broker?.lastError ?? null,
-      lastErrorAt: observation?.broker?.lastErrorAt ?? null, unknownReason: runtimeMeasurement.unknownReason,
+      lastErrorAt: observation?.broker?.lastErrorAt ?? null,
+      // #276 — since when the link is lost and how many reconnect attempts failed meanwhile.
+      disconnectedAt: typeof observation?.broker?.disconnectedAt === "string" ? observation.broker.disconnectedAt : null,
+      reconnectAttempts: Number.isSafeInteger(observation?.broker?.reconnectAttempts) && observation.broker.reconnectAttempts >= 0
+        ? observation.broker.reconnectAttempts : null,
+      unknownReason: runtimeMeasurement.unknownReason,
       measurements: { runtime: runtimeMeasurement } },
     peers, inbox, deliveries,
     outbox: {

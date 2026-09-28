@@ -24,6 +24,7 @@ import { ensurePrivateDirectory, setPrivateUmask } from "./secure-state.mjs";
 import { createDaemonContacts } from "./daemon-contacts.mjs";
 import { flushTick } from "./daemon-flush-tick.mjs";
 import { createDaemonObservation } from "./daemon-observation.mjs";
+import { createLinkWatch } from "./daemon-link-watch.mjs";
 import { normalizeAckSecurity } from "./ack-security.mjs";
 import { classifyVerifiedDoctorMessage, createDoctorResponder } from "./doctor-protocol.mjs";
 // vault-guard: optional content policy hook (not included in OSS release)
@@ -178,6 +179,13 @@ const observation = createDaemonObservation({ dataDir, storePath: dbPath, agentI
     // A custom shell command's identity cannot be inferred from arbitrary text.
     responder: nativeConfigured ? "codex" : config.onReceive ? null : "none" } });
 observeLog = observation.observeLog;
+// #276 — a link that closed for good, or stayed lost longer than allowed, ends the process
+// with a non-zero code so the supervisor restarts it and the failure is visible.
+const maxDisconnectedMs = Number(config.maxDisconnectedMs ?? process.env.MURMUR_MAX_DISCONNECTED_MS) || 0;
+const exitOnClosed = config.exitOnClosed !== false && process.env.MURMUR_EXIT_ON_CLOSED !== "0";
+const linkWatch = createLinkWatch({ observation, maxDisconnectedMs, exitOnClosed, log,
+  onLost: (reason) => { void shutdown(reason, 3); } });
+if (linkWatch.enabled) log("info", "Server link watch enabled", { exitOnClosed, maxDisconnectedMs: linkWatch.maxDisconnectedMs });
 // #108 — Codex threads are remembered per (peer, conversation) in the message store.
 const codexAppServerInjector = createCodexAppServerInjector({ log, resolveThreadStartBinding: threadStartBindingResolver, threadStore: msgStore });
 if (channelRosterEnabled) log("info", "Channel roster thread-start binding enabled", { channelRosterPath });
@@ -409,17 +417,18 @@ const flushLoop = async () => {
   }
 };
 
-const shutdown = async (signal) => {
-  log("info", "Shutdown signal received, draining NATS", { signal });
+const shutdown = async (signal, exitCode = 0) => {
+  log("info", "Shutdown signal received, draining NATS", { signal, exitCode });
   running = false;
+  linkWatch.stop();
   await observation.stop();
   try {
     await broker.close();
   } catch (err) {
     log("error", "Broker close error", { error: err.message });
   }
-  log("info", "Daemon stopped", { agentId });
-  process.exit(0);
+  log("info", "Daemon stopped", { agentId, exitCode });
+  process.exit(exitCode);
 };
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
@@ -428,6 +437,7 @@ if (process.platform !== "win32") process.on("SIGHUP", () => { contacts.refresh(
 
 try {
   await observation.start();
+  linkWatch.start();
   await broker.connect();
   await observation.connected();
   log("info", "NATS connected", { url: natsUrl });

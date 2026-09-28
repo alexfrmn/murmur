@@ -81,6 +81,8 @@ export function statusVerdict(input: unknown, now = Date.now()): StatusVerdict {
   ]) if (reason) note(name, "source-unreadable");
   switch (s.broker?.state) {
     case "unauthorized": return out("yellow", "broker.unauthorized");
+    // #276 — the client gave up for good; only a restart brings the link back.
+    case "closed": return out("red", "broker.closed");
     case "connected": break;
     case null: case undefined: case "": case "unknown": missing.push("broker.state"); break;
     default: return out("yellow", "broker.unreachable");

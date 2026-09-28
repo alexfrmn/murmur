@@ -78,6 +78,7 @@ FILES=(
   "scripts/daemon-contacts.mjs"
   "scripts/daemon-flush-tick.mjs"
   "scripts/daemon-observation.mjs"
+  "scripts/daemon-link-watch.mjs"
   "scripts/doctor-protocol.mjs"
   "scripts/wake-drain-claude.mjs"
   "scripts/murmur-jetstream-advisory.mjs"
