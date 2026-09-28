@@ -10,6 +10,13 @@
 # Cursor is shared with the Stop-hook wake-drain-claude.sh => a message wakes once
 # PER SESSION: both default to a cursor keyed by CLAUDE_CODE_SESSION_ID (see below).
 # Re-arm after each fire (launch again in background).
+#
+# Sender filter (lifecoach-infra#8909):
+#   MURMUR_WATCH_IGNORE_SENDERS="agent-a,agent-b"  — letters from these agents never wake
+#   MURMUR_WATCH_ONLY_SENDERS="agent-c"            — only letters from these agents wake
+# A session pinned to one correspondent otherwise woke on every letter of a busy
+# neighbouring lane (six wakes in forty minutes on 26.09.2026). Ignored letters stay in
+# the store and are drained by the Stop hook as before; only the cold-idle wake skips them.
 set -uo pipefail
 
 DB="${MURMUR_DB:-.data/murmur.db}"
@@ -36,6 +43,31 @@ else
 fi
 
 [ -r "$DB" ] || { echo "watcher: DB not readable: $DB" >&2; exit 1; }
+
+# ── фильтр отправителей (#8909) ──────────────────────────────────────────
+# Список из env превращается в SQL-предикат по колонке sender. Каждый id проверяется
+# по [A-Za-z0-9._-]: ничего другого в agentId быть не может, всё прочее — не id, а
+# попытка дописать SQL, и оно отбрасывается со строкой в stderr. Пустой список = нет
+# фильтра. Фильтр входит и в поиск MAX(rowid), и в выборку: иначе письмо игнорируемого
+# отправителя поднимало бы MAX, watcher выходил бы с «0 new» — ложное пробуждение.
+FILTER=""
+build_sender_filter() {  # $1 = список через запятую, $2 = IN | NOT IN
+  local raw="$1" op="$2" list="" id
+  local -a ids=()
+  IFS=',' read -ra ids <<< "$raw"
+  for id in "${ids[@]}"; do
+    id="${id//[[:space:]]/}"
+    [ -z "$id" ] && continue
+    case "$id" in
+      *[!A-Za-z0-9._-]*) echo "watcher: некорректный agentId в фильтре отброшен: $id" >&2; continue ;;
+    esac
+    list="${list:+$list,}'$id'"
+  done
+  [ -n "$list" ] && FILTER="$FILTER AND sender $op ($list)"
+}
+[ -n "${MURMUR_WATCH_IGNORE_SENDERS:-}" ] && build_sender_filter "$MURMUR_WATCH_IGNORE_SENDERS" "NOT IN"
+[ -n "${MURMUR_WATCH_ONLY_SENDERS:-}" ] && build_sender_filter "$MURMUR_WATCH_ONLY_SENDERS" "IN"
+[ -n "$FILTER" ] && echo "watcher: фильтр отправителей —${FILTER}"
 
 # ── seed-to-tip на первом запуске ────────────────────────────────────────
 # БЕЗ ЭТОГО per-session курсор сломал бы всё: файла нет → last=0 → первый же цикл
@@ -86,7 +118,7 @@ while true; do
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
 
   max="$(sqlite3 "$DB" \
-    "SELECT COALESCE(MAX(rowid), $last) FROM local_messages WHERE direction='inbound';" \
+    "SELECT COALESCE(MAX(rowid), $last) FROM local_messages WHERE direction='inbound'${FILTER};" \
     2>/dev/null || echo "$last")"
   case "$max" in ''|*[!0-9]*) max="$last" ;; esac
 
@@ -94,7 +126,7 @@ while true; do
     rows="$(sqlite3 "$DB" \
       "SELECT '  rowid='||rowid||' ['||sender||'] '||substr(replace(replace(text,char(10),' '),char(13),' '),1,400) \
        FROM local_messages \
-       WHERE direction='inbound' AND rowid > $last \
+       WHERE direction='inbound' AND rowid > $last${FILTER} \
        ORDER BY rowid;" 2>/dev/null || true)"
     # drain-to-tip: advance cursor so the message wakes exactly once
     tmp="${CURSOR}.$$"
