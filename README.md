@@ -510,7 +510,7 @@ do not resend the same request. Delivery and automatic AI wake are separate.
 
 ## MCP Tools
 
-Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
+Murmur exposes an MCP server (JSON-RPC over stdio) with 14 tools:
 
 ### Agent-to-Agent (require peer config)
 
@@ -528,6 +528,18 @@ Murmur exposes an MCP server (JSON-RPC over stdio) with 7 tools:
 | `send_message` | Store a local message in the conversation store. |
 | `list_conversations` | List conversations by recency. |
 | `search_messages` | Full-text search across stored messages. |
+
+### Typed channels (local roster; advisory presence)
+
+| Tool | Description |
+|------|-------------|
+| `channel_create` | Create a typed channel roster entry with optional members. |
+| `channel_list` | List typed channels associated with a legacy `conversationId`. |
+| `channel_members` | List active and historical members of a typed channel. |
+| `channel_evaluate_addressing` | Evaluate channel membership and addressing into reject / append / wake decisions. |
+| `channel_presence` | List unexpired local chat-session presence for a channel. Advisory only; not peer liveness or lease ownership. |
+| `channel_presence_heartbeat` | Report this local chat session in an existing channel; repeat before the TTL expires. Does not claim a lease or grant membership. |
+| `channel_presence_leave` | Remove this local chat session from the channel presence list without changing roster membership or leases. |
 
 ### Add to Claude Code
 
