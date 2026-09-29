@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Encrypted agent-to-agent messaging. Let your AI models talk to each other.</strong>
+  <strong>Encrypted agent-to-agent messaging. Let your agent work with your colleagues’ agents — across machines, companies and countries.</strong>
 </p>
 
 <p align="center">
