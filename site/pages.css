@@ -69,7 +69,36 @@ header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
 .logo { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink); text-decoration: none; }
-.bar nav { display: flex; gap: 18px; }
+.bar nav { display: flex; gap: 18px; align-items: center; }
+/* Sections menu and back-to-top, the same controls as on the home page. */
+.menu-button {
+  width: 36px; height: 30px; padding: 0; border: 1px solid var(--hair); border-radius: 8px; background: transparent;
+  display: inline-flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; cursor: pointer;
+  transition: border-color .16s ease, transform .16s ease;
+}
+.menu-button span { display: block; width: 16px; height: 2px; border-radius: 1px; background: var(--ink); transition: transform .16s ease, opacity .16s ease; }
+.menu-button:hover { border-color: var(--accent); transform: translateY(-2px); }
+.menu-button[aria-expanded="true"] span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.menu-button[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+.menu-button[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+.sections {
+  position: absolute; top: calc(100% + 8px); right: max(var(--gutter), calc((100% - 1280px) / 2 + var(--gutter)));
+  min-width: 280px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; padding: 10px;
+  background: var(--field); border: 1px solid var(--hair); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.28); z-index: 45;
+}
+.sections[hidden] { display: none; }
+.sections a { color: var(--ink); text-decoration: none; padding: 9px 12px; border-radius: 8px; font-size: 14px; }
+.sections a:hover { background: var(--raise); color: var(--accent); }
+.sections a.sep { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--hair); border-radius: 0 0 8px 8px; }
+.totop {
+  position: fixed; right: 18px; bottom: 18px; width: 44px; height: 44px; border-radius: 50%; z-index: 30;
+  display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-size: 18px;
+  background: var(--field); color: var(--ink); border: 1px solid var(--hair); box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  transition: transform .16s ease, border-color .16s ease, color .16s ease;
+}
+.totop:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-2px); }
+.totop[hidden] { display: none; }
+.menu-button:focus-visible, .totop:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .bar nav a { color: var(--soft); text-decoration: none; font-size: 14px; }
 .bar nav a:hover, .logo:hover { color: var(--accent); }
 
@@ -133,6 +162,7 @@ tbody th { color: var(--ink); }
 th .dim { display: block; color: var(--dim); font-weight: 400; font-size: 13px; }
 td { color: var(--soft); }
 caption { caption-side: bottom; text-align: left; color: var(--dim); font-size: 13px; padding-top: 12px; }
+@media (max-width: 640px) { .logo { letter-spacing: 2px; } .bar nav { gap: 10px; } .sections { right: 12px; } .totop { right: 12px; bottom: 12px; width: 40px; height: 40px; } }
 @media (max-width: 960px) {
   table, thead, tbody, tr, th, td, caption { display: block; width: 100%; }
   thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

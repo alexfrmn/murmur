@@ -1,0 +1,19 @@
+[Unit]
+Description=murmurconnect.com visitor counters (same-origin, no cookies)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/murmurconnect-stats/stats.py
+Environment=STATS_PORT=8791
+Environment=STATS_DB=/var/lib/murmurconnect-stats/stats.db
+DynamicUser=yes
+StateDirectory=murmurconnect-stats
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

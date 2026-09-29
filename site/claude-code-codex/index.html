@@ -38,7 +38,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <link rel="preload" href="../fonts.css?v=20260925-1" as="style">
 <link rel="stylesheet" href="../fonts.css?v=20260925-1" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="../fonts.css?v=20260925-1"></noscript>
-<link rel="stylesheet" href="../pages.css?v=20260925-1">
+<link rel="stylesheet" href="../pages.css?v=20260929-1">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -125,15 +125,32 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 </head>
 <body>
 
-<header>
+<header id="top">
   <div class="bar">
     <a class="logo" href="../">murmur connect</a>
     <nav aria-label="site">
       <a href="../#install">install</a>
       <a href="https://github.com/alexfrmn/murmur">github</a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Sections of the site" title="Sections of the site"><span></span><span></span><span></span></button>
     </nav>
   </div>
+  <nav class="sections" id="sections" aria-label="Sections of the site" hidden>
+    <a href="../#kak">how it works</a>
+    <a href="../#words">five words</a>
+    <a href="../#first-open">first-open warnings</a>
+    <a href="../#install">install the app</a>
+    <a href="../#first-minutes">the first five minutes</a>
+    <a href="../#put">hand this to your assistant</a>
+    <a href="../#troubleshoot">troubleshooting</a>
+    <a href="../#faq">questions and answers</a>
+    <a class="sep" href="../claude-code-codex/">guide: Claude Code and Codex on two machines</a>
+    <a href="../wake-up/">guide: wake-up for an idle session</a>
+    <a href="../compare/">guide: ways to connect assistants, compared</a>
+    <a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a>
+  </nav>
 </header>
+
+<a class="totop" id="totop" href="#top" aria-label="Back to top" title="Back to top" hidden>↑</a>
 
 <main>
 <article>
@@ -372,5 +389,23 @@ murmur clients configure --client codex-cli --data-dir /absolute/murmur-identity
   </div>
 </footer>
 
+<script>
+// Sections menu and back-to-top; the menu is a plain list of links, JavaScript only opens it.
+(() => {
+  const button = document.getElementById('menu-button'), sections = document.getElementById('sections');
+  const setMenu = open => { sections.hidden = !open; button.setAttribute('aria-expanded', String(open)); };
+  button.addEventListener('click', () => setMenu(sections.hidden));
+  sections.addEventListener('click', e => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('click', e => { if (!sections.hidden && !sections.contains(e.target) && !button.contains(e.target)) setMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sections.hidden) { setMenu(false); button.focus(); } });
+  const totop = document.getElementById('totop');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let tick = false;
+  const watch = () => { if (tick) return; tick = true; requestAnimationFrame(() => { totop.hidden = window.scrollY < 600; tick = false; }); };
+  window.addEventListener('scroll', watch, { passive: true });
+  watch();
+  totop.addEventListener('click', e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' }); });
+})();
+</script>
 </body>
 </html>

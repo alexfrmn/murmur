@@ -140,20 +140,51 @@
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }
   .logo { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; }
-  .bar > a { color: var(--soft); text-decoration: none; font-size: 14px; }
-  .bar > a:hover { color: var(--ink); }
-
-  .controls, .themes { display: flex; gap: 8px; align-items: center; }
-  .themes button {
-    width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
-    border: 1px solid var(--hair); font: inherit; font-size: 0; padding: 0;
-    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  .controls { display: flex; gap: 10px; align-items: center; }
+  .controls .github { color: var(--soft); text-decoration: none; font-size: 14px; padding: 0 4px; }
+  .controls .github:hover { color: var(--ink); }
+  /* One button cycles the three palettes: sand → dusk → mint. The dot shows the current one. */
+  .theme-switch {
+    display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px 0 6px;
+    border: 1px solid var(--hair); border-radius: 999px; background: transparent; color: var(--soft);
+    font: inherit; font-size: 12px; letter-spacing: 1px; line-height: 1; cursor: pointer;
+    transition: color .16s ease, border-color .16s ease, transform .16s ease;
   }
-  .themes button:hover { transform: translateY(-2px); }
-  .themes button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .theme-switch:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-2px); }
+  .theme-switch b { color: var(--ink); font-weight: 700; text-transform: uppercase; }
+  .sw { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--hair); }
   .sw-sand { background: linear-gradient(135deg,#f7f3ea 50%,#b5480d 50%); }
   .sw-dusk { background: linear-gradient(135deg,#141824 50%,#f0a868 50%); }
   .sw-mint { background: linear-gradient(135deg,#f0f6f3 50%,#0f766e 50%); }
+  /* Sections menu: three lines that turn into a cross; the list drops down under the bar. */
+  .menu-button {
+    width: 36px; height: 30px; padding: 0; border: 1px solid var(--hair); border-radius: 8px; background: transparent;
+    display: inline-flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; cursor: pointer;
+    transition: border-color .16s ease, transform .16s ease;
+  }
+  .menu-button span { display: block; width: 16px; height: 2px; border-radius: 1px; background: var(--ink); transition: transform .16s ease, opacity .16s ease; }
+  .menu-button:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .menu-button[aria-expanded="true"] span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .menu-button[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+  .menu-button[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+  .sections {
+    position: absolute; top: calc(100% + 8px); right: max(var(--gutter), calc((100% - 1280px) / 2 + var(--gutter)));
+    min-width: 280px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; padding: 10px;
+    background: var(--field); border: 1px solid var(--hair); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.28); z-index: 45;
+  }
+  .sections[hidden] { display: none; }
+  .sections a { color: var(--ink); text-decoration: none; padding: 9px 12px; border-radius: 8px; font-size: 14px; }
+  .sections a:hover { background: var(--raise); color: var(--accent); }
+  .sections a.sep { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--hair); border-radius: 0 0 8px 8px; }
+  /* Back to top: a circle in the corner, shown once the first screen has scrolled away. */
+  .totop {
+    position: fixed; right: 18px; bottom: 18px; width: 44px; height: 44px; border-radius: 50%; z-index: 30;
+    display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-size: 18px;
+    background: var(--field); color: var(--ink); border: 1px solid var(--hair); box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    transition: transform .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .totop:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-2px); }
+  .totop[hidden] { display: none; }
   /* The language switch is a plain link to the other page, so it works without JavaScript. */
   .language {
     display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
@@ -163,7 +194,7 @@
     transition: color .16s ease, border-color .16s ease, transform .16s ease;
   }
   .language:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-2px); }
-  .themes button:focus-visible, .language:focus-visible, .chip:focus-visible, a:focus-visible {
+  .theme-switch:focus-visible, .menu-button:focus-visible, .language:focus-visible, .chip:focus-visible, a:focus-visible {
     outline: 2px solid var(--accent); outline-offset: 3px;
   }
 
@@ -268,18 +299,30 @@
   footer { border-top: 1px solid var(--hair); }
   footer .wrap { padding-top: 26px; padding-bottom: 40px; display: flex; flex-wrap: wrap; gap: 10px 28px; justify-content: space-between; font-size: 14px; color: var(--soft); }
   footer a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair); }
+  /* Visitor counters come from /api/stats on this same origin; the row stays hidden until they load. */
+  footer .counters { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px 22px; padding-top: 12px; border-top: 1px dashed var(--hair); font-size: 13px; color: var(--dim); }
+  footer .counters[hidden] { display: none; }
+  footer .counters b { color: var(--ink); font-weight: 700; margin-right: 2px; }
+  footer .counters .online i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 7px; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 
   /* ——— дым ——— */
   #smoke { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
-  header, section, footer { position: relative; z-index: 1; }
+  section, footer { position: relative; z-index: 1; }
 
   /* На телефоне первый экран ниже, поля уже, а блоки не прижимаются к краям. */
   @media (max-width: 640px) {
     .bar { padding-inline: 12px; gap: 8px; }
     .logo { letter-spacing: 2px; }
-    .controls, .themes { gap: 6px; }
-    .themes button { width: 28px; height: 28px; }
+    .controls { gap: 6px; }
+    .theme-switch { height: 28px; padding: 0 10px 0 5px; }
+    .theme-switch .theme-label { display: none; }
+    .controls .github { display: none; }
+    .menu-button { height: 28px; }
     .language { min-width: 40px; height: 28px; }
+    .sections { right: 12px; }
+    .totop { right: 12px; bottom: 12px; width: 40px; height: 40px; }
+    footer .counters .online i { animation: none; }
     .hero { min-height: 74vh; }
     /* Decorative labels overlap the translated heading on narrow screens. */
     #art { display: none; }
@@ -453,20 +496,33 @@
 <body>
 <canvas id="smoke" aria-hidden="true"></canvas>
 
-<header>
+<header id="top">
   <div class="bar">
     <span class="logo">murmur connect</span>
     <div class="controls">
-      <div class="themes" role="group" aria-label="color theme" data-i18n-aria="themeGroup">
-        <button class="sw-sand" data-set="sand" aria-pressed="false" title="sand" data-i18n="themeSand" data-i18n-title="themeSand">sand</button>
-        <button class="sw-dusk" data-set="dusk" aria-pressed="true" title="dusk" data-i18n="themeDusk" data-i18n-title="themeDusk">dusk</button>
-        <button class="sw-mint" data-set="mint" aria-pressed="false" title="mint" data-i18n="themeMint" data-i18n-title="themeMint">mint</button>
-      </div>
+      <button class="theme-switch" id="theme-switch" type="button" aria-label="Switch color theme" data-i18n-aria="themeSwitch" title="Switch color theme" data-i18n-title="themeSwitch"><i class="sw sw-dusk" aria-hidden="true"></i><span class="theme-label" data-i18n="themeLabel">theme</span><b id="theme-name" data-i18n="themeDusk">dusk</b></button>
+      <a class="github" href="https://github.com/alexfrmn/murmur">github</a>
       <a class="language" id="language" href="ru/" hreflang="ru" aria-label="Switch to Russian" title="Switch to Russian">RU</a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Sections of this page" data-i18n-aria="menuLabel" title="Sections of this page" data-i18n-title="menuLabel"><span></span><span></span><span></span></button>
     </div>
-    <a href="https://github.com/alexfrmn/murmur">github</a>
   </div>
+  <nav class="sections" id="sections" aria-label="Sections of this page" data-i18n-aria="menuLabel" hidden>
+    <a href="#kak" data-i18n="menuHow">how it works</a>
+    <a href="#words" data-i18n="menuWords">five words</a>
+    <a href="#first-open" data-i18n="menuFirstOpen">first-open warnings</a>
+    <a href="#install" data-i18n="menuInstall">install the app</a>
+    <a href="#first-minutes" data-i18n="menuMinutes">the first five minutes</a>
+    <a href="#put" data-i18n="menuPrompt">hand this to your assistant</a>
+    <a href="#troubleshoot" data-i18n="menuTrouble">troubleshooting</a>
+    <a href="#faq" data-i18n="menuFaq">questions and answers</a>
+    <a class="sep" href="claude-code-codex/" hreflang="en" data-i18n="menuGuideCodex">guide: Claude Code and Codex on two machines</a>
+    <a href="wake-up/" hreflang="en" data-i18n="menuGuideWake">guide: wake-up for an idle session</a>
+    <a href="compare/" hreflang="en" data-i18n="menuGuideCompare">guide: ways to connect assistants, compared</a>
+    <a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a>
+  </nav>
 </header>
+
+<a class="totop" id="totop" href="#top" aria-label="Back to top" data-i18n-aria="toTop" title="Back to top" data-i18n-title="toTop" hidden>↑</a>
 
 <section class="hero">
   <svg id="art" viewBox="0 0 1336 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
@@ -847,6 +903,13 @@ Desktop and Codex on Windows do not start an assistant turn on an incoming messa
     <span data-i18n="footer">murmur · open source under the MIT license: free to use, change, and share</span>
     <nav aria-label="guides" data-i18n-aria="guidesAria"><span data-i18n="guidesLabel">guides:</span> <a href="claude-code-codex/" hreflang="en" data-i18n="guideCodex">Claude Code and Codex on two machines</a> · <a href="wake-up/" hreflang="en" data-i18n="guideWake">wake-up for an idle session</a> · <a href="compare/" hreflang="en" data-i18n="guideCompare">Murmur compared</a></nav>
     <span><a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a></span>
+    <div class="counters" id="counters" aria-label="Visitors" data-i18n-aria="statsAria" hidden>
+      <span><b data-stat="today">–</b> <span data-i18n="statToday">today</span></span>
+      <span><b data-stat="week">–</b> <span data-i18n="statWeek">7 days</span></span>
+      <span><b data-stat="month">–</b> <span data-i18n="statMonth">30 days</span></span>
+      <span><b data-stat="all">–</b> <span data-i18n="statAll">all time</span></span>
+      <span class="online"><i aria-hidden="true"></i><b data-stat="online">–</b> <span data-i18n="statOnline">online now</span></span>
+    </div>
   </div>
 </footer>
 
@@ -858,6 +921,7 @@ const I18N = {
     imageAlt: 'murmur: two AI assistants linked by an encrypted channel',
     themeGroup: 'color theme', themeSand: 'sand', themeDusk: 'dusk', themeMint: 'mint',
     languageLabel: 'Switch to Russian', languageButton: 'RU',
+    themeSwitch: 'Switch color theme', themeLabel: 'theme', menuLabel: 'Sections of this page', menuHow: 'how it works', menuWords: 'five words', menuFirstOpen: 'first-open warnings', menuInstall: 'install the app', menuMinutes: 'the first five minutes', menuPrompt: 'hand this to your assistant', menuTrouble: 'troubleshooting', menuFaq: 'questions and answers', menuGuideCodex: 'guide: Claude Code and Codex on two machines', menuGuideWake: 'guide: wake-up for an idle session', menuGuideCompare: 'guide: ways to connect assistants, compared', toTop: 'Back to top', statsAria: 'Visitors', statToday: 'today', statWeek: '7 days', statMonth: '30 days', statAll: 'all time', statOnline: 'online now',
     eyebrow: 'Murmur Connect · messaging between AI assistants', heroTitle: 'let assistants talk',
     heroLead: 'a direct, end-to-end encrypted channel between two AI assistants — Claude Code, Codex or any other assistant that speaks MCP, across machines. no more carrying text from one terminal to another by hand.',
     installCta: 'get started', explainCta: 'how it works', explainTag: 'how it works',
@@ -1000,6 +1064,7 @@ const I18N = {
     ],
     themeGroup: 'цветовая гамма', themeSand: 'песок', themeDusk: 'сумерки', themeMint: 'мята',
     languageLabel: 'Переключить на английский', languageButton: 'EN',
+    themeSwitch: 'Переключить цветовую тему', themeLabel: 'тема', menuLabel: 'Разделы страницы', menuHow: 'как это работает', menuWords: 'пять слов', menuFirstOpen: 'предупреждения при первом открытии', menuInstall: 'установить приложение', menuMinutes: 'первые пять минут', menuPrompt: 'передайте это помощнику', menuTrouble: 'если что-то не так', menuFaq: 'вопросы и ответы', menuGuideCodex: 'руководство: Claude Code и Codex на двух машинах', menuGuideWake: 'руководство: пробуждение спящей сессии', menuGuideCompare: 'руководство: способы связать помощников', toTop: 'Наверх', statsAria: 'Посетители', statToday: 'сегодня', statWeek: '7 дней', statMonth: '30 дней', statAll: 'за всё время', statOnline: 'сейчас на сайте',
     eyebrow: 'Murmur Connect · обмен сообщениями между ИИ-помощниками', heroTitle: 'пусть помощники разговаривают',
     heroLead: 'прямой канал со сквозным шифрованием между двумя ИИ-помощниками — Claude Code, Codex или любым другим помощником с поддержкой MCP, на разных машинах. человек перестаёт быть ретранслятором, который носит текст из одного терминала в другой.',
     installCta: 'начать', explainCta: 'как это устроено', explainTag: 'как это устроено',
@@ -1220,28 +1285,79 @@ function rgba(hex, a) {
   const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
+const THEMES = ['sand', 'dusk', 'mint'];
+const themeSwitch = document.getElementById('theme-switch');
+function showTheme(name) {
+  const dot = themeSwitch.querySelector('.sw'), label = document.getElementById('theme-name');
+  dot.className = 'sw sw-' + name;
+  label.textContent = I18N[language]['theme' + name[0].toUpperCase() + name.slice(1)] || name;
+  const next = THEMES[(THEMES.indexOf(name) + 1) % THEMES.length];
+  themeSwitch.title = I18N[language].themeSwitch + ': ' + (I18N[language]['theme' + next[0].toUpperCase() + next.slice(1)] || next);
+}
 function applyTheme(name) {
   document.documentElement.setAttribute('data-theme', name);
-  for (const b of document.querySelectorAll('.themes button')) {
-    b.setAttribute('aria-pressed', String(b.dataset.set === name));
-  }
+  showTheme(name);
   readPalette();
   if (typeof seedSmoke === 'function') seedSmoke();
   try { localStorage.setItem('murmur-theme', name); } catch {}
 }
-document.querySelectorAll('.themes button').forEach(b => {
-  b.addEventListener('click', () => applyTheme(b.dataset.set));
+// One button walks the palettes in a circle: sand → dusk → mint → sand.
+themeSwitch.addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'dusk';
+  applyTheme(THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]);
 });
 // Dusk is the default and is already set in the static markup, so the first paint is
 // never the light theme. A visitor's saved choice still wins.
 let saved = 'dusk';
 try { saved = localStorage.getItem('murmur-theme') || 'dusk'; } catch {}
-if (!['sand', 'dusk', 'mint'].includes(saved)) saved = 'dusk';
+if (!THEMES.includes(saved)) saved = 'dusk';
 document.documentElement.setAttribute('data-theme', saved);
-for (const b of document.querySelectorAll('.themes button')) {
-  b.setAttribute('aria-pressed', String(b.dataset.set === saved));
-}
+showTheme(saved);
 readPalette();
+/* ——————————— разделы, наверх, счётчики ——————————— */
+// The sections menu is a plain list of anchors; JavaScript only opens and closes it.
+const menuButton = document.getElementById('menu-button'), sections = document.getElementById('sections');
+function setMenu(open) { sections.hidden = !open; menuButton.setAttribute('aria-expanded', String(open)); }
+menuButton.addEventListener('click', () => setMenu(sections.hidden));
+sections.addEventListener('click', event => { if (event.target.closest('a')) setMenu(false); });
+document.addEventListener('click', event => {
+  if (!sections.hidden && !sections.contains(event.target) && !menuButton.contains(event.target)) setMenu(false);
+});
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !sections.hidden) { setMenu(false); menuButton.focus(); } });
+// Back to top appears after the first screen; it scrolls without leaving #top in the address.
+const totop = document.getElementById('totop');
+let scrollTick = false;
+function watchScroll() {
+  if (scrollTick) return;
+  scrollTick = true;
+  requestAnimationFrame(() => { totop.hidden = window.scrollY < 600; scrollTick = false; });
+}
+window.addEventListener('scroll', watchScroll, { passive: true });
+watchScroll();
+totop.addEventListener('click', event => {
+  event.preventDefault();
+  window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+});
+// Visitor counters: the service on this origin records a visit and returns the totals.
+// The row stays hidden if the service is unreachable, so the page never shows broken numbers.
+(function counters() {
+  const box = document.getElementById('counters');
+  if (!box || !window.fetch) return;
+  const page = location.pathname;
+  const hit = () => fetch('/api/hit', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p: page }) }).catch(() => {});
+  const numbers = new Intl.NumberFormat(language === 'ru' ? 'ru-RU' : 'en-US');
+  const draw = s => {
+    for (const el of box.querySelectorAll('[data-stat]')) {
+      const v = s[el.dataset.stat];
+      if (typeof v === 'number') el.textContent = numbers.format(v);
+    }
+    box.hidden = false;
+  };
+  const load = () => fetch('/api/stats', { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(draw).catch(() => {});
+  hit().then(load);
+  setInterval(() => { if (document.visibilityState === 'visible') hit().then(load); }, 60000);
+})();
 
 // The language switch is an ordinary link to the other page. A click also remembers the
 // choice, so the bare address / opens Russian next time (the script in <head> reads it).
