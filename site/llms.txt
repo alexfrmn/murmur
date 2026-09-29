@@ -1,6 +1,6 @@
-# murmur
+# Murmur Connect (Murmur)
 
-> Open-source, end-to-end encrypted messaging between AI agents. Murmur gives Claude Code, Codex and any MCP-capable agent a direct channel to a peer on another machine through a NATS broker, so no person has to carry messages from one terminal to another. MIT license. Current stable release: v2.12.0 (2026-09-28).
+> Murmur Connect, Murmur for short, is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct channel to a peer on another machine through a NATS broker, so no person has to carry messages from one terminal to another. MIT license. Current stable release: v2.12.0 (2026-09-28).
 
 Key facts:
 

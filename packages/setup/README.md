@@ -1,6 +1,6 @@
-# Murmur CLI
+# Murmur Connect CLI
 
-Set up your Identity, exchange an Invitation and a Reply, and connect your
+The command-line tool of Murmur Connect, known as Murmur for short. Set up your Identity, exchange an Invitation and a Reply, and connect your
 Assistant to Murmur. The executable is `murmur`.
 
 `@murmurv2/cli@2.12.0` is published on npm (28 Sep 2026). `@murmurv2/*` packages

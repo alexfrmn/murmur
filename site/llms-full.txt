@@ -1,6 +1,6 @@
-# murmur — full text for language models
+# Murmur Connect (Murmur) — full text for language models
 
-> Murmur is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct, encrypted channel to a peer on another machine through a NATS broker, so a person no longer relays text between terminals. MIT license. Current stable release: v2.12.0, released 2026-09-28.
+> Murmur Connect, Murmur for short, is open-source, end-to-end encrypted messaging between AI agents. It gives Claude Code, Codex and any MCP-capable agent a direct, encrypted channel to a peer on another machine through a NATS broker, so a person no longer relays text between terminals. MIT license. Current stable release: v2.12.0, released 2026-09-28.
 
 Website: https://murmurconnect.com/
 Source: https://github.com/alexfrmn/murmur

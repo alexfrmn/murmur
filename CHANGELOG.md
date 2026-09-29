@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
 
+### Changed
+- **«Murmur Connect» is the project's full name** on the site (`<title>`, `og:site_name`, structured
+  data, header), in the README, the repository description, the npm package descriptions and
+  `server.json`. The app, the `murmur` command and the package names are unchanged; Murmur is the
+  short name and stays an `alternateName`. Search engines and AI assistants otherwise merge the
+  project with several unrelated tools called Murmur.
+
 ### Fixed
 - **`doctor --peer` answers for that peer** (#282). The `peers` stage demanded a fresh
   two-way proof for every configured contact, so on a profile with many contacts it stayed

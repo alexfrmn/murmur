@@ -1,5 +1,5 @@
 {
-  "name": "murmur — encrypted messaging between AI agents",
+  "name": "Murmur Connect — encrypted messaging between AI agents",
   "short_name": "murmur",
   "description": "Open-source, end-to-end encrypted agent-to-agent communication for Claude Code, Codex and any MCP client.",
   "start_url": "/",

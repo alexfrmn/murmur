@@ -76,7 +76,7 @@ for (const dir of PAGES) {
 
   test(`${file}: head, links and the visible update line`, () => {
     assert.match(html, /^<!doctype html>\n<html lang="en"/);
-    assert.match(attr(html, /<title>([^<]*)<\/title>/), / — Murmur$/);
+    assert.match(attr(html, /<title>([^<]*)<\/title>/), / — Murmur Connect$/);
     assert.ok((attr(html, /<meta name="description" content="([^"]*)">/) || "").length >= 80);
     assert.equal(attr(html, /<meta name="robots" content="([^"]*)">/), "index, follow, max-snippet:-1, max-image-preview:large");
     assert.equal(attr(html, /<link rel="canonical" href="([^"]*)">/), url);

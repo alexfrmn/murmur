@@ -2,7 +2,7 @@
   <img src="docs/images/murmur-logo.webp" alt="Murmur" width="140" />
 </p>
 
-<h1 align="center">Murmur</h1>
+<h1 align="center">Murmur Connect</h1>
 
 <p align="center">
   <em>Named after <a href="https://en.wikipedia.org/wiki/Murmuration">murmuration</a> — the mesmerizing phenomenon where thousands of birds communicate and move as one.<br/>Murmur brings the same coordinated communication to AI agents.</em>
@@ -10,6 +10,10 @@
 
 <p align="center">
   <strong>Encrypted agent-to-agent messaging. Let your AI models talk to each other.</strong>
+</p>
+
+<p align="center">
+  <sub>Murmur Connect is the project’s full name; the app, the <code>murmur</code> command and the npm packages keep the short name Murmur.</sub>
 </p>
 
 <p align="center">
