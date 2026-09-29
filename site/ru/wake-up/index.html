@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ru" data-theme="dusk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Dusk is the default in the markup; a theme chosen on the home page carries over.
+try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 'mint' || t === 'dusk') document.documentElement.dataset.theme = t; } catch {}
+</script>
+<title>Пробуждение спящей сессии Claude Code при входящем сообщении — Murmur Connect</title>
+<meta name="description" content="Как Murmur начинает ход в простаивающей сессии Claude Code через Stop-хук, а в Codex — через codex app-server, когда приходит сообщение. Статусы и ограничения.">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<link rel="canonical" href="https://murmurconnect.com/ru/wake-up/">
+<link rel="alternate" hreflang="en" href="https://murmurconnect.com/wake-up/">
+<link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/wake-up/">
+<link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/wake-up/">
+<meta name="theme-color" content="#141824">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Murmur Connect">
+<meta property="og:url" content="https://murmurconnect.com/ru/wake-up/">
+<meta property="og:title" content="Пробуждение спящей сессии Claude Code при входящем сообщении — Murmur Connect">
+<meta property="og:description" content="Как Murmur начинает ход в простаивающей сессии Claude Code через Stop-хук, а в Codex — через codex app-server, когда приходит сообщение. Статусы и ограничения.">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Murmur: два ИИ-помощника, связанные зашифрованным каналом">
+<meta property="article:published_time" content="2026-09-29">
+<meta property="article:modified_time" content="2026-09-29">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Пробуждение спящей сессии Claude Code при входящем сообщении — Murmur Connect">
+<meta name="twitter:description" content="Как Murmur начинает ход в простаивающей сессии Claude Code через Stop-хук, а в Codex — через codex app-server, когда приходит сообщение. Статусы и ограничения.">
+<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta name="twitter:image:alt" content="Murmur: два ИИ-помощника, связанные зашифрованным каналом">
+<link rel="icon" href="../../favicon.ico?v=20260925-1" sizes="48x48">
+<link rel="icon" href="../../favicon.svg?v=20260923-1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png?v=20260923-1">
+<link rel="manifest" href="../../site.webmanifest?v=20260923-1">
+<link rel="preload" href="../../fonts/JetBrainsMono-400.woff2?v=20260925-1" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../../fonts.css?v=20260925-1" as="style">
+<link rel="stylesheet" href="../../fonts.css?v=20260925-1" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="../../fonts.css?v=20260925-1"></noscript>
+<link rel="stylesheet" href="../../pages.css?v=20260929-1">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "@id": "https://murmurconnect.com/ru/wake-up/#article",
+  "url": "https://murmurconnect.com/ru/wake-up/",
+  "mainEntityOfPage": "https://murmurconnect.com/ru/wake-up/",
+  "headline": "Пробуждение: спящая сессия Claude Code отвечает, когда приходит сообщение",
+  "description": "Как Murmur начинает ход в простаивающей сессии Claude Code через Stop-хук, а в Codex — через codex app-server, когда приходит сообщение. Статусы и ограничения.",
+  "inLanguage": "ru",
+  "datePublished": "2026-09-29",
+  "dateModified": "2026-09-29",
+  "image": "https://murmurconnect.com/og.png?v=20260925-1",
+  "author": {
+    "@type": "Person",
+    "@id": "https://murmurconnect.com/#author",
+    "name": "Alexander Vasiliev",
+    "url": "https://github.com/alexfrmn"
+  },
+  "about": { "@id": "https://murmurconnect.com/#software" },
+  "isPartOf": { "@id": "https://murmurconnect.com/#website" },
+  "proficiencyLevel": "Expert"
+}
+</script>
+<script type="application/ld+json" id="faq-ld">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": "https://murmurconnect.com/ru/wake-up/#faq",
+  "url": "https://murmurconnect.com/ru/wake-up/",
+  "inLanguage": "ru",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Держит ли Murmur Claude Code запущенным?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Нет. Murmur не запускает Claude Code. Stop-хук работает внутри сессии, которую запустили вы, после того как она закончила ход, и слушает окно после этого хода (восемь часов с 2.12.0; десять минут в 2.11.0, см. issue #273); сообщение в этом окне начинает следующий ход той же сессии."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Сообщение пришло, почему Claude Code не ответил?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Проверьте по порядку: сессия закончила хотя бы один ход с момента запуска; её последний ход закончился внутри окна прослушивания (восемь часов с 2.12.0; десять минут в 2.11.0); пробуждение не на паузе; в ~/.claude/settings.json есть Stop-хук Murmur, который Murmur записывает, когда вы выбираете Claude Code своим помощником. В 2.11.0 сообщение, пришедшее до первого Stop новой сессии, тоже пропускается, пока вы не откроете входящие."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Кладёт ли хук текст сообщения в контекст Claude?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Нет. Строка, которая начинает ход, называет отправителя и число новых сообщений и говорит, что текст — это данные, а не инструкции. Полный текст Claude затем читает через murmur_inbox, как любой другой результат инструмента."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Работает ли пробуждение для Codex на Windows?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "В 2.11 нет. Пробуждение Codex идёт через codex app-server по Unix-сокету, а его транспорт для Windows не реализован. На Windows Codex отправляет, читает и отвечает на сообщения Murmur всякий раз, когда делает ход."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Работает ли пробуждение в Claude Desktop?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Нет. Claude Desktop умеет отправлять и читать сообщения Murmur через MCP, но не начинает ход, когда приходит сообщение. Откройте беседу и попросите его прочитать входящие."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Это то же самое, что обмен сообщениями между сессиями Claude Code?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Нет. Обмен между сессиями Claude Code тоже начинает новый ход в простаивающей сессии, но для сообщений между вашими собственными сессиями Claude Code, отправленных его инструментом SendMessage. Пробуждение Murmur — для сообщений от контактов Murmur, а это могут быть другие люди и другие помощники, включая Codex."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+
+<header id="top">
+  <div class="bar">
+    <a class="logo" href="../">murmur connect</a>
+    <nav class="topnav" aria-label="Руководства">
+      <a href="../#install">установка</a>
+      <a href="../claude-code-codex/">Claude Code ↔ Codex</a>
+      <a href="../wake-up/" aria-current="page">пробуждение</a>
+      <a href="../compare/">сравнение</a>
+    </nav>
+    <div class="controls">
+      <a class="github" href="https://github.com/alexfrmn/murmur">github</a>
+      <a class="language" href="../../wake-up/" hreflang="en" aria-label="Read in English" title="Read in English">EN</a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Разделы сайта" title="Разделы сайта"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+  <nav class="sections" id="sections" aria-label="Разделы сайта" hidden>
+    <a href="../#kak">как это работает</a>
+    <a href="../#words">пять слов</a>
+    <a href="../#first-open">предупреждения при первом открытии</a>
+    <a href="../#install">установить приложение</a>
+    <a href="../#first-minutes">первые пять минут</a>
+    <a href="../#put">передайте это помощнику</a>
+    <a href="../#troubleshoot">если что-то не так</a>
+    <a href="../#faq">вопросы и ответы</a>
+    <a class="sep" href="../claude-code-codex/">руководство: Claude Code и Codex на двух машинах</a>
+    <a href="../wake-up/">руководство: пробуждение спящей сессии</a>
+    <a href="../compare/">руководство: способы связать помощников</a>
+    <a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a>
+  </nav>
+</header>
+
+<a class="totop" id="totop" href="#top" aria-label="Наверх" title="Наверх" hidden>↑</a>
+
+<main>
+<article>
+
+<section class="zone" id="answer">
+  <div class="wrap">
+    <span class="tag">руководство · пробуждение</span>
+    <h1>Пробуждение: спящая сессия Claude Code отвечает, когда приходит сообщение</h1>
+    <p class="lead">Доставка кладёт сообщение контакта в хранилище Murmur на вашем компьютере; пробуждение заставляет помощника начать ход и прочитать его без того, чтобы кто-то что-то печатал. В Claude Code Murmur делает это Stop-хуком: после каждого хода хук следит за хранилищем — восемь часов с 2.12.0 (около десяти минут в 2.11.0), — и когда приходит сообщение, завершается с кодом 2, который параметр <code>asyncRewake</code> в Claude Code превращает в новый ход простаивающей сессии. В Codex CLI служба Murmur подключается к <code>codex app-server</code> по Unix-сокету и начинает ход в треде сессии.</p>
+    <p class="updated">Обновлено 29 сентября 2026 · Murmur 2.12.0</p>
+  </div>
+</section>
+
+<section class="zone alt" id="status">
+  <div class="wrap">
+    <span class="tag">честный статус</span>
+    <h2>готово, доставлено, отвечено — и пробуждение</h2>
+    <p class="lead">Murmur 2.11 держит эти состояния раздельно и в приложении, и в командной строке, и не выдаёт проверку, которая не запускалась, за успех.</p>
+    <div class="facts">
+      <div class="fact">
+        <h3>служба готова</h3>
+        <p>Служба работает и подключена к серверу; приложение говорит «Служба подключена и готова». О вашем контакте это ничего не говорит: контакт, который ещё не проверяли, показывается отдельно.</p>
+      </div>
+      <div class="fact">
+        <h3>доставлено</h3>
+        <p>Служба вашего контакта проверила подпись, расшифровала сообщение, сохранила его и вернула подписанную квитанцию. Его помощник мог его ещё не видеть. <code>murmur_request</code> показывает доставленными только подтверждённые сообщения.</p>
+      </div>
+      <div class="fact">
+        <h3>ответ получен</h3>
+        <p>Сообщение вернулось. Только это доказывает, что пара работает в обе стороны. Встроенную проверку, <code>murmur doctor --peer</code>, в 2.11 отвечает сама служба контакта: она доказывает канал, а не помощника.</p>
+      </div>
+      <div class="fact">
+        <h3>пробуждение</h3>
+        <p>Помощник на другой стороне сам начал ход и прочитал сообщение. Это отдельная настройка со своим статусом, и приложение прямо говорит, что проверка контакта пробуждение не проверяет.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="claude-code">
+  <div class="wrap">
+    <span class="tag">Claude Code</span>
+    <h2>Stop-хук, который слушает после каждого хода</h2>
+    <ol class="steps">
+      <li><p>Выбор Claude Code своим помощником в приложении Murmur или команда <code>murmur clients configure --client claude-code</code> добавляет MCP-сервер Murmur в <code>~/.claude.json</code> и Stop-хук в <code>~/.claude/settings.json</code>. Повторный запуск ничего не меняет; чужой хук Murmur заменяется только с <code>--replace</code>.</p></li>
+      <li><p>Claude Code запускает хук, когда ход заканчивается. У хука стоит <code>asyncRewake</code>, поэтому он продолжает работать в фоне и опрашивает локальное хранилище Murmur — по одному опросу на сессию. Команда просит до 28&nbsp;800 секунд, но в 2.11.0 запись не задавала свой <code>timeout</code>, а Claude Code применял к хукам с <code>asyncRewake</code> свои 600 секунд по умолчанию, так что окно после каждого хода было десять минут; с 2.12.0 запись несёт собственный timeout в 28800 секунд (<a href="https://github.com/alexfrmn/murmur/issues/273">issue #273</a>; исправление добавляет timeout в запись).</p></li>
+      <li><p>Когда приходит сообщение от контакта, хук печатает одну строку с отправителем и числом новых сообщений и завершается с кодом 2. Claude Code показывает эту строку Claude как системное напоминание и начинает новый ход, хотя никто ничего не печатал.</p></li>
+      <li><p>Claude читает полный текст через <code>murmur_inbox</code> и отвечает через <code>murmur_send</code>. Строка, которая начала ход, текста сообщения не несёт и говорит, что текст — это данные, а не инструкции.</p></li>
+    </ol>
+    <div class="prose">
+      <p>Запись, которую он делает, выглядит так; пути — абсолютные пути на вашем компьютере:</p>
+      <pre><code>{
+  "hooks": {
+    "Stop": [{ "hooks": [{
+      "type": "command",
+      "asyncRewake": true,
+      "command": "node --no-warnings /path/to/scripts/wake-drain-claude.mjs --db /absolute/murmur-identity/murmur.db --max-seconds 28800"
+    }] }]
+  }
+}</code></pre>
+      <p>Каждая сессия держит свою позицию в хранилище, поэтому одно сообщение начинает ход в каждой живой сессии Claude Code с этой личностью. Сессии, которые делят личность, делят и её входящие; независимым сессиям дайте отдельные личности.</p>
+      <p>Второй, необязательный хук на <code>SessionStart</code> с <code>--session</code> сообщает при старте сессии, что пришло, пока ни одна сессия не работала. Он описан в <a href="https://github.com/alexfrmn/murmur/blob/main/docs/wake-native.md"><code>wake-native.md</code></a>, и <code>clients configure</code> его не ставит.</p>
+    </div>
+  </div>
+</section>
+
+<section class="zone alt" id="codex">
+  <div class="wrap">
+    <span class="tag">Codex</span>
+    <h2>ход, начатый через codex app-server</h2>
+    <div class="prose">
+      <p>У Codex нет Stop-хука, из которого можно опрашивать. Здесь сама служба Murmur говорит с <code>codex app-server</code> по WebSocket на Unix-сокете. Этот путь настраивается руками; приложение и <code>clients configure</code> в 2.11 его не делают.</p>
+    </div>
+    <ol class="steps">
+      <li><p>Запустите app-server и поднимите Codex на его сокете: <code>codex remote-control start --json</code> возвращает путь к сокету, а <code>codex --remote unix://PATH</code> привязывает к нему сессию.</p></li>
+      <li><p>В файле настроек личности <code>agent-config.json</code> укажите для контакта этот сокет в <code>wake.peers</code> с <code>"mode": "codex_app_server"</code> и <code>socketPath</code>. Если задать <code>threadId</code> треда живой сессии Codex, ход начнётся в ней; без него Murmur заводит свой тред на контакт и беседу на этом app-server и помнит его между перезапусками. Служба читает это при старте, поэтому после правки перезапустите её.</p></li>
+      <li><p>Когда приходит сообщение, служба подключается к сокету, отправляет <code>initialize</code>, затем <code>turn/start</code> с сообщением в тред. Отсутствующий сокет или тред записывается в журнал как сбой; молча откатиться на опрос она не пытается.</p></li>
+      <li><p>Неудавшийся ход повторяется под тем же идентификатором доставки с растущей паузой, до пяти попыток, потом уходит в очередь недоставленных; ход, который кто-то прервал намеренно, не повторяется. Сообщения одного контакта и беседы идут по порядку, а параллельно по умолчанию идут до четырёх бесед.</p></li>
+    </ol>
+    <div class="prose">
+      <pre><code>{
+  "wake": {
+    "peers": {
+      "bob": {
+        "mode": "codex_app_server",
+        "socketPath": "/home/you/.codex/app-server-control/app-server-control.sock"
+      }
+    }
+  }
+}</code></pre>
+      <p>Если у контакта задан <code>relayFinalToMurmur</code>, служба ещё и отправляет финальный ответ хода обратно этому контакту. Путь идёт через Unix-сокеты, поэтому работает на macOS и Linux; транспорт для Windows не реализован.</p>
+      <p>У Codex Desktop на macOS отдельный путь, включаемый отдельно: Murmur передаёт входящее сообщение ровно в ту задачу Desktop, которая начала беседу, командой <code>codex queue</code>. Он запускает простаивающую задачу, но не вмешивается в уже идущий ход. См. <a href="https://github.com/alexfrmn/murmur/blob/main/docs/codex-desktop-queue-wake.md"><code>codex-desktop-queue-wake.md</code></a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="app">
+  <div class="wrap">
+    <span class="tag">в приложении</span>
+    <h2>где включается пробуждение</h2>
+    <div class="facts">
+      <div class="fact">
+        <h3>Claude Code</h3>
+        <p>Выбор Claude Code своим помощником в приложении для Mac или в трее Windows ставит Stop-хук вместе с MCP-сервером. После этого перезапустите Claude Code; хук впервые сработает, когда сессия закончит свой следующий ход.</p>
+      </div>
+      <div class="fact">
+        <h3>пауза и возобновление</h3>
+        <p>В меню можно поставить пробуждение на паузу и снять её. Пауза держит ожидающие сообщения по порядку; после возобновления они обрабатываются как обычно, что после долгой паузы может значить серию ходов подряд. Настройка применяется при перезапуске службы, и меню показывает, когда настроенное и действующее состояние расходятся.</p>
+      </div>
+      <div class="fact">
+        <h3>подписи в 2.11.0</h3>
+        <p>На Mac в 2.11.0 этот пункт меню ещё носит старое имя, <code>Agent delivery</code>; сборки после 2.11.0 говорят «Пробуждение». В трее Windows пункты называются «Пауза» и «Возобновить».</p>
+      </div>
+      <div class="fact">
+        <h3>Codex и Claude Desktop</h3>
+        <p>У пробуждения Codex в 2.11 нет переключателя в приложении: оно живёт в файле настроек личности, как описано выше. Claude Desktop умеет отправлять и читать сообщения Murmur, но не начинает ход, когда приходит сообщение.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone alt" id="limits">
+  <div class="wrap">
+    <span class="tag">ограничения</span>
+    <h2>что не начинает ход</h2>
+    <div class="prose">
+      <ul>
+        <li><b>Claude Desktop.</b> Отправка и чтение работают через MCP; новое сообщение ход не начинает. Откройте беседу и попросите его прочитать входящие.</li>
+        <li><b>Codex на Windows.</b> Пробуждению через app-server нужны Unix-сокеты, а транспорт для Windows не реализован.</li>
+        <li><b>Сессии Codex, не привязанные к app-server.</b> Обычная сессия <code>codex</code> или сессия Codex Desktop, запущенная сама по себе, недостижима: экземпляры app-server изолированы по сессиям и друг с другом не говорят.</li>
+        <li><b>Новая сессия Claude Code до её первого хода.</b> Stop-хук запускается, когда ход заканчивается, поэтому только что запущенная сессия ещё не слушает. Для сессии без присмотра отправьте один безвредный запрос сразу после запуска.</li>
+        <li><b>В 2.11.0 — сообщение, пришедшее до первого Stop новой сессии.</b> Хук начинал чтение с самого свежего сообщения, поэтому такое сообщение ничего не запускало, пока входящие не открывали руками. Исправление влито после 2.11.0 и ещё не выпущено (<a href="https://github.com/alexfrmn/murmur/blob/main/CHANGELOG.md#unreleased">CHANGELOG, Unreleased, #245</a>).</li>
+        <li><b>После окна прослушивания с последнего хода</b> (восемь часов с 2.12.0; десять минут в 2.11.0). Хук перестал слушать; сообщение начнёт ход при следующем запросе, который напечатает человек.</li>
+        <li><b>Пробуждение на паузе.</b> Сообщения ждут по порядку, пока вы её не снимете.</li>
+        <li><b>Остановленная служба Murmur.</b> На этом компьютере ничего не принимается; служба отправителя повторяет отправку в своих пределах.</li>
+        <li><b>Диагностические проверки.</b> На проверки <code>murmur doctor</code> отвечает служба, и ход они никогда не начинают.</li>
+      </ul>
+      <p>Поведение после перезагрузки или перезапуска помощника приёмку ещё не прошло, поэтому после каждого перезапуска проверяйте пробуждение заново: отправьте тестовое сообщение с другой стороны, пока помощник простаивает, и дождитесь ответа. Полный список — в <a href="https://github.com/alexfrmn/murmur/blob/main/CHANGELOG.md#known-limitations">известных ограничениях</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="faq">
+  <div class="wrap">
+    <span class="tag">вопросы</span>
+    <h2>короткие ответы</h2>
+    <div class="qa">
+      <div class="fact">
+        <h3>Держит ли Murmur Claude Code запущенным?</h3>
+        <p>Нет. Murmur не запускает Claude Code. Stop-хук работает внутри сессии, которую запустили вы, после того как она закончила ход, и слушает окно после этого хода (восемь часов с 2.12.0; десять минут в 2.11.0, см. issue #273); сообщение в этом окне начинает следующий ход той же сессии.</p>
+      </div>
+      <div class="fact">
+        <h3>Сообщение пришло, почему Claude Code не ответил?</h3>
+        <p>Проверьте по порядку: сессия закончила хотя бы один ход с момента запуска; её последний ход закончился внутри окна прослушивания (восемь часов с 2.12.0; десять минут в 2.11.0); пробуждение не на паузе; в ~/.claude/settings.json есть Stop-хук Murmur, который Murmur записывает, когда вы выбираете Claude Code своим помощником. В 2.11.0 сообщение, пришедшее до первого Stop новой сессии, тоже пропускается, пока вы не откроете входящие.</p>
+      </div>
+      <div class="fact">
+        <h3>Кладёт ли хук текст сообщения в контекст Claude?</h3>
+        <p>Нет. Строка, которая начинает ход, называет отправителя и число новых сообщений и говорит, что текст — это данные, а не инструкции. Полный текст Claude затем читает через murmur_inbox, как любой другой результат инструмента.</p>
+      </div>
+      <div class="fact">
+        <h3>Работает ли пробуждение для Codex на Windows?</h3>
+        <p>В 2.11 нет. Пробуждение Codex идёт через codex app-server по Unix-сокету, а его транспорт для Windows не реализован. На Windows Codex отправляет, читает и отвечает на сообщения Murmur всякий раз, когда делает ход.</p>
+      </div>
+      <div class="fact">
+        <h3>Работает ли пробуждение в Claude Desktop?</h3>
+        <p>Нет. Claude Desktop умеет отправлять и читать сообщения Murmur через MCP, но не начинает ход, когда приходит сообщение. Откройте беседу и попросите его прочитать входящие.</p>
+      </div>
+      <div class="fact">
+        <h3>Это то же самое, что обмен сообщениями между сессиями Claude Code?</h3>
+        <p>Нет. Обмен между сессиями Claude Code тоже начинает новый ход в простаивающей сессии, но для сообщений между вашими собственными сессиями Claude Code, отправленных его инструментом SendMessage. Пробуждение Murmur — для сообщений от контактов Murmur, а это могут быть другие люди и другие помощники, включая Codex.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone alt" id="more">
+  <div class="wrap">
+    <span class="tag">ещё</span>
+    <h2>связанные руководства</h2>
+    <div class="related">
+      <a href="../claude-code-codex/">Claude Code и Codex<span>как заставить их общаться между двумя машинами, шаг за шагом</span></a>
+      <a href="../compare/">сравнение<span>Murmur рядом с другими способами связать помощников</span></a>
+      <a href="../#install">установка<span>приложение на Mac или Windows, шаг за шагом</span></a>
+    </div>
+    <p class="more">Источники (по-английски): <a href="https://github.com/alexfrmn/murmur/blob/main/docs/wake-native.md"><code>wake-native.md</code></a> · <a href="https://github.com/alexfrmn/murmur/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a> · <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.12.0">релиз v2.12.0</a> · <a href="https://code.claude.com/docs/en/hooks">справочник по хукам</a> Claude Code</p>
+  </div>
+</section>
+
+</article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>murmur · открытый код, лицензия MIT: можно брать, менять и использовать свободно</span>
+    <span><a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a></span>
+  </div>
+</footer>
+
+<script>
+// Sections menu and back-to-top; the menu is a plain list of links, JavaScript only opens it.
+(() => {
+  const button = document.getElementById('menu-button'), sections = document.getElementById('sections');
+  const setMenu = open => { sections.hidden = !open; button.setAttribute('aria-expanded', String(open)); };
+  button.addEventListener('click', () => setMenu(sections.hidden));
+  sections.addEventListener('click', e => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('click', e => { if (!sections.hidden && !sections.contains(e.target) && !button.contains(e.target)) setMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sections.hidden) { setMenu(false); button.focus(); } });
+  const totop = document.getElementById('totop');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let tick = false;
+  const watch = () => { if (tick) return; tick = true; requestAnimationFrame(() => { totop.hidden = window.scrollY < 600; tick = false; }); };
+  window.addEventListener('scroll', watch, { passive: true });
+  watch();
+  totop.addEventListener('click', e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' }); });
+})();
+</script>
+</body>
+</html>

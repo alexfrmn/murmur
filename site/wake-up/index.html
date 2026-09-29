@@ -11,6 +11,9 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <meta name="description" content="How Murmur starts a turn in an idle Claude Code session with a Stop hook, and in Codex through codex app-server, when a message arrives. Statuses and limits.">
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <link rel="canonical" href="https://murmurconnect.com/wake-up/">
+<link rel="alternate" hreflang="en" href="https://murmurconnect.com/wake-up/">
+<link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/wake-up/">
+<link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/wake-up/">
 <meta name="theme-color" content="#141824">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Murmur Connect">
@@ -18,13 +21,14 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <meta property="og:title" content="Wake-up for an idle Claude Code session when a message arrives — Murmur Connect">
 <meta property="og:description" content="How Murmur starts a turn in an idle Claude Code session with a Stop hook, and in Codex through codex app-server, when a message arrives. Statuses and limits.">
 <meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ru_RU">
 <meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Murmur: two AI assistants linked by an encrypted channel">
 <meta property="article:published_time" content="2026-09-25">
-<meta property="article:modified_time" content="2026-09-25">
+<meta property="article:modified_time" content="2026-09-29">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Wake-up for an idle Claude Code session when a message arrives — Murmur Connect">
 <meta name="twitter:description" content="How Murmur starts a turn in an idle Claude Code session with a Stop hook, and in Codex through codex app-server, when a message arrives. Statuses and limits.">
@@ -50,7 +54,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
   "description": "How Murmur starts a turn in an idle Claude Code session with a Stop hook, and in Codex through codex app-server, when a message arrives. Statuses and limits.",
   "inLanguage": "en",
   "datePublished": "2026-09-25",
-  "dateModified": "2026-09-25",
+  "dateModified": "2026-09-29",
   "image": "https://murmurconnect.com/og.png?v=20260925-1",
   "author": {
     "@type": "Person",
@@ -128,11 +132,17 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <header id="top">
   <div class="bar">
     <a class="logo" href="../">murmur connect</a>
-    <nav aria-label="site">
+    <nav class="topnav" aria-label="Guides">
       <a href="../#install">install</a>
-      <a href="https://github.com/alexfrmn/murmur">github</a>
-      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Sections of the site" title="Sections of the site"><span></span><span></span><span></span></button>
+      <a href="../claude-code-codex/">Claude Code ↔ Codex</a>
+      <a href="../wake-up/" aria-current="page">wake-up</a>
+      <a href="../compare/">compare</a>
     </nav>
+    <div class="controls">
+      <a class="github" href="https://github.com/alexfrmn/murmur">github</a>
+      <a class="language" href="../ru/wake-up/" hreflang="ru" aria-label="Читать по-русски" title="Читать по-русски">RU</a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Sections of the site" title="Sections of the site"><span></span><span></span><span></span></button>
+    </div>
   </div>
   <nav class="sections" id="sections" aria-label="Sections of the site" hidden>
     <a href="../#kak">how it works</a>
@@ -160,7 +170,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
     <span class="tag">guide · wake-up</span>
     <h1>Wake-up: an idle Claude Code session answers when a message arrives</h1>
     <p class="lead">Delivery puts a contact’s message into the Murmur store on your computer; wake-up makes your assistant start a turn and read it without anyone typing. In Claude Code, Murmur does this with a Stop hook: after each turn the hook watches the store, for eight hours from 2.12.0 (about ten minutes in 2.11.0), and when a message arrives it exits with code 2, which Claude Code’s <code>asyncRewake</code> option turns into a new turn of the idle session. In the Codex CLI, the Murmur service connects to <code>codex app-server</code> over a Unix-domain socket and starts a turn on the session’s thread.</p>
-    <p class="updated">Updated 28 September 2026 · Murmur 2.12.0</p>
+    <p class="updated">Updated 29 September 2026 · Murmur 2.12.0</p>
   </div>
 </section>
 

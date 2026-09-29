@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   short name and stays an `alternateName`. Search engines and AI assistants otherwise merge the
   project with several unrelated tools called Murmur.
 
+- **The site's three guides now exist in Russian** (`/ru/claude-code-codex/`, `/ru/wake-up/`,
+  `/ru/compare/`), with `hreflang` pairs, a language switch on every guide, Russian structured
+  data and FAQ, and sitemap entries. The guides and the install section are also in a visible
+  top navigation on every page; the ☰ menu keeps them on narrow screens.
+
 ### Fixed
 - **`doctor --peer` answers for that peer** (#282). The `peers` stage demanded a fresh
   two-way proof for every configured contact, so on a profile with many contacts it stayed

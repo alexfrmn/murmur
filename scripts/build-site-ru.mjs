@@ -35,6 +35,10 @@ export function readDictionary(html) {
 const escapeText = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escapeAttr = (s) => escapeText(s).replace(/"/g, "&quot;");
 const isRelative = (url) => url !== "" && !/^(?:[a-z][a-z0-9+.-]*:|\/|#|\.\.\/)/i.test(url);
+// Pages that exist in both languages: on /ru/ a link to "wake-up/" must reach /ru/wake-up/,
+// so these are not rewritten to the English page.
+export const TRANSLATED_PAGES = ["claude-code-codex/", "wake-up/", "compare/"];
+const translatedTarget = (url) => TRANSLATED_PAGES.some((p) => url === p || url.startsWith(`${p}#`));
 
 // Every substitution must hit exactly the expected number of places: a renamed attribute
 // or a moved tag fails the build instead of leaving English behind.
@@ -87,7 +91,7 @@ export function renderPage(html, lang) {
   out = replaceExactly(out, /<link rel="canonical" href="[^"]*">/g, () => `<link rel="canonical" href="${page.url}">`, 1, "canonical");
 
   // Relative addresses (styles, icons, future screenshots) are one level up from /ru/.
-  out = out.replace(/(\s(?:href|src)=")([^"]*)"/g, (m, head, url) => (isRelative(url) ? `${head}${page.assets}${url}"` : m));
+  out = out.replace(/(\s(?:href|src)=")([^"]*)"/g, (m, head, url) => (isRelative(url) && !translatedTarget(url) ? `${head}${page.assets}${url}"` : m));
   out = out.replace(/(\ssrcset=")([^"]*)"/g, (_, head, list) => `${head}${list.split(",").map((part) => {
     const item = part.trim();
     return isRelative(item) ? `${page.assets}${item}` : item;

@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ru" data-theme="dusk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Dusk is the default in the markup; a theme chosen on the home page carries over.
+try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 'mint' || t === 'dusk') document.documentElement.dataset.theme = t; } catch {}
+</script>
+<title>Способы связать ИИ-помощников для кода: сравнение — Murmur Connect</title>
+<meta name="description" content="Murmur рядом с обменом между сессиями Claude Code, slopus/murmur, instavm/murmur, agent-talk и A2A: охват, шифрование, серверы, лицензии, звёзды на GitHub.">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<link rel="canonical" href="https://murmurconnect.com/ru/compare/">
+<link rel="alternate" hreflang="en" href="https://murmurconnect.com/compare/">
+<link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/compare/">
+<link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/compare/">
+<meta name="theme-color" content="#141824">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Murmur Connect">
+<meta property="og:url" content="https://murmurconnect.com/ru/compare/">
+<meta property="og:title" content="Способы связать ИИ-помощников для кода: сравнение — Murmur Connect">
+<meta property="og:description" content="Murmur рядом с обменом между сессиями Claude Code, slopus/murmur, instavm/murmur, agent-talk и A2A: охват, шифрование, серверы, лицензии, звёзды на GitHub.">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Murmur: два ИИ-помощника, связанные зашифрованным каналом">
+<meta property="article:published_time" content="2026-09-29">
+<meta property="article:modified_time" content="2026-09-29">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Способы связать ИИ-помощников для кода: сравнение — Murmur Connect">
+<meta name="twitter:description" content="Murmur рядом с обменом между сессиями Claude Code, slopus/murmur, instavm/murmur, agent-talk и A2A: охват, шифрование, серверы, лицензии, звёзды на GitHub.">
+<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta name="twitter:image:alt" content="Murmur: два ИИ-помощника, связанные зашифрованным каналом">
+<link rel="icon" href="../../favicon.ico?v=20260925-1" sizes="48x48">
+<link rel="icon" href="../../favicon.svg?v=20260923-1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png?v=20260923-1">
+<link rel="manifest" href="../../site.webmanifest?v=20260923-1">
+<link rel="preload" href="../../fonts/JetBrainsMono-400.woff2?v=20260925-1" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../../fonts.css?v=20260925-1" as="style">
+<link rel="stylesheet" href="../../fonts.css?v=20260925-1" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="../../fonts.css?v=20260925-1"></noscript>
+<link rel="stylesheet" href="../../pages.css?v=20260929-1">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "@id": "https://murmurconnect.com/ru/compare/#article",
+  "url": "https://murmurconnect.com/ru/compare/",
+  "mainEntityOfPage": "https://murmurconnect.com/ru/compare/",
+  "headline": "Murmur в сравнении с другими способами связать ИИ-помощников для кода",
+  "description": "Murmur рядом с обменом между сессиями Claude Code, slopus/murmur, instavm/murmur, agent-talk и A2A: охват, шифрование, серверы, лицензии, звёзды на GitHub.",
+  "inLanguage": "ru",
+  "datePublished": "2026-09-29",
+  "dateModified": "2026-09-29",
+  "image": "https://murmurconnect.com/og.png?v=20260925-1",
+  "author": {
+    "@type": "Person",
+    "@id": "https://murmurconnect.com/#author",
+    "name": "Alexander Vasiliev",
+    "url": "https://github.com/alexfrmn"
+  },
+  "about": { "@id": "https://murmurconnect.com/#software" },
+  "isPartOf": { "@id": "https://murmurconnect.com/#website" }
+}
+</script>
+<script type="application/ld+json" id="faq-ld">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": "https://murmurconnect.com/ru/compare/#faq",
+  "url": "https://murmurconnect.com/ru/compare/",
+  "inLanguage": "ru",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Murmur — это форк slopus/murmur?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Не форк на GitHub, но родство есть: README Murmur говорит, что он построен на идеях и дизайне протокола оригинального Murmur от @slopus, который ввёл зашифрованный обмен сообщениями между помощниками на криптографии Double Ratchet. С тех пор пути разошлись: slopus/murmur теперь библиотека MLS с релеем, а Murmur использует сервер, MCP-сервер и локальную SQLite-очередь исходящих."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Какому варианту не нужен собственный сервер?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Обмену между сессиями Claude Code: сообщения между вашими сессиями на одном компьютере идут через локальный сокет, а до ваших других компьютеров — через серверы Anthropic. instavm/murmur удалённый сервер тоже не нужен, но он работает только на одном компьютере. Murmur, agent-talk и slopus/murmur нужен сервер или релей, до которого достучатся обе стороны; agent-talk предлагает публичный релей без гарантий."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Кто из них шифрует из конца в конец?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Murmur (X25519, XChaCha20-Poly1305, подписи Ed25519), slopus/murmur (MLS) и agent-talk (через retalk; его README схему не называет). Документация Claude Code говорит, что сообщения между компьютерами идут через серверы Anthropic, и сквозное шифрование не описывает; README instavm/murmur и A2A его тоже не описывают."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "A2A — альтернатива Murmur?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A2A — протокол, а не продукт: он определяет, как приложения описывают свои возможности и вместе работают над задачами по HTTP(S). Murmur — рабочий инструмент для помощников с поддержкой MCP. В Murmur есть пакет-мост к A2A: полный круг от настоящего A2A SDK через мост доказан, настоящее удалённое A2A-приложение ещё впереди."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Когда встроенный обмен Claude Code — лучший выбор?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Когда все сессии — Claude Code и все они ваши: он встроен, не требует установки и достаёт до ваших других компьютеров через Remote Control. Murmur — для разговора Claude Code с Codex, для двух людей или двух организаций и для сообщений, которые должны идти со сквозным шифрованием через выбранный вами сервер."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Как считали звёзды?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Через GitHub API, stargazers_count каждого репозитория, 25 сентября 2026 в 11:43 UTC. Звёзды меняются каждый день и ничего не говорят о том, какой инструмент подходит вам."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+
+<header id="top">
+  <div class="bar">
+    <a class="logo" href="../">murmur connect</a>
+    <nav class="topnav" aria-label="Руководства">
+      <a href="../#install">установка</a>
+      <a href="../claude-code-codex/">Claude Code ↔ Codex</a>
+      <a href="../wake-up/">пробуждение</a>
+      <a href="../compare/" aria-current="page">сравнение</a>
+    </nav>
+    <div class="controls">
+      <a class="github" href="https://github.com/alexfrmn/murmur">github</a>
+      <a class="language" href="../../compare/" hreflang="en" aria-label="Read in English" title="Read in English">EN</a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Разделы сайта" title="Разделы сайта"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+  <nav class="sections" id="sections" aria-label="Разделы сайта" hidden>
+    <a href="../#kak">как это работает</a>
+    <a href="../#words">пять слов</a>
+    <a href="../#first-open">предупреждения при первом открытии</a>
+    <a href="../#install">установить приложение</a>
+    <a href="../#first-minutes">первые пять минут</a>
+    <a href="../#put">передайте это помощнику</a>
+    <a href="../#troubleshoot">если что-то не так</a>
+    <a href="../#faq">вопросы и ответы</a>
+    <a class="sep" href="../claude-code-codex/">руководство: Claude Code и Codex на двух машинах</a>
+    <a href="../wake-up/">руководство: пробуждение спящей сессии</a>
+    <a href="../compare/">руководство: способы связать помощников</a>
+    <a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a>
+  </nav>
+</header>
+
+<a class="totop" id="totop" href="#top" aria-label="Наверх" title="Наверх" hidden>↑</a>
+
+<main>
+<article>
+
+<section class="zone" id="answer">
+  <div class="wrap">
+    <span class="tag">руководство · сравнение</span>
+    <h1>Murmur в сравнении с другими способами связать ИИ-помощников для кода</h1>
+    <p class="lead">Несколько проектов позволяют помощникам для кода, таким как Claude Code и Codex, писать друг другу. Различаются они охватом: один компьютер или много, ваши собственные сессии или чужие, шифрование на проводе или из конца в конец, свой сервер или никакого. Таблицы ставят шесть из них рядом так, как их описывает собственная документация на 25 сентября 2026. Где README молчит, ячейка так и говорит; где мы не проверяли, стоит «не проверяли».</p>
+    <p class="updated">Обновлено 29 сентября 2026 · Murmur 2.12.0</p>
+  </div>
+</section>
+
+<section class="zone alt" id="reach">
+  <div class="wrap">
+    <span class="tag">охват и безопасность</span>
+    <h2>кто с кем может говорить и кто может это прочитать</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col">проект</th><th scope="col">между машинами</th><th scope="col">между организациями</th><th scope="col">сквозное шифрование</th><th scope="col">сервер</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">Murmur <span class="dim">(alexfrmn/murmur)</span></th>
+            <td data-label="между машинами">да</td>
+            <td data-label="между организациями">да, когда обе стороны используют один сервер: приглашение несёт его адрес и ключ доступа. Федерация между собственными серверами двух организаций доказана в изоляции, настоящей партнёрской организации пока нет</td>
+            <td data-label="сквозное шифрование">да: согласование ключей X25519, XChaCha20-Poly1305, подписи Ed25519</td>
+            <td data-label="сервер">нужен: сервер, до которого достучатся обе стороны, ваш или того, кому вы доверяете</td>
+          </tr>
+          <tr>
+            <th scope="row">Обмен между сессиями Claude Code <span class="dim">(встроенный)</span></th>
+            <td data-label="между машинами">да: ваши сессии на других машинах, подключённые к Remote Control, и ваши облачные сессии; нужен вход в claude.ai</td>
+            <td data-label="между организациями">не описано: документация говорит о ваших собственных сессиях</td>
+            <td data-label="сквозное шифрование">в документации не описано. Одна машина: локальный сокет, ограниченный вашим пользователем ОС; другие машины: через серверы Anthropic</td>
+            <td data-label="сервер">своего нет; сообщения между машинами идут через серверы Anthropic</td>
+          </tr>
+          <tr>
+            <th scope="row">slopus/murmur</th>
+            <td data-label="между машинами">да, через релей</td>
+            <td data-label="между организациями">не проверяли</td>
+            <td data-label="сквозное шифрование">да: MLS-сессии с прямой секретностью (в духе RFC 9420)</td>
+            <td data-label="сервер">нужен: релей, отдельный или как Cloudflare Worker; публичный релей: не проверяли</td>
+          </tr>
+          <tr>
+            <th scope="row">instavm/murmur</th>
+            <td data-label="между машинами">нет: версия 1 работает только на localhost</td>
+            <td data-label="между организациями">нет</td>
+            <td data-label="сквозное шифрование">в его README не описано; кто достучится до 127.0.0.1:9999, тот внутри</td>
+            <td data-label="сервер">локальный процесс <code>murmurd</code> на том же компьютере</td>
+          </tr>
+          <tr>
+            <th scope="row">agent-talk <span class="dim">(xhluca/agent-talk)</span></th>
+            <td data-label="между машинами">да</td>
+            <td data-label="между организациями">да, по его README</td>
+            <td data-label="сквозное шифрование">да, силами retalk; его README схему не называет и отмечает, что код независимо не проверялся</td>
+            <td data-label="сервер">нужен: релей retalk, публичный relay.retalk.dev без гарантий или ваш собственный</td>
+          </tr>
+          <tr>
+            <th scope="row">Протокол A2A <span class="dim">(a2aproject/A2A)</span></th>
+            <td data-label="между машинами">да</td>
+            <td data-label="между организациями">да: создан для приложений разных компаний на разных серверах</td>
+            <td data-label="сквозное шифрование">в его README не описано; транспорт — JSON-RPC 2.0 по HTTP(S)</td>
+            <td data-label="сервер">каждое участвующее приложение открывает свою конечную точку HTTP(S)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="fit">
+  <div class="wrap">
+    <span class="tag">что это и как подключается</span>
+    <h2>Claude Code, Codex, лицензия и звёзды</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col">проект</th><th scope="col">что это</th><th scope="col">Claude Code и Codex</th><th scope="col">лицензия</th><th scope="col">звёзды GitHub, 25.09.2026</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">Murmur</th>
+            <td data-label="что это">обмен сообщениями для помощников: фоновая служба, MCP-сервер, приложения для Mac и Windows, инструмент командной строки</td>
+            <td data-label="Claude Code и Codex">MCP-сервер по stdio, настраивается приложением или <code>murmur clients configure</code>; пробуждение Stop-хуком в Claude Code и через <code>codex app-server</code> на macOS и Linux</td>
+            <td data-label="лицензия">MIT</td>
+            <td data-label="звёзды GitHub, 25.09.2026">17</td>
+          </tr>
+          <tr>
+            <th scope="row">Обмен между сессиями Claude Code</th>
+            <td data-label="что это">возможность Claude Code с v2.1.224: инструменты <code>ListAgents</code> и <code>SendMessage</code> между вашими сессиями</td>
+            <td data-label="Claude Code и Codex">встроено в Claude Code; Codex в документации не упоминается</td>
+            <td data-label="лицензия">все права защищены; использование по Commercial Terms of Service Anthropic</td>
+            <td data-label="звёзды GitHub, 25.09.2026">не применимо: возможность, а не репозиторий</td>
+          </tr>
+          <tr>
+            <th scope="row">slopus/murmur</th>
+            <td data-label="что это">сегодня, по его README: библиотека на TypeScript для MLS-сессий поверх зашифрованных очередей личностей плюс релей; в npm опубликован как <code>@slopus/murmur</code>. README января 2026 описывал мессенджер на Signal Protocol с инструментом командной строки <code>murmur-chat</code>; этот пакет ушёл из репозитория 4 августа 2026</td>
+            <td data-label="Claude Code и Codex">в текущем README не описано. README января 2026 добавлял MCP-сервер через <code>claude mcp add</code> и <code>codex mcp add</code></td>
+            <td data-label="лицензия">MIT, заявлена пакетом <code>@slopus/murmur</code>; GitHub не находит файла лицензии в корне репозитория</td>
+            <td data-label="звёзды GitHub, 25.09.2026">88</td>
+          </tr>
+          <tr>
+            <th scope="row">instavm/murmur</th>
+            <td data-label="что это">одна локальная комната на одном компьютере, общая для claude, codex, gemini, cursor и copilot через один процесс MCP по HTTP, с пятью инструментами: register, say, poll, who, history</td>
+            <td data-label="Claude Code и Codex"><code>murmur install</code> записывает настройку MCP (<code>claude mcp add</code>, <code>~/.codex/config.toml</code>) и блок инструкций; помощник входит, когда вы печатаете «hi murmur»</td>
+            <td data-label="лицензия">Apache-2.0</td>
+            <td data-label="звёзды GitHub, 25.09.2026">38</td>
+          </tr>
+          <tr>
+            <th scope="row">agent-talk</th>
+            <td data-label="что это">плагин, который даёт помощникам для кода писать друг другу, поверх инструмента командной строки retalk; для Claude Code, Codex, Antigravity, pi, opencode и GitHub Copilot CLI</td>
+            <td data-label="Claude Code и Codex">ставится из каталога плагинов в обоих; входящие всплывают сами, а в простаивающей сессии Codex — через лаунчер, который запускает Codex app-server</td>
+            <td data-label="лицензия">MIT</td>
+            <td data-label="звёзды GitHub, 25.09.2026">185</td>
+          </tr>
+          <tr>
+            <th scope="row">Протокол A2A</th>
+            <td data-label="что это">открытый протокол, а не продукт: Agent2Agent, JSON-RPC 2.0 по HTTP(S), обнаружение через Agent Cards; проект Linux Foundation, переданный Google, с SDK для Python, Go, JavaScript, Java, .NET и Rust</td>
+            <td data-label="Claude Code и Codex">в его README не описано. В Murmur есть пакет-мост к A2A: полный круг от настоящего A2A SDK через мост доказан, настоящее удалённое A2A-приложение ещё впереди</td>
+            <td data-label="лицензия">Apache-2.0</td>
+            <td data-label="звёзды GitHub, 25.09.2026">25 930</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="more">Источники, прочитаны 25 сентября 2026: <a href="https://github.com/alexfrmn/murmur/blob/main/README.md">README Murmur</a> · <a href="https://code.claude.com/docs/en/cross-session-messaging">Claude Code: сообщения вашим другим сессиям</a> · <a href="https://github.com/slopus/murmur">slopus/murmur</a> · <a href="https://github.com/instavm/murmur">instavm/murmur</a> · <a href="https://github.com/xhluca/agent-talk">xhluca/agent-talk</a> · <a href="https://github.com/a2aproject/A2A">a2aproject/A2A</a>. Звёзды — stargazers_count GitHub на 11:43 UTC того дня. Murmur — наш собственный проект; его README называет slopus/murmur источником идей и дизайна протокола.</p>
+  </div>
+</section>
+
+<section class="zone alt" id="does-not">
+  <div class="wrap">
+    <span class="tag">ограничения</span>
+    <h2>чего Murmur не делает</h2>
+    <div class="prose">
+      <ul>
+        <li><b>Своей языковой модели нет.</b> Ответы пишет ваш помощник — Claude Code, Codex или другой; Murmur переносит сообщения.</li>
+        <li><b>Не оркестратор.</b> Нет ведущего, списка задач и планировщика. Каждый помощник говорит со своими контактами напрямую, а как им согласовываться — решаете вы.</li>
+        <li><b>Не обновляется сам.</b> Обновления ручные: действие «обновить» только открывает страницу релиза, а служба на Windows переводится на новую версию руками.</li>
+        <li><b>Сборки не подписаны.</b> Приложение для Mac не нотаризовано Apple, установщик для Windows не подписан, поэтому обе системы предупреждают при первом открытии.</li>
+        <li><b>Локальное хранилище не шифруется.</b> Расшифрованные сообщения лежат открытым текстом в локальной базе SQLite под защитой прав на файл; <a href="https://github.com/alexfrmn/murmur/blob/main/SECURITY.md"><code>SECURITY.md</code></a> советует шифрование диска.</li>
+        <li><b>Пока нет учётных данных сервера на каждый контакт.</b> Все на одном сервере делят его ключ доступа; TLS с аутентификацией на сервере для каждого контакта на ревью и ждёт согласованного переключения (<a href="https://github.com/alexfrmn/murmur/pull/153">#153</a>, продолжение #103).</li>
+        <li><b>Нет группового шифрования.</b> MLS с прямой секретностью для групп существует только как заготовка.</li>
+        <li><b>Пробуждение не у каждого помощника.</b> Claude Desktop не начинает ход при входящем сообщении, а пробуждение Codex недоступно на Windows. Подробности: <a href="../wake-up/">пробуждение</a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="faq">
+  <div class="wrap">
+    <span class="tag">вопросы</span>
+    <h2>короткие ответы</h2>
+    <div class="qa">
+      <div class="fact">
+        <h3>Murmur — это форк slopus/murmur?</h3>
+        <p>Не форк на GitHub, но родство есть: README Murmur говорит, что он построен на идеях и дизайне протокола оригинального Murmur от @slopus, который ввёл зашифрованный обмен сообщениями между помощниками на криптографии Double Ratchet. С тех пор пути разошлись: slopus/murmur теперь библиотека MLS с релеем, а Murmur использует сервер, MCP-сервер и локальную SQLite-очередь исходящих.</p>
+      </div>
+      <div class="fact">
+        <h3>Какому варианту не нужен собственный сервер?</h3>
+        <p>Обмену между сессиями Claude Code: сообщения между вашими сессиями на одном компьютере идут через локальный сокет, а до ваших других компьютеров — через серверы Anthropic. instavm/murmur удалённый сервер тоже не нужен, но он работает только на одном компьютере. Murmur, agent-talk и slopus/murmur нужен сервер или релей, до которого достучатся обе стороны; agent-talk предлагает публичный релей без гарантий.</p>
+      </div>
+      <div class="fact">
+        <h3>Кто из них шифрует из конца в конец?</h3>
+        <p>Murmur (X25519, XChaCha20-Poly1305, подписи Ed25519), slopus/murmur (MLS) и agent-talk (через retalk; его README схему не называет). Документация Claude Code говорит, что сообщения между компьютерами идут через серверы Anthropic, и сквозное шифрование не описывает; README instavm/murmur и A2A его тоже не описывают.</p>
+      </div>
+      <div class="fact">
+        <h3>A2A — альтернатива Murmur?</h3>
+        <p>A2A — протокол, а не продукт: он определяет, как приложения описывают свои возможности и вместе работают над задачами по HTTP(S). Murmur — рабочий инструмент для помощников с поддержкой MCP. В Murmur есть пакет-мост к A2A: полный круг от настоящего A2A SDK через мост доказан, настоящее удалённое A2A-приложение ещё впереди.</p>
+      </div>
+      <div class="fact">
+        <h3>Когда встроенный обмен Claude Code — лучший выбор?</h3>
+        <p>Когда все сессии — Claude Code и все они ваши: он встроен, не требует установки и достаёт до ваших других компьютеров через Remote Control. Murmur — для разговора Claude Code с Codex, для двух людей или двух организаций и для сообщений, которые должны идти со сквозным шифрованием через выбранный вами сервер.</p>
+      </div>
+      <div class="fact">
+        <h3>Как считали звёзды?</h3>
+        <p>Через GitHub API, stargazers_count каждого репозитория, 25 сентября 2026 в 11:43 UTC. Звёзды меняются каждый день и ничего не говорят о том, какой инструмент подходит вам.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone alt" id="more">
+  <div class="wrap">
+    <span class="tag">ещё</span>
+    <h2>связанные руководства</h2>
+    <div class="related">
+      <a href="../claude-code-codex/">Claude Code и Codex<span>как заставить их общаться между двумя машинами, шаг за шагом</span></a>
+      <a href="../wake-up/">пробуждение<span>спящая сессия Claude Code отвечает, когда приходит сообщение</span></a>
+      <a href="../#install">установка<span>приложение на Mac или Windows, шаг за шагом</span></a>
+    </div>
+    <p class="more">В репозитории (по-английски): <a href="https://github.com/alexfrmn/murmur/blob/main/README.md">README</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/SECURITY.md"><code>SECURITY.md</code></a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/protocol-v1.md"><code>protocol-v1.md</code></a> · <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.12.0">релиз v2.12.0</a></p>
+  </div>
+</section>
+
+</article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>murmur · открытый код, лицензия MIT: можно брать, менять и использовать свободно</span>
+    <span><a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a></span>
+  </div>
+</footer>
+
+<script>
+// Sections menu and back-to-top; the menu is a plain list of links, JavaScript only opens it.
+(() => {
+  const button = document.getElementById('menu-button'), sections = document.getElementById('sections');
+  const setMenu = open => { sections.hidden = !open; button.setAttribute('aria-expanded', String(open)); };
+  button.addEventListener('click', () => setMenu(sections.hidden));
+  sections.addEventListener('click', e => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('click', e => { if (!sections.hidden && !sections.contains(e.target) && !button.contains(e.target)) setMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sections.hidden) { setMenu(false); button.focus(); } });
+  const totop = document.getElementById('totop');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let tick = false;
+  const watch = () => { if (tick) return; tick = true; requestAnimationFrame(() => { totop.hidden = window.scrollY < 600; tick = false; }); };
+  window.addEventListener('scroll', watch, { passive: true });
+  watch();
+  totop.addEventListener('click', e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' }); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ru" data-theme="dusk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Dusk is the default in the markup; a theme chosen on the home page carries over.
+try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 'mint' || t === 'dusk') document.documentElement.dataset.theme = t; } catch {}
+</script>
+<title>Как заставить Claude Code и Codex общаться между двумя компьютерами — Murmur Connect</title>
+<meta name="description" content="Соедините Claude Code на одном компьютере с Codex на другом: один раз обменяйтесь приглашением и ответом, дальше сообщения идут через сервер подписанными и зашифрованными из конца в конец.">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<link rel="canonical" href="https://murmurconnect.com/ru/claude-code-codex/">
+<link rel="alternate" hreflang="en" href="https://murmurconnect.com/claude-code-codex/">
+<link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/claude-code-codex/">
+<link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/claude-code-codex/">
+<meta name="theme-color" content="#141824">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Murmur Connect">
+<meta property="og:url" content="https://murmurconnect.com/ru/claude-code-codex/">
+<meta property="og:title" content="Как заставить Claude Code и Codex общаться между двумя компьютерами — Murmur Connect">
+<meta property="og:description" content="Соедините Claude Code на одном компьютере с Codex на другом: один раз обменяйтесь приглашением и ответом, дальше сообщения идут через сервер подписанными и зашифрованными из конца в конец.">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Murmur: два ИИ-помощника, связанные зашифрованным каналом">
+<meta property="article:published_time" content="2026-09-29">
+<meta property="article:modified_time" content="2026-09-29">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Как заставить Claude Code и Codex общаться между двумя компьютерами — Murmur Connect">
+<meta name="twitter:description" content="Соедините Claude Code на одном компьютере с Codex на другом: один раз обменяйтесь приглашением и ответом, дальше сообщения идут через сервер подписанными и зашифрованными из конца в конец.">
+<meta name="twitter:image" content="https://murmurconnect.com/og.png?v=20260925-1">
+<meta name="twitter:image:alt" content="Murmur: два ИИ-помощника, связанные зашифрованным каналом">
+<link rel="icon" href="../../favicon.ico?v=20260925-1" sizes="48x48">
+<link rel="icon" href="../../favicon.svg?v=20260923-1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png?v=20260923-1">
+<link rel="manifest" href="../../site.webmanifest?v=20260923-1">
+<link rel="preload" href="../../fonts/JetBrainsMono-400.woff2?v=20260925-1" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../../fonts.css?v=20260925-1" as="style">
+<link rel="stylesheet" href="../../fonts.css?v=20260925-1" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="../../fonts.css?v=20260925-1"></noscript>
+<link rel="stylesheet" href="../../pages.css?v=20260929-1">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "@id": "https://murmurconnect.com/ru/claude-code-codex/#article",
+  "url": "https://murmurconnect.com/ru/claude-code-codex/",
+  "mainEntityOfPage": "https://murmurconnect.com/ru/claude-code-codex/",
+  "headline": "Как заставить Claude Code и Codex общаться друг с другом между двумя компьютерами",
+  "description": "Соедините Claude Code на одном компьютере с Codex на другом: один раз обменяйтесь приглашением и ответом, дальше сообщения идут через сервер подписанными и зашифрованными из конца в конец.",
+  "inLanguage": "ru",
+  "datePublished": "2026-09-29",
+  "dateModified": "2026-09-29",
+  "image": "https://murmurconnect.com/og.png?v=20260925-1",
+  "author": {
+    "@type": "Person",
+    "@id": "https://murmurconnect.com/#author",
+    "name": "Alexander Vasiliev",
+    "url": "https://github.com/alexfrmn"
+  },
+  "about": { "@id": "https://murmurconnect.com/#software" },
+  "isPartOf": { "@id": "https://murmurconnect.com/#website" },
+  "proficiencyLevel": "Beginner"
+}
+</script>
+<script type="application/ld+json" id="faq-ld">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": "https://murmurconnect.com/ru/claude-code-codex/#faq",
+  "url": "https://murmurconnect.com/ru/claude-code-codex/",
+  "inLanguage": "ru",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Нужен ли Murmur на обоих компьютерах?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Да. На каждом компьютере работает своя служба Murmur со своей личностью и ключами, и каждый помощник говорит только со своей локальной службой. Две службы обмениваются зашифрованными сообщениями через сервер; помощники никогда не соединяются друг с другом напрямую."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Нужен ли мне свой сервер?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Нужен сервер, до которого оба компьютера достучатся по публичному адресу. Его может держать человек, которому вы доверяете, и дать вам доступ через приглашение, или вы сами: в репозитории есть файл Docker Compose для него. Murmur не создаёт приглашение с приватным или loopback-адресом сервера."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Может ли сервер прочитать сообщения?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Нет. Каждое сообщение шифруется на компьютере отправителя (согласование ключей X25519 и XChaCha20-Poly1305) и подписывается Ed25519; расшифровывает его только служба получателя. Сервер видит адресацию (отправитель, получатели, идентификатор беседы, время) и размер каждого сообщения."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Что будет, если Codex не запущен, когда приходит вопрос?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Пока служба Murmur у контакта работает, она сохраняет сообщение и возвращает подписанную квитанцию, поэтому ваша сторона показывает его доставленным. Вопрос ждёт, пока Codex не сделает следующий ход или пока пробуждение через Codex app-server не начнёт ход на macOS или Linux. murmur_request ждёт до 45 секунд, затем сообщает, что ответ ещё ожидается, и отдаёт идентификатор беседы; более поздний ответ читается через murmur_inbox."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Работает ли это на Windows?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Да. Приложение, служба и MCP-сервер работают на Windows, и Claude Code там получает тот же Stop-хук для пробуждения. Пробуждение Codex на Windows в 2.11 недоступно, поэтому Codex на Windows отвечает, когда сделает следующий ход."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Чем это отличается от обмена сообщениями между сессиями Claude Code?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Встроенный обмен Claude Code соединяет ваши собственные сессии Claude Code: на одном компьютере или, через серверы Anthropic и Remote Control, на нескольких. Murmur соединяет любых помощников с поддержкой MCP, включая Codex, между разными людьми и организациями, через выбранный вами сервер, со сквозным шифрованием."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+
+<header id="top">
+  <div class="bar">
+    <a class="logo" href="../">murmur connect</a>
+    <nav class="topnav" aria-label="Руководства">
+      <a href="../#install">установка</a>
+      <a href="../claude-code-codex/" aria-current="page">Claude Code ↔ Codex</a>
+      <a href="../wake-up/">пробуждение</a>
+      <a href="../compare/">сравнение</a>
+    </nav>
+    <div class="controls">
+      <a class="github" href="https://github.com/alexfrmn/murmur">github</a>
+      <a class="language" href="../../claude-code-codex/" hreflang="en" aria-label="Read in English" title="Read in English">EN</a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Разделы сайта" title="Разделы сайта"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+  <nav class="sections" id="sections" aria-label="Разделы сайта" hidden>
+    <a href="../#kak">как это работает</a>
+    <a href="../#words">пять слов</a>
+    <a href="../#first-open">предупреждения при первом открытии</a>
+    <a href="../#install">установить приложение</a>
+    <a href="../#first-minutes">первые пять минут</a>
+    <a href="../#put">передайте это помощнику</a>
+    <a href="../#troubleshoot">если что-то не так</a>
+    <a href="../#faq">вопросы и ответы</a>
+    <a class="sep" href="../claude-code-codex/">руководство: Claude Code и Codex на двух машинах</a>
+    <a href="../wake-up/">руководство: пробуждение спящей сессии</a>
+    <a href="../compare/">руководство: способы связать помощников</a>
+    <a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a>
+  </nav>
+</header>
+
+<a class="totop" id="totop" href="#top" aria-label="Наверх" title="Наверх" hidden>↑</a>
+
+<main>
+<article>
+
+<section class="zone" id="answer">
+  <div class="wrap">
+    <span class="tag">руководство · Claude Code и Codex</span>
+    <h1>Как заставить Claude Code и Codex общаться друг с другом между двумя компьютерами</h1>
+    <p class="lead">Установите Murmur на оба компьютера, один раз свяжите их приглашением и ответом и подключите каждого помощника к его локальному MCP-серверу Murmur. Дальше Claude Code на одной машине вызывает <code>murmur_request</code>, чтобы отправить Codex вопрос и дождаться ответа; Codex на другой машине читает его через <code>murmur_inbox</code> и отвечает через <code>murmur_send</code>. Каждое сообщение подписывается и шифруется на компьютере отправителя и расшифровывается только у получателя; сервер между ними передаёт шифртекст. Понадобятся Node.js 22.13.0 или новее на обоих компьютерах и сервер, до которого достучатся оба.</p>
+    <p class="updated">Обновлено 29 сентября 2026 · Murmur 2.12.0</p>
+  </div>
+</section>
+
+<section class="zone alt" id="need">
+  <div class="wrap">
+    <span class="tag">перед началом</span>
+    <h2>что понадобится</h2>
+    <div class="facts">
+      <div class="fact">
+        <h3>два компьютера</h3>
+        <p>macOS, Windows или Linux. Приложение Murmur работает на Mac и Windows; инструменты командной строки — ещё и на Linux. У каждого компьютера своя личность. Второй компьютер может быть у коллеги, в вашей компании или в другой, или это ваша вторая машина.</p>
+      </div>
+      <div class="fact">
+        <h3>Node.js 22.13.0 или новее</h3>
+        <p>На обоих компьютерах, с nodejs.org. Он нужен каждой сборке Murmur 2.12.0: служба хранит сообщения через модуль SQLite, встроенный в Node.js, а без флага он работает с 22.13.0.</p>
+      </div>
+      <div class="fact">
+        <h3>сервер, до которого достучатся оба</h3>
+        <p>Две службы Murmur обмениваются сообщениями через сервер с публичным адресом. Возьмите тот, что держит человек, которому вы доверяете, или поднимите свой: в репозитории есть файл Docker Compose. Murmur не создаёт приглашение с приватным или loopback-адресом сервера.</p>
+      </div>
+      <div class="fact">
+        <h3>приглашение и ответ</h3>
+        <p>Приглашение — одна строка, которая начинается с <code>MURMUR:</code>. В ней адрес сервера, а может быть и его ключ доступа, поэтому передавайте её как пароль, личным сообщением. Другая сторона отвечает строкой ответа; после этого вы контакты.</p>
+      </div>
+      <div class="fact">
+        <h3>Claude Code и Codex</h3>
+        <p>Claude Code на одном компьютере и Codex CLI на другом. Те же шаги подключают Claude Desktop и Codex Desktop на macOS, и любой из помощников может стоять с любой стороны.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="steps">
+  <div class="wrap">
+    <span class="tag">шаг за шагом</span>
+    <h2>от приглашения до первого ответа</h2>
+    <p class="lead">Шаги 1–6 приложение делает кнопками; у каждого шага есть и команда для терминала. Как это выглядит в приложении, разобрано на главной в разделе <a href="../#first-minutes">первые пять минут</a>. Команды ниже рассчитаны на установку из npm; на одном компьютере используйте одну и ту же абсолютную папку личности во всех командах.</p>
+    <ol class="steps">
+      <li>
+        <h3>установите Murmur на оба компьютера</h3>
+        <p>На Mac или Windows скачайте приложение со <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.12.0">страницы релиза v2.12.0</a> и пройдите <a href="../#install">шаги установки</a> на главной. В терминале поставьте инструменты командной строки из npm:</p>
+        <!--email_off--><pre><code>npm install --global @murmurv2/cli@2.12.0</code></pre><!--/email_off-->
+      </li>
+      <li>
+        <h3>создайте личность и приглашение</h3>
+        <p>На первом компьютере нажмите в приложении «Пригласить коллегу». В терминале создайте личность один раз и запишите приглашение в новый приватный файл:</p>
+        <pre><code>murmur init --agent-id alice --broker-url tls://server.example.com:4222 --token-file /absolute/private/server-token.txt --data-dir /absolute/murmur-identity
+murmur invite --out /absolute/private/invitation.txt --data-dir /absolute/murmur-identity</code></pre>
+        <p>Отправьте приглашение личным сообщением. В нём может быть ключ доступа к серверу: никогда не выкладывайте его в групповой чат или в issue.</p>
+      </li>
+      <li>
+        <h3>вторая сторона принимает</h3>
+        <p>На втором компьютере выберите в приложении «У меня есть приглашение» и вставьте строку. Murmur создаст эту личность и вернёт строку ответа. В терминале:</p>
+        <pre><code>murmur join --agent-id bob --invite-stdin --data-dir /absolute/murmur-identity</code></pre>
+        <p>Ответ возвращается тем же личным каналом. В нём только открытые ключи: ни ключа доступа к серверу, ни закрытых ключей.</p>
+      </li>
+      <li>
+        <h3>вставьте ответ</h3>
+        <p>Снова на первом компьютере вставьте ответ в приложении или выполните:</p>
+        <pre><code>murmur add-peer --reply-stdin --data-dir /absolute/murmur-identity</code></pre>
+        <p>Теперь вы контакты. Вставка ответа доказывает только вашу сторону; вторую докажет сообщение, которое вернётся на шаге 7.</p>
+      </li>
+      <li>
+        <h3>запустите службу на обоих компьютерах</h3>
+        <p>Приложение запускает её само; на Windows установка службы отдельно спрашивает права администратора. В терминале:</p>
+        <pre><code>murmur service install --data-dir /absolute/murmur-identity
+murmur service start --data-dir /absolute/murmur-identity</code></pre>
+        <p>Служба переносит сообщения в фоне, в том числе когда окно приложения закрыто.</p>
+      </li>
+      <li>
+        <h3>подключите Claude Code и Codex</h3>
+        <p>В приложении выберите своего помощника. В терминале найдите установленных помощников, настройте того, что стоит на этом компьютере, и перезапустите его:</p>
+        <pre><code>murmur clients detect --data-dir /absolute/murmur-identity
+# on the computer with Claude Code:
+murmur clients configure --client claude-code --data-dir /absolute/murmur-identity
+# on the computer with Codex:
+murmur clients configure --client codex-cli --data-dir /absolute/murmur-identity</code></pre>
+        <p>Для Claude Code это добавляет MCP-сервер Murmur в <code>~/.claude.json</code> и Stop-хук для пробуждения в <code>~/.claude/settings.json</code>. Для Codex — сервер в <code>~/.codex/config.toml</code>. Остальные настройки не трогаются, резервная копия старого файла сохраняется.</p>
+      </li>
+      <li>
+        <h3>проверьте канал</h3>
+        <p>С первого компьютера:</p>
+        <pre><code>murmur doctor --peer bob --timeout 60000 --json --data-dir /absolute/murmur-identity</code></pre>
+        <p>В 2.11 на эту подписанную зашифрованную проверку служба контакта отвечает сама. Вернувшийся ответ доказывает канал в обе стороны; помощника на другой стороне он не проверяет.</p>
+      </li>
+      <li>
+        <h3>задайте первый вопрос</h3>
+        <p>В Claude Code спросите обычными словами, например: «спроси bob через Murmur, пусть посмотрит план миграции и ответит». Claude вызовет <code>murmur_request</code>: он отправит сообщение и подождёт до 45 секунд. На другом компьютере Codex прочитает вопрос через <code>murmur_inbox</code> и ответит через <code>murmur_send</code> в той же беседе. Если Codex простаивает, а пробуждение для него не настроено, вопрос ждёт его следующего хода, и ответ потом придёт во входящие Claude Code.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="zone alt" id="claude-code">
+  <div class="wrap">
+    <span class="tag">в Claude Code</span>
+    <h2>инструменты для сообщений, хук для пробуждения</h2>
+    <div class="prose">
+      <p>После настройки Claude Code видит инструменты MCP-сервера Murmur. Называть их вам почти не придётся: просите обычными словами, а Claude сам выберет инструмент.</p>
+    </div>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col">инструмент</th><th scope="col">что делает</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>murmur_request</code></th><td data-label="что делает">Отправляет зашифрованное сообщение и до 45 секунд ждёт ответа. Если ответ идёт дольше, возвращает <code>awaiting_reply</code> с идентификатором беседы и состоянием доставки; ответ потом читается через <code>murmur_inbox</code>, а не повторной отправкой.</td></tr>
+          <tr><th scope="row"><code>murmur_send</code></th><td data-label="что делает">Отправляет зашифрованное сообщение и возвращается, как только оно встало в очередь.</td></tr>
+          <tr><th scope="row"><code>murmur_inbox</code></th><td data-label="что делает">Читает входящие, которые служба проверила, расшифровала и сохранила.</td></tr>
+          <tr><th scope="row"><code>murmur_peers</code></th><td data-label="что делает">Показывает ваших контактов и есть ли их ключи.</td></tr>
+          <tr><th scope="row"><code>send_message</code>, <code>list_conversations</code>, <code>search_messages</code></th><td data-label="что делает">Работают с локальным хранилищем бесед: сохранить сообщение, показать беседы, найти сохранённое.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <p>Вызов, который Claude делает для вопроса, выглядит так:</p>
+      <pre><code>murmur_request(to: "bob", text: "Please reply to confirm the connection", timeout_ms: 45000)</code></pre>
+      <p>Доставленным считается только сообщение, которое подтвердила служба контакта; сообщения в очереди и на повторных попытках остаются в ожидании.</p>
+      <p>Та же настройка ставит Stop-хук. Когда Claude Code закончил ход и простаивает, сообщение от контакта само начинает новый ход — пока хуку разрешено слушать после этого хода: восемь часов с 2.12.0 (около десяти минут в 2.11.0), см. страницу о пробуждении. Как это устроено и где заканчивается: <a href="../wake-up/">пробуждение спящей сессии Claude Code</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="codex">
+  <div class="wrap">
+    <span class="tag">в Codex</span>
+    <h2>те же инструменты, другое пробуждение</h2>
+    <div class="prose">
+      <p>Codex получает те же MCP-инструменты через свой файл настроек <code>~/.codex/config.toml</code> (или тот, что лежит в <code>CODEX_HOME</code>). Вопрос он читает через <code>murmur_inbox</code>, а отвечает через <code>murmur_send</code> с идентификатором беседы входящего сообщения, чтобы ответ дошёл до ждущего его <code>murmur_request</code>.</p>
+      <p>У Codex нет Stop-хука. На macOS и Linux служба Murmur умеет начать ход в Codex через <code>codex app-server</code> по Unix-сокету. Это настраивается руками в конфигурации личности и не входит в <code>clients configure</code>. На Windows этого нет: Codex отвечает, когда сделает следующий ход. Подробности — на <a href="../wake-up/#codex">странице о пробуждении</a>.</p>
+      <p>В Codex Desktop на macOS Murmur может доставить входящее сообщение ровно в ту задачу, которая начала беседу. Это включается отдельно и описано в <a href="https://github.com/alexfrmn/murmur/blob/main/docs/codex-desktop-queue-wake.md"><code>codex-desktop-queue-wake.md</code></a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="zone alt" id="on-the-way">
+  <div class="wrap">
+    <span class="tag">что происходит по пути</span>
+    <h2>подписано, зашифровано, подтверждено</h2>
+    <ol class="steps">
+      <li><p>Claude Code вызывает <code>murmur_request</code>. MCP-сервер Murmur на вашем компьютере шифрует текст для контакта (согласование ключей X25519, XChaCha20-Poly1305), подписывает конверт Ed25519 и кладёт его в локальную SQLite-очередь исходящих.</p></li>
+      <li><p>Ваша служба публикует зашифрованный конверт на сервер. Пока конверт не подтверждён, служба повторяет отправку; сообщение, которое так и не проходит, попадает в очередь недоставленных, где его видно, а не исчезает.</p></li>
+      <li><p>Сервер передаёт конверт службе вашего контакта. Он видит адресацию (отправитель, получатели, идентификатор беседы, время) и размер. Текст для него — шифртекст, а закрытые ключи никогда не покидают два компьютера.</p></li>
+      <li><p>Служба контакта проверяет подпись, расшифровывает текст, сохраняет его и возвращает подписанную квитанцию, привязанную к этому сообщению. Только эта квитанция заставляет вашу сторону показать сообщение доставленным.</p></li>
+      <li><p>Codex читает сообщение и отвечает. Ответ идёт тем же путём обратно, и <code>murmur_request</code> отдаёт его Claude Code.</p></li>
+    </ol>
+    <p class="more">Обе стороны держат свою копию беседы в локальной базе SQLite. Расшифрованный текст лежит там открытым и защищён правами на файл, поэтому <a href="https://github.com/alexfrmn/murmur/blob/main/SECURITY.md"><code>SECURITY.md</code></a> советует шифрование диска. Формат сообщений описан в <a href="https://github.com/alexfrmn/murmur/blob/main/docs/protocol-v1.md"><code>protocol-v1.md</code></a>.</p>
+  </div>
+</section>
+
+<section class="zone" id="built-in">
+  <div class="wrap">
+    <span class="tag">собственный обмен Claude Code</span>
+    <h2>чем это отличается от обмена между сессиями</h2>
+    <div class="prose">
+      <p>С версии v2.1.224 Claude Code умеет показывать ваши другие сессии Claude Code и писать им инструментами <code>ListAgents</code> и <code>SendMessage</code> (<a href="https://code.claude.com/docs/en/cross-session-messaging">документация Anthropic</a>). Сессии на одном компьютере общаются через локальный сокет. До ваших сессий на других компьютерах и до облачных сессий сообщения идут через серверы Anthropic, пока сессии подключены к Remote Control, а для него нужен вход в claude.ai. Простаивающая сессия-получатель начинает новый ход с этим сообщением.</p>
+    </div>
+    <div class="table">
+      <table>
+        <thead><tr><th scope="col"></th><th scope="col">обмен между сессиями Claude Code</th><th scope="col">Murmur</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">соединяет</th><td data-label="обмен между сессиями Claude Code">ваши собственные сессии Claude Code</td><td data-label="Murmur">помощников с поддержкой MCP: Claude Code, Codex, Claude Desktop, Codex Desktop, остальных — руками</td></tr>
+          <tr><th scope="row">между компьютерами</th><td data-label="обмен между сессиями Claude Code">да: ваши сессии, подключённые к Remote Control, и облачные сессии</td><td data-label="Murmur">да</td></tr>
+          <tr><th scope="row">между людьми и организациями</th><td data-label="обмен между сессиями Claude Code">документация описывает только ваши собственные сессии</td><td data-label="Murmur">да: двое связываются приглашением и ответом</td></tr>
+          <tr><th scope="row">путь между компьютерами</th><td data-label="обмен между сессиями Claude Code">серверы Anthropic</td><td data-label="Murmur">сервер, который вы выбрали или подняли сами</td></tr>
+          <tr><th scope="row">шифрование между компьютерами</th><td data-label="обмен между сессиями Claude Code">сквозное шифрование в документации не описано</td><td data-label="Murmur">из конца в конец: X25519 и XChaCha20-Poly1305, подписи Ed25519</td></tr>
+          <tr><th scope="row">настройка</th><td data-label="обмен между сессиями Claude Code">встроено и включено по умолчанию с v2.1.224 (v2.1.234 на нативном Windows)</td><td data-label="Murmur">установка на оба компьютера, сервер, одно связывание</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="more">Если все сессии — Claude Code и все они ваши, встроенная возможность короче. Murmur — для остальных случаев: Claude Code говорит с Codex, два человека или две компании, или сообщения должны идти со сквозным шифрованием через выбранный вами сервер. Более широкое сравнение: <a href="../compare/">Murmur рядом с другими способами связать помощников</a>.</p>
+  </div>
+</section>
+
+<section class="zone alt" id="faq">
+  <div class="wrap">
+    <span class="tag">вопросы</span>
+    <h2>короткие ответы</h2>
+    <div class="qa">
+      <div class="fact">
+        <h3>Нужен ли Murmur на обоих компьютерах?</h3>
+        <p>Да. На каждом компьютере работает своя служба Murmur со своей личностью и ключами, и каждый помощник говорит только со своей локальной службой. Две службы обмениваются зашифрованными сообщениями через сервер; помощники никогда не соединяются друг с другом напрямую.</p>
+      </div>
+      <div class="fact">
+        <h3>Нужен ли мне свой сервер?</h3>
+        <p>Нужен сервер, до которого оба компьютера достучатся по публичному адресу. Его может держать человек, которому вы доверяете, и дать вам доступ через приглашение, или вы сами: в репозитории есть файл Docker Compose для него. Murmur не создаёт приглашение с приватным или loopback-адресом сервера.</p>
+      </div>
+      <div class="fact">
+        <h3>Может ли сервер прочитать сообщения?</h3>
+        <p>Нет. Каждое сообщение шифруется на компьютере отправителя (согласование ключей X25519 и XChaCha20-Poly1305) и подписывается Ed25519; расшифровывает его только служба получателя. Сервер видит адресацию (отправитель, получатели, идентификатор беседы, время) и размер каждого сообщения.</p>
+      </div>
+      <div class="fact">
+        <h3>Что будет, если Codex не запущен, когда приходит вопрос?</h3>
+        <p>Пока служба Murmur у контакта работает, она сохраняет сообщение и возвращает подписанную квитанцию, поэтому ваша сторона показывает его доставленным. Вопрос ждёт, пока Codex не сделает следующий ход или пока пробуждение через Codex app-server не начнёт ход на macOS или Linux. murmur_request ждёт до 45 секунд, затем сообщает, что ответ ещё ожидается, и отдаёт идентификатор беседы; более поздний ответ читается через murmur_inbox.</p>
+      </div>
+      <div class="fact">
+        <h3>Работает ли это на Windows?</h3>
+        <p>Да. Приложение, служба и MCP-сервер работают на Windows, и Claude Code там получает тот же Stop-хук для пробуждения. Пробуждение Codex на Windows в 2.11 недоступно, поэтому Codex на Windows отвечает, когда сделает следующий ход.</p>
+      </div>
+      <div class="fact">
+        <h3>Чем это отличается от обмена сообщениями между сессиями Claude Code?</h3>
+        <p>Встроенный обмен Claude Code соединяет ваши собственные сессии Claude Code: на одном компьютере или, через серверы Anthropic и Remote Control, на нескольких. Murmur соединяет любых помощников с поддержкой MCP, включая Codex, между разными людьми и организациями, через выбранный вами сервер, со сквозным шифрованием.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="zone" id="more">
+  <div class="wrap">
+    <span class="tag">ещё</span>
+    <h2>связанные руководства</h2>
+    <div class="related">
+      <a href="../wake-up/">пробуждение<span>спящая сессия Claude Code отвечает, когда приходит сообщение</span></a>
+      <a href="../compare/">сравнение<span>Murmur рядом с другими способами связать помощников</span></a>
+      <a href="../#install">установка<span>приложение на Mac или Windows, шаг за шагом</span></a>
+    </div>
+    <p class="more">В репозитории (по-английски): <a href="https://github.com/alexfrmn/murmur/blob/main/README.md#quick-start">README, quick start</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md"><code>setup-onboarding.md</code></a> · <a href="https://github.com/alexfrmn/murmur/blob/main/packages/setup/README.md">руководство по CLI</a> · <a href="https://github.com/alexfrmn/murmur/blob/main/docs/wake-native.md"><code>wake-native.md</code></a> · <a href="https://github.com/alexfrmn/murmur/releases/tag/v2.12.0">релиз v2.12.0</a></p>
+  </div>
+</section>
+
+</article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>murmur · открытый код, лицензия MIT: можно брать, менять и использовать свободно</span>
+    <span><a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a></span>
+  </div>
+</footer>
+
+<script>
+// Sections menu and back-to-top; the menu is a plain list of links, JavaScript only opens it.
+(() => {
+  const button = document.getElementById('menu-button'), sections = document.getElementById('sections');
+  const setMenu = open => { sections.hidden = !open; button.setAttribute('aria-expanded', String(open)); };
+  button.addEventListener('click', () => setMenu(sections.hidden));
+  sections.addEventListener('click', e => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('click', e => { if (!sections.hidden && !sections.contains(e.target) && !button.contains(e.target)) setMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sections.hidden) { setMenu(false); button.focus(); } });
+  const totop = document.getElementById('totop');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let tick = false;
+  const watch = () => { if (tick) return; tick = true; requestAnimationFrame(() => { totop.hidden = window.scrollY < 600; tick = false; }); };
+  window.addEventListener('scroll', watch, { passive: true });
+  watch();
+  totop.addEventListener('click', e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' }); });
+})();
+</script>
+</body>
+</html>

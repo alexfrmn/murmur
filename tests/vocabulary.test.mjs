@@ -136,6 +136,7 @@ test("every vocabulary pattern compiles and matches its own term", () => {
   assert.deepEqual(sample("ru", "Служба работает, помощник прочитал письмо"), []);
   assert.deepEqual(sample("ru", "спиральный копир эмпирика"), [], "пир must not match inside other words");
   assert.deepEqual(sample("en", "Invite a colleague. Wake-up works."), []);
+  assert.deepEqual(sample("ru", "Руководство лежит по адресу /wake-up/, а wake — нет"), ["wake"], "wake-up is the page name, wake alone is not");
   assert.deepEqual(sample("en", "the daemon woke the peer"), ["peer", "daemon"]);
 });
 

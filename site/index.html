@@ -137,10 +137,14 @@
   }
   .bar {
     max-width: 1280px; margin: 0 auto; padding: 14px var(--gutter);
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    display: flex; align-items: center; justify-content: flex-start; gap: 28px;
   }
   .logo { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; }
-  .controls { display: flex; gap: 10px; align-items: center; }
+  /* Guides sit in the bar on wide screens; the ☰ menu keeps them on narrow ones. */
+  .topnav { display: flex; gap: 18px; align-items: center; }
+  .topnav a { color: var(--soft); text-decoration: none; font-size: 14px; padding: 4px 0; border-bottom: 1px solid transparent; transition: color .16s ease, border-color .16s ease; }
+  .topnav a:hover, .topnav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+  .controls { display: flex; gap: 10px; align-items: center; margin-left: auto; }
   .controls .github { color: var(--soft); text-decoration: none; font-size: 14px; padding: 0 4px; }
   .controls .github:hover { color: var(--ink); }
   /* One button cycles the three palettes: sand → dusk → mint. The dot shows the current one. */
@@ -311,6 +315,7 @@
   section, footer { position: relative; z-index: 1; }
 
   /* На телефоне первый экран ниже, поля уже, а блоки не прижимаются к краям. */
+  @media (max-width: 960px) { .topnav { display: none; } }
   @media (max-width: 640px) {
     .bar { padding-inline: 12px; gap: 8px; }
     .logo { letter-spacing: 2px; }
@@ -499,6 +504,12 @@
 <header id="top">
   <div class="bar">
     <span class="logo">murmur connect</span>
+    <nav class="topnav" aria-label="Guides" data-i18n-aria="topnavAria">
+      <a href="#install" data-i18n="navInstall">install</a>
+      <a href="claude-code-codex/" data-i18n="navGuideCodex">Claude Code ↔ Codex</a>
+      <a href="wake-up/" data-i18n="navGuideWake">wake-up</a>
+      <a href="compare/" data-i18n="navGuideCompare">compare</a>
+    </nav>
     <div class="controls">
       <button class="theme-switch" id="theme-switch" type="button" aria-label="Switch color theme" data-i18n-aria="themeSwitch" title="Switch color theme" data-i18n-title="themeSwitch"><i class="sw sw-dusk" aria-hidden="true"></i><span class="theme-label" data-i18n="themeLabel">theme</span><b id="theme-name" data-i18n="themeDusk">dusk</b></button>
       <a class="github" href="https://github.com/alexfrmn/murmur">github</a>
@@ -515,9 +526,9 @@
     <a href="#put" data-i18n="menuPrompt">hand this to your assistant</a>
     <a href="#troubleshoot" data-i18n="menuTrouble">troubleshooting</a>
     <a href="#faq" data-i18n="menuFaq">questions and answers</a>
-    <a class="sep" href="claude-code-codex/" hreflang="en" data-i18n="menuGuideCodex">guide: Claude Code and Codex on two machines</a>
-    <a href="wake-up/" hreflang="en" data-i18n="menuGuideWake">guide: wake-up for an idle session</a>
-    <a href="compare/" hreflang="en" data-i18n="menuGuideCompare">guide: ways to connect assistants, compared</a>
+    <a class="sep" href="claude-code-codex/" data-i18n="menuGuideCodex">guide: Claude Code and Codex on two machines</a>
+    <a href="wake-up/" data-i18n="menuGuideWake">guide: wake-up for an idle session</a>
+    <a href="compare/" data-i18n="menuGuideCompare">guide: ways to connect assistants, compared</a>
     <a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a>
   </nav>
 </header>
@@ -901,7 +912,7 @@ Desktop and Codex on Windows do not start an assistant turn on an incoming messa
 <footer>
   <div class="wrap">
     <span data-i18n="footer">murmur · open source under the MIT license: free to use, change, and share</span>
-    <nav aria-label="guides" data-i18n-aria="guidesAria"><span data-i18n="guidesLabel">guides:</span> <a href="claude-code-codex/" hreflang="en" data-i18n="guideCodex">Claude Code and Codex on two machines</a> · <a href="wake-up/" hreflang="en" data-i18n="guideWake">wake-up for an idle session</a> · <a href="compare/" hreflang="en" data-i18n="guideCompare">Murmur compared</a></nav>
+    <nav aria-label="guides" data-i18n-aria="guidesAria"><span data-i18n="guidesLabel">guides:</span> <a href="claude-code-codex/" data-i18n="guideCodex">Claude Code and Codex on two machines</a> · <a href="wake-up/" data-i18n="guideWake">wake-up for an idle session</a> · <a href="compare/" data-i18n="guideCompare">Murmur compared</a></nav>
     <span><a href="https://github.com/alexfrmn/murmur">github.com/alexfrmn/murmur</a></span>
     <div class="counters" id="counters" aria-label="Visitors" data-i18n-aria="statsAria" hidden>
       <span><b data-stat="today">–</b> <span data-i18n="statToday">today</span></span>
@@ -921,6 +932,7 @@ const I18N = {
     imageAlt: 'murmur: two AI assistants linked by an encrypted channel',
     themeGroup: 'color theme', themeSand: 'sand', themeDusk: 'dusk', themeMint: 'mint',
     languageLabel: 'Switch to Russian', languageButton: 'RU',
+    topnavAria: 'Guides', navInstall: 'install', navGuideCodex: 'Claude Code ↔ Codex', navGuideWake: 'wake-up', navGuideCompare: 'compare',
     themeSwitch: 'Switch color theme', themeLabel: 'theme', menuLabel: 'Sections of this page', menuHow: 'how it works', menuWords: 'five words', menuFirstOpen: 'first-open warnings', menuInstall: 'install the app', menuMinutes: 'the first five minutes', menuPrompt: 'hand this to your assistant', menuTrouble: 'troubleshooting', menuFaq: 'questions and answers', menuGuideCodex: 'guide: Claude Code and Codex on two machines', menuGuideWake: 'guide: wake-up for an idle session', menuGuideCompare: 'guide: ways to connect assistants, compared', toTop: 'Back to top', statsAria: 'Visitors', statToday: 'today', statWeek: '7 days', statMonth: '30 days', statAll: 'all time', statOnline: 'online now',
     eyebrow: 'Murmur Connect · messaging between AI assistants', heroTitle: 'let assistants talk',
     heroLead: 'a direct, end-to-end encrypted channel between two AI assistants — Claude Code, Codex or any other assistant that speaks MCP, across machines. no more carrying text from one terminal to another by hand.',
@@ -1064,6 +1076,7 @@ const I18N = {
     ],
     themeGroup: 'цветовая гамма', themeSand: 'песок', themeDusk: 'сумерки', themeMint: 'мята',
     languageLabel: 'Переключить на английский', languageButton: 'EN',
+    topnavAria: 'Руководства', navInstall: 'установка', navGuideCodex: 'Claude Code ↔ Codex', navGuideWake: 'пробуждение', navGuideCompare: 'сравнение',
     themeSwitch: 'Переключить цветовую тему', themeLabel: 'тема', menuLabel: 'Разделы страницы', menuHow: 'как это работает', menuWords: 'пять слов', menuFirstOpen: 'предупреждения при первом открытии', menuInstall: 'установить приложение', menuMinutes: 'первые пять минут', menuPrompt: 'передайте это помощнику', menuTrouble: 'если что-то не так', menuFaq: 'вопросы и ответы', menuGuideCodex: 'руководство: Claude Code и Codex на двух машинах', menuGuideWake: 'руководство: пробуждение спящей сессии', menuGuideCompare: 'руководство: способы связать помощников', toTop: 'Наверх', statsAria: 'Посетители', statToday: 'сегодня', statWeek: '7 дней', statMonth: '30 дней', statAll: 'за всё время', statOnline: 'сейчас на сайте',
     eyebrow: 'Murmur Connect · обмен сообщениями между ИИ-помощниками', heroTitle: 'пусть помощники разговаривают',
     heroLead: 'прямой канал со сквозным шифрованием между двумя ИИ-помощниками — Claude Code, Codex или любым другим помощником с поддержкой MCP, на разных машинах. человек перестаёт быть ретранслятором, который носит текст из одного терминала в другой.',
@@ -1164,7 +1177,7 @@ const I18N = {
     notchTroubleBody: 'на ноутбуке с вырезом камеры macOS может поставить значок строки меню в сам вырез. приложение работает, элемент существует, пикселей нет, и ни одна настройка об этом не сообщает: флаг видимости возвращает истину и для спрятанного значка. сначала освободите место — выключите один-два значка в Системных настройках или перенесите системные в Пункт управления. появившийся значок можно перетащить вправо с зажатым Command, эта позиция запомнится.',
     murmuration: 'murmuration — то, как тысячи птиц движутся одним телом, не сговариваясь.',
     footer: 'murmur · открытый код, лицензия MIT: можно брать, менять и использовать свободно',
-    guidesAria: 'руководства', guidesLabel: 'руководства (на английском):', guideCodex: 'Claude Code и Codex на двух машинах',
+    guidesAria: 'руководства', guidesLabel: 'руководства:', guideCodex: 'Claude Code и Codex на двух машинах',
     guideWake: 'пробуждение простаивающей сессии', guideCompare: 'Murmur в сравнении',
     faqTag: 'вопросы', faqTitle1: 'короткие ответы', faqTitle2: 'на частые вопросы',
     faq1q: 'что такое murmur?',

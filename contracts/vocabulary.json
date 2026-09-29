@@ -25,7 +25,7 @@
       { "term": "AI-приложение", "pattern": "(?<!\\p{L})(?:AI|ИИ)[- ]приложени\\p{L}*", "use": "Помощник" },
       { "term": "клиент", "pattern": "(?<!\\p{L})клиент\\p{L}*", "use": "Помощник" },
       { "term": "AI-сессия", "pattern": "(?<!\\p{L})(?:AI|ИИ)[- ]сесси\\p{L}*", "use": "Помощник" },
-      { "term": "wake", "pattern": "(?<!\\p{L})wake(?!\\p{L})", "use": "Пробуждение" },
+      { "term": "wake", "pattern": "(?<!\\p{L})wake(?!\\p{L}|-up)", "use": "Пробуждение" },
       { "term": "drain", "pattern": "(?<!\\p{L})drain\\p{L}*", "use": "Пробуждение" },
       { "term": "reply", "pattern": "(?<!\\p{L})reply(?!\\p{L})", "use": "Ответ" },
       { "term": "invite", "pattern": "(?<!\\p{L})invite(?!\\p{L})", "use": "Приглашение" },

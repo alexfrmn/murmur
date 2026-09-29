@@ -11,6 +11,9 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <meta name="description" content="Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.">
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <link rel="canonical" href="https://murmurconnect.com/compare/">
+<link rel="alternate" hreflang="en" href="https://murmurconnect.com/compare/">
+<link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/compare/">
+<link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/compare/">
 <meta name="theme-color" content="#141824">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Murmur Connect">
@@ -18,13 +21,14 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <meta property="og:title" content="Ways to connect AI coding assistants, compared — Murmur Connect">
 <meta property="og:description" content="Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.">
 <meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ru_RU">
 <meta property="og:image" content="https://murmurconnect.com/og.png?v=20260925-1">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Murmur: two AI assistants linked by an encrypted channel">
 <meta property="article:published_time" content="2026-09-25">
-<meta property="article:modified_time" content="2026-09-25">
+<meta property="article:modified_time" content="2026-09-29">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Ways to connect AI coding assistants, compared — Murmur Connect">
 <meta name="twitter:description" content="Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.">
@@ -50,7 +54,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
   "description": "Murmur next to Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk and A2A: reach, encryption, servers, licenses, GitHub stars.",
   "inLanguage": "en",
   "datePublished": "2026-09-25",
-  "dateModified": "2026-09-25",
+  "dateModified": "2026-09-29",
   "image": "https://murmurconnect.com/og.png?v=20260925-1",
   "author": {
     "@type": "Person",
@@ -134,11 +138,17 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
 <header id="top">
   <div class="bar">
     <a class="logo" href="../">murmur connect</a>
-    <nav aria-label="site">
+    <nav class="topnav" aria-label="Guides">
       <a href="../#install">install</a>
-      <a href="https://github.com/alexfrmn/murmur">github</a>
-      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Sections of the site" title="Sections of the site"><span></span><span></span><span></span></button>
+      <a href="../claude-code-codex/">Claude Code ↔ Codex</a>
+      <a href="../wake-up/">wake-up</a>
+      <a href="../compare/" aria-current="page">compare</a>
     </nav>
+    <div class="controls">
+      <a class="github" href="https://github.com/alexfrmn/murmur">github</a>
+      <a class="language" href="../ru/compare/" hreflang="ru" aria-label="Читать по-русски" title="Читать по-русски">RU</a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="sections" aria-label="Sections of the site" title="Sections of the site"><span></span><span></span><span></span></button>
+    </div>
   </div>
   <nav class="sections" id="sections" aria-label="Sections of the site" hidden>
     <a href="../#kak">how it works</a>
@@ -166,7 +176,7 @@ try { const t = localStorage.getItem('murmur-theme'); if (t === 'sand' || t === 
     <span class="tag">guide · comparison</span>
     <h1>Murmur compared with other ways to connect AI coding assistants</h1>
     <p class="lead">Several projects let coding assistants such as Claude Code and Codex send each other messages. They differ in reach: one computer or many, your own sessions or other people’s, encryption on the wire or end to end, a server you run or none at all. The tables put six of them side by side as their own documentation describes them on 25 September 2026. Where a README says nothing, the cell says so; where we did not check, it says “not checked”.</p>
-    <p class="updated">Updated 28 September 2026 · Murmur 2.12.0</p>
+    <p class="updated">Updated 29 September 2026 · Murmur 2.12.0</p>
   </div>
 </section>
 

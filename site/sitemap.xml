@@ -17,14 +17,44 @@
   </url>
   <url>
     <loc>https://murmurconnect.com/claude-code-codex/</loc>
-    <lastmod>2026-09-28</lastmod>
+    <lastmod>2026-09-29</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://murmurconnect.com/claude-code-codex/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/claude-code-codex/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/claude-code-codex/"/>
   </url>
   <url>
     <loc>https://murmurconnect.com/wake-up/</loc>
-    <lastmod>2026-09-28</lastmod>
+    <lastmod>2026-09-29</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://murmurconnect.com/wake-up/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/wake-up/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/wake-up/"/>
   </url>
   <url>
     <loc>https://murmurconnect.com/compare/</loc>
-    <lastmod>2026-09-28</lastmod>
+    <lastmod>2026-09-29</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://murmurconnect.com/compare/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/compare/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/compare/"/>
+  </url>
+  <url>
+    <loc>https://murmurconnect.com/ru/claude-code-codex/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://murmurconnect.com/claude-code-codex/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/claude-code-codex/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/claude-code-codex/"/>
+  </url>
+  <url>
+    <loc>https://murmurconnect.com/ru/wake-up/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://murmurconnect.com/wake-up/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/wake-up/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/wake-up/"/>
+  </url>
+  <url>
+    <loc>https://murmurconnect.com/ru/compare/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://murmurconnect.com/compare/"/>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://murmurconnect.com/ru/compare/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://murmurconnect.com/compare/"/>
   </url>
 </urlset>

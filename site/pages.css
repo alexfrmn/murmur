@@ -66,10 +66,23 @@ header {
 }
 .bar {
   max-width: 1280px; margin: 0 auto; padding: 14px var(--gutter);
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 28px;
 }
 .logo { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink); text-decoration: none; }
 .bar nav { display: flex; gap: 18px; align-items: center; }
+.topnav a { color: var(--soft); text-decoration: none; font-size: 14px; padding: 4px 0; border-bottom: 1px solid transparent; transition: color .16s ease, border-color .16s ease; }
+.topnav a:hover, .topnav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.controls { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+.controls .github { color: var(--soft); text-decoration: none; font-size: 14px; padding: 0 4px; }
+.controls .github:hover { color: var(--ink); }
+.language {
+  display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
+  min-width: 44px; height: 30px; border: 1px solid var(--hair); border-radius: 999px;
+  color: var(--soft); background: transparent; font-size: 12px; font-weight: 700; letter-spacing: 1px; line-height: 1;
+  transition: color .16s ease, border-color .16s ease, transform .16s ease;
+}
+.language:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-2px); }
+@media (max-width: 960px) { .bar nav.topnav { display: none; } }
 /* Sections menu and back-to-top, the same controls as on the home page. */
 .menu-button {
   width: 36px; height: 30px; padding: 0; border: 1px solid var(--hair); border-radius: 8px; background: transparent;
@@ -162,7 +175,7 @@ tbody th { color: var(--ink); }
 th .dim { display: block; color: var(--dim); font-weight: 400; font-size: 13px; }
 td { color: var(--soft); }
 caption { caption-side: bottom; text-align: left; color: var(--dim); font-size: 13px; padding-top: 12px; }
-@media (max-width: 640px) { .logo { letter-spacing: 2px; } .bar nav { gap: 10px; } .sections { right: 12px; } .totop { right: 12px; bottom: 12px; width: 40px; height: 40px; } }
+@media (max-width: 640px) { .logo { letter-spacing: 2px; } .bar nav { gap: 10px; } .controls .github { display: none; } .sections { right: 12px; } .totop { right: 12px; bottom: 12px; width: 40px; height: 40px; } }
 @media (max-width: 960px) {
   table, thead, tbody, tr, th, td, caption { display: block; width: 100%; }
   thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

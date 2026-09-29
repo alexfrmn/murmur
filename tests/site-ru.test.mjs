@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { renderPage, readDictionary } from "../scripts/build-site-ru.mjs";
+import { renderPage, readDictionary, TRANSLATED_PAGES } from "../scripts/build-site-ru.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(path.join(root, rel), "utf8");
@@ -85,11 +85,17 @@ test("each page links the other one", () => {
   assert.doesNotMatch(sitemap, /\?lang=/, "the Russian page has its own address now");
 });
 
-test("the Russian page reaches assets one level up", () => {
+test("the Russian page reaches assets one level up and the translated guides next to it", () => {
   const relative = [...ru.matchAll(/\s(?:href|src)="([^"]*)"/g)].map((m) => m[1])
     .filter((url) => url && !/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(url));
   assert.ok(relative.length >= 5, "the icons and the stylesheet must be linked");
-  assert.deepEqual(relative.filter((url) => !url.startsWith("../")), []);
+  // Guides with a Russian version under site/ru/ are linked as siblings; everything else is one level up.
+  const translated = (url) => TRANSLATED_PAGES.some((page) => url === page || url.startsWith(`${page}#`));
+  assert.deepEqual(relative.filter((url) => !url.startsWith("../") && !translated(url)), []);
+  for (const page of TRANSLATED_PAGES) {
+    assert.ok(relative.includes(page), `${page} is linked to its Russian version`);
+    assert.ok(!relative.includes(`../${page}`), `${page} is not linked to the English version`);
+  }
 });
 
 test("npm scopes in visible text are shielded from Cloudflare email obfuscation", () => {
