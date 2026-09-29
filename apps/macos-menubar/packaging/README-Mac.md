@@ -17,11 +17,12 @@ Murmur checks standard Node.js and Homebrew installation paths, Volta, nvm and f
 If Node is missing or too old, a dialog links to the official download page and
 lets you retry. It does not install Node automatically.
 
-Murmur opens a window with **I have an invitation…** as the primary path. Select the
-private invitation sent by your teammate; Murmur creates a profile and reply file.
-Use **Show reply file** to find what to send back. Then click **Start Murmur on this Mac**
-to install and start the profile’s background service. After exchanging the reply,
-use **Check connection**. Creating a profile is not proof of pairing or live agent delivery.
+Murmur opens a window with **I have an invitation…** as the primary path. Paste the
+Invitation line sent by your colleague (an invitation file is also accepted); Murmur
+creates an identity and a Reply line. Use **Show and copy Reply** to get what to send
+back. Then click **Start Murmur on this Mac** to install and start the profile’s
+background service. After exchanging the reply, use **Check connection**. Creating a
+profile is not proof of pairing or live agent delivery.
 
 If you own a server, **Create a profile for my server…** asks for its address and an
 optional access file. A unique name and private profile folder are chosen automatically;
@@ -47,7 +48,13 @@ choose an existing profile or explicitly create a separate one; resetting never
 retries creation automatically. The copy remains available in Finder after reopening.
 Choosing an earlier private profile restores its reply link and service setup steps
 after checking the same identity. It does not create the profile again.
-Agent-client connection still uses the shared
+**Connect your AI assistants** writes the Murmur entry for Claude Code, Claude Desktop
+or the Codex CLI on this Mac and asks you to restart that assistant. Claude Desktop and
+Claude Code keep separate MCP files, and the Code tab inside Claude Desktop is Claude
+Code: connect each one you use ([#283](https://github.com/alexfrmn/murmur/issues/283)).
+In the check of 29 September 2026, Codex Desktop on the same Mac showed the Murmur tools
+only after it was restarted; an open chat kept its old tool list. Other clients follow
+the shared
 [onboarding instructions](https://github.com/alexfrmn/murmur/blob/main/docs/setup-onboarding.md).
 
 English is the default app language, independently of macOS. Choose
@@ -78,20 +85,20 @@ The app has an ad-hoc signature, without Developer ID or Apple notarization.
 A DMG does not remove Gatekeeper warnings. `Read Me First.txt` inside the image
 contains the first-opening instructions in English, followed by Russian.
 
-A GitHub download through Safari was tested on macOS 26.6.2 with a Russian interface:
+Checked on 29 September 2026 with `Murmur-Mac-2.12.0-universal.dmg` on macOS 26.6:
 
-1. Select the installed Murmur in Applications and open it (⌘O).
-2. A warning titled «Файл «Murmur» не был открыт» appeared, with
-   «Переместить в Корзину», «Готово» and «Справка». Select «Готово» (Done).
-3. Right-click the installed Murmur and select «Открыть» (Open) in Finder's menu.
+1. Open the installed Murmur from Applications. A warning says Apple could not verify
+   that the app is free of malware, with «Move to Trash» and «Done». Choose «Done».
+2. Open System Settings → Privacy & Security and scroll to the Security section: it
+   says Murmur was blocked and offers «Open Anyway». Click it and confirm with your
+   password or Touch ID.
+3. Open Murmur again and choose «Open» in the final dialog.
 
-In that test the app process started without a second dialog, password, Touch ID or
-security setting change. These observations apply to that exact downloaded build,
-not to every Mac. The four logical opening actions exclude download and installation.
-
-On other macOS versions Apple also describes allowing the specific app through
-System Settings → Privacy & Security → Open Anyway; authentication may be required.
-That button was not observed in this macOS 26.6.2 test.
+An earlier check (before 2.11) on macOS 26.6.2 got through with Finder's right-click →
+«Open» after «Done», and «Open Anyway» did not appear then. With the 2.12.0 image on
+macOS 26 the context menu no longer offered to run the app. If your Finder menu does
+show «Open» for the app, that route works too; otherwise use System Settings
+([#284](https://github.com/alexfrmn/murmur/issues/284)).
 [Apple's instructions](https://support.apple.com/102445).
 Keep Gatekeeper enabled. A warning that an app is damaged or contains malware is
 not interchangeable with an unidentified-developer warning.

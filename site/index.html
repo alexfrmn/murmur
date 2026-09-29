@@ -433,6 +433,14 @@
         "@type": "Answer",
         "text": "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.12.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately."
       }
+    },
+    {
+      "@type": "Question",
+      "name": "I connected an assistant in the app, but it does not see Murmur",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "restart the assistant: an open chat keeps its old tool list. Claude Desktop and Claude Code read different settings files, and the Code tab inside Claude Desktop is Claude Code, so connect each one you use. in the check on 29 September 2026 Codex Desktop on a Mac showed the Murmur tools only after a restart, and Claude Code in the Code tab woke on a letter about 7 seconds after it was sent."
+      }
     }
   ]
 }
@@ -538,23 +546,23 @@
   <div class="wrap">
     <span class="tag" data-i18n="warningTag">before you download</span>
     <h2><span data-i18n="warningTitle1">unsigned builds</span><br><span data-i18n="warningTitle2">trigger a first-open warning</span></h2>
-    <p class="lead" data-i18n="warningLead">v2.12.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.</p>
+    <p class="lead" data-i18n="warningLead">v2.12.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below come from the 2.12.0 files checked on 29 September 2026 and apply only to the stated OS and artifact; a warning does not prove file safety.</p>
 
     <div class="notice-grid">
       <article class="notice">
-        <h3 data-i18n="macWarningTitle">macOS: use Finder’s Open command</h3>
-        <p class="tested" data-i18n="macTested">tested on macOS 26.6.2 with Safari and the GitHub DMG</p>
+        <h3 data-i18n="macWarningTitle">macOS: allow the app in System Settings</h3>
+        <p class="tested" data-i18n="macTested">tested on macOS 26.6 with the 2.12.0 DMG, 29 September 2026</p>
         <p class="dialog" data-i18n="macDialog">The observed dialog was in Russian. Translation, not exact English system wording: “The file ‘Murmur’ was not opened.” Apple says it could not verify that the file is free of malware that may harm your Mac or your privacy.</p>
-        <p data-i18n="macSteps">On the first dialog, choose Done — not Move to Trash. Then find the installed Murmur app in Finder, right-click it, and choose Open. In this test, the process launched without authentication or a second dialog.</p>
-        <p data-i18n="macScope">This is the observed path for that OS and artifact. “Open Anyway” did not appear in System Settings. The app icon and menu were not tested.</p>
+        <p data-i18n="macSteps">Choose Done, not Move to Trash. Open System Settings → Privacy &amp; Security and scroll to Security: it says Murmur was blocked. Click Open Anyway, confirm with your password or Touch ID, then choose Open in the last dialog.</p>
+        <p data-i18n="macScope">Observed path for that OS and file only. Finder’s right-click → Open, which worked in a check before 2.11, no longer offered to run the 2.12.0 app on macOS 26.</p>
       </article>
 
       <article class="notice">
         <h3 data-i18n="winWarningTitle">Windows: confirm the publisher warning</h3>
-        <p class="tested" data-i18n="winTested">tested on Windows 10 with Edge and the ZIP/CMD artifact</p>
+        <p class="tested" data-i18n="winTested">tested on Windows 10 (19045) with the 2.12.0 setup.exe, 29 September 2026</p>
         <p class="dialog" data-i18n="winDialog">Exact observed dialog: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.</p>
-        <p data-i18n="winSteps">Choose Run only if this is the artifact you intended to open. It worked in this test with quarantine retained and without changing security settings.</p>
-        <p data-i18n="winScope">This result is limited to the tested Windows 10 path. An unsigned publisher warning is not a safety check.</p>
+        <p data-i18n="winSteps">Choose Run only if this is the file you intended to open. In this check the person ran the installer as administrator by choice; it completed without changing security settings.</p>
+        <p data-i18n="winScope">Limited to that Windows 10 path. The per-user install without elevation was not exercised in this check. An unsigned publisher warning is not a safety check.</p>
       </article>
     </div>
 
@@ -585,12 +593,12 @@
             <!-- screenshot: mac-dmg-drag -->
           </li>
           <li>
-            <p data-i18n="macInstall3">open Applications in Finder, right-click Murmur and choose Open. the build is not notarized by Apple yet, so a double-click only shows a warning.</p>
-            <!-- screenshot: mac-open-menu -->
+            <p data-i18n="macInstall3">open Applications in Finder and open Murmur. the build is not notarized by Apple yet, so the first open shows a warning that Apple could not verify the app: choose Done, not Move to Trash.</p>
+            <!-- screenshot: mac-gatekeeper-warning -->
           </li>
           <li>
-            <p data-i18n="macInstall4">if the warning has already appeared, choose Done, not Move to Trash, and open Murmur with a right-click as above.</p>
-            <!-- screenshot: mac-gatekeeper-warning -->
+            <p data-i18n="macInstall4">open System Settings → Privacy &amp; Security, scroll to Security and click Open Anyway next to the note that Murmur was blocked. confirm with your password or Touch ID, open Murmur again and choose Open.</p>
+            <!-- screenshot: mac-open-anyway -->
           </li>
           <li>
             <p data-i18n="macInstall5">Murmur opens its window, and its icon appears in the menu bar at the top right of the screen. what to press next is in the first five minutes below.</p>
@@ -606,11 +614,11 @@
             <p data-i18n="winInstall1">on the release page, download the file that ends in setup.exe and open it.</p>
           </li>
           <li>
-            <p data-i18n="winInstall2">Windows may say “Windows protected your PC”: the installer is not signed yet. click More info, then Run anyway.</p>
+            <p data-i18n="winInstall2">Windows may say “Windows protected your PC” (click More info, then Run anyway) or ask whether you want to run software from an unknown publisher (click Run): the installer is not signed yet.</p>
             <!-- screenshot: win-smartscreen -->
           </li>
           <li>
-            <p data-i18n="winInstall3">go through the installer with Next. it does not ask for administrator rights: Murmur is installed for you only. leave “Start Murmur when I sign in to Windows” ticked.</p>
+            <p data-i18n="winInstall3">go through the installer with Next. it installs Murmur for you only and does not need administrator rights; running it as administrator, as in the 29 September check, also works. leave “Start Murmur when I sign in to Windows” ticked.</p>
             <!-- screenshot: win-installer -->
           </li>
           <li>
@@ -816,6 +824,10 @@ Desktop and Codex on Windows do not start an assistant turn on an incoming messa
         <h3 data-i18n="faq6q">how do I install it?</h3>
         <!--email_off--><p data-i18n="faq6a">download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.12.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.</p><!--/email_off-->
       </div>
+      <div class="fact">
+        <h3 data-i18n="faq7q">I connected an assistant in the app, but it does not see Murmur</h3>
+        <p data-i18n="faq7a">restart the assistant: an open chat keeps its old tool list. Claude Desktop and Claude Code read different settings files, and the Code tab inside Claude Desktop is Claude Code, so connect each one you use. in the check on 29 September 2026 Codex Desktop on a Mac showed the Murmur tools only after a restart, and Claude Code in the Code tab woke on a letter about 7 seconds after it was sent.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -880,13 +892,13 @@ const I18N = {
     macTitle: "install on Mac",
     macInstall1: "on the release page, download the file that ends in .dmg and open it.",
     macInstall2: "in the window that opens, drag Murmur onto the Applications folder.",
-    macInstall3: "open Applications in Finder, right-click Murmur and choose Open. the build is not notarized by Apple yet, so a double-click only shows a warning.",
-    macInstall4: "if the warning has already appeared, choose Done, not Move to Trash, and open Murmur with a right-click as above.",
+    macInstall3: 'open Applications in Finder and open Murmur. the build is not notarized by Apple yet, so the first open shows a warning that Apple could not verify the app: choose Done, not Move to Trash.',
+    macInstall4: 'open System Settings → Privacy & Security, scroll to Security and click Open Anyway next to the note that Murmur was blocked. confirm with your password or Touch ID, open Murmur again and choose Open.',
     macInstall5: "Murmur opens its window, and its icon appears in the menu bar at the top right of the screen. what to press next is in the first five minutes below.",
     winTitle: "install on Windows",
     winInstall1: "on the release page, download the file that ends in setup.exe and open it.",
-    winInstall2: "Windows may say “Windows protected your PC”: the installer is not signed yet. click More info, then Run anyway.",
-    winInstall3: "go through the installer with Next. it does not ask for administrator rights: Murmur is installed for you only. leave “Start Murmur when I sign in to Windows” ticked.",
+    winInstall2: 'Windows may say “Windows protected your PC” (click More info, then Run anyway) or ask whether you want to run software from an unknown publisher (click Run): the installer is not signed yet.',
+    winInstall3: 'go through the installer with Next. it installs Murmur for you only and does not need administrator rights; running it as administrator, as in the 29 September check, also works. leave “Start Murmur when I sign in to Windows” ticked.',
     winInstall4: "on the last page, leave “Launch Murmur” ticked and click Finish.",
     winInstall5: "the first window offers three buttons: “I have an invitation” if a colleague sent you one, “Invite a colleague” to start a pair yourself, and “I have used Murmur before” to pick the identity you already have on this computer.",
     winInstall6: "Murmur lives in the notification area at the bottom right, next to the clock. if you do not see its icon, click the ^ arrow: Windows hides new icons there. drag the icon onto the taskbar to keep it in sight.",
@@ -905,17 +917,17 @@ const I18N = {
     minute5Title: "ask a live question",
     minute5Body: "ask your assistant, for example: “ask Anna’s assistant through Murmur what she is working on right now”. the question goes to your colleague’s assistant, and the answer comes back to yours. if wake-up is on for their assistant, it answers by itself; if not, it answers when your colleague next opens it.",
     warningTag: 'before you download', warningTitle1: 'unsigned builds', warningTitle2: 'trigger a first-open warning',
-    warningLead: "v2.12.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below predate 2.11 and apply only to the stated OS, browser and artifact; a warning does not prove file safety.",
-    macWarningTitle: 'macOS: use Finder’s Open command',
-    macTested: 'tested on macOS 26.6.2 with Safari and the GitHub DMG',
+    warningLead: 'v2.12.0 provides a Windows installer, a Windows ZIP, a macOS DMG and a ZIP with the command-line tools. all require external Node.js 22.13.0 or newer. the first-open observations below come from the 2.12.0 files checked on 29 September 2026 and apply only to the stated OS and artifact; a warning does not prove file safety.',
+    macWarningTitle: 'macOS: allow the app in System Settings',
+    macTested: 'tested on macOS 26.6 with the 2.12.0 DMG, 29 September 2026',
     macDialog: 'The observed dialog was in Russian. Translation, not exact English system wording: “The file ‘Murmur’ was not opened.” Apple says it could not verify that the file is free of malware that may harm your Mac or your privacy.',
-    macSteps: 'On the first dialog, choose Done — not Move to Trash. Then find the installed Murmur app in Finder, right-click it, and choose Open. In this test, the process launched without authentication or a second dialog.',
-    macScope: 'This is the observed path for that OS and artifact. “Open Anyway” did not appear in System Settings. The app icon and menu were not tested.',
+    macSteps: 'Choose Done, not Move to Trash. Open System Settings → Privacy & Security and scroll to Security: it says Murmur was blocked. Click Open Anyway, confirm with your password or Touch ID, then choose Open in the last dialog.',
+    macScope: 'Observed path for that OS and file only. Finder’s right-click → Open, which worked in a check before 2.11, no longer offered to run the 2.12.0 app on macOS 26.',
     winWarningTitle: 'Windows: confirm the publisher warning',
-    winTested: 'tested on Windows 10 with Edge and the ZIP/CMD artifact',
+    winTested: 'tested on Windows 10 (19045) with the 2.12.0 setup.exe, 29 September 2026',
     winDialog: 'Exact observed dialog: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
-    winSteps: 'Choose Run only if this is the artifact you intended to open. It worked in this test with quarantine retained and without changing security settings.',
-    winScope: 'This result is limited to the tested Windows 10 path. An unsigned publisher warning is not a safety check.',
+    winSteps: 'Choose Run only if this is the file you intended to open. In this check the person ran the installer as administrator by choice; it completed without changing security settings.',
+    winScope: 'Limited to that Windows 10 path. The per-user install without elevation was not exercised in this check. An unsigned publisher warning is not a safety check.',
     releaseLink: "open the v2.12.0 release page",
     releaseAssets: ": choose `Murmur-2.12.0-windows-x64-setup.exe` for the Windows app, `Murmur-Mac-2.12.0-universal.dmg` for macOS, `Murmur-Windows-2.12.0-x64.zip` for portable Windows use, or `murmur-runtime-2.12.0.zip` for the command line, the service and the MCP server. GitHub’s generated Source code archives are not prebuilt packages.",
     manualUpdatePrefix: 'Murmur does not update itself. Existing Windows service users must follow the',
@@ -956,6 +968,8 @@ const I18N = {
     faq5a: 'yes. murmur is open source under the MIT license: free to use, change, and share. the code, releases and documentation are on GitHub at github.com/alexfrmn/murmur.',
     faq6q: 'how do I install it?',
     faq6a: "download the Windows installer or the Mac DMG from the latest release on GitHub, open Murmur and follow its window: accept an invitation or invite a colleague, then choose your assistant. step-by-step instructions are in the installation section above. the same release page has portable ZIPs for Windows and for the command line. the command-line tools are also on npm: npm install --global @murmurv2/cli@2.12.0. every path needs Node.js 22.13.0 or newer, access to a server and a colleague to pair with. installing the Windows service requests elevation separately.",
+    faq7q: 'I connected an assistant in the app, but it does not see Murmur',
+    faq7a: 'restart the assistant: an open chat keeps its old tool list. Claude Desktop and Claude Code read different settings files, and the Code tab inside Claude Desktop is Claude Code, so connect each one you use. in the check on 29 September 2026 Codex Desktop on a Mac showed the Murmur tools only after a restart, and Claude Code in the Code tab woke on a letter about 7 seconds after it was sent.',
     schemaBoxes: [
       { x: 40,  w: 190, t: 'your assistant', s: 'claude · codex · yours' },
       { x: 290, w: 160, t: 'service',    s: 'encrypts' },
@@ -1020,13 +1034,13 @@ const I18N = {
     macTitle: "установка на Mac",
     macInstall1: "на странице релиза скачайте файл с окончанием .dmg и откройте его.",
     macInstall2: "в открывшемся окне перетащите Murmur на папку Applications — в Finder она называется «Программы».",
-    macInstall3: "откройте «Программы» в Finder, нажмите на Murmur правой кнопкой и выберите «Открыть». сборка пока не нотаризована Apple, поэтому двойной щелчок покажет только предупреждение.",
-    macInstall4: "если предупреждение уже появилось, нажмите «Готово», а не «Переместить в Корзину», и откройте Murmur правой кнопкой, как описано выше.",
+    macInstall3: 'откройте «Программы» в Finder и откройте Murmur. сборка пока не нотаризована Apple, поэтому первое открытие покажет предупреждение, что Apple не удалось подтвердить приложение: нажмите «Готово», а не «Переместить в Корзину».',
+    macInstall4: 'откройте «Системные настройки» → «Конфиденциальность и безопасность», прокрутите до «Безопасность» и нажмите «Всё равно открыть» рядом с сообщением, что Murmur заблокирован. подтвердите паролем или Touch ID, снова откройте Murmur и нажмите «Открыть».',
     macInstall5: "Murmur откроет своё окно, а его значок появится в строке меню справа вверху. что нажимать дальше — в разделе «первые пять минут» ниже.",
     winTitle: "установка на Windows",
     winInstall1: "на странице релиза скачайте файл с окончанием setup.exe и откройте его.",
-    winInstall2: "Windows может показать «Система Windows защитила ваш компьютер»: установщик пока не подписан. нажмите «Подробнее», затем «Выполнить в любом случае».",
-    winInstall3: "пройдите установщик кнопкой «Далее». прав администратора он не просит: Murmur ставится только для вас. галочку «Запускать Murmur при входе в Windows» оставьте.",
+    winInstall2: 'Windows может показать «Система Windows защитила ваш компьютер» (нажмите «Подробнее», затем «Выполнить в любом случае») или спросить, запускать ли программу неизвестного издателя (нажмите Run): установщик пока не подписан.',
+    winInstall3: 'пройдите установщик кнопкой «Далее». он ставит Murmur только для вас и не требует прав администратора; запуск от администратора, как в проверке 29 сентября, тоже работает. галочку «Запускать Murmur при входе в Windows» оставьте включённой.',
     winInstall4: "на последней странице оставьте галочку «Запустить Murmur» и нажмите «Завершить».",
     winInstall5: "в первом окне три кнопки: «У меня есть приглашение» — если коллега прислал вам приглашение, «Пригласить коллегу» — чтобы начать пару самому, и «Я уже пользовался Murmur» — чтобы выбрать личность, которая уже есть на этом компьютере.",
     winInstall6: "Murmur живёт в области уведомлений справа внизу, рядом с часами. если значка не видно, нажмите стрелку ^: новые значки Windows прячет туда. перетащите значок на панель задач, чтобы он всегда был на виду.",
@@ -1045,17 +1059,17 @@ const I18N = {
     minute5Title: "задайте живой вопрос",
     minute5Body: "попросите своего помощника, например: «спроси через Murmur у помощника Анны, над чем она сейчас работает». вопрос уйдёт помощнику коллеги, а ответ вернётся к вашему. если у помощника коллеги включено пробуждение, он ответит сам; если нет — когда коллега его откроет.",
     warningTag: 'перед загрузкой', warningTitle1: 'неподписанная сборка', warningTitle2: 'вызовет предупреждение при первом запуске',
-    warningLead: "v2.12.0 включает установщик Windows, ZIP для Windows, DMG для macOS и ZIP с инструментами командной строки. для всех нужен внешний Node.js 22.13.0 или новее. наблюдения о первом запуске ниже сделаны до 2.11 и относятся только к указанным ОС, браузеру и артефакту; предупреждение не доказывает безопасность файла.",
-    macWarningTitle: 'macOS: откройте через команду Finder «Открыть»',
-    macTested: 'проверено на macOS 26.6.2, Safari и DMG с GitHub',
+    warningLead: 'v2.12.0 включает установщик Windows, ZIP для Windows, DMG для macOS и ZIP с инструментами командной строки. для всех нужен внешний Node.js 22.13.0 или новее. наблюдения о первом открытии ниже сделаны на файлах 2.12.0 в проверке 29 сентября 2026 и относятся только к указанной ОС и артефакту; предупреждение не доказывает безопасность файла.',
+    macWarningTitle: 'macOS: разрешите приложение в Системных настройках',
+    macTested: 'проверено на macOS 26.6 с DMG 2.12.0, 29 сентября 2026',
     macDialog: 'Наблюдавшийся заголовок: «Файл «Murmur» не был открыт». Текст: «Apple не удалось подтвердить, что файл «Murmur» не содержит вредоносного ПО, которое может нанести вред Вашему Mac или конфиденциальности Ваших данных». Кнопки: «Переместить в Корзину», «Готово», «Справка».',
-    macSteps: 'В первом диалоге нажмите «Готово», а не «Переместить в Корзину». Затем найдите установленный Murmur в списке Finder, нажмите правой кнопкой и выберите «Открыть». В этой проверке процесс запустился без авторизации и второго диалога.',
-    macScope: 'Это наблюдавшийся путь только для указанной ОС и артефакта. Пункта «Всё равно открыть» в системных настройках не было. Иконку и меню приложения пока не проверяли.',
+    macSteps: 'Нажмите «Готово», а не «Переместить в Корзину». Откройте «Системные настройки» → «Конфиденциальность и безопасность» и прокрутите до раздела «Безопасность»: там сказано, что Murmur заблокирован. Нажмите «Всё равно открыть», подтвердите паролем или Touch ID и в последнем диалоге нажмите «Открыть».',
+    macScope: 'Наблюдавшийся путь только для этой ОС и файла. Правая кнопка → «Открыть» в Finder, работавшая в проверке до 2.11, на macOS 26 запуск приложения 2.12.0 больше не предлагала.',
     winWarningTitle: 'Windows: подтвердите предупреждение об издателе',
-    winTested: 'проверено на Windows 10, Edge и артефакте ZIP/CMD',
+    winTested: 'проверено на Windows 10 (19045) с setup.exe 2.12.0, 29 сентября 2026',
     winDialog: 'Точный текст наблюдавшегося англоязычного диалога: “Open File - Security Warning” · “The publisher could not be verified. Are you sure you want to run this software?” · “Unknown Publisher” · Run / Cancel.',
-    winSteps: 'Нажимайте Run, только если открываете именно тот артефакт, который собирались запустить. В этой проверке запуск сработал при сохранённом карантине и без изменения настроек безопасности.',
-    winScope: 'Результат относится только к проверенному пути на Windows 10. Предупреждение о неизвестном издателе не является проверкой безопасности.',
+    winSteps: 'Нажимайте Run, только если это тот файл, который вы собирались открыть. В этой проверке установщик по своему выбору запустили от администратора; он завершился без изменения настроек безопасности.',
+    winScope: 'Только для этого пути на Windows 10. Установка для одного пользователя без повышения прав в этой проверке не проходилась. Предупреждение о неизвестном издателе — не проверка безопасности.',
     releaseLink: "откройте страницу релиза v2.12.0",
     releaseAssets: ": для приложения Windows выберите `Murmur-2.12.0-windows-x64-setup.exe`, для macOS — `Murmur-Mac-2.12.0-universal.dmg`, для переносимого приложения Windows — `Murmur-Windows-2.12.0-x64.zip`, а для командной строки, службы и MCP-сервера — `murmur-runtime-2.12.0.zip`. Автоматические архивы GitHub Source code не являются готовыми сборками.",
     manualUpdatePrefix: 'Murmur не обновляет себя сам. Пользователям существующей службы Windows нужно выполнить',
@@ -1096,6 +1110,8 @@ const I18N = {
     faq5a: 'да. murmur — открытый код под лицензией MIT: можно брать, менять и использовать свободно. код, релизы и документация лежат на GitHub: github.com/alexfrmn/murmur.',
     faq6q: 'как это поставить?',
     faq6a: "скачайте установщик Windows или DMG для Mac из последнего релиза на GitHub, откройте Murmur и следуйте его окну: примите приглашение или пригласите коллегу, затем выберите помощника. пошаговая инструкция — в разделе об установке выше. на той же странице релиза есть переносимые ZIP для Windows и для командной строки. инструменты командной строки есть и в npm: npm install --global @murmurv2/cli@2.12.0. для любого пути нужны Node.js 22.13.0 или новее, доступ к серверу и коллега на другой стороне. установка службы Windows отдельно запросит повышение прав.",
+    faq7q: 'я подключил помощника в приложении, а он не видит Murmur',
+    faq7a: 'перезапустите помощника: открытый чат держит старый список инструментов. Claude Desktop и Claude Code читают разные файлы настроек, а вкладка Code внутри Claude Desktop — это Claude Code, поэтому подключайте каждого, кем пользуетесь. в проверке 29 сентября 2026 Codex Desktop на Mac показал инструменты Murmur только после перезапуска, а Claude Code во вкладке Code проснулся от письма примерно через 7 секунд после отправки.',
     schemaBoxes: [
       { x: 40,  w: 190, t: 'ваш помощник', s: 'claude · codex · свой' },
       { x: 290, w: 160, t: 'служба',    s: 'шифрует' },

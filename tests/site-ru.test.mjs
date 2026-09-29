@@ -65,7 +65,7 @@ test("the Russian structured data is in Russian", () => {
   assert.deepEqual(graph["@graph"][1].featureList, [...I18N.ru.ldFeatures]);
   assert.equal(faq.inLanguage, "ru");
   assert.equal(faq.url, "https://murmurconnect.com/ru/");
-  assert.equal(faq.mainEntity.length, 6);
+  assert.equal(faq.mainEntity.length, Object.keys(I18N.ru).filter((k) => /^faq\d+q$/.test(k)).length);
   faq.mainEntity.forEach((q, i) => {
     assert.equal(q.name, I18N.ru[`faq${i + 1}q`]);
     assert.equal(q.acceptedAnswer.text, I18N.ru[`faq${i + 1}a`]);

@@ -12,6 +12,20 @@ import { writeState } from './state.js';
 import type { ServiceContext, PlatformAdapter } from './types.js';
 
 export interface DoctorOptions { context: ServiceContext; adapter: PlatformAdapter; peer?: string; timeoutMs?: number }
+// With --peer the peers stage answers for that peer: a fresh two-way proof for it is the evidence, and
+// unmeasured pairs of other contacts do not hide it (#282). Without --peer every contact has to be measured.
+export function evaluatePeers(list: Array<{ agentId: string; paired: boolean | null }>, peer?: string)
+  : { state?: string; reason?: string; detail: string; fixHint?: string } {
+  const hint = 'Run murmur doctor --peer <configured-agent-id> --json';
+  if (peer) {
+    return list.find(p => p.agentId === peer)?.paired === true
+      ? { detail: `Fresh two-way proof exists for ${peer}` }
+      : { state: 'warn', reason: 'peers.unmeasured', detail: `No fresh two-way proof for ${peer} yet; a completed roundtrip in this run records one`, fixHint: `${hint} once more` };
+  }
+  const measured = list.filter(p => p.paired === true).length;
+  return measured === list.length ? { detail: 'Fresh two-way proofs exist for configured peers' }
+    : { state: 'warn', reason: 'peers.unmeasured', detail: `Fresh two-way proofs exist for ${measured} of ${list.length} configured peers; local keys alone do not prove mutual pairing`, fixHint: hint };
+}
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function probeRoundtrip(c: ServiceContext, config: AgentConfig, peerId: string, connection: NatsConnection, timeoutMs: number) {
   const peer = config.peers[peerId];
@@ -117,9 +131,7 @@ export async function runDoctor({ context, adapter, peer, timeoutMs = 10000 }: D
     await stage('peers', 'Peer pairing evidence', async () => {
       if (peer && !config!.peers[peer]) throw new Error('peers.unknown');
       if (!Object.keys(config!.peers).length) throw new Error('peers.none');
-      const list = snapshot!.peers.list ?? [];
-      return list.every(p => p.paired === true) ? { detail: 'Fresh two-way proofs exist for configured peers' }
-        : { state: 'warn', reason: 'peers.unmeasured', detail: 'Local keys alone do not prove mutual pairing', fixHint: 'Run murmur doctor --peer <configured-agent-id> --json' };
+      return evaluatePeers(snapshot!.peers.list ?? [], peer);
     });
     await stage('roundtrip', 'Encrypted signed roundtrip', async () => {
       if (!peer) return { state: 'warn', reason: 'roundtrip.peer-required', detail: 'No diagnostic peer selected; no message sent', fixHint: 'Run murmur doctor --peer <configured-agent-id> --json' };

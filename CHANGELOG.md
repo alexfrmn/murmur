@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NATS transport security (TLS + per-peer auth)** — reviewed and CI-green in #103, held for a coordinated broker/peer credential cutover. It intentionally makes existing non-loopback `nats://` configurations fail closed, so it ships with a maintenance window, not as a routine merge. Two gaps to close first: the Kubernetes ACL example does not cover JetStream subjects (`$JS.API.*`, `$JS.ACK.*`, `_INBOX.*`), and the dashboard's NATS client supports a token only, no user/password or CA.
 - **Turning on `ackSecurity.requireSigned`** — a rollout step, not a code step. Until every peer runs 2.5.0+ and the flag is set, unsigned ACKs are still accepted.
 
+### Fixed
+- **`doctor --peer` answers for that peer** (#282). The `peers` stage demanded a fresh
+  two-way proof for every configured contact, so on a profile with many contacts it stayed
+  `peers.unmeasured` even when the selected peer had just replied to the roundtrip. With
+  `--peer` the stage now reports that peer alone; without it the warning says how many
+  contacts have fresh proofs.
+
+### Documentation
+- **First opening on macOS 26** (#284): the working path is System Settings → Privacy &
+  Security → Open Anyway; Finder's right-click → Open no longer offers to run the 2.12.0 app.
+  Updated in README-Mac, `Read Me First.txt` inside the DMG and on the site.
+- **Connecting assistants** (#283): Claude Desktop and Claude Code (the Code tab in Claude
+  Desktop included) read different MCP files and are connected separately; Codex Desktop
+  shows the new tools only after a restart. Noted in README-Mac and in the site FAQ.
+- The site's first-open notes and install steps now describe the 2.12.0 files checked on
+  29 September 2026 (Mac DMG on macOS 26.6, `setup.exe` on Windows 10 19045).
+
 ## [2.12.0] - 2026-09-28
 
 ### Added
