@@ -138,7 +138,7 @@ for (const dir of PAGES) {
 test("the sitemap lists the guide pages and the home page links them", () => {
   const sitemap = read("site/sitemap.xml");
   for (const dir of PAGES) {
-    assert.match(sitemap, new RegExp(`<loc>https://murmurconnect\\.com/${dir}/</loc>\\s*<lastmod>2026-09-25</lastmod>`));
+    assert.match(sitemap, new RegExp(`<loc>https://murmurconnect\\.com/${dir}/</loc>\\s*<lastmod>2026-09-28</lastmod>`));
   }
   const home = read("site/index.html");
   for (const dir of PAGES) assert.ok(home.includes(`href="${dir}/"`), `site/index.html links ${dir}/`);
