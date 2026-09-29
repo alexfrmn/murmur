@@ -15,6 +15,7 @@ Key facts:
 - [Claude Code and Codex across two machines](https://murmurconnect.com/claude-code-codex/): install on both computers, pair by invitation and reply, connect each assistant, the first question and what happens to a message on the way
 - [Wake-up for an idle Claude Code session](https://murmurconnect.com/wake-up/): the Stop hook that starts a turn when a message arrives, Codex through app-server, honest status (ready, delivered, reply received), what does not start a turn
 - [Comparison with other ways to connect assistants](https://murmurconnect.com/compare/): Claude Code cross-session messaging, slopus/murmur, instavm/murmur, agent-talk, A2A — reach, encryption, server, license, stars
+- In Russian: [Claude Code и Codex на двух машинах](https://murmurconnect.com/ru/claude-code-codex/), [пробуждение спящей сессии](https://murmurconnect.com/ru/wake-up/), [сравнение способов связать помощников](https://murmurconnect.com/ru/compare/) — the same three guides, same structure
 
 ## Docs
 
@@ -41,7 +42,7 @@ Key facts:
 ## Optional
 
 - [Full text](https://murmurconnect.com/llms-full.txt): a self-contained explanation of Murmur for language models
-- [Russian page](https://murmurconnect.com/ru/): the same site in Russian
+- [Russian page](https://murmurconnect.com/ru/): the same site in Russian, with the three guides under /ru/
 - [ADR-001: core NATS bus](https://github.com/alexfrmn/murmur/blob/main/docs/ADR-001-core-bus-nats.md): why NATS is the transport
 - [ADR-002: envelope crypto](https://github.com/alexfrmn/murmur/blob/main/docs/ADR-002-envelope-crypto.md): the signed, encrypted envelope
 - [Codex Desktop exact-task delivery](https://github.com/alexfrmn/murmur/blob/main/docs/codex-desktop-queue-wake.md): opt-in delivery into one Codex Desktop task on macOS

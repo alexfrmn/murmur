@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The site's three guides now exist in Russian** (`/ru/claude-code-codex/`, `/ru/wake-up/`,
   `/ru/compare/`), with `hreflang` pairs, a language switch on every guide, Russian structured
   data and FAQ, and sitemap entries. The guides and the install section are also in a visible
-  top navigation on every page; the ☰ menu keeps them on narrow screens.
+  top navigation on every page; the ☰ menu keeps them on narrow screens. `llms.txt` lists the
+  Russian guides next to the English ones.
 
 ### Fixed
 - **`doctor --peer` answers for that peer** (#282). The `peers` stage demanded a fresh
