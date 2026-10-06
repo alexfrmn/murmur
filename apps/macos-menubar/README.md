@@ -307,3 +307,6 @@ Native source acceptance на macOS 26.6.2 проверяет первое ок�
 использует конфигурацию Claude Code, а не `claude_desktop_config.json`.
 Нестандартный `CLAUDE_CONFIG_DIR` пока возвращает неизвестный путь с объяснением;
 проверять его и менять MCP-конфиги должен общий setup engine.
+
+
+The optional owner edition offers **Search tools** when `AIMBoardURL` is configured. It opens the owner's HTTPS board with `view=mesh&command=search`; the board owns source selection, session access and provenance. No message content travels in the URL. The existing native **Search messages** reader and local preview preference remain available. A stock edition has no owner search destination.

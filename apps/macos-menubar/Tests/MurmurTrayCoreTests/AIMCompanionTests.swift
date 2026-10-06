@@ -62,6 +62,11 @@ func runAIMCompanionChecks() throws -> Int {
     navigation.select("Help"); navigation.openSettings(); _ = navigation.escape()
     try check(navigation.page == "Help", "each Settings visit returns to the latest selected view")
     // Edition configuration: a stock build has none, and nothing unsafe survives validation.
+    let searchEdition = AIMEditionConfig(info: ["AIMShellEdition": 1, "AIMBoardURL": "https://example.com/desk/?command=old&view=old&lab=test#stale"])
+    try check(searchEdition.sharedSearchURL?.absoluteString == "https://example.com/desk/?lab=test&view=mesh&command=search", "owner search preserves mount and replaces routing")
+    try check(AIMEditionConfig().sharedSearchURL == nil, "stock has no owner search destination")
+    try check(AIMEditionConfig(info: ["AIMShellEdition": 1, "AIMBoardURL": "http://example.com"]).sharedSearchURL == nil, "owner search requires HTTPS")
+    try check(AIMEditionConfig(info: ["AIMShellEdition": 1, "AIMBoardURL": "https://user:password@example.com"]).sharedSearchURL == nil, "owner search does not expose credentials in URL")
     let stock = AIMEditionConfig()
     try check(!stock.isEnabled && !stock.canReachServer && stock.boardURL == nil && stock.avatarPeople.isEmpty,
               "a stock build carries no edition, host, board or roster")
@@ -84,5 +89,5 @@ func runAIMCompanionChecks() throws -> Int {
     try check(portrait[0].approvedPhoto(in: edition) != nil && portrait[0].approvedPhoto(in: stock) == nil
               && portrait[1].approvedPhoto(in: edition) == nil,
               "portraits follow the edition roster and never show for a private identity")
-    return 23
+    return 27
 }

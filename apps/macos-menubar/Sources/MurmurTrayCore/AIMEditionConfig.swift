@@ -29,6 +29,17 @@ public struct AIMEditionConfig: Sendable, Equatable {
     public var isEnabled: Bool { edition != nil }
     public var canReachServer: Bool { isEnabled && ownerHost != nil }
 
+    /// Shared search always uses the configured owner board; local preview settings stay unchanged.
+    public var sharedSearchURL: URL? {
+        guard isEnabled, let boardURL, boardURL.user == nil, boardURL.password == nil,
+              var parts = URLComponents(url: boardURL, resolvingAgainstBaseURL: false) else { return nil }
+        parts.queryItems = (parts.queryItems ?? []).filter { !["view", "command"].contains($0.name) }
+            + [URLQueryItem(name: "view", value: "mesh"), URLQueryItem(name: "command", value: "search")]
+        parts.fragment = nil
+        return parts.url
+    }
+
+
     public static let defaultServerRoot = "murmur-companion"
     public static let defaultOwnerResponsibility = "owner"
 

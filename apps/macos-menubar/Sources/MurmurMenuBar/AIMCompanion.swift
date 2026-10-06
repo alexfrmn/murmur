@@ -136,6 +136,11 @@ struct AIMCompanionView: View {
                 Button(L10n.text("History")) { AIMCompanionModel.open("?view=mesh&section=history") }.help(L10n.text("Open the message history of the mesh in the dashboard"))
                 Button(L10n.text("Connection map")) { AIMCompanionModel.open("?view=mesh&section=map") }.help(L10n.text("Open the map of who is connected to whom"))
                 Button(L10n.text("Search messages")) { showSearch = true }.help(L10n.text("Search accessible Murmur messages on your server"))
+                if let searchURL = AIMEditionConfig.current.sharedSearchURL {
+                    Button(L10n.text("Search tools")) { NSWorkspace.shared.open(searchURL) }
+                        .help(L10n.text("Open the dashboard search across people, topics and tools"))
+                }
+
             }
             if !model.enabled {
                 Text(L10n.text("Read the existing owner server through your Mac's SSH connection. No new identity or private keys are created."))
