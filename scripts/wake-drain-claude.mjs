@@ -83,8 +83,17 @@
 //   MURMUR_WAKE_SKIPPED_LOG         append-only JSONL ledger of skipped rows
 //                                   (default: ~/.murmur-wake-skipped.jsonl)
 //
-// All three filters are OFF by default: with no MURMUR_WAKE_SKIP_* set, every inbound row
-// is reported exactly as before.
+// Session binding (AIM-5939). When a Claude Code session sends on a conversation, the MCP
+// server records that session as the conversation's owner next to the store. A reply on
+// that conversation then wakes only the owner; every other session skips it with reason
+// "bound-to-other-session" (in the ledger, like any other skip). The binding is honoured
+// while it is fresh and the owner's MCP process is alive; otherwise every session wakes,
+// as before. A conversation nobody has sent on yet is never bound.
+//   MURMUR_WAKE_BINDINGS_DIR        binding directory (default: <store dir>/.claude-session-bindings)
+//   MURMUR_WAKE_BIND_TTL_SECONDS    how long a binding holds after its last send (default 28800)
+//
+// The three MURMUR_WAKE_SKIP_* filters are OFF by default: with none set, every inbound row
+// that is not bound to another live session is reported exactly as before.
 
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -144,6 +153,37 @@ const parseList = (value) => String(value || "").split(",").map((item) => item.t
 const SKIP_SENDERS = new Set(parseList(process.env.MURMUR_WAKE_SKIP_SENDERS));
 const SKIP_CONVERSATIONS = new Set(parseList(process.env.MURMUR_WAKE_SKIP_CONVERSATIONS));
 const SKIP_INELIGIBLE = process.env.MURMUR_WAKE_SKIP_INELIGIBLE === "1";
+
+// --- session binding (AIM-5939) -----------------------------------------------
+const BINDINGS_DIR = process.env.MURMUR_WAKE_BINDINGS_DIR || join(dirname(STORE_PATH), ".claude-session-bindings");
+const BIND_TTL_MS = count(process.env.MURMUR_WAKE_BIND_TTL_SECONDS, 28800) * 1000;
+const bindingCache = new Map();
+
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (err) { return err?.code === "EPERM"; }
+}
+
+/** The session key of a live owner other than this session, or null. */
+function boundElsewhere(conversationId) {
+  if (!SESSION_KEY || !conversationId) return null;
+  if (bindingCache.has(conversationId)) return bindingCache.get(conversationId);
+  let owner = null;
+  try {
+    const file = join(BINDINGS_DIR, `${createHash("sha256").update(conversationId).digest("hex")}.json`);
+    const binding = JSON.parse(readFileSync(file, "utf8"));
+    const key = String(binding.sessionId || "").slice(0, 8);
+    const age = Date.now() - Date.parse(binding.updatedAt);
+    if (binding.conversationId === conversationId && key && key !== SESSION_KEY
+        && age >= 0 && age <= BIND_TTL_MS && pidAlive(Number(binding.pid))) {
+      owner = key;
+    }
+  } catch {
+    // No binding, or an unreadable one: the conversation is not bound, wake as before.
+  }
+  bindingCache.set(conversationId, owner);
+  return owner;
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -279,6 +319,7 @@ function skipReason(row) {
   // Daemon-owned diagnostics are never AI work. Keep their skip in the same
   // durable ledger as explicit filters before advancing this session's cursor.
   if (Number(row.wakeEligible) === 0 && String(row.conversationId).startsWith("murmur:doctor:")) return "doctor-protocol";
+  if (boundElsewhere(row.conversationId)) return "bound-to-other-session";
   if (SKIP_SENDERS.has(row.sender)) return "sender-filtered";
   if (SKIP_CONVERSATIONS.has(row.conversationId)) return "conversation-filtered";
   if (SKIP_INELIGIBLE && Number(row.wakeEligible) === 0) return "wake-ineligible";
@@ -349,6 +390,8 @@ function firstStart(db, anchor) {
  * the last row of THIS result set, reported or recorded, and nothing beyond it.
  */
 function drainBatch(db, since) {
+  // A poll lives for hours; a binding written meanwhile must count on the next pass.
+  bindingCache.clear();
   const rows = newRows(db, since);
   if (!rows.length) return null;
   const { report, skipped } = partition(rows);

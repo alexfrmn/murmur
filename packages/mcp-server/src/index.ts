@@ -6,6 +6,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -124,6 +125,35 @@ const recordCodexTaskPeerBinding = (conversationId: string, peerId: string): voi
   } catch {
     // Binding is a local auto-delivery authorization. A write failure safely
     // degrades replies to inbox-only delivery on the receiving hook.
+  }
+};
+
+// Claude Code session binding (AIM-5939). Every Claude Code session on one profile
+// runs its own Stop-hook drain over the same store, so without a binding a reply wakes
+// every open session. The session that last sent on a conversation owns it: its id goes
+// next to the store, where scripts/wake-drain-claude.mjs reads it and lets only that
+// session wake on the reply. Codex tasks have their own binding above and are left out.
+const claudeSessionId = process.env.CODEX_THREAD_ID ? "" : (process.env.CLAUDE_CODE_SESSION_ID || "").trim();
+const sessionBindingDir = path.resolve(path.dirname(dbPath), ".claude-session-bindings");
+
+const sessionBindingPath = (directory: string, conversationId: string): string =>
+  path.join(directory, `${createHash("sha256").update(conversationId).digest("hex")}.json`);
+
+const recordClaudeSessionBinding = (conversationId: string): void => {
+  if (!claudeSessionId || !conversationId) return;
+  try {
+    mkdirSync(sessionBindingDir, { recursive: true, mode: 0o700 });
+    const bindingPath = sessionBindingPath(sessionBindingDir, conversationId);
+    const tmp = `${bindingPath}.${process.pid}`;
+    writeFileSync(tmp, JSON.stringify({
+      conversationId,
+      sessionId: claudeSessionId,
+      pid: process.pid,
+      updatedAt: new Date().toISOString(),
+    }), { mode: 0o600 });
+    renameSync(tmp, bindingPath);
+  } catch {
+    // A missing binding degrades to the old behaviour: every session wakes on the reply.
   }
 };
 
@@ -420,6 +450,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     // Enqueue to outbox — daemon will flush to NATS
     await outbox.enqueue(resolveMessageSubject(peer, routing.channelId), envelope);
     recordCodexTaskPeerBinding(conversationId, to);
+    recordClaudeSessionBinding(conversationId);
 
     // Store outbound copy in message store
     await store.append({
@@ -503,6 +534,7 @@ const handleTool = async (name: string, args: Record<string, unknown>): Promise<
     try {
       await outbox.enqueue(resolveMessageSubject(peer, routing.channelId), envelope);
       recordCodexTaskPeerBinding(conversationId, to);
+      recordClaudeSessionBinding(conversationId);
     } catch (error) {
       clearSynchronousReplySuppression(suppressionMarker);
       throw error;

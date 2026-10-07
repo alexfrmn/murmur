@@ -210,6 +210,14 @@ Drain semantics:
 - One cursor per session, so a message wakes **every** live session rather than only
   whichever one reached the hook first. Within a session the hook and the cold-idle
   watcher share the key, so it still wakes exactly once.
+- Session binding (node drain, `wake-drain-claude.mjs`). When a Claude Code session sends
+  on a conversation through `murmur_send` or `murmur_request`, the MCP server records it as
+  the conversation's owner in `<store dir>/.claude-session-bindings/`. A reply on that
+  conversation then wakes only the owner; every other session records it in the skipped
+  ledger as `bound-to-other-session` and steps over it. The binding holds while the
+  owner's MCP process is alive and for `MURMUR_WAKE_BIND_TTL_SECONDS` (default 28800)
+  after its last send. Unbound conversations, a closed owner, and a drain without a
+  session key wake every session as above. `MURMUR_WAKE_BINDINGS_DIR` moves the directory.
 - The first run in a new session seeds the cursor to the current tip and stays silent:
   without that, a fresh session would replay the whole inbound history as "new".
 - The cursor advances to the last **reported** `rowid`, never to the table's tip: a row
