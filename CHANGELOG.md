@@ -25,6 +25,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Russian guides next to the English ones.
 
 ### Fixed
+- **A reply wakes the Claude Code session that asked, not every open one.** Each Claude Code
+  session runs its own Stop-hook drain over the profile's store with its own cursor, and nothing
+  told a drain which session a conversation belonged to, so every reply woke every session on the
+  machine — including sessions in another project, which then pulled the letter into their own
+  context. Codex already had a task binding; Claude Code had none. `murmur_send` and
+  `murmur_request` now record the sending session (`CLAUDE_CODE_SESSION_ID`) as the
+  conversation's owner in `<store dir>/.claude-session-bindings/`, and the drain of every other
+  session skips replies on that conversation with reason `bound-to-other-session` in the skipped
+  ledger. The binding holds while the owner's MCP process is alive and for
+  `MURMUR_WAKE_BIND_TTL_SECONDS` (default 8 hours, the installed wake window) after its last
+  send; a conversation nobody has sent on, a closed owner, or a drain that cannot name its own
+  session wakes everyone, as before. The cold-start `--session` drain applies the same rule.
+  A first letter from a peer is bound to nobody, so it still wakes every session; a project
+  that should not take such letters sets `MURMUR_WAKE_ONLY_BOUND=1` in its settings `env`, and
+  its sessions then wake only on replies in their own conversations
+  (`not-bound-to-this-session` in the ledger for the rest).
+
 - **`doctor --peer` answers for that peer** (#282). The `peers` stage demanded a fresh
   two-way proof for every configured contact, so on a profile with many contacts it stayed
   `peers.unmeasured` even when the selected peer had just replied to the roundtrip. With
