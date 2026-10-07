@@ -206,3 +206,41 @@ test("a cold start of a new session leaves a bound conversation to its owner", (
   assert.match(cold.stdout, /rowid=2 /);
   assert.doesNotMatch(cold.stdout, /rowid=1 /);
 });
+
+// The letter nobody asked for (AIM-5939, 07.10): a peer writes first. A session in a project
+// that opted out with MURMUR_WAKE_ONLY_BOUND=1 stays quiet; a session without the flag wakes.
+test("an only-bound session skips a letter nobody asked for and wakes on its own reply", (t) => {
+  const f = fixture(t);
+  const db = storeWithMessages(f);
+  const quiet = { MURMUR_WAKE_ONLY_BOUND: "1" };
+  assert.equal(f.drain(SESSION_A, ["--once"], { MURMUR_WAKE_FIRST_MAX: "0" }).status, 0);
+  assert.equal(f.drain(SESSION_B, ["--once"], { MURMUR_WAKE_FIRST_MAX: "0", ...quiet }).status, 0);
+
+  inbound(db, "dm:agent-danik:agent-misha", "agent-danik");
+  const skipped = f.drain(SESSION_B, ["--once"], quiet);
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.equal(skipped.stderr, "");
+  assert.deepEqual(f.ledger().map((e) => e.reason), ["not-bound-to-this-session"]);
+  assert.equal(f.drain(SESSION_A).status, 2);
+
+  writeBinding(f, "conv-b", { session: SESSION_B });
+  writeBinding(f, "conv-a", { session: SESSION_A });
+  inbound(db, "conv-b");
+  inbound(db, "conv-a");
+  const own = f.drain(SESSION_B, ["--once"], quiet);
+  assert.equal(own.status, 2, own.stderr);
+  assert.match(own.stderr, /Murmur wake: 1 new inbound message\(s\):\n  rowid=2 /);
+  assert.deepEqual(f.ledger().slice(1).map((e) => [e.rowid, e.reason]), [[3, "bound-to-other-session"]]);
+});
+
+test("an only-bound drain that cannot name its session wakes on nothing", (t) => {
+  const f = fixture(t);
+  const db = storeWithMessages(f);
+  assert.equal(f.drain("", ["--once"], { MURMUR_WAKE_FIRST_MAX: "0" }).status, 0);
+  writeBinding(f, "conv-bound");
+  inbound(db, "conv-bound");
+  inbound(db, "conv-open");
+  const run = f.drain("", ["--once"], { MURMUR_WAKE_ONLY_BOUND: "1" });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(f.ledger().map((e) => e.reason), ["not-bound-to-this-session", "not-bound-to-this-session"]);
+});

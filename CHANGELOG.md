@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MURMUR_WAKE_BIND_TTL_SECONDS` (default 8 hours, the installed wake window) after its last
   send; a conversation nobody has sent on, a closed owner, or a drain that cannot name its own
   session wakes everyone, as before. The cold-start `--session` drain applies the same rule.
+  A first letter from a peer is bound to nobody, so it still wakes every session; a project
+  that should not take such letters sets `MURMUR_WAKE_ONLY_BOUND=1` in its settings `env`, and
+  its sessions then wake only on replies in their own conversations
+  (`not-bound-to-this-session` in the ledger for the rest).
 
 - **`doctor --peer` answers for that peer** (#282). The `peers` stage demanded a fresh
   two-way proof for every configured contact, so on a profile with many contacts it stayed

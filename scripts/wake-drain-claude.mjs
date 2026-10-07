@@ -91,6 +91,10 @@
 // as before. A conversation nobody has sent on yet is never bound.
 //   MURMUR_WAKE_BINDINGS_DIR        binding directory (default: <store dir>/.claude-session-bindings)
 //   MURMUR_WAKE_BIND_TTL_SECONDS    how long a binding holds after its last send (default 28800)
+//   MURMUR_WAKE_ONLY_BOUND          "1": this session wakes only on replies in conversations
+//                                   bound to itself; every other row is skipped with reason
+//                                   "not-bound-to-this-session". Set it in the env of projects
+//                                   that should not take letters nobody asked them for.
 //
 // The three MURMUR_WAKE_SKIP_* filters are OFF by default: with none set, every inbound row
 // that is not bound to another live session is reported exactly as before.
@@ -164,9 +168,13 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (err) { return err?.code === "EPERM"; }
 }
 
-/** The session key of a live owner other than this session, or null. */
-function boundElsewhere(conversationId) {
-  if (!SESSION_KEY || !conversationId) return null;
+// Opt-in per project: a session with MURMUR_WAKE_ONLY_BOUND=1 wakes only on replies in
+// conversations bound to itself. Letters nobody asked for go to the other sessions.
+const ONLY_BOUND = process.env.MURMUR_WAKE_ONLY_BOUND === "1";
+
+/** The session key of the conversation's live owner, or null when it is not bound. */
+function liveOwner(conversationId) {
+  if (!conversationId) return null;
   if (bindingCache.has(conversationId)) return bindingCache.get(conversationId);
   let owner = null;
   try {
@@ -174,7 +182,7 @@ function boundElsewhere(conversationId) {
     const binding = JSON.parse(readFileSync(file, "utf8"));
     const key = String(binding.sessionId || "").slice(0, 8);
     const age = Date.now() - Date.parse(binding.updatedAt);
-    if (binding.conversationId === conversationId && key && key !== SESSION_KEY
+    if (binding.conversationId === conversationId && key
         && age >= 0 && age <= BIND_TTL_MS && pidAlive(Number(binding.pid))) {
       owner = key;
     }
@@ -183,6 +191,16 @@ function boundElsewhere(conversationId) {
   }
   bindingCache.set(conversationId, owner);
   return owner;
+}
+
+/** Why this session must not wake on the row's conversation, or null. */
+function bindingSkip(conversationId) {
+  // Without its own key a drain cannot tell its conversations from anyone else's.
+  if (!SESSION_KEY) return ONLY_BOUND ? "not-bound-to-this-session" : null;
+  const owner = liveOwner(conversationId);
+  if (owner && owner !== SESSION_KEY) return "bound-to-other-session";
+  if (ONLY_BOUND && owner !== SESSION_KEY) return "not-bound-to-this-session";
+  return null;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -319,7 +337,8 @@ function skipReason(row) {
   // Daemon-owned diagnostics are never AI work. Keep their skip in the same
   // durable ledger as explicit filters before advancing this session's cursor.
   if (Number(row.wakeEligible) === 0 && String(row.conversationId).startsWith("murmur:doctor:")) return "doctor-protocol";
-  if (boundElsewhere(row.conversationId)) return "bound-to-other-session";
+  const bound = bindingSkip(row.conversationId);
+  if (bound) return bound;
   if (SKIP_SENDERS.has(row.sender)) return "sender-filtered";
   if (SKIP_CONVERSATIONS.has(row.conversationId)) return "conversation-filtered";
   if (SKIP_INELIGIBLE && Number(row.wakeEligible) === 0) return "wake-ineligible";
