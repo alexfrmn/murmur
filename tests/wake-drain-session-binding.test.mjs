@@ -161,13 +161,17 @@ test("a reply wakes only the Claude Code session that sent on the conversation",
   assert.equal(owner.status, 2, owner.stderr);
   assert.match(owner.stderr, /Murmur wake: 1 new inbound message\(s\)/);
 
-  // The owner closes: its MCP process is gone, the binding no longer holds anyone back.
+  // The owner closes or restarts: its MCP process is gone, yet the reply stays its own.
+  // Other sessions keep quiet, and the owner takes the reply when it comes back (AIM-5939, 19.10).
   a.child.kill();
   await a.closed;
   inbound(db, "conv-bound");
   const afterClose = f.drain(SESSION_B);
-  assert.equal(afterClose.status, 2, afterClose.stderr);
-  assert.match(afterClose.stderr, /Murmur wake: 1 new inbound message\(s\)/);
+  assert.equal(afterClose.status, 0, afterClose.stderr);
+  assert.equal(afterClose.stderr, "");
+  const resumed = f.drain(SESSION_A);
+  assert.equal(resumed.status, 2, resumed.stderr);
+  assert.match(resumed.stderr, /Murmur wake: 1 new inbound message\(s\)/);
 });
 
 test("a project lane receives its own bound reply once across two Claude sessions", { timeout: 30000 }, async (t) => {
@@ -226,19 +230,37 @@ test("an unbound conversation still wakes every session", (t) => {
   assert.deepEqual(f.ledger(), []);
 });
 
-test("a stale or dead binding does not hold other sessions back", (t) => {
+test("a stale binding does not hold other sessions back", (t) => {
   const f = fixture(t);
   const db = storeWithMessages(f);
   seedCursors(f);
-  writeBinding(f, "conv-old", { updatedAt: new Date(Date.now() - 9 * 3600 * 1000).toISOString() });
-  writeBinding(f, "conv-dead", { pid: 2 ** 31 - 2 });
+  writeBinding(f, "conv-old", { updatedAt: new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString() });
   writeBinding(f, "conv-short", { updatedAt: new Date(Date.now() - 120 * 1000).toISOString() });
   inbound(db, "conv-old");
-  inbound(db, "conv-dead");
+  inbound(db, "conv-short");
+  assert.match(f.drain(SESSION_B, ["--once"]).stderr, /Murmur wake: 1 new inbound message\(s\)/,
+    "past the default week only the old binding lapses");
   inbound(db, "conv-short");
   const woke = f.drain(SESSION_B, ["--once"], { MURMUR_WAKE_BIND_TTL_SECONDS: "60" });
   assert.equal(woke.status, 2, woke.stderr);
-  assert.match(woke.stderr, /Murmur wake: 3 new inbound message\(s\)/);
+  assert.match(woke.stderr, /Murmur wake: 1 new inbound message\(s\)/);
+});
+
+// 19.10: a peer answered the next morning. The owner's MCP pid had changed on resume and the
+// binding was past 8 hours, so every vault session woke. A day-old binding with a dead pid holds.
+test("a next-day reply to a session with a dead MCP pid stays with that session", (t) => {
+  const f = fixture(t);
+  const db = storeWithMessages(f);
+  seedCursors(f);
+  writeBinding(f, "dm:agent-a:agent-b", {
+    pid: 2 ** 31 - 2, updatedAt: new Date(Date.now() - 40 * 3600 * 1000).toISOString(),
+  });
+  inbound(db, "dm:agent-b:agent-a", "agent-b");
+  const other = f.drain(SESSION_B, ["--once"]);
+  assert.equal(other.status, 0, other.stderr);
+  assert.deepEqual(f.ledger().map((e) => e.reason), ["bound-to-other-session"]);
+  const owner = f.drain(SESSION_A, ["--once"]);
+  assert.equal(owner.status, 2, owner.stderr);
 });
 
 test("a drain that does not know its own session never filters by binding", (t) => {

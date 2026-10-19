@@ -87,12 +87,13 @@
 // server records that session as the conversation's owner next to the store. A reply on
 // that conversation then wakes only the owner; every other session skips it with reason
 // "bound-to-other-session" (in the ledger, like any other skip). The binding is honoured
-// while it is fresh and the owner's MCP process is alive; otherwise every session wakes,
-// as before. A conversation nobody has sent on yet is never bound. `dm:a:b` and `dm:b:a`
+// while it is fresh, whether or not the owner is running: a closed or restarted session
+// keeps its replies and takes them on resume (its SessionStart drain reads from its own
+// cursor). Once the binding is older than the TTL, every session wakes, as before. A conversation nobody has sent on yet is never bound. `dm:a:b` and `dm:b:a`
 // are one conversation. When the conversation is not bound, the sender is: the session that
 // last wrote to a peer also owns that peer's new letters, under the same freshness rules.
 //   MURMUR_WAKE_BINDINGS_DIR        binding directory (default: <store dir>/.claude-session-bindings)
-//   MURMUR_WAKE_BIND_TTL_SECONDS    how long a binding holds after its last send (default 28800)
+//   MURMUR_WAKE_BIND_TTL_SECONDS    how long a binding holds after its last send (default 604800)
 //   MURMUR_WAKE_ONLY_BOUND          "1": this session wakes only on replies in conversations
 //                                   bound to itself; every other row is skipped with reason
 //                                   "not-bound-to-this-session". Set it in the env of projects
@@ -168,13 +169,9 @@ const SKIP_INELIGIBLE = process.env.MURMUR_WAKE_SKIP_INELIGIBLE === "1";
 
 // --- session binding (AIM-5939) -----------------------------------------------
 const BINDINGS_DIR = process.env.MURMUR_WAKE_BINDINGS_DIR || join(dirname(STORE_PATH), ".claude-session-bindings");
-const BIND_TTL_MS = count(process.env.MURMUR_WAKE_BIND_TTL_SECONDS, 28800) * 1000;
+// A week: a peer often answers the next working day, long after the 8-hour wake window.
+const BIND_TTL_MS = count(process.env.MURMUR_WAKE_BIND_TTL_SECONDS, 604800) * 1000;
 const bindingCache = new Map();
-
-function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; } catch (err) { return err?.code === "EPERM"; }
-}
 
 // Opt-in per project: a session with MURMUR_WAKE_ONLY_BOUND=1 wakes only on replies in
 // conversations bound to itself. Letters nobody asked for go to the other sessions.
@@ -186,7 +183,11 @@ function canonicalConversationId(conversationId) {
   return dm ? `dm:${[dm[1], dm[2]].sort().join(":")}` : conversationId;
 }
 
-/** The session key in one binding file if it is fresh and its owner is alive, else null. */
+/**
+ * The session key in one binding file if it is fresh, else null. The owner's MCP pid is not
+ * checked: it changes on every resume of the same session, and a dead pid used to hand the
+ * reply to every open session.
+ */
 function readOwner(file, field, value) {
   if (bindingCache.has(file)) return bindingCache.get(file);
   let owner = null;
@@ -194,8 +195,7 @@ function readOwner(file, field, value) {
     const binding = JSON.parse(readFileSync(join(BINDINGS_DIR, file), "utf8"));
     const key = String(binding.sessionId || "").slice(0, 8);
     const age = Date.now() - Date.parse(binding.updatedAt);
-    if (binding[field] === value && key
-        && age >= 0 && age <= BIND_TTL_MS && pidAlive(Number(binding.pid))) {
+    if (binding[field] === value && key && age >= 0 && age <= BIND_TTL_MS) {
       owner = key;
     }
   } catch {
@@ -208,11 +208,11 @@ function readOwner(file, field, value) {
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 
 /**
- * The session that owns this row: the live owner of its conversation, otherwise the session
+ * The session that owns this row: the owner of its conversation, otherwise the session
  * that last wrote to its sender (a new letter from a peer goes to whoever is talking to it).
  * null when neither is bound.
  */
-function liveOwner(conversationId, sender) {
+function boundOwner(conversationId, sender) {
   if (conversationId) {
     const canonical = canonicalConversationId(conversationId);
     const owner = readOwner(`${digest(canonical)}.json`, "conversationId", canonical)
@@ -228,7 +228,7 @@ function liveOwner(conversationId, sender) {
 function bindingSkip(row) {
   // Without its own key a drain cannot tell its conversations from anyone else's.
   if (!SESSION_KEY) return ONLY_BOUND ? "not-bound-to-this-session" : null;
-  const owner = liveOwner(row.conversationId, row.sender);
+  const owner = boundOwner(row.conversationId, row.sender);
   if (owner && owner !== SESSION_KEY) return "bound-to-other-session";
   if (ONLY_BOUND && owner !== SESSION_KEY) return "not-bound-to-this-session";
   return null;
