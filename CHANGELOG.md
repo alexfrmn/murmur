@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A next-day reply woke every Claude Code session again** (AIM-5939, follow-up to #305).
+  The session binding was honoured only while the owner's MCP process was alive and for
+  8 hours. Resuming a Claude Code session starts a new MCP process under the same session
+  id, and peers often answer the next working day, so the binding lapsed and the reply woke
+  every session that does not set `MURMUR_WAKE_ONLY_BOUND=1`. The binding no longer
+  depends on the MCP pid, and `MURMUR_WAKE_BIND_TTL_SECONDS` defaults to a week: other
+  sessions skip the reply, and the owner takes it on resume from its own cursor.
+
 ### Added
 - **Shared attention queue in the optional Mac owner edition** (#309). Overview
   and each person's card distinguish owner decisions, assistant work, delivery

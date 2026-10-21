@@ -217,9 +217,10 @@ Drain semantics:
   on a conversation through `murmur_send` or `murmur_request`, the MCP server records it as
   the conversation's owner in `<store dir>/.claude-session-bindings/`. A reply on that
   conversation then wakes only the owner; every other session records it in the skipped
-  ledger as `bound-to-other-session` and steps over it. The binding holds while the
-  owner's MCP process is alive and for `MURMUR_WAKE_BIND_TTL_SECONDS` (default 28800)
-  after its last send. Unbound conversations, a closed owner, and a drain without a
+  ledger as `bound-to-other-session` and steps over it. The binding holds for
+  `MURMUR_WAKE_BIND_TTL_SECONDS` (default 604800, a week) after its last send, whether or
+  not the owner is running: a closed or resumed session takes its reply from its own cursor
+  when it comes back. Unbound conversations, a binding past the TTL, and a drain without a
   session key wake every session as above. `MURMUR_WAKE_BINDINGS_DIR` moves the directory;
   set the same absolute path for the MCP process (writer) and Stop hook (reader).
   `dm:a:b` and `dm:b:a` bind as one conversation. Each send also binds the peer
