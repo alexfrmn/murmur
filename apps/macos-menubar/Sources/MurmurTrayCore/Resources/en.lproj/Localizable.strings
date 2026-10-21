@@ -969,3 +969,23 @@
 "Outgoing: this app → Murmur → their inbox. Their assistant uses their own connected route." = "Outgoing: this app → Murmur → their inbox. Their assistant uses their own connected route.";
 
 "Read the exchange to check replies; transport delivery and assistant work have separate outcomes." = "Read the exchange to check replies; transport delivery and assistant work have separate outcomes.";
+
+// Private owner status metadata
+"Work in progress" = "Work in progress";
+"Work blocked" = "Work blocked";
+"Work needs verification" = "Work needs verification";
+"Work complete" = "Work complete";
+"Work status unknown" = "Work status unknown";
+"Materials verified; processing resilience and post-restart verification" = "Materials verified; processing resilience and post-restart verification";
+"Work observed" = "Work observed";
+"Source date" = "Source date";
+"Source fresh" = "Source fresh";
+"Source stale" = "Source stale";
+"Source freshness unknown" = "Source freshness unknown";
+"Source age at snapshot: %@ seconds" = "Source age at snapshot: %@ seconds";
+"Source age unknown" = "Source age unknown";
+"Source observations do not establish current availability." = "Source observations do not establish current availability.";
+"Open private owner chat" = "Open private owner chat";
+"Open the verified private owner chat in Codex" = "Open the verified private owner chat in Codex";
+"Awaiting fresh incoming after restart" = "Awaiting fresh incoming after restart";
+"Private handler · this Mac" = "Private handler · this Mac";

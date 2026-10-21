@@ -3,6 +3,10 @@ import Foundation
 /// Owner-only projection of existing server observations. Never carries message bodies or keys.
 public struct AIMCompanionSnapshot: Decodable, Sendable {
     public struct Person: Decodable, Identifiable, Sendable {
+        public struct Contour: Decodable, Sendable {
+            public let id: String
+        }
+        public let contour: Contour?
         public struct Flow: Decodable, Sendable {
             public let inbound_count: Int?
             public let outbound_count: Int?
@@ -123,14 +127,51 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         public let model_reply_verified: Bool?
         public let reply_delivery: String?
         public let last_model_reply_at: String?
+        public let source_at: String?
+        public let source_age_seconds: Int?
+        public let source_fresh: Bool?
+        public let work_status: String?
+        public let work_code: String?
+        public let work_at: String?
+        public let processor_location: String?
+        public let owner_thread: OwnerThread?
+
+        /// Display only the bounded public vocabulary, never free-form private work text.
+        public var workStatusLabelKey: String {
+            switch work_status {
+            case "in_progress": return "Work in progress"
+            case "blocked": return "Work blocked"
+            case "needs_verification": return "Work needs verification"
+            case "complete": return "Work complete"
+            case "awaiting_fresh_inbound": return "Awaiting fresh incoming after restart"
+            default: return "Work status unknown"
+            }
+        }
+        public var workDetailLabelKey: String? {
+            work_code == "materials_verified_continuity_in_progress"
+                ? "Materials verified; processing resilience and post-restart verification" : nil
+        }
+        public var processorLocationLabelKey: String? {
+            processor_location == "local_mac" ? "Private handler · this Mac" : nil
+        }
+        public func sourceFreshnessLabelKey(snapshotCurrent: Bool) -> String {
+            guard let fresh = source_fresh, Self.validSource(self) else { return "Source freshness unknown" }
+            return fresh && snapshotCurrent ? "Source fresh" : "Source stale"
+        }
+        private static func validSource(_ contour: Self) -> Bool {
+            AIMCompanionSnapshot.date(contour.source_at) != nil && (contour.source_age_seconds.map { $0 >= 0 } ?? false)
+        }
     }
     public struct OwnerThread: Decodable, Sendable {
         public let title: String
         public let url: String
         public var verifiedURL: URL? {
             guard let components = URLComponents(string: url), components.scheme == "codex",
-                  components.host == "threads", !components.path.isEmpty,
-                  components.query == nil, components.fragment == nil else { return nil }
+                  components.host == "threads", components.user == nil, components.password == nil,
+                  components.port == nil, components.query == nil, components.fragment == nil,
+                  components.path.first == "/", components.path.count == 37,
+                  UUID(uuidString: String(components.path.dropFirst())) != nil,
+                  components.percentEncodedPath == components.path else { return nil }
             return components.url
         }
     }
@@ -161,7 +202,10 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         guard value.schema == "aim.murmur.companion/1", value.privacy == "owner-metadata",
               value.pending_count >= 0, value.decision_count >= 0,
               value.decision_count <= value.pending_count,
-              (value.private_contours ?? []).allSatisfy({ $0.privacy == "status-only" }),
+              (value.private_contours ?? []).allSatisfy({
+                  $0.privacy == "status-only" && ($0.owner_thread == nil || $0.owner_thread?.verifiedURL != nil)
+                      && ($0.source_age_seconds.map { $0 >= 0 } ?? true)
+              }),
               value.people.allSatisfy({ person in
                   (person.flows ?? [:]).allSatisfy { agent, flow in
                       person.agents.contains(agent)
@@ -243,6 +287,11 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
     public var agentQuestions: [Question] { questions.filter(\.waitingForAgent) }
     public var peerQuestions: [Question] { questions.filter(\.waitingForPeer) }
     public var verificationQuestions: [Question] { questions.filter(\.needsVerification) }
+    /// Explicit roster binding only; names and agent ordering never infer a private owner.
+    public func privateContour(for person: Person) -> PrivateContour? {
+        guard isStatusOnly(person), let id = person.contour?.id else { return nil }
+        return private_contours?.first { $0.id == id }
+    }
     public func ownerThread(for peer: String?) -> OwnerThread? {
         guard let peer else { return nil }
         return owner_threads?[peer]

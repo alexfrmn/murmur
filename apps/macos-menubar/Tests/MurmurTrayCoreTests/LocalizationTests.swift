@@ -49,5 +49,17 @@ func runLocalizationChecks() throws -> Int {
                   "Doctor exchange and pairing Reply have separate localized meanings")
         passed("Doctor roundtrip is distinct from pairing Reply: \(language)")
     }
+    for key in ["Work in progress", "Work blocked", "Work needs verification", "Work complete", "Work status unknown", "Awaiting fresh incoming after restart", "Private handler · this Mac",
+                "Materials verified; processing resilience and post-restart verification", "Work observed",
+                "Source date", "Source fresh", "Source stale", "Source freshness unknown", "Source age unknown",
+                "Source observations do not establish current availability.", "Open private owner chat",
+                "Open the verified private owner chat in Codex"] {
+        try check(L10n.localized(key, language: .english) == key
+                  && L10n.localized(key, language: .russian) != key, "private metadata has English and Russian presentation: " + key)
+        passed("private metadata: " + key)
+    }
+    try check(L10n.localized("Source age at snapshot: %@ seconds", language: .russian, arguments:["30"]).contains("30 сек."),
+              "private source age remains explicit in Russian")
+    passed("private source age uses a literal numeric argument")
     return count
 }

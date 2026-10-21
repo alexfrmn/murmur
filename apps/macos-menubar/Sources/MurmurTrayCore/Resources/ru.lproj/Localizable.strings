@@ -969,3 +969,23 @@
 "Outgoing: this app → Murmur → their inbox. Their assistant uses their own connected route." = "Исходящие: это приложение → Murmur → ящик собеседника. Его помощник работает через своё подключение.";
 
 "Read the exchange to check replies; transport delivery and assistant work have separate outcomes." = "Проверьте ответы в переписке. Доставка сообщения и работа помощника имеют отдельные результаты.";
+
+// Private owner status metadata
+"Work in progress" = "Работа выполняется";
+"Work blocked" = "Работа заблокирована";
+"Work needs verification" = "Работа требует проверки";
+"Work complete" = "Работа завершена";
+"Work status unknown" = "Статус работы неизвестен";
+"Materials verified; processing resilience and post-restart verification" = "Материалы проверены; устойчивость обработки и проверка после перезапуска";
+"Work observed" = "Наблюдение работы";
+"Source date" = "Дата источника";
+"Source fresh" = "Источник свежий";
+"Source stale" = "Источник устарел";
+"Source freshness unknown" = "Свежесть источника неизвестна";
+"Source age at snapshot: %@ seconds" = "Возраст источника на момент снимка: %@ сек.";
+"Source age unknown" = "Возраст источника неизвестен";
+"Source observations do not establish current availability." = "Наблюдения источника не подтверждают текущую доступность.";
+"Open private owner chat" = "Открыть приватный чат владельца";
+"Open the verified private owner chat in Codex" = "Открыть проверенный приватный чат владельца в Codex";
+"Awaiting fresh incoming after restart" = "Ожидание нового входящего сообщения после перезапуска";
+"Private handler · this Mac" = "Приватный обработчик · этот Mac";

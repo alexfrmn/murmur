@@ -326,5 +326,79 @@ func runAIMCompanionChecks() throws -> Int {
     access = try capabilitySnapshot()
     try check(access.connectionSending(for: access.people[0], current: true, now: now) == .unknown,
               "a future policy reading remains unknown")
-    return 95
+    return 95 + (try runPrivateMetadataChecks())
+}
+
+
+private func runPrivateMetadataChecks() throws -> Int {
+    var checks = 0
+    func need(_ condition: Bool, _ label: String) throws {
+        try check(condition, label); checks += 1
+    }
+    let link = "codex://threads/00000000-0000-4000-8000-000000000001"
+    var contour: [String: Any] = ["id":"private-test", "name":"Synthetic private", "privacy":"status-only",
+        "source_at":"2026-10-21T09:00:00Z", "source_age_seconds":30, "source_fresh":true,
+        "work_status":"in_progress", "work_code":"materials_verified_continuity_in_progress",
+        "work_at":"2026-10-21T08:00:00Z", "owner_thread":["title":"Synthetic owner", "url":link]]
+    var object: [String: Any] = [
+        "schema":"aim.murmur.companion/1", "privacy":"owner-metadata", "fresh":true,
+        "people":[["id":"person:private", "name":"Synthetic", "agents":["agent-synthetic"],
+                   "contact_state":"status_only", "contour":["id":"private-test"]]],
+        "questions":[], "incoming":[], "pending_count":0, "decision_count":0, "budget":[:],
+        "owner_mode":"native_server", "transport":"active", "responder":"active",
+        "server_version":"2.12.0", "responder_model":"Codex"]
+    func decode() throws -> AIMCompanionSnapshot {
+        object["private_contours"] = [contour]
+        return try AIMCompanionSnapshot.decode(JSONSerialization.data(withJSONObject: object))
+    }
+    var snapshot = try decode(), item = snapshot.private_contours![0]
+    try need(item.source_at == "2026-10-21T09:00:00Z" && item.source_age_seconds == 30
+             && item.work_at == "2026-10-21T08:00:00Z", "private health and work preserve separate observation dates")
+    try need(item.owner_thread?.verifiedURL?.absoluteString == link, "private owner uses the exact verified URL")
+    try need(item.processor_location == nil && item.processorLocationLabelKey == nil,
+             "older private projection makes no processor location claim")
+    contour["processor_location"] = "local_mac"; item = try decode().private_contours![0]
+    try need(item.processor_location == "local_mac" && item.processorLocationLabelKey == "Private handler · this Mac",
+             "verified local Mac processor has a fixed location label")
+    contour["processor_location"] = "untrusted private location"; item = try decode().private_contours![0]
+    try need(item.processorLocationLabelKey == nil, "unknown private processor location is never displayed")
+    contour.removeValue(forKey:"processor_location")
+    try need(snapshot.privateContour(for: snapshot.people[0])?.id == "private-test", "private person maps by exact contour ID")
+    try need(snapshot.communicationPeer(for: snapshot.people[0]) == nil
+             && snapshot.connectionSending(for: snapshot.people[0], current:true) == .statusOnly
+             && snapshot.contactAttention(for: snapshot.people[0]).isEmpty,
+             "private owner route grants no ordinary Read, Write or attention")
+    try need(item.workStatusLabelKey == "Work in progress" && item.workDetailLabelKey ==
+             "Materials verified; processing resilience and post-restart verification", "known private work has safe presentation")
+    for (status, label) in [("blocked","Work blocked"),("needs_verification","Work needs verification"),("complete","Work complete"),("awaiting_fresh_inbound","Awaiting fresh incoming after restart"),("arbitrary private text","Work status unknown")] {
+        contour["work_status"] = status; item = try decode().private_contours![0]
+        try need(item.workStatusLabelKey == label, "private status vocabulary is bounded: " + status)
+    }
+    contour["work_code"] = "arbitrary private text"; item = try decode().private_contours![0]
+    try need(item.workDetailLabelKey == nil, "unknown private work code never becomes displayed text")
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source fresh"
+             && item.sourceFreshnessLabelKey(snapshotCurrent:false) == "Source stale", "stale envelope cannot promote source freshness")
+    contour["source_fresh"] = false; item = try decode().private_contours![0]
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source stale", "server stale flag survives a current envelope")
+    contour.removeValue(forKey:"source_age_seconds"); item = try decode().private_contours![0]
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source freshness unknown", "missing private age remains unknown")
+    contour["source_age_seconds"] = 30; contour["source_at"] = "bad"; item = try decode().private_contours![0]
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source freshness unknown", "bad source date remains unknown")
+    contour.removeValue(forKey:"owner_thread"); item = try decode().private_contours![0]
+    try need(item.owner_thread == nil, "older private projection does not invent an owner route")
+    for url in ["https://example.com", "codex://threads/not-a-uuid", link + "/extra", link + "?x=1", link + "#fragment",
+                "codex://user@threads/00000000-0000-4000-8000-000000000001", "codex://threads:99/00000000-0000-4000-8000-000000000001",
+                "codex://threads/%300000000-0000-4000-8000-000000000001"] {
+        contour["owner_thread"] = ["title":"Synthetic", "url":url]
+        do { _ = try decode(); throw CheckFailure(message:"unsafe private owner URL accepted: " + url) }
+        catch is CocoaError { checks += 1 }
+    }
+    contour.removeValue(forKey:"owner_thread"); contour["source_age_seconds"] = -1
+    do { _ = try decode(); throw CheckFailure(message:"negative private source age accepted") }
+    catch is CocoaError { checks += 1 }
+    contour.removeValue(forKey:"source_age_seconds")
+    object["people"] = [["id":"person:other", "name":"Same name", "agents":[], "contact_state":"status_only", "contour":["id":"different"]]]
+    snapshot = try decode()
+    try need(snapshot.privateContour(for:snapshot.people[0]) == nil, "unmapped private contact does not borrow another contour owner")
+    return checks
 }

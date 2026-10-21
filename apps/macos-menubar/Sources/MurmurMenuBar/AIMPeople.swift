@@ -120,6 +120,9 @@ private struct AIMContactRow: View {
                         .foregroundStyle(AIMTheme.muted)
                 }
             }.font(AIMTheme.meta).fixedSize(horizontal: false, vertical: true)
+            if let contour = data.privateContour(for: person) {
+                AIMPrivateMetadataCard(contour: contour, current: current)
+            }
             if let item = attention.first {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(L10n.text(item.kindLabelKey)).foregroundStyle(item.actionable ? AIMTheme.signal : AIMTheme.muted)

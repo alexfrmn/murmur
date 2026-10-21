@@ -313,6 +313,17 @@ def dispatch(request, root=ROOT):
         data = add_roster(data, people, share)
         data = add_avatars(data, people, share)
         data = add_flows(data, share)
+        # Optional owner-side metadata projection; old servers remain readable.
+        # Its fixed allowlist excludes private message text and traffic counts.
+        try:
+            projector = load('murmur_private_status', 'mesh_comms_private.py', root)
+            data['private_contours'] = projector.project(share.get('private_contours', []),
+                _owner_file('private-work-status.json'), OWNER_THREADS)
+        except FileNotFoundError:
+            for contour in data.get('private_contours', []):
+                contour['source_fresh'] = None
+                for key in ['inbound_count','outbound_count','waiting_count','failed_count']:
+                    contour.pop(key, None)
         # Expose fixed diagnostic codes only. Raw runner errors and session paths
         # stay on the server. A failed wake is separate from transport delivery.
         db_path = Path.home()/DATABASE if DATABASE else None

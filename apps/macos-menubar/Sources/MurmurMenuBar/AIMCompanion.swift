@@ -152,19 +152,7 @@ import MurmurTrayCore
         formatter.dateStyle = .medium; formatter.timeStyle = .short
         return formatter.string(from: date)
     }
-    static func privateStatus(_ contour: AIMCompanionSnapshot.PrivateContour) -> String {
-        let state: String
-        switch contour.service_active {
-        case true: state = L10n.text("Active at last check")
-        case false: state = L10n.text("Inactive at last check")
-        case nil: state = L10n.text("Service unobserved")
-        }
-        let handler = L10n.text("Responder configured") + ": " + L10n.text(contour.handler_configured == true ? "Yes" : "Not observed")
-            + " · " + L10n.text("Model reply verified") + ": " + L10n.text(contour.model_reply_verified == true ? "Yes" : "Not observed")
-            + " · " + L10n.text("Last wake") + ": " + (contour.last_wake_status ?? L10n.text("Not observed"))
-        return handler + " · " + state + " · " + L10n.text("Status checked") + ": " + stamp(contour.updated_at)
-            + " · " + L10n.text("Last message") + ": " + stamp(contour.last_at)
-    }
+
 }
 
 struct AIMCompanionView: View {
@@ -203,6 +191,12 @@ struct AIMCompanionView: View {
                 }
                 if let data = model.snapshot {
                     Text((model.current ? L10n.text("Snapshot") : L10n.text("Stale snapshot")) + " · " + AIMCompanionModel.stamp(data.snapshot_at)).font(AIMTheme.meta)
+                    if let contours = data.private_contours, !contours.isEmpty {
+                        Text(L10n.text("Private contours · status only")).font(AIMTheme.heading)
+                        ForEach(contours) { contour in
+                            AIMPrivateMetadataCard(contour: contour, current: model.current)
+                        }
+                    }
                     if let attention = data.attention {
                         AIMAttentionList(data: data, items: attention.yourTurn, title: "Waiting for you")
                         if !attention.otherUpdates.isEmpty {
@@ -261,14 +255,6 @@ struct AIMCompanionView: View {
                         let person = data.people.first { $0.agents.contains(row.peer) }
                         Text("\(person?.name ?? row.peer) · \(row.ids.count) · " + AIMCompanionModel.stamp(row.date)).font(AIMTheme.meta)
                     }
-                    }
-                    if let contours = data.private_contours, !contours.isEmpty {
-                        Divider()
-                        Text(L10n.text("Private contours · status only")).font(AIMTheme.heading)
-                        ForEach(contours) { contour in
-                            Text(contour.name + " · " + AIMCompanionModel.privateStatus(contour)).font(AIMTheme.meta)
-                        }
-                        Text(L10n.text("Private conversations stay outside this search and message list.")).font(AIMTheme.meta)
                     }
                     Text(L10n.text("Message dates show observed activity, not online presence. Topic decisions are reviewed separately.")).font(AIMTheme.meta)
                 }
