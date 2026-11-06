@@ -48,6 +48,26 @@ func runAIMCompanionChecks() throws -> Int {
     try check(classified.ownerThread(for: "agent-demo")?.verifiedURL != nil && classified.ownerThread(for: "agent-sample") == nil,
               "only the exact linked agent receives an owner chat")
     try check(classified.private_contours?.first?.privacy == "status-only", "private contour contains status only")
+    var reviewedPrivate = object
+    reviewedPrivate["private_contours"] = [["id":"private-1", "name":"Private line", "privacy":"status-only",
+        "owner_review_store_ok":true, "owner_review_count":2, "owner_draft_count":3,
+        "owner_review_next_actor":"owner", "owner_review_at":"2026-09-29T17:00:00Z"]]
+    reviewedPrivate["attention"] = ["schema":1, "receipts_ok":true, "items":[[String:Any]]()]
+    let privateInbox = try AIMCompanionSnapshot.decode(JSONSerialization.data(withJSONObject: reviewedPrivate))
+    try check(privateInbox.ownerAttentionCount == 5 && privateInbox.attentionCount == 5 && privateInbox.privateOwnerReviews.count == 1,
+              "source-bound private owner questions and drafts count beside ordinary owner questions")
+    try check(privateInbox.notificationKeys(owner:true,technical:false).contains { $0.hasPrefix("private-owner:") },
+              "private queue changes can notify without carrying a private message body")
+    try check(privateInbox.privateOwnerNotificationKeys.isSubset(of: privateInbox.attentionKeys),
+              "the persisted notification baseline includes private owner inbox keys")
+    reviewedPrivate["private_contours"] = [["id":"private-1", "name":"Private line", "privacy":"status-only",
+        "incoming_unreviewed":true, "last_inbound_at":"2026-09-29T17:00:00Z", "last_wake_status":"muted"]]
+    let unprocessedPrivate = try AIMCompanionSnapshot.decode(JSONSerialization.data(withJSONObject: reviewedPrivate))
+    try check(unprocessedPrivate.ownerAttentionCount == 0 && unprocessedPrivate.technicalAttentionCount == 1
+              && unprocessedPrivate.attentionCount == 1, "budget-muted incoming is visible as work to review, without inventing an owner decision")
+    try check(unprocessedPrivate.privateIncomingNotificationKeys.isSubset(of: unprocessedPrivate.attentionKeys)
+              && !unprocessedPrivate.notificationKeys(owner:false,technical:true).isEmpty,
+              "unprocessed private incoming has an independent metadata-only notification key")
     object["owner_threads"] = ["agent-demo": ["title":"Wrong", "url":"https://example.com"]]
     do { _ = try AIMCompanionSnapshot.decode(JSONSerialization.data(withJSONObject: object)); throw CheckFailure(message: "unsafe owner URL accepted") }
     catch is CocoaError {}
@@ -132,8 +152,8 @@ func runAIMCompanionChecks() throws -> Int {
         ["id":"person:demo", "name":"Demo", "agents":["agent-demo"], "photo":"/mesh-comms-avatar-demo.jpg", "photo_privacy":"owner-approved-avatar"],
         ["id":"person:demo", "name":"Private", "agents":["agent-private"], "photo":"/mesh-comms-avatar-demo.jpg", "photo_privacy":"owner-approved-avatar"]]]) { _, new in new })).people
     try check(portrait[0].approvedPhoto(in: edition) != nil && portrait[0].approvedPhoto(in: stock) == nil
-              && portrait[1].approvedPhoto(in: edition) == nil,
-              "portraits follow the edition roster and never show for a private identity")
+              && portrait[1].approvedPhoto(in: edition) != nil,
+              "exact approved portraits follow the edition roster independently of private conversation access")
     var attentionObject = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     let attentionItem: [String: Any] = ["id":"topic:q", "peer":"agent-demo", "kind":"owner", "title":"Synthetic decision", "date":"2026-09-29T15:00:00Z", "next_action":"Review source", "source_ids":["source-demo"], "conversation":"dm:agent-demo:agent-self", "actionable":true, "alert":true]
     attentionObject["attention"] = ["schema":1, "receipts_ok":true, "items":[attentionItem]]
@@ -234,6 +254,19 @@ func runAIMCompanionChecks() throws -> Int {
     try check(manualPolicy.peers["agent-sample"]?.reply_mode == "manual", "manual admission restriction survives the native contract")
     try check(manualPolicy.peers["agent-sample"]?.incomingLabelKey == "Manual review only" && manualPolicy.peers["agent-sample"]?.canEditIncoming == true,
               "known manual mode remains explicit and editable")
+    var budgetPaused = oldPolicy
+    budgetPaused["reply_mode"] = "technical_only"
+    budgetPaused["wake_reason"] = "ahead-of-weekly-pace"
+    budgetPaused["wake_reason_observed_at"] = "2026-10-27T17:42:08Z"
+    budgetPaused["wake_reason_fresh"] = false
+    budgetPaused["wake_source_id"] = "11111111-1111-4111-8111-111111111111"
+    budgetPaused["wake_source_date"] = "2026-10-27T17:41:39Z"
+    let admission = try JSONDecoder().decode(AIMPeerPolicySnapshot.Policy.self, from: JSONSerialization.data(withJSONObject: budgetPaused))
+    try check(admission.incomingLabelKey == "Automatic technical replies", "budget refusal does not change the existing technical reply permission")
+    try check(admission.wake_reason == "ahead-of-weekly-pace" && admission.wake_source_id == budgetPaused["wake_source_id"] as? String,
+              "native admission retains the exact reason and source ID")
+    try check(admission.wake_reason_fresh == false && admission.wake_reason_observed_at != admission.wake_source_date,
+              "wake admission observation and message date remain distinct")
     var capabilityObject = object
     capabilityObject["people"] = [["id":"person:sample", "name":"Synthetic contact", "agents":["agent-sample"], "writable_agents":["agent-sample"]]]
     capabilityObject["owner_threads"] = [String: Any]()
@@ -300,7 +333,7 @@ func runAIMCompanionChecks() throws -> Int {
     let privatePortrait = try JSONDecoder().decode(AIMCompanionSnapshot.Person.self, from: JSONSerialization.data(withJSONObject: [
         "id":"person:demo", "name":"Synthetic private", "agents":[String](), "contact_state":"status_only",
         "photo":"/mesh-comms-avatar-demo.jpg", "photo_privacy":"owner-approved-avatar"]))
-    try check(privatePortrait.approvedPhoto(in: edition) == nil, "explicit status-only denies even an approved unbound portrait")
+    try check(privatePortrait.approvedPhoto(in: edition) != nil, "approved portrait does not grant access to the private conversation")
     capabilityObject["people"] = [["id":"person:sample", "name":"Synthetic multi-agent", "agents":["agent-one","agent-two"],
         "writable_agents":["agent-one","agent-two"], "flows":[
             "agent-one":["inbound_count":3,"outbound_count":0,"scope":"retained_snapshot","source_at":"2026-09-29T17:00:00Z"],
@@ -326,5 +359,91 @@ func runAIMCompanionChecks() throws -> Int {
     access = try capabilitySnapshot()
     try check(access.connectionSending(for: access.people[0], current: true, now: now) == .unknown,
               "a future policy reading remains unknown")
-    return 95
+    return 103 + (try runPrivateMetadataChecks()) + (try runConversationContextChecks())
+}
+
+
+private func runPrivateMetadataChecks() throws -> Int {
+    var checks = 0
+    func need(_ condition: Bool, _ label: String) throws {
+        try check(condition, label); checks += 1
+    }
+    let link = "codex://threads/00000000-0000-4000-8000-000000000001"
+    var contour: [String: Any] = ["id":"private-test", "name":"Synthetic private", "privacy":"status-only",
+        "source_at":"2026-10-21T09:00:00Z", "source_age_seconds":30, "source_fresh":true,
+        "work_status":"in_progress", "work_code":"materials_verified_continuity_in_progress",
+        "work_at":"2026-10-21T08:00:00Z", "owner_thread":["title":"Synthetic owner", "url":link]]
+    var object: [String: Any] = [
+        "schema":"aim.murmur.companion/1", "privacy":"owner-metadata", "fresh":true,
+        "people":[["id":"person:private", "name":"Synthetic", "agents":["agent-synthetic"],
+                   "contact_state":"status_only", "contour":["id":"private-test"]]],
+        "questions":[], "incoming":[], "pending_count":0, "decision_count":0, "budget":[:],
+        "owner_mode":"native_server", "transport":"active", "responder":"active",
+        "server_version":"2.12.0", "responder_model":"Codex"]
+    func decode() throws -> AIMCompanionSnapshot {
+        object["private_contours"] = [contour]
+        return try AIMCompanionSnapshot.decode(JSONSerialization.data(withJSONObject: object))
+    }
+    var snapshot = try decode(), item = snapshot.private_contours![0]
+    try need(item.source_at == "2026-10-21T09:00:00Z" && item.source_age_seconds == 30
+             && item.work_at == "2026-10-21T08:00:00Z", "private health and work preserve separate observation dates")
+    try need(item.owner_thread?.verifiedURL?.absoluteString == link, "private owner uses the exact verified URL")
+    try need(item.processor_location == nil && item.processorLocationLabelKey == nil,
+             "older private projection makes no processor location claim")
+    contour["processor_location"] = "local_mac"; item = try decode().private_contours![0]
+    try need(item.processor_location == "local_mac" && item.processorLocationLabelKey == "Private handler · this Mac",
+             "verified local Mac processor has a fixed location label")
+    contour["processor_location"] = "untrusted private location"; item = try decode().private_contours![0]
+    try need(item.processorLocationLabelKey == nil, "unknown private processor location is never displayed")
+    contour.removeValue(forKey:"processor_location")
+    try need(snapshot.privateContour(for: snapshot.people[0])?.id == "private-test", "private person maps by exact contour ID")
+    try need(snapshot.privateOwnerURL(for: snapshot.people[0], current:true)?.absoluteString == link, "roster opens only bound private owner")
+    try need(snapshot.privateOwnerURL(for: snapshot.people[0], current:false) == nil, "stale snapshot cannot open private owner")
+    contour["wake_admission_reason"] = "reserve-20-percent"; contour["wake_admission_at"] = "2026-10-21T09:00:00Z"
+    item = try decode().private_contours![0]
+    try need(item.admissionLabelKey == "Admission blocked · quota reserve", "known admission reason has bounded historical label")
+    contour["wake_admission_reason"] = "private arbitrary text"; item = try decode().private_contours![0]
+    try need(item.admissionLabelKey == nil, "unknown admission reason is not displayed")
+    contour["wake_admission_reason"] = "reserve-20-percent"; contour["wake_admission_at"] = "bad"
+    item = try decode().private_contours![0]
+    try need(item.admissionLabelKey == nil, "invalid admission date is not displayed")
+    try need(snapshot.communicationPeer(for: snapshot.people[0]) == nil
+             && snapshot.connectionSending(for: snapshot.people[0], current:true) == .statusOnly
+             && snapshot.contactAttention(for: snapshot.people[0]).isEmpty,
+             "private owner route grants no ordinary Read, Write or attention")
+    try need(item.workStatusLabelKey == "Work in progress" && item.workDetailLabelKey ==
+             "Materials verified; processing resilience and post-restart verification", "known private work has safe presentation")
+    for (status, label) in [("blocked","Work blocked"),("needs_verification","Work needs verification"),("complete","Work complete"),("awaiting_fresh_inbound","Awaiting fresh incoming after restart"),("arbitrary private text","Work status unknown")] {
+        contour["work_status"] = status; item = try decode().private_contours![0]
+        try need(item.workStatusLabelKey == label, "private status vocabulary is bounded: " + status)
+    }
+    contour["work_code"] = "arbitrary private text"; item = try decode().private_contours![0]
+    try need(item.workDetailLabelKey == nil, "unknown private work code never becomes displayed text")
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source fresh"
+             && item.sourceFreshnessLabelKey(snapshotCurrent:false) == "Source stale", "stale envelope cannot promote source freshness")
+    contour["source_fresh"] = false; item = try decode().private_contours![0]
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source stale", "server stale flag survives a current envelope")
+    contour.removeValue(forKey:"source_age_seconds"); item = try decode().private_contours![0]
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source freshness unknown", "missing private age remains unknown")
+    contour["source_age_seconds"] = 30; contour["source_at"] = "bad"; item = try decode().private_contours![0]
+    try need(item.sourceFreshnessLabelKey(snapshotCurrent:true) == "Source freshness unknown", "bad source date remains unknown")
+    contour.removeValue(forKey:"owner_thread"); item = try decode().private_contours![0]
+    try need(item.owner_thread == nil, "older private projection does not invent an owner route")
+    snapshot = try decode()
+    try need(snapshot.privateOwnerURL(for:snapshot.people[0], current:true) == nil, "missing private owner disables roster route")
+    for url in ["https://example.com", "codex://threads/not-a-uuid", link + "/extra", link + "?x=1", link + "#fragment",
+                "codex://user@threads/00000000-0000-4000-8000-000000000001", "codex://threads:99/00000000-0000-4000-8000-000000000001",
+                "codex://threads/%300000000-0000-4000-8000-000000000001"] {
+        contour["owner_thread"] = ["title":"Synthetic", "url":url]
+        do { _ = try decode(); throw CheckFailure(message:"unsafe private owner URL accepted: " + url) }
+        catch is CocoaError { checks += 1 }
+    }
+    contour.removeValue(forKey:"owner_thread"); contour["source_age_seconds"] = -1
+    do { _ = try decode(); throw CheckFailure(message:"negative private source age accepted") }
+    catch is CocoaError { checks += 1 }
+    contour.removeValue(forKey:"source_age_seconds")
+    object["people"] = [["id":"person:other", "name":"Same name", "agents":[], "contact_state":"status_only", "contour":["id":"different"]]]
+    snapshot = try decode()
+    try need(snapshot.privateContour(for:snapshot.people[0]) == nil && snapshot.privateOwnerURL(for:snapshot.people[0], current:true) == nil, "unmapped private contact does not borrow another contour owner")
+    return checks
 }

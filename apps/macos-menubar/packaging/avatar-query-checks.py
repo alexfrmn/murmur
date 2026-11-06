@@ -42,7 +42,8 @@ class AvatarTests(unittest.TestCase):
         self.assertEqual(row['photo'],self.photo)
         self.assertEqual(row['writable_agents'],[])
         self.data['people'][0]['contact_state']='status_only'
-        self.assertNotIn('photo',self.project()['people'][0])
+        self.assertEqual(self.project()['people'][0]['photo'],self.photo)
+        self.assertEqual(self.project()['people'][0]['writable_agents'],[])
 
     def test_absent_url_wrong_person_and_traversal_references_are_dropped(self):
         for photo in [None,'https://example.com/a.jpg','/mesh-comms-avatar-dan.jpg','/mesh-comms-avatar-../demo.jpg']:
@@ -50,17 +51,13 @@ class AvatarTests(unittest.TestCase):
             row = self.project()['people'][0]
             self.assertNotIn('photo',row); self.assertNotIn('photo_note',row)
 
-    def test_private_identity_or_binding_drops_image_before_file_access(self):
-        for dynamic in [False,True]:
-            # Static: the edition's configured private identity. Dynamic: a contour the server reports.
-            peer = 'private-demo' if dynamic else 'agent-private-demo'
+    def test_explicit_portrait_survives_private_binding_without_history_access(self):
+        for peer in ['private-demo','agent-private-demo']:
             self.people['bindings'][0]['agent'] = peer
-            self.share['private_contours'] = [{'peer_identity':peer,'privacy':'status-only'}] if dynamic else []
+            self.share['private_contours'] = [{'peer_identity':peer,'privacy':'status-only'}]
             row = self.project()['people'][0]
-            self.assertNotIn('photo',row)
-            with patch.object(Q,'dispatch',return_value=self.data),patch.object(Q.os,'open') as image_open:
-                with self.assertRaises(ValueError):Q.read_avatar('person:demo')
-                image_open.assert_not_called()
+            self.assertEqual(row['photo'],self.photo)
+            self.assertEqual(row['photo_privacy'],'owner-approved-avatar')
 
     def test_wrong_source_privacy_and_former_person_fail_closed(self):
         self.people['privacy']='public'

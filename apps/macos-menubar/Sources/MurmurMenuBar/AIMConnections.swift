@@ -74,7 +74,7 @@ struct AIMConnectionsView: View {
         }
         .sheet(item: $historyPerson) { person in
             if let data = model.snapshot, let peer = data.communicationPeer(for: person) {
-                AIMMessageSearchView(enabled: model.enabled, people: data.people, historyPeer: peer)
+                AIMMessageSearchView(enabled: model.enabled, people: data.people, historyPeer: peer, snapshot: data)
             }
         }
         .sheet(item: $policyPerson) { person in AIMPolicyView(person: person) }

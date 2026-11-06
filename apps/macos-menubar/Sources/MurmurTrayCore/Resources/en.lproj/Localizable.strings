@@ -969,3 +969,142 @@
 "Outgoing: this app → Murmur → their inbox. Their assistant uses their own connected route." = "Outgoing: this app → Murmur → their inbox. Their assistant uses their own connected route.";
 
 "Read the exchange to check replies; transport delivery and assistant work have separate outcomes." = "Read the exchange to check replies; transport delivery and assistant work have separate outcomes.";
+
+// Private owner status metadata
+"Work in progress" = "Work in progress";
+"Work blocked" = "Work blocked";
+"Work needs verification" = "Work needs verification";
+"Work complete" = "Work complete";
+"Work status unknown" = "Work status unknown";
+"Materials verified; processing resilience and post-restart verification" = "Materials verified; processing resilience and post-restart verification";
+"Work observed" = "Work observed";
+"Source date" = "Source date";
+"Source fresh" = "Source fresh";
+"Source stale" = "Source stale";
+"Source freshness unknown" = "Source freshness unknown";
+"Source age at snapshot: %@ seconds" = "Source age at snapshot: %@ seconds";
+"Source age unknown" = "Source age unknown";
+"Source observations do not establish current availability." = "Source observations do not establish current availability.";
+"Open private owner chat" = "Open private owner chat";
+"Open the verified private owner chat in Codex" = "Open the verified private owner chat in Codex";
+"Awaiting fresh incoming after restart" = "Awaiting fresh incoming after restart";
+"Private handler · this Mac" = "Private handler · this Mac";
+
+"Messages" = "Messages";
+"Decisions" = "Decisions";
+"Conversation context" = "Conversation context";
+"Review date" = "Review date";
+"Recorded decisions describe their source date. They do not establish current implementation or availability." = "Recorded decisions describe their source date. They do not establish current implementation or availability.";
+"No confirmed decisions in this reviewed snapshot." = "No confirmed decisions in this reviewed snapshot.";
+"Reviewed topic" = "Reviewed topic";
+"Decided by" = "Decided by";
+"Decision date" = "Decision date";
+"Evidence" = "Evidence";
+"Scope" = "Scope";
+"Status" = "Status";
+"Read source" = "Read source";
+"No open next steps in this reviewed snapshot." = "No open next steps in this reviewed snapshot.";
+"Waiting for counterpart" = "Waiting for counterpart";
+"Our implementation" = "Our implementation";
+"Next action" = "Next action";
+"Unknown" = "Unknown";
+"Reviewed conversation context unavailable in this snapshot." = "Reviewed conversation context unavailable in this snapshot.";
+"Messages remain available through the existing history reader." = "Messages remain available through the existing history reader.";
+"Source outside retained snapshot; recorded date and status only." = "Source outside retained snapshot; recorded date and status only.";
+"Human choice relayed" = "Human choice relayed";
+"Human decision reported by counterpart" = "Human decision reported by counterpart";
+"Operator verified receipt" = "Operator verified receipt";
+"Peer review and GitHub merge verified" = "Technical review and GitHub merge verified";
+"Answered" = "Answered";
+"No reply needed" = "No reply needed";
+"Reported complete" = "Reported complete";
+"Cancelled" = "Cancelled";
+
+"Partial reviewed context · retained topic limit reached." = "Partial reviewed context · retained topic limit reached.";
+
+"Reported complete · verification pending" = "Reported complete · verification pending";
+
+"Source availability unknown in this snapshot." = "Source availability unknown in this snapshot.";
+
+"Proposed reply · draft, not approved or sent" = "Proposed reply · draft, not approved or sent";
+
+"Use proposed reply" = "Use proposed reply";
+
+"No" = "No";
+
+"Custom reply" = "Custom reply";
+
+"Opens an editable draft. Send separately after reviewing it." = "Opens an editable draft. Send separately after reviewing it.";
+
+"Reply source or route is unavailable. Refresh the desk and check contact settings." = "Reply source or route is unavailable. Refresh the desk and check contact settings.";
+
+"Reply in the source conversation" = "Reply in the source conversation";
+
+"Draft only. Review and edit before pressing Send message." = "Draft only. Review and edit before pressing Send message.";
+
+"Reply source details" = "Reply source details";
+
+"Human choice recorded in owner chat" = "Human choice recorded in owner chat";
+
+"Owner chat decision" = "Owner chat decision";
+
+"Murmur source" = "Murmur source";
+
+"Superseded" = "Superseded";
+
+"Source: owner chat. This record does not confirm delivery to the contact." = "Source: owner chat. This record does not confirm delivery to the contact.";
+
+"Hide discussion" = "Hide discussion";
+
+"Read and respond" = "Read and respond";
+
+"Cowork now" = "Cowork now";
+
+"tasks" = "tasks";
+
+"Blocked" = "Blocked";
+
+"All cowork tasks" = "All cowork tasks";
+
+"Source" = "Source";
+
+"Cowork source unavailable" = "Cowork source unavailable";
+
+"Reading cowork tasks…" = "Reading cowork tasks…";
+
+"Planned" = "Planned";
+
+"Reported done · verify" = "Reported done · verify";
+
+"Verified" = "Verified";
+
+"Current work context" = "Current work context";
+"Recent incoming messages" = "Incoming awaiting review";
+"Received message" = "Received message";
+
+"Wake admission observed" = "Wake-up admission observed";
+"ahead-of-weekly-pace" = "Background work paused by weekly budget pace";
+"admission_not_observed" = "Wake-up admission reason not observed";
+"budget-unobserved" = "Budget admission not observed";
+"budget-check-timeout" = "Budget check timed out";
+"budget-check-launch-failed" = "Budget check could not start";
+"budget-check-invalid-result" = "Budget check returned no valid result";
+"quota-refresh-unavailable" = "Fresh quota observation unavailable";
+"owner-manual-review" = "Manual review is configured for this contact";
+"manual-stop" = "Background work paused by the operator";
+
+"Historical admission observation" = "Historical admission observation";
+"Admission blocked · quota reserve" = "Admission blocked · quota reserve";
+"Admission blocked · weekly pace" = "Admission blocked · weekly pace";
+"Admission blocked · cooldown" = "Admission blocked · cooldown";
+"Admission blocked · quota check unavailable" = "Admission blocked · quota check unavailable";
+
+"Private replies to review" = "Private replies to review";
+
+"Owner questions: %@ · Reply drafts: %@" = "Owner questions: %@ · Reply drafts: %@";
+
+"Next: owner review · nothing sent" = "Next: owner review · nothing sent";
+
+"Latest incoming needs review" = "Latest incoming needs review";
+
+"Private review inbox unavailable" = "Private review inbox unavailable";

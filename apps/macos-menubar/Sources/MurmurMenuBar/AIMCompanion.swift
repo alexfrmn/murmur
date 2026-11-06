@@ -6,6 +6,8 @@ import MurmurTrayCore
 
 @MainActor final class AIMCompanionModel: ObservableObject {
     @Published var snapshot: AIMCompanionSnapshot?
+    @Published var cowork: AIMCoworkSnapshot?
+    @Published var coworkFailed = false
     @Published var busy = false
     @Published var failed = false
     @Published var notifications = UserDefaults.standard.bool(forKey: "aimCompanionNotifications")
@@ -66,9 +68,17 @@ import MurmurTrayCore
         guard enabled, !busy else { return }
         busy = true
         Task {
+            async let coworkRead = Self.readCowork()
             let result = await Task.detached { Result { try Self.readServer() } }.value
+            let coworkResult = await coworkRead
             busy = false
             guard enabled else { return }
+            if let coworkResult {
+                switch coworkResult {
+                case .success(let data): cowork = data; coworkFailed = false
+                case .failure: coworkFailed = true
+                }
+            }
             switch result {
             case .failure: failed = true
             case .success(let data):
@@ -95,6 +105,12 @@ import MurmurTrayCore
                     let ownerKeys = data.notificationKeys(owner: true, technical: false)
                     let ownerHashes = Set(ownerKeys.map { SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }.joined() })
                     let ownerCount = selectedAdded.intersection(ownerHashes).count
+                    let privateOwnerChanges = data.privateOwnerNotificationKeys.filter { key in
+                        selectedAdded.contains(SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined())
+                    }.count
+                    let privateIncomingChanges = data.privateIncomingNotificationKeys.filter { key in
+                        selectedAdded.contains(SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined())
+                    }.count
                     let counts: [(String, Int)]
                     if let attention = data.attention {
                         counts = ["owner", "agent", "delivery", "verify", "peer"].compactMap { kind in
@@ -103,7 +119,8 @@ import MurmurTrayCore
                                 let hash = SHA256.hash(data: Data(item.notificationKey.utf8)).map { String(format: "%02x", $0) }.joined()
                                 return selectedAdded.contains(hash)
                             }
-                            return matches.first.map { ($0.kindLabelKey, matches.count) }
+                            let count = matches.count + (kind == "owner" ? privateOwnerChanges : kind == "verify" ? privateIncomingChanges : 0)
+                            return count > 0 ? (matches.first?.kindLabelKey ?? (kind == "owner" ? "Private replies to review" : "Latest incoming needs review"), count) : nil
                         }
                     } else { counts = [("Communication needs attention", selectedAdded.count)] }
                     notify(ownerCount: ownerCount, counts: counts,
@@ -114,6 +131,22 @@ import MurmurTrayCore
     }
     nonisolated private static func readServer() throws -> AIMCompanionSnapshot {
         return try AIMCompanionSnapshot.decode(AIMOwnerRead.exchange(["action": "snapshot"]))
+    }
+    nonisolated private static func readCowork() async -> Result<AIMCoworkSnapshot, Error>? {
+        let config = AIMEditionConfig.current
+        guard config.canReachServer, var parts = config.boardURL.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }),
+              parts.scheme == "https", parts.user == nil, parts.password == nil else { return nil }
+        parts.query = nil; parts.fragment = nil
+        guard let url = parts.url?.appendingPathComponent("cowork-team-data.json") else { return nil }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
+        request.httpShouldHandleCookies = false
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CocoaError(.fileReadUnknown) }
+            return .success(try AIMCoworkSnapshot.decode(data))
+        } catch { return .failure(error) }
     }
     func toggleNotifications() {
         if notifications {
@@ -152,19 +185,7 @@ import MurmurTrayCore
         formatter.dateStyle = .medium; formatter.timeStyle = .short
         return formatter.string(from: date)
     }
-    static func privateStatus(_ contour: AIMCompanionSnapshot.PrivateContour) -> String {
-        let state: String
-        switch contour.service_active {
-        case true: state = L10n.text("Active at last check")
-        case false: state = L10n.text("Inactive at last check")
-        case nil: state = L10n.text("Service unobserved")
-        }
-        let handler = L10n.text("Responder configured") + ": " + L10n.text(contour.handler_configured == true ? "Yes" : "Not observed")
-            + " · " + L10n.text("Model reply verified") + ": " + L10n.text(contour.model_reply_verified == true ? "Yes" : "Not observed")
-            + " · " + L10n.text("Last wake") + ": " + (contour.last_wake_status ?? L10n.text("Not observed"))
-        return handler + " · " + state + " · " + L10n.text("Status checked") + ": " + stamp(contour.updated_at)
-            + " · " + L10n.text("Last message") + ": " + stamp(contour.last_at)
-    }
+
 }
 
 struct AIMCompanionView: View {
@@ -176,7 +197,6 @@ struct AIMCompanionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(L10n.text("Your communication desk")).font(AIMTheme.title)
-            Text(L10n.text("See what needs your decision. Continue the work in your assistant's chat.")).font(AIMTheme.meta).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button(L10n.text("Dashboard")) { AIMCompanionModel.open() }.help(L10n.text("Open the private mesh dashboard in the browser"))
                 Button(L10n.text("History")) { AIMCompanionModel.open("?view=mesh&section=history") }.help(L10n.text("Open the message history of the mesh in the dashboard"))
@@ -194,6 +214,9 @@ struct AIMCompanionView: View {
             } else {
                 HStack {
                     Text(AIMEditionConfig.current.serverLabel).font(AIMTheme.heading)
+                    if let data = model.snapshot {
+                        Text((model.current ? L10n.text("Snapshot") : L10n.text("Stale snapshot")) + " · " + AIMCompanionModel.stamp(data.snapshot_at)).font(AIMTheme.meta).foregroundStyle(AIMTheme.muted)
+                    }
                     Spacer()
                     Button(L10n.text("Refresh")) { model.refresh() }.help(L10n.text("Read the server overview again now")).disabled(model.busy)
                 }
@@ -202,7 +225,24 @@ struct AIMCompanionView: View {
                     Text(L10n.text("Server overview unavailable. Check the network and the SSH alias. Retained observations are stale.")).foregroundStyle(AIMTheme.signal)
                 }
                 if let data = model.snapshot {
-                    Text((model.current ? L10n.text("Snapshot") : L10n.text("Stale snapshot")) + " · " + AIMCompanionModel.stamp(data.snapshot_at)).font(AIMTheme.meta)
+                    AIMDeskPulse(data: data, current: model.current, imageReadEnabled: !model.previewConnected)
+                    if !data.privateOwnerReviews.isEmpty || !data.privateIncomingReviews.isEmpty {
+                        Text(L10n.text("Private replies to review")).font(AIMTheme.heading)
+                        ForEach(data.privateOwnerReviews) { contour in
+                            AIMPrivateOwnerReviewCard(contour: contour, current: model.current)
+                        }
+                        ForEach(data.privateIncomingReviews.filter { $0.ownerInboxCount == 0 }) { contour in
+                            AIMPrivateMetadataCard(contour: contour, current: model.current)
+                        }
+                    }
+                    if let contours = data.private_contours, !contours.isEmpty {
+                        DisclosureGroup(L10n.text("Private contours · status only")) {
+                        Text(L10n.text("Private contours · status only")).font(AIMTheme.heading)
+                        ForEach(contours) { contour in
+                            AIMPrivateMetadataCard(contour: contour, current: model.current)
+                        }
+                        }
+                    }
                     if let attention = data.attention {
                         AIMAttentionList(data: data, items: attention.yourTurn, title: "Waiting for you")
                         if !attention.otherUpdates.isEmpty {
@@ -222,6 +262,10 @@ struct AIMCompanionView: View {
                             Text(L10n.text("Reply evidence unavailable. Check the source before acting.")).font(AIMTheme.meta).foregroundStyle(AIMTheme.signal)
                         }
                     }
+                    AIMRecentInboxView(data: data)
+                    DisclosureGroup(L10n.text("Current work context")) {
+                        AIMCoworkView(data: model.cowork, failed: model.coworkFailed)
+                    }
                     DisclosureGroup(L10n.text("Connection and access details")) {
                     Text("Murmur \(data.server_version) · " + L10n.text("Transport") + ": \(data.transport) · " + L10n.text("Codex service") + ": \(data.responder)").font(AIMTheme.meta)
                     Text((model.current ? L10n.text("Snapshot") : L10n.text("Stale snapshot")) + " · " + AIMCompanionModel.stamp(data.snapshot_at)).font(AIMTheme.meta)
@@ -231,7 +275,8 @@ struct AIMCompanionView: View {
                     }
                     if data.budget.allowed != true || data.budget.fresh != true {
                         Text(L10n.text("Budget observation is separate from each contact’s responder. Check People for missing responders.")).foregroundStyle(AIMTheme.signal)
-                        Text((data.budget.reason ?? "unknown") + " · " + AIMCompanionModel.stamp(data.budget.observed_at)).font(AIMTheme.meta)
+                        Text(L10n.text(data.budget.reason ?? "budget-unobserved") + " · " + AIMCompanionModel.stamp(data.budget.observed_at)
+                             + " · " + L10n.text(data.budget.fresh == true ? "Source fresh" : "Source stale")).font(AIMTheme.meta)
                     }
                     if let policies = data.peer_policy {
                         ForEach(policies.peers.keys.sorted(), id: \.self) { peer in
@@ -261,14 +306,6 @@ struct AIMCompanionView: View {
                         let person = data.people.first { $0.agents.contains(row.peer) }
                         Text("\(person?.name ?? row.peer) · \(row.ids.count) · " + AIMCompanionModel.stamp(row.date)).font(AIMTheme.meta)
                     }
-                    }
-                    if let contours = data.private_contours, !contours.isEmpty {
-                        Divider()
-                        Text(L10n.text("Private contours · status only")).font(AIMTheme.heading)
-                        ForEach(contours) { contour in
-                            Text(contour.name + " · " + AIMCompanionModel.privateStatus(contour)).font(AIMTheme.meta)
-                        }
-                        Text(L10n.text("Private conversations stay outside this search and message list.")).font(AIMTheme.meta)
                     }
                     Text(L10n.text("Message dates show observed activity, not online presence. Topic decisions are reviewed separately.")).font(AIMTheme.meta)
                 }

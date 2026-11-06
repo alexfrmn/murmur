@@ -53,6 +53,10 @@ struct AIMMessageSearchView: View {
     let enabled: Bool
     let people: [AIMCompanionSnapshot.Person]
     var historyPeer: String? = nil
+    var snapshot: AIMCompanionSnapshot? = nil
+    var initialSection = "Messages"
+    var previewOnly = false
+    var contextConfig: AIMEditionConfig
     @Environment(\.dismiss) private var dismiss
     @MurmurViewState private var query = ""
     @MurmurViewState private var result: AIMMessageSearchResult?
@@ -60,6 +64,17 @@ struct AIMMessageSearchView: View {
     @MurmurViewState private var failed = false
     @MurmurViewState private var selected: AIMMessageSearchResult.Match?
     @MurmurViewState private var selectedHistoryPeer = ""
+    @MurmurViewState private var section = "Messages"
+    @MurmurViewState private var replyDraft: AIMReplyDraft?
+
+    init(enabled: Bool, people: [AIMCompanionSnapshot.Person], historyPeer: String? = nil,
+         snapshot: AIMCompanionSnapshot? = nil, initialSection: String = "Messages", previewOnly: Bool = false,
+         contextConfig: AIMEditionConfig = .current) {
+        self.enabled = enabled; self.people = people; self.historyPeer = historyPeer
+        self.snapshot = snapshot; self.initialSection = initialSection; self.previewOnly = previewOnly; self.contextConfig = contextConfig
+        _selectedHistoryPeer = MurmurViewState(wrappedValue: historyPeer ?? "")
+        _section = MurmurViewState(wrappedValue: initialSection)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -82,8 +97,14 @@ struct AIMMessageSearchView: View {
                         Text(participant(peer)).tag(peer)
                     }
                 }
-                Text(L10n.text("Recent messages · open a row to read its text. No read receipts are sent.")).font(AIMTheme.meta)
+                Picker(L10n.text("Conversation context"), selection: $section) {
+                    ForEach(["Messages", "Decisions", "Next steps"], id: \.self) { Text(L10n.text($0)).tag($0) }
+                }.pickerStyle(.segmented)
+                if section == "Messages" {
+                    Text(L10n.text("Recent messages · open a row to read its text. No read receipts are sent.")).font(AIMTheme.meta)
+                }
             }
+            if historyPeer == nil || section == "Messages" {
             if busy { ProgressView(L10n.text("Searching server…")) }
             if failed { Text(L10n.text("Message search unavailable. No results were confirmed.")).foregroundStyle(AIMTheme.signal) }
             if let result {
@@ -106,10 +127,20 @@ struct AIMMessageSearchView: View {
                 }
                 if result.matches.isEmpty { Text(L10n.text("No accessible messages matched.")) }
             }
+            } else {
+                AIMConversationContextView(snapshot: snapshot, peer: selectedHistoryPeer, section: section,
+                                           participant: participant(selectedHistoryPeer), enabled: enabled && !previewOnly, config: contextConfig,
+                                           selectDraft: { draft in if replyDraft == nil { replyDraft = draft } }, selectSource: { selected = $0 })
+                    .id(selectedHistoryPeer + ":" + section)
+            }
         }.padding(24).frame(width: 660, height: 600).font(AIMTheme.body).aimQuietButtonStyle()
             .onExitCommand { if selected != nil { selected = nil } else { dismiss() } }
-            .sheet(item: $selected) { match in AIMMessageDetailView(match: match, participant: participant(match.peer_identity)) }
-            .task { selectedHistoryPeer = historyPeer ?? "" }
+            .sheet(item: $replyDraft) { draft in
+            if let person = people.first(where: { $0.agents.contains(draft.peer) }) {
+                AIMComposeView(person: person, initialPeer: draft.peer, draft: draft)
+            }
+        }
+        .sheet(item: $selected) { match in AIMMessageDetailView(match: match, participant: participant(match.peer_identity)) }
             .task(id: selectedHistoryPeer) { if !selectedHistoryPeer.isEmpty { loadHistory() } }
     }
 
@@ -120,9 +151,9 @@ struct AIMMessageSearchView: View {
     }
 
     private func loadHistory() {
-        guard enabled, !busy, !selectedHistoryPeer.isEmpty else { return }
+        guard enabled, !previewOnly, !busy, !selectedHistoryPeer.isEmpty else { return }
         let historyPeer = selectedHistoryPeer
-        busy = true; failed = false
+        busy = true; failed = false; result = nil
         Task {
             let response = await Task.detached { Result { try AIMMessageSearchResult.decode(AIMOwnerRead.exchange(["action": "history", "peer": historyPeer])) } }.value
             busy = false

@@ -17,6 +17,10 @@ export const normalizeWakeConfig = (config = {}) => {
   if (!Number.isSafeInteger(hookTimeoutMs) || hookTimeoutMs < 1 || hookTimeoutMs > 2147483647) {
     throw new Error("wake-hook-timeout-invalid");
   }
+  const auditHookTimeoutMs = wake.auditHookTimeoutMs === undefined ? 10000 : wake.auditHookTimeoutMs;
+  if (!Number.isSafeInteger(auditHookTimeoutMs) || auditHookTimeoutMs < 1 || auditHookTimeoutMs > 2147483647) {
+    throw new Error("wake-audit-hook-timeout-invalid");
+  }
   const peers = Object.fromEntries(
     Object.entries(ensureObject(wake.peers)).map(([agentId, peer]) => {
       const value = ensureObject(peer);
@@ -30,6 +34,7 @@ export const normalizeWakeConfig = (config = {}) => {
       if (typeof value.murmurRoot === "string" && value.murmurRoot.trim()) normalized.murmurRoot = value.murmurRoot.trim();
       if (typeof value.dataDir === "string" && value.dataDir.trim()) normalized.dataDir = value.dataDir.trim();
       if (typeof value.storePath === "string" && value.storePath.trim()) normalized.storePath = value.storePath.trim();
+      if (value.ownerReviewOnly === true) normalized.ownerReviewOnly = true;
       if (value.relayFinalToMurmur === true) normalized.relayFinalToMurmur = true;
       // Without this the injector's `peer.resume === false` opt-out is unreachable
       // from a real config: normalization used to drop the field entirely.
@@ -59,6 +64,7 @@ export const normalizeWakeConfig = (config = {}) => {
   return {
     enabled: wake.enabled !== false,
     hookTimeoutMs,
+    auditHookTimeoutMs,
     mode: validMode(wake.mode) ? wake.mode : "stateless",
     peers,
     auditHook: typeof wake.auditHook === "string" && wake.auditHook.trim() ? wake.auditHook.trim() : null,
@@ -129,12 +135,15 @@ export const createAuditShellHook = ({ command, timeoutMs = 10000, baseEnv = pro
     };
     execFile("sh", ["-c", command], { env, timeout: timeoutMs }, (err, stdout) => {
       if (err) {
-        log("warn", "wake audit hook failed", { error: err.message, msgId: payload.msgId });
-        resolve("deny");
+        // execFile's message contains the command and captured output. A timeout
+        // means admission is unknown; retain durable work without running it.
+        const timedOut = err.killed === true && err.signal === "SIGTERM";
+        log("warn", "wake audit hook failed", { error: timedOut ? "audit-hook-timeout" : "audit-hook-failed", msgId: payload.msgId });
+        resolve(timedOut ? "retry" : "deny");
         return;
       }
       const verdict = String(stdout || "").split(/\r?\n/, 1)[0]?.trim();
-      resolve(verdict === "deny" || verdict === "require_approval" || verdict === "allow" ? verdict : "deny");
+      resolve(["deny", "require_approval", "allow", "retry"].includes(verdict) ? verdict : "deny");
     });
   });
 };
@@ -376,12 +385,24 @@ export class WakeMonitor {
     }
 
     this.seen.set(key, now);
-    if (!prepareOnly && await this.isLoopBreakerBlocked(payload, now)) {
-      await settle("muted", { error: "loop-breaker" });
-      return;
-    }
-
     const verdict = await this.audit(payload);
+    if (verdict === "retry") {
+      // Admission never reached an allow decision. Use the existing durable
+      // attempt/deadline fields; no turn, lease, or wake effect has happened.
+      const attempts = claim?.attempts ?? 1;
+      const retryable = durable && attempts < this.maxAttempts;
+      const delayMs = wakeRetryBackoffMs(attempts, this.retryBackoffMs, this.retryBackoffMaxMs);
+      await settle(retryable ? "failed" : "dlq", {
+        error: "audit-retry",
+        ...(retryable ? { nextAttemptAt: new Date(this.now() + delayMs).toISOString() } : {}),
+      });
+      this.log("warn", "WakeMonitor audit admission deferred", {
+        msgId: payload.msgId, attempt: attempts, status: retryable ? "failed" : "dlq",
+        ...(retryable ? { retryInMs: delayMs } : {}),
+      });
+      if (!retryable) await this.notify?.(payload, durable ? "wake-dlq" : "audit-retry-unavailable");
+      return prepareOnly ? { auditRetry: true } : undefined;
+    }
     if (verdict === "deny") {
       this.log("warn", "WakeMonitor audit denied wake", { msgId: payload.msgId, conversationId: payload.conversationId, from: payload.from });
       await settle("muted", { error: "audit-deny" });
@@ -391,6 +412,10 @@ export class WakeMonitor {
       await this.notify?.(payload, "require_approval");
       this.log("warn", "WakeMonitor audit requires approval", { msgId: payload.msgId, conversationId: payload.conversationId, from: payload.from });
       await settle("muted", { error: "audit-require-approval" });
+      return;
+    }
+    if (!prepareOnly && await this.isLoopBreakerBlocked(payload, now)) {
+      await settle("muted", { error: "loop-breaker" });
       return;
     }
 
@@ -525,9 +550,23 @@ export class WakeMonitor {
       this.enqueuedAt.delete(this.keyFor(payload));
     }
     const ready = [];
+    const deferred = [];
     for (const payload of payloads) {
       const run = await this.processPayload(payload, { prepareOnly: true });
-      if (run) ready.push({ payload, run });
+      if (typeof run === "function") ready.push({ payload, run });
+      else if (run?.auditRetry) deferred.push(payload);
+    }
+    if (previousBatch && deferred.length && ready.length + deferred.length === payloads.length) {
+      // A saved batch is one effect. A temporarily unavailable member must not
+      // turn its already grouped siblings into permanent policy mutes.
+      const attempts = Math.max(...payloads.map((payload) => payload.attempt));
+      const retryable = attempts < this.maxAttempts;
+      const outcome = { status: retryable ? "failed" : "dlq", error: "audit-retry", now: this.nowIso(),
+        ...(retryable ? { nextAttemptAt: new Date(this.now() + wakeRetryBackoffMs(attempts, this.retryBackoffMs, this.retryBackoffMaxMs)).toISOString() } : {}) };
+      await this.deliveries.settleWakeBatch(payloads.map((payload) => ({ msgId: payload.msgId, input: outcome })));
+      await this.advanceCursor(first);
+      if (!retryable) for (const { payload } of ready) await this.notify?.(payload, "wake-dlq");
+      return;
     }
     if (ready.length === 0) return;
     if (previousBatch && ready.length !== payloads.length) {
@@ -620,7 +659,7 @@ export class WakeMonitor {
   async audit(payload) {
     if (!this.auditHook) return "allow";
     const verdict = await this.auditHook(payload);
-    return verdict === "allow" || verdict === "require_approval" || verdict === "deny" ? verdict : "deny";
+    return ["allow", "require_approval", "deny", "retry"].includes(verdict) ? verdict : "deny";
   }
 
   async advanceCursor(payload) {

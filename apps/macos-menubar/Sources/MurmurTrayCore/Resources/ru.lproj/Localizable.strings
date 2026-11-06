@@ -969,3 +969,142 @@
 "Outgoing: this app → Murmur → their inbox. Their assistant uses their own connected route." = "Исходящие: это приложение → Murmur → ящик собеседника. Его помощник работает через своё подключение.";
 
 "Read the exchange to check replies; transport delivery and assistant work have separate outcomes." = "Проверьте ответы в переписке. Доставка сообщения и работа помощника имеют отдельные результаты.";
+
+// Private owner status metadata
+"Work in progress" = "Работа выполняется";
+"Work blocked" = "Работа заблокирована";
+"Work needs verification" = "Работа требует проверки";
+"Work complete" = "Работа завершена";
+"Work status unknown" = "Статус работы неизвестен";
+"Materials verified; processing resilience and post-restart verification" = "Материалы проверены; устойчивость обработки и проверка после перезапуска";
+"Work observed" = "Наблюдение работы";
+"Source date" = "Дата источника";
+"Source fresh" = "Источник свежий";
+"Source stale" = "Источник устарел";
+"Source freshness unknown" = "Свежесть источника неизвестна";
+"Source age at snapshot: %@ seconds" = "Возраст источника на момент снимка: %@ сек.";
+"Source age unknown" = "Возраст источника неизвестен";
+"Source observations do not establish current availability." = "Наблюдения источника не подтверждают текущую доступность.";
+"Open private owner chat" = "Открыть приватный чат владельца";
+"Open the verified private owner chat in Codex" = "Открыть проверенный приватный чат владельца в Codex";
+"Awaiting fresh incoming after restart" = "Ожидание нового входящего сообщения после перезапуска";
+"Private handler · this Mac" = "Приватный обработчик · этот Mac";
+
+"Messages" = "Сообщения";
+"Decisions" = "Решения";
+"Conversation context" = "Контекст беседы";
+"Review date" = "Дата проверки";
+"Recorded decisions describe their source date. They do not establish current implementation or availability." = "Решения зафиксированы на дату источника. Текущее исполнение и доступность требуют проверки.";
+"No confirmed decisions in this reviewed snapshot." = "В проверенном снимке нет подтверждённых решений.";
+"Reviewed topic" = "Проверенная тема";
+"Decided by" = "Кто принял решение";
+"Decision date" = "Дата решения";
+"Evidence" = "Основание";
+"Scope" = "Область решения";
+"Status" = "Статус";
+"Read source" = "Прочитать источник";
+"No open next steps in this reviewed snapshot." = "В проверенном снимке нет открытых следующих шагов.";
+"Waiting for counterpart" = "Ждём собеседника";
+"Our implementation" = "Наша реализация";
+"Next action" = "Следующее действие";
+"Unknown" = "Неизвестно";
+"Reviewed conversation context unavailable in this snapshot." = "В этом снимке недоступен проверенный контекст беседы.";
+"Messages remain available through the existing history reader." = "Сообщения доступны в истории беседы.";
+"Source outside retained snapshot; recorded date and status only." = "Источник вне сохранённого снимка; доступны зафиксированные дата и статус.";
+"Human choice relayed" = "Передан выбор человека";
+"Human decision reported by counterpart" = "Собеседник сообщил решение человека";
+"Operator verified receipt" = "Подтверждено проверкой оператора";
+"Peer review and GitHub merge verified" = "Проверены ревью собеседника и слияние в GitHub";
+"Answered" = "Отвечено";
+"No reply needed" = "Ответ не требуется";
+"Reported complete" = "Сообщено о завершении";
+"Cancelled" = "Отменено";
+
+"Partial reviewed context · retained topic limit reached." = "Частичный контекст · достигнут предел сохранённых тем.";
+
+"Reported complete · verification pending" = "Сообщено о завершении · ожидает проверки";
+
+"Source availability unknown in this snapshot." = "Доступность источника в этом снимке неизвестна.";
+
+"Proposed reply · draft, not approved or sent" = "Вариант ответа · драфт, не одобрен и не отправлен";
+
+"Use proposed reply" = "Использовать предложенный ответ";
+
+"No" = "Нет";
+
+"Custom reply" = "Свой ответ";
+
+"Opens an editable draft. Send separately after reviewing it." = "Откроется черновик для редактирования. Отправьте его отдельной кнопкой после проверки.";
+
+"Reply source or route is unavailable. Refresh the desk and check contact settings." = "Источник или маршрут ответа недоступен. Обновите данные и проверьте настройки контакта.";
+
+"Reply in the source conversation" = "Ответ в исходной беседе";
+
+"Draft only. Review and edit before pressing Send message." = "Это черновик. Проверьте и поправьте текст перед нажатием «Отправить сообщение».";
+
+"Reply source details" = "Источник ответа";
+
+"Human choice recorded in owner chat" = "Решение человека записано в чате владельца";
+
+"Owner chat decision" = "Решение из чата владельца";
+
+"Murmur source" = "Источник в Murmur";
+
+"Superseded" = "Заменено новым решением";
+
+"Source: owner chat. This record does not confirm delivery to the contact." = "Источник: чат владельца. Эта запись не подтверждает доставку контакту.";
+
+"Hide discussion" = "Свернуть разговор";
+
+"Read and respond" = "Прочитать и ответить";
+
+"Cowork now" = "Коворк сейчас";
+
+"tasks" = "задач";
+
+"Blocked" = "Блокер";
+
+"All cowork tasks" = "Все задачи коворка";
+
+"Source" = "Источник";
+
+"Cowork source unavailable" = "Источник коворка недоступен";
+
+"Reading cowork tasks…" = "Читаем задачи коворка…";
+
+"Planned" = "Запланировано";
+
+"Reported done · verify" = "Готово со слов участника · проверить";
+
+"Verified" = "Проверено";
+
+"Current work context" = "Контекст текущей работы";
+"Recent incoming messages" = "Входящие без подтверждённого разбора";
+"Received message" = "Входящее сообщение";
+
+"Wake admission observed" = "Допуск обработчика проверен";
+"ahead-of-weekly-pace" = "Фоновая работа приостановлена по темпу недельного бюджета";
+"admission_not_observed" = "Причина отказа допуска не наблюдалась";
+"budget-unobserved" = "Допуск по бюджету не наблюдался";
+"budget-check-timeout" = "Проверка бюджета завершилась по таймауту";
+"budget-check-launch-failed" = "Не удалось запустить проверку бюджета";
+"budget-check-invalid-result" = "Проверка бюджета не вернула допустимый результат";
+"quota-refresh-unavailable" = "Свежий срез квоты недоступен";
+"owner-manual-review" = "Для этого контакта настроен ручной разбор";
+"manual-stop" = "Фоновая работа приостановлена оператором";
+
+"Historical admission observation" = "Историческое наблюдение допуска";
+"Admission blocked · quota reserve" = "Допуск заблокирован · резерв квоты";
+"Admission blocked · weekly pace" = "Допуск заблокирован · недельный темп";
+"Admission blocked · cooldown" = "Допуск заблокирован · период ожидания";
+"Admission blocked · quota check unavailable" = "Допуск заблокирован · проверка квоты недоступна";
+
+"Private replies to review" = "Приватные ответы на проверку";
+
+"Owner questions: %@ · Reply drafts: %@" = "Вопросы владельцу: %@ · Драфты ответов: %@";
+
+"Next: owner review · nothing sent" = "Следующий шаг: проверка владельцем · ничего не отправлено";
+
+"Latest incoming needs review" = "Последнее входящее требует разбора";
+
+"Private review inbox unavailable" = "Приватная очередь проверки недоступна";

@@ -108,6 +108,10 @@ func expectGateFailure(_ name: String, _ body: () throws -> Void) throws {
 @main
 struct ProbeChecks {
     static func main() throws {
+        if CommandLine.arguments.contains("--cowork-only") {
+            print("Scoped cowork: \(try runAIMCoworkChecks()) checks passed")
+            return
+        }
         if CommandLine.arguments.contains("--companion-only") {
             print("Scoped companion: \(try runAIMCompanionChecks()) checks passed")
             return
@@ -305,6 +309,7 @@ struct ProbeChecks {
             print("PASS additive/optional input: \(name)"); extraChecks += 1
         }
         let companionCount = try measuredChecks("AIMCompanion") { try runAIMCompanionChecks() }
+        print("Cowork: \(try runAIMCoworkChecks()) additional checks passed")
         let canonicalCount = files.count + doctorFiles.count
         let controlCount = try measuredChecks("Control") { try runControlChecks(fixtures: directory) }
         let updateCount = try measuredChecks("Update") { try runUpdateChecks() }

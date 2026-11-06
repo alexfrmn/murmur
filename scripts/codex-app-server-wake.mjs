@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { readOwnerReview, persistOwnerReview } from "./owner-review-store.mjs";
 import { buildChannelThreadStartBinding } from "@murmurv2/core";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -18,6 +19,9 @@ export const NO_REPLY_REQUIRED = '[[MURMUR_NO_REPLY_REQUIRED]]';
 const shellQuote = (value) => `'${String(value ?? "").replace(/'/g, "'\\''")}'`;
 
 const buildReplyHint = (payload, peer = {}) => {
+  if (peer?.ownerReviewOnly === true) return ["", "[LOCAL OWNER REVIEW]",
+    "Prepare a source-bound working reply draft and any question that needs the owner. Your final answer is saved only in the local owner inbox; it is not sent to the peer. Do not use tools to send messages.",
+    `For an ACK/thanks/no-reply notice only, return exactly ${NO_REPLY_REQUIRED}. Do not use it for an unanswered question, failed task or missing access.`];
   if (peer?.relayFinalToMurmur === true) {
     return [
       "",
@@ -661,7 +665,11 @@ export const createCodexAppServerInjector = ({
     const socketPath = peer?.socketPath || peer?.target;
     if (!socketPath) throw new Error(`codex-app-server-socket-missing:${payload.from}`);
 
-    const relayEnabled = peer?.relayFinalToMurmur === true;
+    const reviewOnly = peer?.ownerReviewOnly === true;
+    const relayEnabled = !reviewOnly && peer?.relayFinalToMurmur === true;
+    if (reviewOnly && readOwnerReview(peer, payload)) {
+      return { finalText: null, replyMsgId: null, outcome: 'owner_review_required', source: 'owner-review-idempotent' };
+    }
     const replyMsgId = relayEnabled ? deriveRelayReplyMsgId(payload.msgId) : null;
     if (relayEnabled && (await relayAlreadyQueued(peer, replyMsgId))) {
       // A previous attempt got as far as queueing the reply and then died before the
@@ -684,7 +692,7 @@ export const createCodexAppServerInjector = ({
     const text = buildCodexTurnText(payload, peer);
     const threadStartBinding = peer?.threadStartBinding ?? (resolveThreadStartBinding ? await resolveThreadStartBinding(payload, peer) : null);
     const bindingMetadata = threadStartBinding?.metadata ?? {};
-    const shouldResumeThread = peer?.resume === true || (peer?.resume !== false && peer?.relayFinalToMurmur === true);
+    const shouldResumeThread = peer?.resume === true || (peer?.resume !== false && (relayEnabled || reviewOnly));
     let threadPath = accepted?.sessionPath ?? null;
     const resumeThread = async (threadId) => {
       if (!threadId || peer?.resume === false) return;
@@ -715,7 +723,7 @@ export const createCodexAppServerInjector = ({
     const startTurn = async (threadId) => {
       // A configuration change must not turn an accepted receipt back into a
       // fire-and-forget start. Observe it even if reply relay was disabled later.
-      if (relayEnabled || accepted) {
+      if (relayEnabled || reviewOnly || accepted) {
         const result = await client.startTurnAndWaitForFinal(turnParams(threadId), {
           completionTimeoutMs: Number(peer?.replyTimeoutMs) || DEFAULT_TURN_COMPLETION_TIMEOUT_MS,
           sessionPath: threadPath,
@@ -754,7 +762,7 @@ export const createCodexAppServerInjector = ({
             { retryable: status === "failed" },
           );
         }
-        if (!relayEnabled) return result;
+        if (!relayEnabled && !reviewOnly) return result;
         const finalText = String(result?.finalText || "").trim();
         if (finalText === NO_REPLY_REQUIRED && result?.status !== 'completed') {
           throw Object.assign(new Error('codex-app-server-no-reply-completion-unverified'), {retryable:false});
@@ -783,6 +791,14 @@ export const createCodexAppServerInjector = ({
             new Error(`codex-app-server-final-empty:${result?.turnId ?? "unknown"}:${result?.source ?? "unknown"}`),
             { retryable: false },
           );
+        }
+        if (reviewOnly && result?.status !== "completed") throw Object.assign(new Error("owner-review-completion-unverified"), {retryable:false});
+        if (reviewOnly) {
+          // The operator sink runs outside the model sandbox and cannot send.
+          persistOwnerReview(peer, payload, finalText);
+          const receipt = await turns.get(payload.msgId);
+          if (receipt) await turns.set({ ...receipt, outcome: 'owner_review_required' });
+          return { ...result, finalText: null, replyMsgId: null, outcome: 'owner_review_required' };
         }
         const relayResult = await relay(peer, payload, finalText, { msgId: replyMsgId });
         log("info", "Codex app-server wake final relayed", {

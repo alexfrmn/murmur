@@ -123,11 +123,16 @@ struct AIMPersonAvatar: View {
         for changes: [String: Any] in [
             ["photo": NSNull()], ["photo":"https://example.com/p.jpg"], ["photo":"/mesh-comms-avatar-dan.jpg"],
             ["photo":"/mesh-comms-avatar-../demo.jpg"], ["photo_privacy":"status-only"],
-            ["photo_privacy":NSNull()], ["agents":["agent-private-demo"]], ["contact_state":"status_only"],
+            ["photo_privacy":NSNull()],
             ["id":"private:demo"], ["id":"person:unknown"]] {
             reads = 0
             need(AIMAvatarLoader.load(person(changes), config: config, exchange: load) == nil && reads == 0,
-                 "absent/disallowed/private reference uses initials with zero image reads")
+                 "absent or disallowed reference uses initials with zero image reads")
+        }
+        for changes: [String:Any] in [["agents":["agent-private-demo"]],["contact_state":"status_only"]] {
+            reads = 0
+            need(AIMAvatarLoader.load(person(changes), config: config, exchange: load) != nil && reads == 1,
+                 "approved exact portrait is independent of private message access")
         }
         for changes: [String: Any] in [["person":"person:dan"], ["photo":"/mesh-comms-avatar-dan.jpg"],
                                       ["privacy":"public"], ["mime":"image/png"], ["data":"invalid"]] {

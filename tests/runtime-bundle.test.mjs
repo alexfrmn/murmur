@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { stageRuntime, writeZip } from '../scripts/build-runtime-bundle.mjs';
+import { stageRuntime, writeZip, SCRIPTS } from '../scripts/build-runtime-bundle.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const temporary = async t => {
@@ -64,4 +64,12 @@ test('archive writer refuses symbolic links rather than shipping Windows-unpacka
   // Junctions exercise the same rule without Windows developer-mode privileges.
   await fs.symlink(source, path.join(source, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(writeZip(source, path.join(dir, 'bad.zip')), /symbolic link/);
+});
+
+test('runtime script inventory closes every static relative module import',async()=>{
+  const included=new Set(SCRIPTS);
+  for(const file of SCRIPTS){
+    const code=await fs.readFile(path.join(root,'scripts',file),'utf8');
+    for(const match of code.matchAll(/from ["']\.\/([^"']+\.mjs)["']/g)) assert.ok(included.has(match[1]),`${file} imports omitted module ${match[1]}`);
+  }
 });

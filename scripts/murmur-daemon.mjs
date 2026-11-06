@@ -245,7 +245,7 @@ const wakeMonitor = new WakeMonitor({
   ...wakeConfig,
   deliveries: msgStore,
   leaseGate: nativeLeaseGate,
-  auditHook: createAuditShellHook({ command: wakeConfig.auditHook, log }),
+  auditHook: createAuditShellHook({ command: wakeConfig.auditHook, timeoutMs: wakeConfig.auditHookTimeoutMs, log }),
   hook: createShellHook({ command: config.onReceive, timeoutMs: wakeConfig.hookTimeoutMs, log }),
   injector: async (payload, peer) => {
     if (peer.mode === "codex_app_server") {
@@ -260,7 +260,7 @@ const wakeMonitor = new WakeMonitor({
 const proxyWakeMonitor = new WakeMonitor({
   ...wakeConfig,
   initialCursor: inboundCursor(),
-  auditHook: createAuditShellHook({ command: wakeConfig.auditHook, log }),
+  auditHook: createAuditShellHook({ command: wakeConfig.auditHook, timeoutMs: wakeConfig.auditHookTimeoutMs, log }),
   hook: createShellHook({ command: config.proxyOnReceive, timeoutMs: wakeConfig.hookTimeoutMs, log }),
   leaseGate: nativeLeaseGate,
   injector: async (payload, peer) => {

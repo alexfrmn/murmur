@@ -80,7 +80,7 @@ import MurmurTrayCore
                 need(AIMThemePolicy.load(defaults) == mode, prefix + " saved theme")
                 need(window.frame == originalFrame, prefix + " retained window frame")
                 need(!window.isVisible, prefix + " never raises test window")
-                let canvas = NSColor(cgColor: AIMThemePolicy.resolvedCGColor(AIMAppShellStyle.canvas))!
+                let canvas = NSColor(cgColor: AIMThemePolicy.resolvedCGColor(AIMTheme.canvasColor))!
                 let ink = NSColor(cgColor: AIMThemePolicy.resolvedCGColor(AIMAppShellStyle.ink))!
                 let surface = NSColor(cgColor: AIMThemePolicy.resolvedCGColor(AIMAppShellStyle.surface))!
                 let muted = NSColor(cgColor: AIMThemePolicy.resolvedCGColor(AIMAppShellStyle.muted))!

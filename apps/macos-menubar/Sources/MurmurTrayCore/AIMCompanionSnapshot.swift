@@ -3,6 +3,10 @@ import Foundation
 /// Owner-only projection of existing server observations. Never carries message bodies or keys.
 public struct AIMCompanionSnapshot: Decodable, Sendable {
     public struct Person: Decodable, Identifiable, Sendable {
+        public struct Contour: Decodable, Sendable {
+            public let id: String
+        }
+        public let contour: Contour?
         public struct Flow: Decodable, Sendable {
             public let inbound_count: Int?
             public let outbound_count: Int?
@@ -24,19 +28,17 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         public let photo_privacy: String?
         public let flows: [String: Flow]?
         public let flow_window: String?
-        /// A portrait is shown only for a person the edition lists, never for a private-contour binding.
+        /// An exact approved portrait is independent of private conversation visibility.
         public var approvedPhoto: String? { approvedPhoto(in: .current) }
         public func approvedPhoto(in config: AIMEditionConfig) -> String? {
-            let privatePeers = config.privatePeers.union(["shaper-viola", "agent-viola-alex"])
             guard id.hasPrefix("person:"), config.avatarPeople.contains(String(id.dropFirst(7))),
-                  photo_privacy == "owner-approved-avatar", contact_state != "status_only",
-                  agents.allSatisfy({ !privatePeers.contains($0) }),
+                  photo_privacy == "owner-approved-avatar",
                   let photo, photo == "/mesh-comms-avatar-" + id.dropFirst(7) + ".jpg"
             else { return nil }
             return photo
         }
     }
-    public struct Question: Decodable, Identifiable, Sendable {
+    public struct Question: Decodable, Identifiable, Sendable, Equatable {
         public let id: String
         public let title: String?
         public let peer: String?
@@ -47,6 +49,15 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         public let conversation: String?
         public let responsibility: String?
         public let source_id: String?
+        public let summary: String?
+        public let evidence: String?
+        public let references: [Reference]?
+        public let confirmed_decisions: [Decision]?
+        public let source_available: Bool?
+        public let proposed_reply: String?
+        public let proposal_status: String?
+        public let reply_context: AIMReplyContext?
+        public let reply_options: [ReplyOption]?
         public var needsOwner: Bool {
             if let responsibility {
                 return responsibility == AIMEditionConfig.defaultOwnerResponsibility
@@ -92,7 +103,7 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         public let items: [Item]
         public var peerWaits: [Item] { items.filter { !$0.actionable && $0.kind == "peer" } }
         public var verificationItems: [Item] { items.filter { !$0.actionable && $0.kind != "peer" } }
-        public var yourTurn: [Item] { items.filter { $0.actionable && $0.kind == "owner" } }
+        public var yourTurn: [Item] { items.filter { $0.actionable && $0.kind == "owner" }.sorted(by: Item.newestFirst) }
         public var otherUpdates: [Item] { items.filter { $0.actionable && $0.kind != "owner" } }
     }
     public struct Budget: Decodable, Sendable {
@@ -112,6 +123,7 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         public let privacy: String
         public let service_active: Bool?
         public let last_at: String?
+        public let last_inbound_at: String?
         public let updated_at: String?
         public let inbound_count: Int?
         public let outbound_count: Int?
@@ -123,14 +135,78 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         public let model_reply_verified: Bool?
         public let reply_delivery: String?
         public let last_model_reply_at: String?
+        public let source_at: String?
+        public let source_age_seconds: Int?
+        public let source_fresh: Bool?
+        public let work_status: String?
+        public let work_code: String?
+        public let work_at: String?
+        public let processor_location: String?
+        public let wake_admission_reason: String?
+        public let wake_admission_at: String?
+        public let owner_review_count: Int?
+        public let owner_draft_count: Int?
+        public let owner_review_store_ok: Bool?
+        public let owner_review_at: String?
+        public let owner_review_next_actor: String?
+        public let incoming_unreviewed: Bool?
+        public var ownerInboxCount: Int {
+            guard owner_review_store_ok == true, owner_review_next_actor == "owner",
+                  AIMCompanionSnapshot.date(owner_review_at) != nil,
+                  let questions = owner_review_count, let drafts = owner_draft_count,
+                  (0...1000).contains(questions), (0...1000).contains(drafts) else { return 0 }
+            return questions + drafts
+        }
+
+
+        public var admissionLabelKey: String? {
+            guard let at = wake_admission_at, AIMCompanionSnapshot.date(at) != nil else { return nil }
+            switch wake_admission_reason {
+            case "reserve-20-percent": return "Admission blocked · quota reserve"
+            case "ahead-of-weekly-pace": return "Admission blocked · weekly pace"
+            case "rapid-burn-cooldown": return "Admission blocked · cooldown"
+            case "quota-refresh-unavailable", "quota-check-already-running", "budget-check-timeout", "budget-check-unavailable", "budget-response-invalid", "codex-cli-unavailable": return "Admission blocked · quota check unavailable"
+            default: return nil
+            }
+        }
+        public let owner_thread: OwnerThread?
+
+        /// Display only the bounded public vocabulary, never free-form private work text.
+        public var workStatusLabelKey: String {
+            switch work_status {
+            case "in_progress": return "Work in progress"
+            case "blocked": return "Work blocked"
+            case "needs_verification": return "Work needs verification"
+            case "complete": return "Work complete"
+            case "awaiting_fresh_inbound": return "Awaiting fresh incoming after restart"
+            default: return "Work status unknown"
+            }
+        }
+        public var workDetailLabelKey: String? {
+            work_code == "materials_verified_continuity_in_progress"
+                ? "Materials verified; processing resilience and post-restart verification" : nil
+        }
+        public var processorLocationLabelKey: String? {
+            processor_location == "local_mac" ? "Private handler · this Mac" : nil
+        }
+        public func sourceFreshnessLabelKey(snapshotCurrent: Bool) -> String {
+            guard let fresh = source_fresh, Self.validSource(self) else { return "Source freshness unknown" }
+            return fresh && snapshotCurrent ? "Source fresh" : "Source stale"
+        }
+        private static func validSource(_ contour: Self) -> Bool {
+            AIMCompanionSnapshot.date(contour.source_at) != nil && (contour.source_age_seconds.map { $0 >= 0 } ?? false)
+        }
     }
     public struct OwnerThread: Decodable, Sendable {
         public let title: String
         public let url: String
         public var verifiedURL: URL? {
             guard let components = URLComponents(string: url), components.scheme == "codex",
-                  components.host == "threads", !components.path.isEmpty,
-                  components.query == nil, components.fragment == nil else { return nil }
+                  components.host == "threads", components.user == nil, components.password == nil,
+                  components.port == nil, components.query == nil, components.fragment == nil,
+                  components.path.first == "/", components.path.count == 37,
+                  UUID(uuidString: String(components.path.dropFirst())) != nil,
+                  components.percentEncodedPath == components.path else { return nil }
             return components.url
         }
     }
@@ -144,6 +220,9 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
     public let pending_count: Int
     public let decision_count: Int
     public let questions: [Question]
+    public let reviewed_topics: [Question]?
+    public let review_at: String?
+    public let reviewed_topics_truncated: Bool?
     public let incoming: [Incoming]
     public let attention: Attention?
     public let private_contours: [PrivateContour]?
@@ -161,7 +240,10 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         guard value.schema == "aim.murmur.companion/1", value.privacy == "owner-metadata",
               value.pending_count >= 0, value.decision_count >= 0,
               value.decision_count <= value.pending_count,
-              (value.private_contours ?? []).allSatisfy({ $0.privacy == "status-only" }),
+              (value.private_contours ?? []).allSatisfy({
+                  $0.privacy == "status-only" && ($0.owner_thread == nil || $0.owner_thread?.verifiedURL != nil)
+                      && ($0.source_age_seconds.map { $0 >= 0 } ?? true)
+              }),
               value.people.allSatisfy({ person in
                   (person.flows ?? [:]).allSatisfy { agent, flow in
                       person.agents.contains(agent)
@@ -183,6 +265,7 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
                       && item.source_ids.count <= 30
                   }) else { throw CocoaError(.fileReadCorruptFile) }
         }
+        try value.validateConversationContext()
         return value
     }
     public func isCurrent(now: Date = Date()) -> Bool {
@@ -195,21 +278,29 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
     }
+    public var privateIncomingReviews: [PrivateContour] { (private_contours ?? []).filter {
+        $0.incoming_unreviewed == true && Self.date($0.last_inbound_at) != nil
+    } }
+    public var privateIncomingNotificationKeys: Set<String> { Set(privateIncomingReviews.map { "private-incoming:\($0.id):\($0.last_inbound_at ?? "")" }) }
+    public var privateOwnerNotificationKeys: Set<String> { Set(privateOwnerReviews.map { "private-owner:\($0.id):\($0.owner_review_at ?? ""):\($0.ownerInboxCount)" }) }
     public var attentionKeys: Set<String> {
-        if let attention { return Set(attention.items.filter(\.alert).map(\.notificationKey)) }
+        if let attention { return Set(attention.items.filter(\.alert).map(\.notificationKey)).union(privateOwnerNotificationKeys).union(privateIncomingNotificationKeys) }
         return Set(incoming.flatMap { item in item.ids.map { "message:\(item.peer):\($0)" } }
-            + questions.filter(\.needsOwner).map { "decision:\($0.id):\($0.source_date ?? "")" })
+            + questions.filter(\.needsOwner).map { "decision:\($0.id):\($0.source_date ?? "")" }).union(privateOwnerNotificationKeys).union(privateIncomingNotificationKeys)
     }
     public var attentionCount: Int {
-        attention.map { $0.items.filter(\.actionable).count }
-            ?? (decision_count + incoming.reduce(0) { $0 + $1.ids.count })
+        (attention.map { $0.items.filter(\.actionable).count }
+            ?? (decision_count + incoming.reduce(0) { $0 + $1.ids.count }))
+            + privateOwnerReviews.reduce(0) { $0 + $1.ownerInboxCount } + privateIncomingReviews.count
     }
     /// The owner's decisions and transport/assistant work have separate entrances.
-    public var ownerAttentionCount: Int { attention?.yourTurn.count ?? decision_count }
-    public var technicalAttentionCount: Int { attention?.otherUpdates.count ?? agentQuestions.count }
+    public var privateOwnerReviews: [PrivateContour] { (private_contours ?? []).filter { $0.ownerInboxCount > 0 } }
+    public var ownerAttentionCount: Int { (attention?.yourTurn.count ?? decision_count) + privateOwnerReviews.reduce(0) { $0 + $1.ownerInboxCount } }
+    public var technicalAttentionCount: Int { (attention?.otherUpdates.count ?? agentQuestions.count) + privateIncomingReviews.count }
     public func notificationKeys(owner: Bool, technical: Bool) -> Set<String> {
-        guard let attention else { return owner ? attentionKeys : [] }
-        return Set(attention.items.filter { $0.alert && $0.actionable && ($0.kind == "owner" ? owner : technical) }.map(\.notificationKey))
+        let privateKeys: Set<String> = (owner ? privateOwnerNotificationKeys : []).union(technical ? privateIncomingNotificationKeys : [])
+        guard let attention else { return (owner ? attentionKeys : []).union(privateKeys) }
+        return Set(attention.items.filter { $0.alert && $0.actionable && ($0.kind == "owner" ? owner : technical) }.map(\.notificationKey)).union(privateKeys)
     }
     public func attentionItems(for person: Person) -> [Attention.Item] {
         (attention?.items ?? []).filter { person.agents.contains($0.peer) && $0.actionable }
@@ -243,6 +334,16 @@ public struct AIMCompanionSnapshot: Decodable, Sendable {
     public var agentQuestions: [Question] { questions.filter(\.waitingForAgent) }
     public var peerQuestions: [Question] { questions.filter(\.waitingForPeer) }
     public var verificationQuestions: [Question] { questions.filter(\.needsVerification) }
+    /// Explicit roster binding only; names and agent ordering never infer a private owner.
+    public func privateContour(for person: Person) -> PrivateContour? {
+        guard isStatusOnly(person), let id = person.contour?.id else { return nil }
+        let matches = (private_contours ?? []).filter { $0.id == id }
+        return matches.count == 1 ? matches[0] : nil
+    }
+    public func privateOwnerURL(for person: Person, current: Bool) -> URL? {
+        guard current else { return nil }
+        return privateContour(for: person)?.owner_thread?.verifiedURL
+    }
     public func ownerThread(for peer: String?) -> OwnerThread? {
         guard let peer else { return nil }
         return owner_threads?[peer]
@@ -293,6 +394,11 @@ public struct AIMPeerPolicySnapshot: Decodable, Sendable {
         public let responder: String
         public let wake_status: String
         public let wake_reason: String?
+        public let wake_reason_observed_at: String?
+        public let wake_reason_fresh: Bool?
+        public let wake_source_id: String?
+        public let wake_source_date: String?
+        public let wake_reason_source: String?
         public var incomingLabelKey: String {
             switch reply_mode {
             case "manual": return "Manual review only"

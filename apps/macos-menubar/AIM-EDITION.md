@@ -203,3 +203,20 @@ upload. Missing, disallowed and private/status-only references skip image reads;
 unavailable or invalid files use initials. Existing photo_note is visible beside the name, including
 the unconfirmed bank portrait warning. Private contours remain status-only.
 Pin, theme, language, server selection and global key are preserved on local install.
+
+
+## Private technical work metadata · 2026-10-21
+
+Overview and status-only People rows show a separate technical work card with the
+source observation date, age at snapshot, freshness and work observation date.
+A stale companion envelope cannot make the source appear fresh. Known work codes
+and processor locations have fixed localized labels; arbitrary private text and
+traffic counts are not displayed. A verified owner-task UUID opens the private
+Codex task independently of ordinary message Read/Write permission. This route
+adds no grants, sends, wake, scheduler or human obligation.
+
+The optional owner-side `mesh_comms_private.py` projector owns the allowlist. Older
+servers without it retain unknown private freshness. `awaiting_fresh_inbound`
+states that post-restart peer roundtrip evidence is still absent; prior handled
+messages remain dated observations. `local_mac` identifies this operator's Mac
+as the processor; the server stores metadata only.

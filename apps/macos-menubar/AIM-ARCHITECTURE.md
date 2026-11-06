@@ -184,3 +184,18 @@ No upstream CI result, notarized release, new-machine installation, reboot/login
 behavior or team authorization is implied by that local result. Dashboard and
 server adapter revisions can differ from the installed app: observe each source
 independently before claiming end-to-end deployment.
+
+## Reviewed manual replies
+
+An owner-reviewed topic may carry a proposed reply or two complete contextual
+yes/no replies, explicitly marked `draft_not_approved`. Choosing one opens the
+existing editable composer; choosing never sends. Custom reply uses the same
+source-bound route. The user sends with a separate explicit button.
+
+The reader derives `reply_context` from one exact retained ordinary source,
+including its store, local identity, message ID and conversation ID. Duplicate
+IDs do not establish a route. The composer locks that recipient. The server
+rechecks the source, current send policy and privacy boundary and binds the
+complete intent to the stable request UUID. An uncertain attempt uses status
+lookup only. Owner-chat decisions carry separate provenance and do not establish
+Murmur delivery or enable a Murmur source reader.

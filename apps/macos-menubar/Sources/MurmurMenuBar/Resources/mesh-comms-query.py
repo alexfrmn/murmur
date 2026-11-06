@@ -51,7 +51,7 @@ OWNER_THREADS = {agent: {'title': row['title'], 'url': row['url']}
 AGENT_LABELS = {agent: label for agent, label in _owner_file('agent-labels.json').items() if isinstance(label, str)}
 AVATARS = {'person:' + pid: '/mesh-comms-avatar-' + pid + '.jpg' for pid in AVATAR_IDS}
 MAX_AVATAR_BYTES = 262144
-CLOSED = {'answered', 'no_reply_needed', 'reported_complete', 'cancelled'}
+CLOSED = {'answered', 'no_reply_needed', 'reported_complete', 'cancelled', 'superseded'}
 
 
 def load(name, filename, root=ROOT):
@@ -103,6 +103,11 @@ def augment(data, monitor, share):
             if item.get('peer') in private or any(mid in private_sources for mid in item['source_ids']):
                 continue
             items.append(item)
+        priority={'owner':0,'delivery':1,'agent':2,'verify':3,'peer':4}
+        def newest(item):
+            try:return -datetime.fromisoformat(str(item.get('date')).replace('Z','+00:00')).timestamp()
+            except (ValueError,TypeError):return float('inf')
+        items.sort(key=lambda item:(not item.get('actionable'),priority.get(item.get('kind'),5),newest(item),str(item.get('id') or '')))
         attention = {**attention, 'items': items}
         if 'counts' in attention:
             attention['counts'] = {kind: sum(item.get('kind') == kind for item in items)
@@ -126,6 +131,39 @@ def augment(data, monitor, share):
         for peer in person.get('agents', []):
             if not isinstance(labels.get(peer), str) or labels[peer].strip() in {'', '-', '—', '–'}:
                 labels[peer] = AGENT_LABELS.get(peer, peer)
+    # Reviewed records retain closed outcomes and attribution independently of
+    # the open attention queue. They remain owner-only and source-bound.
+    records=[];size=0;truncated=False
+    retired=set(share.get('retired_identities',[]))
+    try: decision_projector=load('murmur_decision_projection','mesh_comms_decisions.py')
+    except FileNotFoundError: decision_projector=None
+    # A duplicated ID cannot establish a reply route, even across peers.
+    source_rows={}
+    for message in share.get('messages',[]):
+        if message.get('store')=='murmur-sasha' and message.get('peer_identity') not in private and message.get('local_identity') not in private:
+            source_rows.setdefault(message.get('id'),[]).append(message)
+    sources={sid:rows[0] for sid,rows in source_rows.items() if sid and len(rows)==1}
+    private_sources={m.get('id') for m in share.get('messages',[]) if m.get('peer_identity') in private or m.get('local_identity') in private}
+    for topic in topics:
+        if not isinstance(topic,dict) or not isinstance(topic.get('id'),str) or not topic.get('id') or topic.get('peer') in private|retired or not isinstance(topic.get('peer'),str) or topic.get('source_id') in private_sources:continue
+        row={k:topic.get(k) for k in ['id','title','peer','status','source_date','reviewed_at','next_action','conversation','source_id','summary','evidence','references','confirmed_decisions']}
+        for key,limit in [('title',300),('summary',2000),('next_action',3000),('evidence',300)]:
+            if isinstance(row.get(key),str):row[key]=row[key][:limit]
+        row['responsibility']=responsibility(topic.get('status'))
+        row['source_available']=sources.get(row.get('source_id'),{}).get('peer_identity')==row['peer']
+        # Projector has already bound each decision to this ordinary peer.
+        # Recheck current privacy boundaries when reading an older monitor.
+        row['confirmed_decisions']=decision_projector.project(topic,sources,private_sources) if decision_projector else []
+        if decision_projector:row.update(decision_projector.proposal(topic))
+        source=sources.get(row.get('source_id'),{})
+        if row['source_available'] and source.get('local_identity') not in private and isinstance(source.get('local_identity'),str) and source['local_identity'] and isinstance(source.get('conversation_id'),str) and source['conversation_id']:
+            row['conversation']=source['conversation_id']
+            row['reply_context']={k:source.get(v) for k,v in [('store','store'),('local_identity','local_identity'),('source_id','id'),('conversation_id','conversation_id')]}
+        encoded=len(json.dumps(row,ensure_ascii=False).encode())
+        if len(records)>=60 or size+encoded>180000:truncated=True;break
+        records.append(row);size+=encoded
+    records.sort(key=lambda t:t.get('source_date') or '',reverse=True)
+    data.update(reviewed_topics=records if monitor.get('decision_projection',{}).get('schema')==1 else None, review_at=monitor.get('reviewed_at'),reviewed_topics_truncated=truncated)
     data.update(private_contours=contours, owner_threads=OWNER_THREADS,
                 questions=questions[:100], pending_count=len(questions),
                 decision_count=sum(q['responsibility'] == OWNER for q in questions),
@@ -249,11 +287,7 @@ def contact_history(peer, root, stores):
 
 
 def add_avatars(data, people, share):
-    """Only current ordinary people with existing operator-approved exact assets."""
-    private = set(PRIVATE_PEERS)
-    for contour in share.get('private_contours', []):
-        private.update((contour.get('local_identity'), contour.get('peer_identity')))
-    private_people = {b.get('person') for b in people.get('bindings', []) if b.get('agent') in private}
+    """Explicit approved portraits are independent of private conversation visibility."""
     source = {p.get('id'): p for p in people.get('people', [])}
     for person in data.get('people', []):
         for key in ('photo', 'photo_note', 'photo_privacy'):
@@ -263,8 +297,7 @@ def add_avatars(data, people, share):
         if (people.get('privacy') != 'operator_metadata_only_tailnet' or
             share.get('privacy') != 'metadata-only' or data.get('privacy') != 'owner-metadata' or
             not photo or p.get('photo') != photo or p.get('history') or
-            p.get('privacy') in {'private', 'status-only'} or person.get('id') in private_people or
-            person.get('contact_state') == 'status_only' or any(peer in private for peer in person.get('agents', []))):
+            p.get('privacy') == 'private'):
             continue
         person.update(photo=photo, photo_privacy='owner-approved-avatar',
                       photo_note=p.get('photo_note') if isinstance(p.get('photo_note'), str) else None)
@@ -298,6 +331,16 @@ def read_avatar(person, root=ROOT):
             'mime': allowed[1], 'data': base64.b64encode(image).decode('ascii')}
 
 
+def legacy_wake_diagnostic(item, error):
+    # New policy projections already bind a reason to one exact wire message.
+    # A second DB read must not attach another message's error to that evidence.
+    if item.get('wake_source_id'): return
+    if error.startswith('codex-app-server-final-empty:'):
+        item['wake_reason'] = 'empty_final_reply'
+    elif error == 'audit-require-approval' and item.get('wake_reason') in {None, 'recorded_error'}:
+        item['wake_reason'] = 'admission_not_observed'
+
+
 def dispatch(request, root=ROOT):
     if not isinstance(request, dict):
         raise ValueError('invalid_request')
@@ -313,6 +356,17 @@ def dispatch(request, root=ROOT):
         data = add_roster(data, people, share)
         data = add_avatars(data, people, share)
         data = add_flows(data, share)
+        # Optional owner-side metadata projection; old servers remain readable.
+        # Its fixed allowlist excludes private message text and traffic counts.
+        try:
+            projector = load('murmur_private_status', 'mesh_comms_private.py', root)
+            data['private_contours'] = projector.project(share.get('private_contours', []),
+                _owner_file('private-work-status.json'), OWNER_THREADS)
+        except FileNotFoundError:
+            for contour in data.get('private_contours', []):
+                contour['source_fresh'] = None
+                for key in ['inbound_count','outbound_count','waiting_count','failed_count']:
+                    contour.pop(key, None)
         # Expose fixed diagnostic codes only. Raw runner errors and session paths
         # stay on the server. A failed wake is separate from transport delivery.
         db_path = Path.home()/DATABASE if DATABASE else None
@@ -323,10 +377,7 @@ def dispatch(request, root=ROOT):
                 for peer, item in data.get('peer_policy', {}).get('peers', {}).items():
                     row = db.execute("select wake_error from local_messages where direction='inbound' and sender=? order by created_at desc limit 1",(peer,)).fetchone()
                     error = str(row[0]) if row else ''
-                    if error.startswith('codex-app-server-final-empty:'):
-                        item['wake_reason'] = 'empty_final_reply'
-                    elif error == 'audit-require-approval':
-                        item['wake_reason'] = 'owner_approval_required'
+                    legacy_wake_diagnostic(item, error)
         except sqlite3.Error:
             pass  # Preserve the existing source's unknown/recorded_error state.
         return data

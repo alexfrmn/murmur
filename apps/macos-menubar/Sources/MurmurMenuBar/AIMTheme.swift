@@ -9,8 +9,10 @@ import MurmurTrayCore
     /// The edition look applies only to a stamped edition build or an explicit `--aim-*` developer command.
     /// Shared stock views (profile, pairing, client setup, outbox) use system fonts and colors otherwise.
     static var active: Bool { AIMEditionConfig.current.isEnabled || AIMPreview.isRequested }
+    static var canvasColor: NSColor { active ? AIMAppShellStyle.canvas : .windowBackgroundColor }
     static var ink: Color { active ? Color(nsColor: AIMAppShellStyle.ink) : .primary }
-    static var canvas: Color { active ? Color(nsColor: AIMAppShellStyle.canvas) : Color(nsColor: .windowBackgroundColor) }
+    static var canvas: Color { Color(nsColor: canvasColor) }
+    static var surface: Color { active ? Color(nsColor: AIMAppShellStyle.surface) : Color(nsColor: .controlBackgroundColor) }
     static var signal: Color { active ? Color(nsColor: AIMAppShellStyle.signal) : .accentColor }
     static var muted: Color { active ? Color(nsColor: AIMAppShellStyle.muted) : .secondary }
     static var body: Font { active ? Font.custom("IBMPlexMono", size: 12) : .body }
@@ -122,7 +124,7 @@ struct AIMQuietButtonStyle: ButtonStyle {
     private func renderTheme(_ mode: AIMThemePolicy.Mode) {
         AIMThemePolicy.withAppearance(mode) {
             attachedWindow?.appearance = AIMThemePolicy.appearance(mode)
-            attachedWindow?.backgroundColor = AIMAppShellStyle.canvas
+            attachedWindow?.backgroundColor = AIMTheme.canvasColor
             theme = mode
             attachedWindow?.contentView?.needsDisplay = true
             onStateChange?()
@@ -277,8 +279,27 @@ struct AIMHotkeyBridge: NSViewRepresentable {
             ?? AIMThemePolicy.load()
         AIMThemePolicy.apply(theme)
         AIMWindowState.shared.theme = theme
-        let view = NSHostingView(rootView: AIMHomeView(model: model, initialPage: page))
-        view.frame = NSRect(x: 0, y: 0, width: 740, height: 700)
+        // Render the existing conversation sheet with injected metadata only. No SSH reads occur.
+        let historyPeer = args.firstIndex(of: "--aim-history-peer").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+        let historySection = args.firstIndex(of: "--aim-history-section").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } ?? "Messages"
+        var contextConfig = AIMEditionConfig.current
+        if let ownerIndex = args.firstIndex(of: "--aim-history-owner"), args.indices.contains(ownerIndex + 1) {
+            contextConfig.ownerResponsibility = AIMEditionConfig(info: ["AIMOwnerResponsibility": args[ownerIndex + 1]]).ownerResponsibility
+        }
+        let root: AnyView
+        if args.contains("--aim-owner-attention"), let data = model.companion.snapshot, let attention = data.attention {
+            root = AnyView(ScrollView {
+                AIMAttentionList(data: data, items: attention.yourTurn, title: "Waiting for you").padding(24)
+            }.font(AIMTheme.body).foregroundStyle(AIMTheme.ink).background(AIMTheme.canvas)
+                .preferredColorScheme(theme == .dark ? .dark : .light).tint(AIMTheme.signal).aimQuietButtonStyle())
+        } else if let historyPeer, ["Messages", "Decisions", "Next steps"].contains(historySection) {
+            root = AnyView(AIMMessageSearchView(enabled: false, people: model.companion.snapshot?.people ?? [], historyPeer: historyPeer,
+                                               snapshot: model.companion.snapshot, initialSection: historySection, previewOnly: true, contextConfig: contextConfig)
+                .foregroundStyle(AIMTheme.ink).background(AIMTheme.canvas)
+                .preferredColorScheme(theme == .dark ? .dark : .light).tint(AIMTheme.signal))
+        } else { root = AnyView(AIMHomeView(model: model, initialPage: page)) }
+        let view = NSHostingView(rootView: root)
+        view.frame = historyPeer == nil ? NSRect(x: 0, y: 0, width: 740, height: 700) : NSRect(x: 0, y: 0, width: 660, height: 600)
         view.appearance = AIMThemePolicy.appearance(theme)
         view.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
