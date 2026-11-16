@@ -97,6 +97,13 @@
 //                                   bound to itself; every other row is skipped with reason
 //                                   "not-bound-to-this-session". Set it in the env of projects
 //                                   that should not take letters nobody asked them for.
+//   MURMUR_WAKE_CONVERSATION_PREFIX comma-separated conversation id prefixes this session
+//                                   answers for, e.g. "school:" or "school:,docs:".
+//                                   An unbound conversation with a matching prefix wakes this
+//                                   session even when a peer started it; an unbound one that
+//                                   matches none is skipped with reason "prefix-mismatch".
+//                                   A conversation bound to another live session stays with
+//                                   it; the peer binding does not override a prefix match.
 //
 // The three MURMUR_WAKE_SKIP_* filters are OFF by default: with none set, every inbound row
 // that is not bound to another live session is reported exactly as before.
@@ -180,6 +187,12 @@ function pidAlive(pid) {
 // conversations bound to itself. Letters nobody asked for go to the other sessions.
 const ONLY_BOUND = process.env.MURMUR_WAKE_ONLY_BOUND === "1";
 
+// Opt-in per project: conversation id prefixes this session takes when nobody holds them.
+const CONVERSATION_PREFIXES = String(process.env.MURMUR_WAKE_CONVERSATION_PREFIX || "")
+  .split(",").map((p) => p.trim()).filter(Boolean);
+const prefixMatches = (conversationId) =>
+  CONVERSATION_PREFIXES.some((p) => String(conversationId || "").startsWith(p));
+
 // The two sides of one DM may name it `dm:a:b` and `dm:b:a`; both are one conversation.
 function canonicalConversationId(conversationId) {
   const dm = /^dm:([^:]+):([^:]+)$/.exec(conversationId);
@@ -212,20 +225,29 @@ const digest = (value) => createHash("sha256").update(value).digest("hex");
  * that last wrote to its sender (a new letter from a peer goes to whoever is talking to it).
  * null when neither is bound.
  */
+function conversationOwner(conversationId) {
+  if (!conversationId) return null;
+  const canonical = canonicalConversationId(conversationId);
+  return readOwner(`${digest(canonical)}.json`, "conversationId", canonical)
+    // An MCP server from before the DM rule still writes the id as given.
+    || (canonical !== conversationId
+      ? readOwner(`${digest(conversationId)}.json`, "conversationId", conversationId) : null);
+}
+
 function liveOwner(conversationId, sender) {
-  if (conversationId) {
-    const canonical = canonicalConversationId(conversationId);
-    const owner = readOwner(`${digest(canonical)}.json`, "conversationId", canonical)
-      // An MCP server from before the DM rule still writes the id as given.
-      || (canonical !== conversationId
-        ? readOwner(`${digest(conversationId)}.json`, "conversationId", conversationId) : null);
-    if (owner) return owner;
-  }
-  return sender ? readOwner(`peer-${digest(sender)}.json`, "peerId", sender) : null;
+  return conversationOwner(conversationId)
+    || (sender ? readOwner(`peer-${digest(sender)}.json`, "peerId", sender) : null);
 }
 
 /** Why this session must not wake on the row, or null. */
 function bindingSkip(row) {
+  if (CONVERSATION_PREFIXES.length) {
+    const owner = SESSION_KEY ? conversationOwner(row.conversationId) : null;
+    if (owner) return owner === SESSION_KEY ? null : "bound-to-other-session";
+    if (prefixMatches(row.conversationId)) return null;
+    if (SESSION_KEY && liveOwner(row.conversationId, row.sender) === SESSION_KEY) return null;
+    return "prefix-mismatch";
+  }
   // Without its own key a drain cannot tell its conversations from anyone else's.
   if (!SESSION_KEY) return ONLY_BOUND ? "not-bound-to-this-session" : null;
   const owner = liveOwner(row.conversationId, row.sender);
