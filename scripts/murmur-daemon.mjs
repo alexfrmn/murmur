@@ -541,7 +541,8 @@ try {
     broker,
     outbox: store,
     jetstreamEnabled,
-    advisoryDlqEnabled: jetstreamConfig.advisoryDlq !== false,
+    advisoryDlq: jetstreamConfig.advisoryDlq,
+    provisioning: jetstreamConfig.provisioning,
     log,
   });
 

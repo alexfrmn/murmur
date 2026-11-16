@@ -353,3 +353,36 @@ test("a binding written under the raw DM id by an older MCP server still holds",
   assert.deepEqual(f.ledger().map((e) => e.reason), ["bound-to-other-session"]);
   assert.equal(f.drain(SESSION_A).status, 2);
 });
+
+// A project session names the conversation prefixes it answers for. A conversation a peer
+// starts under that prefix wakes it even though nobody holds the conversation yet.
+test("a prefix session wakes on a new unbound conversation with its prefix and skips the rest", (t) => {
+  const f = fixture(t);
+  const db = storeWithMessages(f);
+  const school = { MURMUR_WAKE_ONLY_BOUND: "1", MURMUR_WAKE_CONVERSATION_PREFIX: "school:, other:" };
+  assert.equal(f.drain(SESSION_B, ["--once"], { MURMUR_WAKE_FIRST_MAX: "0", ...school }).status, 0);
+
+  // SESSION_A last wrote to the peer: the peer binding does not override the prefix match.
+  writePeerBinding(f, "agent-teacher", { session: SESSION_A });
+  inbound(db, "school:lesson-08", "agent-teacher");
+  inbound(db, "docs:release-notes", "agent-teacher");
+  writeBinding(f, "school:lesson-07", { session: SESSION_A });
+  inbound(db, "school:lesson-07", "agent-teacher");
+
+  const run = f.drain(SESSION_B, ["--once"], school);
+  assert.equal(run.status, 2, run.stderr);
+  assert.match(run.stderr, /1 new inbound message\(s\):\n  rowid=1 /);
+  assert.deepEqual(f.ledger().map((e) => [e.rowid, e.reason]), [[2, "prefix-mismatch"], [3, "bound-to-other-session"]]);
+});
+
+test("a prefix session keeps its own bound conversations outside the prefix", (t) => {
+  const f = fixture(t);
+  const db = storeWithMessages(f);
+  const env = { MURMUR_WAKE_CONVERSATION_PREFIX: "school:" };
+  assert.equal(f.drain(SESSION_B, ["--once"], { MURMUR_WAKE_FIRST_MAX: "0", ...env }).status, 0);
+  writeBinding(f, "adhoc-thread", { session: SESSION_B });
+  inbound(db, "adhoc-thread");
+  const run = f.drain(SESSION_B, ["--once"], env);
+  assert.equal(run.status, 2, run.stderr);
+  assert.deepEqual(f.ledger(), []);
+});

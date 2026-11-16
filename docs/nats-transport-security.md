@@ -125,8 +125,11 @@ It does not grant stream-message reads or consumer creation. Optional domains ar
 supported. Operators must provision the stream and each expected durable first,
 including a separate ACK durable. Set `jetstreamProvisioning: "client"` for these
 runtime credentials; absent or incompatible durables fail without administrative
-creation/update. Set `advisoryDlqEnabled: false` when that role does not subscribe
-to broker-wide advisories. The default provisioning behavior is unchanged.
+creation/update. With `jetstream.provisioning: "client"` the daemon does not start
+advisory DLQ correlation: it needs broker-wide `$JS.EVENT.ADVISORY.>` subscriptions
+and `STREAM.MSG.GET`, which this role does not have. Grant both and set
+`jetstream.advisoryDlq: true` to enable it. `jetstream.advisoryDlq: false` disables it
+for any role. The default provisioning behavior is unchanged.
 
 The dashboard independently accepts `NATS_URL`, `NATS_TOKEN` or `NATS_USER` /
 `NATS_PASSWORD`, and `NATS_CA_FILE`, `NATS_CERT_FILE`, `NATS_KEY_FILE`,
